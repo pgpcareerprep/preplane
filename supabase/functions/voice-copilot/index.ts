@@ -11,7 +11,7 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 // Inline CORS headers — the npm:@supabase/supabase-js@2/cors subpath
 // does not exist in the published package and throws at runtime.
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };

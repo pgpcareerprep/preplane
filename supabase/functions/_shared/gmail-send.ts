@@ -1,28 +1,23 @@
-// Shared helper to send email via the Lovable Gmail connector gateway.
-// No password / SMTP required — uses OAuth-managed credentials.
+// Sends email via Gmail API using a service account with domain-wide delegation.
+// Requires GOOGLE_SA_EMAIL and GOOGLE_SA_PRIVATE_KEY Supabase secrets.
+// The service account must have domain-wide delegation with the Gmail send scope.
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
-const FROM_EMAIL = "pgpcareerprep@mastersunion.org";
+import { getGoogleAccessToken } from "./googleAuth.ts";
+
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+export const GMAIL_FROM = "pgpcareerprep@mastersunion.org";
 const FROM_NAME = "PGP Career Prep";
 
-function base64UrlEncode(str: string): string {
-  // Encode UTF-8 → base64 → base64url
-  const utf8 = new TextEncoder().encode(str);
+function base64UrlEncode(data: Uint8Array): string {
   let binary = "";
-  for (const b of utf8) binary += String.fromCharCode(b);
+  for (const b of data) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function buildRawMessage(opts: {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-}): string {
-  // Encode subject for non-ASCII safety
+function buildRawMessage(opts: { to: string; subject: string; html: string }): string {
   const encodedSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(opts.subject)))}?=`;
   const lines = [
-    `From: ${FROM_NAME} <${FROM_EMAIL}>`,
+    `From: ${FROM_NAME} <${GMAIL_FROM}>`,
     `To: ${opts.to}`,
     `Subject: ${encodedSubject}`,
     `MIME-Version: 1.0`,
@@ -31,7 +26,7 @@ function buildRawMessage(opts: {
     ``,
     opts.html,
   ];
-  return base64UrlEncode(lines.join("\r\n"));
+  return base64UrlEncode(new TextEncoder().encode(lines.join("\r\n")));
 }
 
 export async function sendGmail(opts: {
@@ -40,18 +35,13 @@ export async function sendGmail(opts: {
   html: string;
   text?: string;
 }): Promise<{ id: string; threadId: string }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-  const GOOGLE_MAIL_API_KEY = Deno.env.get("GOOGLE_MAIL_API_KEY");
-  if (!GOOGLE_MAIL_API_KEY) throw new Error("GOOGLE_MAIL_API_KEY is not configured (Gmail connector not linked)");
-
+  const token = await getGoogleAccessToken([GMAIL_SCOPE]);
   const raw = buildRawMessage(opts);
 
-  const res = await fetch(`${GATEWAY_URL}/users/me/messages/send`, {
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "X-Connection-Api-Key": GOOGLE_MAIL_API_KEY,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ raw }),
@@ -63,5 +53,3 @@ export async function sendGmail(opts: {
   }
   return { id: data.id, threadId: data.threadId };
 }
-
-export const GMAIL_FROM = FROM_EMAIL;

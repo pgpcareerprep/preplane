@@ -3,11 +3,11 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const APP_URL = "https://lmpmagic.lovable.app/lmp";
+const APP_URL = "https://preplane.netlify.app/lmp";
 
 async function resolveEmailForName(supabase: any, name?: string | null): Promise<string | null> {
   const n = (name || "").trim();

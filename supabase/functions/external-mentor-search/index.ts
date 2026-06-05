@@ -61,8 +61,8 @@ type DiscoveredMentor = {
 };
 
 const FIRECRAWL = "https://api.firecrawl.dev/v2";
-const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const AI_MODEL = "google/gemini-3-flash-preview";
+const AI_GATEWAY = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const AI_MODEL = "gemini-2.0-flash";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -462,7 +462,7 @@ Deno.serve(async (req) => {
   if ("error" in auth) return auth.error;
 
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? null;
+  const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? null;
   if (!FIRECRAWL_API_KEY) {
     return new Response(
       JSON.stringify({ mentors: [], error: "Firecrawl is not connected. Link the Firecrawl connector in Connectors." }),

@@ -1,7 +1,11 @@
-// Shared Google Sheets transport with retry, exponential backoff, and per-call timeouts.
-// Used by both `copilot-ai` and `sheets-lmp` edge functions.
+// Google Sheets transport with retry, exponential backoff, and per-call timeouts.
+// Uses Google Sheets API v4 directly (no Lovable gateway).
+// Reads use GOOGLE_API_KEY; writes use service account JWT (GOOGLE_SA_EMAIL + GOOGLE_SA_PRIVATE_KEY).
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_sheets/v4";
+import { getGoogleAccessToken } from "./googleAuth.ts";
+
+const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
@@ -49,14 +53,15 @@ function jitter(ms: number) {
 
 export interface SheetsClientOpts {
   spreadsheetId: string;
-  lovableApiKey: string;
-  sheetsApiKey: string;
   /** Per-attempt timeout. Default 12_000 ms. */
   timeoutMs?: number;
-  /** Max retries on retryable errors. Default 4. */
+  /** Max retries on retryable errors. Default 3. */
   maxRetries?: number;
-  /** Base backoff in ms; doubled each attempt. Default 400 ms (cap 4 s). */
+  /** Base backoff in ms. Default 1000 ms. */
   baseBackoffMs?: number;
+  // Legacy compat fields — ignored
+  lovableApiKey?: string;
+  sheetsApiKey?: string;
 }
 
 export interface SheetsClient {
@@ -71,18 +76,15 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
   const timeoutMs = opts.timeoutMs ?? 12_000;
   const maxRetries = opts.maxRetries ?? 3;
   const baseBackoff = opts.baseBackoffMs ?? 1000;
+  const apiKey = Deno.env.get("GOOGLE_API_KEY") ?? "";
 
   let id = opts.spreadsheetId;
   const m = id.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (m) id = m[1];
   else id = id.split("/")[0].split("?")[0];
 
-  const baseUrl = `${GATEWAY_URL}/spreadsheets/${id}`;
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${opts.lovableApiKey}`,
-    "X-Connection-Api-Key": opts.sheetsApiKey,
-    "Content-Type": "application/json",
-  };
+  const baseUrl = `${SHEETS_BASE}/${id}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   async function attempt(url: string, init: RequestInit, label: string): Promise<Response> {
     let lastErr: unknown = null;
@@ -109,7 +111,6 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
         clearTimeout(t);
         if (err instanceof SheetsTransportError) throw err;
         const isAbort = err instanceof DOMException && err.name === "AbortError";
-        const isNetwork = !isAbort;
         lastErr = err;
         if (n < maxRetries) {
           const wait = jitter(Math.min(baseBackoff * 2 ** n, 4000));
@@ -132,7 +133,7 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
     headers,
     async batchGet(ranges, renderOption = "FORMATTED_VALUE") {
       const params = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join("&");
-      const url = `${baseUrl}/values:batchGet?${params}&valueRenderOption=${renderOption}`;
+      const url = `${baseUrl}/values:batchGet?${params}&valueRenderOption=${renderOption}&key=${apiKey}`;
       const res = await attempt(url, { headers }, "batchGet");
       const data = await res.json();
       const out: Record<string, string[][]> = {};
@@ -140,11 +141,12 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
       return out;
     },
     async batchUpdate(data) {
+      const token = await getGoogleAccessToken([SHEETS_SCOPE]);
       const res = await attempt(
         `${baseUrl}/values:batchUpdate`,
         {
           method: "POST",
-          headers,
+          headers: { ...headers, Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             valueInputOption: "USER_ENTERED",
             data: data.map((d) => ({ ...d, majorDimension: "ROWS" })),
@@ -154,8 +156,9 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
       );
       return await res.json();
     },
-    rawFetch(url, init) {
-      return attempt(url, { headers, ...init }, "rawFetch");
+    async rawFetch(url, init) {
+      const token = await getGoogleAccessToken([SHEETS_SCOPE]);
+      return attempt(url, { headers: { ...headers, Authorization: `Bearer ${token}` }, ...init }, "rawFetch");
     },
   };
 }

@@ -3,7 +3,7 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const sessionId = body?.sessionId as string | undefined;
-    const origin = (body?.origin as string | undefined) || "https://lmpmagic.lovable.app";
+    const origin = (body?.origin as string | undefined) || "https://preplane.netlify.app";
     if (!sessionId) return json({ ok: false, error: "Missing sessionId" }, 400);
 
     const admin = createClient(

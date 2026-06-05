@@ -10,11 +10,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_sheets/v4";
 const HEADER_ROW = 15;
 const TAB = "LMP Tracker";
 
@@ -22,25 +21,20 @@ Deno.serve(async (req: Request) => {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-  const SHEETS_API_KEY = Deno.env.get("GOOGLE_SHEETS_API_KEY")!;
+  const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";
   const m = SPREADSHEET_ID.match(/\/d\/([a-zA-Z0-9_-]+)/);
   SPREADSHEET_ID = m ? m[1] : SPREADSHEET_ID.split("/")[0].split("?")[0];
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const baseUrl = `${GATEWAY_URL}/spreadsheets/${SPREADSHEET_ID}`;
-  const gHeaders = {
-    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    "X-Connection-Api-Key": SHEETS_API_KEY,
-    "Content-Type": "application/json",
-  };
+  const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
+  const gHeaders = { "Content-Type": "application/json" };
 
   try {
     // 1. Pull entire LMP Tracker sheet.
     const range = `'${TAB}'!A${HEADER_ROW}:ZZ10000`;
     const getRes = await fetch(
-      `${baseUrl}/values:batchGet?ranges=${encodeURIComponent(range)}&valueRenderOption=FORMATTED_VALUE`,
+      `${baseUrl}/values:batchGet?ranges=${encodeURIComponent(range)}&valueRenderOption=FORMATTED_VALUE&key=${GOOGLE_API_KEY}`,
       { headers: gHeaders },
     );
     if (!getRes.ok) {
@@ -120,9 +114,11 @@ Deno.serve(async (req: Request) => {
     let updated = 0;
     for (let i = 0; i < updates.length; i += CHUNK) {
       const slice = updates.slice(i, i + CHUNK);
+      const { getGoogleAccessToken } = await import("../_shared/googleAuth.ts");
+      const writeToken = await getGoogleAccessToken(["https://www.googleapis.com/auth/spreadsheets"]);
       const upRes = await fetch(`${baseUrl}/values:batchUpdate`, {
         method: "POST",
-        headers: gHeaders,
+        headers: { ...gHeaders, Authorization: `Bearer ${writeToken}` },
         body: JSON.stringify({
           valueInputOption: "RAW",
           data: slice.map((d) => ({ ...d, majorDimension: "ROWS" })),

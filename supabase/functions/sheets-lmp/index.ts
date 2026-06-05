@@ -4,12 +4,10 @@ import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_sheets/v4";
 
 const METADATA_CACHE_MS = 10 * 60 * 1000;
 const LIST_CACHE_MS = 2 * 60 * 1000;
@@ -77,10 +75,6 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return jsonError("LOVABLE_API_KEY not configured", 500);
-  const SHEETS_API_KEY = Deno.env.get("GOOGLE_SHEETS_API_KEY");
-  if (!SHEETS_API_KEY) return jsonError("GOOGLE_SHEETS_API_KEY not configured", 500);
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";
   if (!SPREADSHEET_ID) return jsonError("LMP_SPREADSHEET_ID not configured", 500);
   const idMatch = SPREADSHEET_ID.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -89,12 +83,6 @@ Deno.serve(async (req: Request) => {
   } else {
     SPREADSHEET_ID = SPREADSHEET_ID.split("/")[0].split("?")[0];
   }
-
-  const gHeaders = {
-    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    "X-Connection-Api-Key": SHEETS_API_KEY,
-    "Content-Type": "application/json",
-  };
 
   // Auth + Supabase client (service role for logging)
   const authHeader = req.headers.get("Authorization") ?? "";
@@ -153,7 +141,7 @@ Deno.serve(async (req: Request) => {
   if (!op) return jsonError("Missing 'op'", 400);
   if (!tab && op !== "metadata") return jsonError("Missing 'tab'", 400);
 
-  const baseUrl = `${GATEWAY_URL}/spreadsheets/${SPREADSHEET_ID}`;
+  const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
   const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet"]);
   const fromSweeper = req.headers.get("x-sheet-sweeper") === "1";
@@ -254,8 +242,6 @@ Deno.serve(async (req: Request) => {
   // Shared retry/backoff/timeout helper (same impl used by copilot-ai).
   const sheetsClient = createSheetsClient({
     spreadsheetId: SPREADSHEET_ID,
-    lovableApiKey: LOVABLE_API_KEY,
-    sheetsApiKey: SHEETS_API_KEY,
     maxRetries: 2,
     baseBackoffMs: 1200,
   });

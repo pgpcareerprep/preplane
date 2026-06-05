@@ -1,16 +1,9 @@
-// Shared CORS helpers for Lovable Cloud edge functions.
-//
-// Replaces the wildcard `Access-Control-Allow-Origin: *` with an allowlist
-// of origins this app actually runs on. If the incoming request's Origin
-// matches the allowlist (or a *.lovable.app preview host) we echo it back,
-// otherwise we fall back to the canonical production origin.
-
 const ALLOWED_ORIGINS = new Set<string>([
-  "https://lmpmagic.lovable.app",
   "https://preplane.netlify.app",
+  "https://heroic-nougat-e7d667.netlify.app",
 ]);
 
-const DEFAULT_ORIGIN = "https://lmpmagic.lovable.app";
+const DEFAULT_ORIGIN = "https://preplane.netlify.app";
 
 export const BASE_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers":
@@ -25,21 +18,8 @@ export function pickAllowedOrigin(req: Request): string {
   if (ALLOWED_ORIGINS.has(origin)) return origin;
   try {
     const host = new URL(origin).hostname;
-    if (
-      host === "lovable.app" ||
-      host.endsWith(".lovable.app") ||
-      host === "lovableproject.com" ||
-      host.endsWith(".lovableproject.com") ||
-      host === "lovable.dev" ||
-      host.endsWith(".lovable.dev") ||
-      host === "localhost" ||
-      host === "127.0.0.1"
-    ) {
-      return origin;
-    }
-  } catch {
-    /* fall through */
-  }
+    if (host === "localhost" || host === "127.0.0.1") return origin;
+  } catch { /* fall through */ }
   return DEFAULT_ORIGIN;
 }
 

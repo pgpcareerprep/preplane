@@ -3,12 +3,11 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_sheets/v4";
 const SYNC_COOLDOWN_MS = 60_000;
 // NOTE: cooldown is enforced via the sheets_sync_log table only.
 // Module-level state is unsafe — every cold start would reset it and let
@@ -63,28 +62,22 @@ const _legacyHandler = async (req: Request) => {
     if ("error" in auth) return auth.error;
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return jsonError("LOVABLE_API_KEY not configured", 500);
-  const SHEETS_API_KEY = Deno.env.get("GOOGLE_SHEETS_API_KEY");
-  if (!SHEETS_API_KEY) return jsonError("GOOGLE_SHEETS_API_KEY not configured", 500);
+  const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";
   if (!SPREADSHEET_ID) return jsonError("LMP_SPREADSHEET_ID not configured", 500);
   const idMatch = SPREADSHEET_ID.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (idMatch) SPREADSHEET_ID = idMatch[1];
   else SPREADSHEET_ID = SPREADSHEET_ID.split("/")[0].split("?")[0];
 
-  const gHeaders = {
-    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    "X-Connection-Api-Key": SHEETS_API_KEY,
-    "Content-Type": "application/json",
-  };
+  const gHeaders = { "Content-Type": "application/json" };
+  const _GOOGLE_API_KEY = GOOGLE_API_KEY; // available for sheet reads via ?key=
 
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const baseUrl = `${GATEWAY_URL}/spreadsheets/${SPREADSHEET_ID}`;
+  const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
   // Parse request
   let body: Record<string, unknown> = {};

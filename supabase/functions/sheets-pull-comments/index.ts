@@ -5,8 +5,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_sheets/v4";
-
 Deno.serve(async (req: Request) => {
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": pickAllowedOrigin(req),
@@ -45,24 +43,18 @@ Deno.serve(async (req: Request) => {
     if ("error" in auth) return auth.error;
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  const SHEETS_API_KEY = Deno.env.get("GOOGLE_SHEETS_API_KEY");
+  const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";
-  if (!LOVABLE_API_KEY || !SHEETS_API_KEY || !SPREADSHEET_ID) {
-    return json({ error: "Missing required secrets" }, 500, corsHeaders);
+  if (!SPREADSHEET_ID) {
+    return json({ error: "LMP_SPREADSHEET_ID not configured" }, 500, corsHeaders);
   }
   const idMatch = SPREADSHEET_ID.match(/\/d\/([a-zA-Z0-9_-]+)/);
   SPREADSHEET_ID = idMatch ? idMatch[1] : SPREADSHEET_ID.split("/")[0].split("?")[0];
 
-  const headers = {
-    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    "X-Connection-Api-Key": SHEETS_API_KEY,
-  };
-
   // Read header row (row 15) + data rows. Range Z15:Z10000 + AA15:AA10000.
   const range = `'LMP Tracker'!Z15:AA10000`;
-  const url = `${GATEWAY_URL}/spreadsheets/${SPREADSHEET_ID}/values/${range}`;
-  const resp = await fetch(url, { headers });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?key=${GOOGLE_API_KEY}`;
+  const resp = await fetch(url);
   if (!resp.ok) {
     const body = await resp.text();
     return json({ error: "Sheets fetch failed", status: resp.status, body }, 502, corsHeaders);

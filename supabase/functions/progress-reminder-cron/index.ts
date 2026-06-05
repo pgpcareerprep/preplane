@@ -3,11 +3,11 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const APP_BASE_URL = "https://lmpmagic.lovable.app/lmp";
+const APP_BASE_URL = "https://preplane.netlify.app/lmp";
 
 function buildAppUrl(lmpId?: string | null) {
   return lmpId ? `${APP_BASE_URL}/${encodeURIComponent(lmpId)}?tab=Overview` : APP_BASE_URL;

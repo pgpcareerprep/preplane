@@ -6,7 +6,7 @@ import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://lmpmagic.lovable.app",
+  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
