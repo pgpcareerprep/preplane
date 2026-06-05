@@ -1,0 +1,589 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ━━━ Lumina v1.1 Design System for MentorMatch AI ━━━
+   v1.1 Amendments: gradient system w/ Gaussian blur, 220px nav,
+   8px/16px card radii, bento grid patterns, warm dark tricolor sidebar.
+   All colors in HSL. Tokens defined here, consumed via tailwind.config.ts.
+*/
+
+@layer base {
+  :root {
+    /* Brand palette — HSL */
+    --orange-50:  28 100% 95%;
+    --orange-100: 33 100% 87%;
+    --orange-200: 31 100% 74%;
+    --orange-400: 28 84%  63%;
+    --orange-500: 26 76%  54%;
+    --orange-600: 28 71%  44%;
+    --orange-800: 27 85%  26%;
+    --yellow-400: 49 91% 62%;
+    --yellow-500: 49 89% 61%;
+    --yellow-50:  49 100% 95%;
+    --yellow-600: 38 70% 42%;
+    --yellow-200: 49 90% 80%;
+    --coral-400: 14 85% 60%;
+    --coral-50:  14 100% 95%;
+    --coral-200: 14 90% 82%;
+    --coral-600: 14 70% 45%;
+    --sage-400:  113 25% 50%;
+    --sage-50:   113 30% 94%;
+    --sage-200:  113 30% 78%;
+    --sage-600:  113 30% 35%;
+    --sky-400:   215 78% 60%;
+    --plum-400:  258 90% 67%;
+    --plum-100:  258 70% 92%;
+    --plum-200:  258 75% 86%;
+    --teal-400:  191 67% 54%;
+    --teal-50:   191 70% 94%;
+    --teal-200:  191 60% 78%;
+    --teal-600:  191 60% 35%;
+
+    /* Neutrals — paper canvas (#F7F6F3) + cool-ink text (#1F2937 / #4B5563)
+       per design-system spec. Borders stay slightly warm (#E5E1D8). */
+    --n50:  45 22% 96%;   /* #F7F6F3 — app canvas */
+    --n100: 42 18% 93%;   /* subtle hover/muted surface */
+    --n200: 38 18% 87%;   /* #E5E1D8 — borders */
+    --n300: 38 12% 75%;   /* input border / dividers */
+    --n400: 220 9%  46%;  /* disabled/placeholder — AA contrast */
+    --n500: 217 14% 34%;  /* #4B5563 — secondary text */
+    --n600: 217 19% 27%;
+    --n700: 217 24% 22%;
+    --n800: 217 30% 19%;
+    --n900: 217 33% 17%;  /* #1F2937 — primary text */
+
+    /* Shadcn semantic tokens mapped onto Lumina */
+    --background: var(--n50);
+    --foreground: var(--n900);
+
+    --card: 0 0% 100%;
+    --card-foreground: var(--n900);
+
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--n900);
+
+    --primary: var(--n900);
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: var(--n100);
+    --secondary-foreground: var(--n800);
+
+    --muted: var(--n100);
+    --muted-foreground: var(--n500);
+
+    --accent: var(--orange-500);
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: var(--coral-400);
+    --destructive-foreground: 0 0% 100%;
+
+    /* Semantic — Lumina v1.1 */
+    --success: 113 25% 50%;
+    --success-foreground: 0 0% 100%;
+    --warning: 26 76% 54%;
+    --warning-foreground: 0 0% 100%;
+    --info: 215 78% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --border: var(--n200);
+    --input: var(--n300);
+    --ring: var(--orange-400);
+
+    /* Lumina v1.1 radius rules:
+       - Cards + bento blocks: 16px
+       - Buttons + inputs + inner elements: 8px
+       - Modals + drawers: 12px
+       - Pills/status tags: full-round (9999px)
+    */
+    --radius: 8px;
+    --radius-card: 16px;
+    --radius-modal: 12px;
+    --radius-pill: 9999px;
+
+    /* Sidebar (Lumina v1.1 — warm dark tricolor) */
+    --sidebar-width: 220px;
+    --sidebar-gradient: linear-gradient(180deg, #2A2822 0%, #1A1916 100%);
+
+    /* Gradient surfaces — Lumina v1.1 (raw RGB, not HSL, to match spec exactly) */
+    --grad-mu:        linear-gradient(135deg, #F7D344 0%, #E38330 100%);
+    --grad-new:       linear-gradient(160deg, #0E010F 0%, #064E65 100%);
+    --grad-ai-aura:   linear-gradient(135deg, #EDE9FF 0%, #C9B4F5 100%);
+    --grad-feature:   linear-gradient(135deg, #FFF3EE 0%, #FDECC8 100%);
+    --grad-yellow:    linear-gradient(135deg, #FBE38C 0%, #E9B547 100%);
+    --grad-blue:      linear-gradient(135deg, #C4DFF2 0%, #6FA8CE 100%);
+    --grad-green:     linear-gradient(135deg, #C8DBB7 0%, #8AB07F 100%);
+
+    /* Sidebar shadcn tokens (legacy) */
+    --sidebar-background: var(--n900);
+    --sidebar-foreground: var(--n400);
+    --sidebar-primary: var(--yellow-400);
+    --sidebar-primary-foreground: var(--n900);
+    --sidebar-accent: var(--n800);
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: var(--n800);
+    --sidebar-ring: var(--orange-400);
+
+    /* Shadows — Notion / Linear inspired, very subtle */
+    --shadow-sm: 0 1px 2px hsl(var(--n900) / 0.04), 0 0 0 1px hsl(var(--n900) / 0.02);
+    --shadow-md: 0 2px 8px hsl(var(--n900) / 0.06), 0 1px 2px hsl(var(--n900) / 0.04);
+    --shadow-lg: 0 8px 24px hsl(var(--n900) / 0.08), 0 2px 6px hsl(var(--n900) / 0.05);
+    --shadow-xl: 0 16px 40px hsl(var(--n900) / 0.10), 0 4px 12px hsl(var(--n900) / 0.05);
+    --focus-ring: 0 0 0 3px hsl(var(--orange-500) / 0.18);
+
+    /* Motion */
+    --ease-smooth: cubic-bezier(.4,0,.2,1);
+    --ease-enter:  cubic-bezier(0,0,.2,1);
+    --ease-exit:   cubic-bezier(.4,0,1,1);
+    --ease-spring: cubic-bezier(.34,1.56,.64,1);
+  }
+
+  .dark {
+    /* Premium SaaS dark — cool slate ramp, warm alive accent, inner-highlight elevation */
+    --d-bg:        220 18% 6%;    /* #0E1014 page */
+    --d-surface-1: 220 15% 10%;   /* #15181E cards */
+    --d-surface-2: 220 14% 13%;   /* #1B1F26 popovers/muted/inputs */
+    --d-surface-3: 220 13% 16%;   /* #22272F hover/raised */
+    --d-border:    220 13% 17%;   /* #262B33 quiet borders */
+    --d-border-soft: 220 13% 14%; /* #1E2229 inner dividers */
+    --d-text:      220 14% 92%;   /* #E8EAEE softer-than-white */
+    --d-text-2:    220 11% 74%;   /* #B4BAC4 secondary */
+    --d-muted:     220 10% 58%;   /* #838B97 muted, ~6.2:1 on card */
+    --d-accent:    24 70% 62%;    /* #E0935A warm orange, alive */
+    --d-accent-hover:  24 75% 67%;
+    --d-accent-pressed:22 65% 54%;
+    --d-accent-soft:   24 25% 14%;
+    --d-accent-border: 24 35% 28%;
+    --d-focus:     28 80% 71%;    /* #F0B27A */
+    --d-green:     150 25% 61%;   /* #7FB89A */
+    --d-amber:     38 60% 64%;    /* #E0B36A */
+    --d-red:       0  55% 72%;    /* #E08A8A */
+    --d-blue:      212 45% 66%;   /* #7BA8D6 */
+    --d-purple:    254 30% 72%;
+
+    /* Neutral scale — cool slate, faint blue tint */
+    --n50:  220 18% 6%;
+    --n100: 220 15% 10%;
+    --n200: 220 13% 17%;
+    --n300: 220 13% 14%;
+    --n400: 220 9% 60%;
+    --n500: 220 9% 68%;
+    --n600: 220 10% 76%;
+    --n700: 220 11% 82%;
+    --n800: 220 13% 88%;
+    --n900: 220 14% 92%;
+
+    --background: var(--d-bg);
+    --foreground: var(--d-text);
+    --card: var(--d-surface-1);
+    --card-foreground: var(--d-text);
+    --popover: var(--d-surface-2);
+    --popover-foreground: var(--d-text);
+    --primary: var(--d-accent);
+    --primary-foreground: 24 60% 8%;
+    --secondary: var(--d-surface-2);
+    --secondary-foreground: var(--d-text);
+    --muted: var(--d-surface-2);
+    --muted-foreground: var(--d-muted);
+    --accent: var(--d-accent);
+    --accent-foreground: 24 60% 8%;
+    --destructive: var(--d-red);
+    --destructive-foreground: 0 40% 10%;
+    --success: var(--d-green);
+    --success-foreground: 150 30% 10%;
+    --warning: var(--d-amber);
+    --warning-foreground: 38 50% 10%;
+    --info: var(--d-blue);
+    --info-foreground: 212 40% 10%;
+    --border: var(--d-border);
+    --input: var(--d-border);
+    --ring: var(--d-focus);
+
+    /* Inner top-edge highlight + soft drop — Linear/Vercel-grade lift */
+    --shadow-sm: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.35);
+    --shadow-md: inset 0 1px 0 rgba(255,255,255,0.04), 0 4px 12px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-lg: inset 0 1px 0 rgba(255,255,255,0.05), 0 12px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35);
+    --shadow-xl: inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 48px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
+    --focus-ring: 0 0 0 3px hsl(var(--d-focus) / 0.35);
+
+    /* Sidebar — slightly deeper than page for quiet separation */
+    --sidebar-gradient: linear-gradient(180deg, #0B0D11 0%, #0E1014 100%);
+  }
+
+  /* Ambient warm halo at top of page — barely-there premium SaaS touch */
+  .dark body {
+    background-image: radial-gradient(1200px 600px at 50% -10%, rgba(224,147,90,0.04), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* Inputs in dark — softer surface, quiet border, warm focus */
+  .dark input:not([type="checkbox"]):not([type="radio"]),
+  .dark textarea,
+  .dark select {
+    background-color: hsl(var(--d-surface-2));
+    border-color: hsl(var(--d-border-soft));
+  }
+  .dark input:focus-visible,
+  .dark textarea:focus-visible,
+  .dark select:focus-visible {
+    border-color: hsl(var(--d-focus));
+  }
+
+  /* Sidebar quiet separation */
+  .dark .sidebar-warm-dark {
+    border-right: 1px solid #1A1E25;
+  }
+
+  /* ━━━ Dark-mode typography tuning — premium SaaS readability ━━━ */
+  .dark body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    line-height: 1.6;
+    letter-spacing: -0.003em;
+  }
+  .dark p, .dark li, .dark dd, .dark dt {
+    line-height: 1.6;
+  }
+  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+    color: hsl(var(--d-text));
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+  }
+  /* Small labels: positive tracking improves legibility on dark */
+  .dark .text-xs,
+  .dark .text-\[11px\],
+  .dark .text-\[10px\],
+  .dark .label-eyebrow,
+  .dark .lx-eyebrow {
+    letter-spacing: 0.01em;
+  }
+
+  /* Calm hero banner for dark mode — soft orange wash, no glow */
+  .dark .hero-card {
+    background: linear-gradient(135deg,
+      hsl(var(--d-accent) / 0.14),
+      hsl(0 0% 100% / 0.025));
+    border: 1px solid hsl(var(--d-accent) / 0.22);
+    box-shadow: none;
+  }
+
+  /* ━━━ Dark-mode overrides for literal Tailwind utilities that the codebase uses
+     extensively (bg-white in ~465 places). Re-targets them to themed surfaces
+     so we don't have to edit every component. ━━━ */
+  .dark .bg-white { background-color: hsl(var(--card)) !important; }
+  .dark .hover\:bg-white:hover { background-color: hsl(var(--card)) !important; }
+  .dark .bg-white\/80,
+  .dark .bg-white\/70,
+  .dark .bg-white\/60,
+  .dark .bg-white\/50 { background-color: hsl(var(--card) / 0.7) !important; }
+  .dark .border-white { border-color: hsl(var(--border)) !important; }
+  /* text-white intentionally NOT overridden — it must remain white on coloured buttons */
+
+  /* The "bg-n900 text-white" idiom (filled dark pill/avatar/active tab) is used in
+     ~30 components. In dark mode n900 inverts to near-white, breaking that idiom.
+     Re-target n900/n800 backgrounds & hovers to the dark surface so text-white stays readable. */
+  .dark .bg-n900,
+  .dark .border-n900 { background-color: hsl(var(--d-surface-2)) !important; border-color: hsl(var(--d-border)) !important; }
+  .dark .hover\:bg-n800:hover,
+  .dark .hover\:bg-n900:hover { background-color: hsl(var(--d-border)) !important; }
+  .dark .bg-n900\/80,
+  .dark .bg-n900\/70,
+  .dark .bg-n900\/60,
+  .dark .bg-n900\/40,
+  .dark .bg-n900\/20,
+  .dark .bg-n900\/10 { background-color: rgba(0,0,0,0.6) !important; }
+
+  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5 {
+    color: hsl(var(--d-text));
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Manrope', 'Galano Grotesque', 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'ss01', 'cv11';
+    letter-spacing: -0.005em;
+  }
+
+  h1, h2, h3, h4, h5 {
+    font-family: 'Manrope', 'Galano Grotesque', 'Inter', system-ui, sans-serif;
+    color: hsl(var(--n900));
+    letter-spacing: -0.01em;
+  }
+
+  .font-display { font-family: 'Fraunces', Georgia, serif; font-style: italic; }
+
+  /* Focus ring — always visible */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 30ms !important;
+      transition-duration: 30ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Status pills — Lumina v1.1 (full-round, n200 borders) */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium uppercase tracking-[0.5px];
+  }
+  .pill-ongoing       { @apply bg-green-50   text-green-700   border-green-200; }
+  .pill-dormant       { @apply bg-sky-50     text-sky-700     border-sky-200; }
+  .pill-hold          { @apply bg-purple-50  text-purple-700  border-purple-200; }
+  .pill-converted     { @apply bg-orange-50  text-orange-700  border-orange-200; }
+  .pill-not-converted { @apply bg-n100       text-n600        border-n200; }
+  .pill-closed        { @apply bg-blue-50    text-blue-700    border-blue-200; }
+  .pill-mentor        { @apply bg-plum-100   text-plum-400    border-plum-200; }
+  .pill-interview     { @apply bg-teal-50    text-teal-600    border-teal-200; }
+  .pill-not-started   { @apply bg-n50        text-n600        border-n200; }
+  .pill-na            { @apply bg-plum-100   text-plum-400    border-plum-200; }
+  .pill-offer-received { @apply bg-rose-50   text-rose-700    border-rose-200; }
+
+  .label-eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.5px] text-n500;
+  }
+
+  /* Lumina v1.1 — Gradient surfaces (use on hero cards, AI output, banners only — never on tables/grids) */
+  .surface-mu        { background: var(--grad-mu); }
+  .surface-new       { background: var(--grad-new); }
+  .surface-ai-aura   { background: var(--grad-ai-aura); }
+  .surface-feature   { background: var(--grad-feature); }
+  .surface-yellow    { background: var(--grad-yellow); }
+  .surface-blue      { background: var(--grad-blue); }
+  .surface-green     { background: var(--grad-green); }
+
+  /* Glass blur layer — sits on top of a gradient surface.
+     Max 2 blurred layers per screen. Min 85% opacity. Never on data tables. */
+  .glass-light {
+    background-color: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-dark {
+    background-color: rgba(26, 25, 22, 0.45);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .glass-plum {
+    background-color: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Sidebar warm charcoal (Lumina Deep Surface) */
+  .sidebar-warm-dark {
+    background: var(--sidebar-gradient);
+    border-right: 0.5px solid rgba(232, 229, 220, 0.08);
+  }
+
+  /* Bento grid card (Lumina v1.1) — 16px radius, theme-aware surface */
+  .bento-card {
+    @apply rounded-2xl bg-card border border-border shadow-sm transition-all duration-200 ease-smooth hover:shadow-md hover:-translate-y-[1px];
+  }
+
+  /* Subtle inset highlight on premium surfaces (Notion-like, light mode only) */
+  .surface-premium {
+    @apply rounded-2xl bg-card border border-border shadow-sm;
+    box-shadow: 0 1px 2px hsl(var(--n900) / 0.04), inset 0 1px 0 hsl(0 0% 100% / 0.6);
+  }
+  .dark .surface-premium {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4), inset 0 1px 0 hsl(0 0% 100% / 0.04);
+  }
+
+  /* Glass overrides in dark — keep readable */
+  .dark .glass-light  { background-color: rgba(20, 22, 30, 0.55); }
+  .dark .glass-plum   { background-color: rgba(20, 22, 30, 0.55); }
+}
+
+@layer utilities {
+  /* Shimmer skeleton — sweeps n100 highlight across an n200 base */
+  .skeleton {
+    background-color: hsl(var(--n200));
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--n200)) 0%,
+      hsl(var(--n100)) 50%,
+      hsl(var(--n200)) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s linear infinite;
+    border-radius: 6px;
+  }
+
+  @keyframes skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   LUMINA — scoped redesign for LMP Dashboard & Analytics
+   Applied via .lumina wrapper class only.
+   Source-of-truth tokens (exact spec, kept inline in this scope).
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
+
+.lumina {
+  /* Brand */
+  --lx-orange:  #E38330;
+  --lx-yellow:  #F7D344;
+  --lx-success: #6A9E62;
+  --lx-risk:    #F07040;
+  --lx-info:    #4A8EE8;
+  --lx-ai:      #8B5CF6;
+  --lx-teal:    #39B6D8;
+
+  /* Surfaces */
+  --lx-bg:       #FAFAF8;
+  --lx-surface:  #FFFFFF;
+  --lx-soft:     #F4F3EF;
+  --lx-border:   #E8E5DC;
+
+  /* Text */
+  --lx-text:     #1A1916;
+  --lx-text-2:   #5C594F;
+  --lx-text-3:   #7A756C;
+
+  /* Gradients */
+  --lx-grad-main:   linear-gradient(to right, #E38330 10%, #F7D344 39%, #39B6D8 62%, #39B6D8 79%, #E38330);
+  --lx-grad-mu:     linear-gradient(to bottom right, #F7D344 70%, #E38330);
+  --lx-grad-green:  linear-gradient(135deg, #F6FAF4 0%, #ECF3E6 55%, #DCE9D2 100%);
+  --lx-grad-blue:   linear-gradient(to right, #B9E5EF 7%, #A1DCEA 35%, #64C5DC 72%, #3EB6D3);
+  --lx-grad-yellow: linear-gradient(to right, #FBEBBB 12%, #FBE4A2 42%, #F7D266 74%, #F4C641);
+
+  background: var(--lx-bg);
+  color: var(--lx-text);
+  font-family: 'Be Vietnam Pro', 'Inter', system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+}
+
+.lumina h1, .lumina h2, .lumina h3, .lumina h4 {
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+  color: var(--lx-text);
+  letter-spacing: -0.01em;
+}
+
+.lumina .lx-card {
+  background: var(--lx-surface);
+  border: 1px solid var(--lx-border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(26,25,22,0.04);
+  transition: box-shadow 220ms cubic-bezier(.4,0,.2,1), transform 220ms cubic-bezier(.4,0,.2,1);
+}
+.lumina .lx-card:hover {
+  box-shadow: 0 8px 28px rgba(26,25,22,0.08), 0 2px 6px rgba(26,25,22,0.05);
+}
+.lumina .lx-card-soft {
+  background: var(--lx-soft);
+  border: 1px solid var(--lx-border);
+  border-radius: 16px;
+}
+
+.lumina .lx-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--lx-text-3);
+}
+
+.lumina .lx-grad-main   { background: var(--lx-grad-main); }
+.lumina .lx-grad-mu     { background: var(--lx-grad-mu); }
+.lumina .lx-grad-green  { background: var(--lx-grad-green); }
+.lumina .lx-grad-blue   { background: var(--lx-grad-blue); }
+.lumina .lx-grad-yellow { background: var(--lx-grad-yellow); }
+
+.lumina .lx-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 12px;
+  background: var(--lx-surface);
+  border: 1px solid var(--lx-border);
+  border-radius: 8px;
+  font-size: 12.5px; color: var(--lx-text);
+  transition: border-color 180ms, box-shadow 180ms;
+}
+.lumina .lx-pill:hover { border-color: #D5D1C4; }
+.lumina .lx-pill select {
+  background: transparent; border: 0; outline: none;
+  font: inherit; color: inherit; cursor: pointer;
+  padding-right: 4px;
+}
+
+.lumina .lx-tab {
+  display:inline-flex; align-items:center; gap:6px;
+  padding: 6px 12px; border-radius: 9999px;
+  font-size: 12px; font-weight: 500; color: var(--lx-text-2);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.lumina .lx-tab[data-active="true"] {
+  background: var(--lx-surface); color: var(--lx-text);
+  border-color: var(--lx-border);
+  box-shadow: 0 1px 2px rgba(26,25,22,0.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lumina .lx-card { transition: none; }
+}
+
+/* ━━━ Dark theme overrides for the .lumina scope — Premium Cool Slate ━━━ */
+.dark .lumina {
+  --lx-bg:       #0E1014;
+  --lx-surface:  #15181E;
+  --lx-soft:     #1B1F26;
+  --lx-border:   #262B33;
+  --lx-text:     #E6E8EC;
+  --lx-text-2:   #A8AEB8;
+  --lx-text-3:   #6B7280;
+
+  /* Tinted-glass washes — calmer, more premium */
+  --lx-grad-mu:     linear-gradient(135deg, rgba(224,147,90,0.08), rgba(224,147,90,0.015) 60%, rgba(255,255,255,0.008));
+  --lx-grad-green:  linear-gradient(135deg, rgba(127,184,154,0.07), rgba(127,184,154,0.015) 60%, rgba(255,255,255,0.008));
+  --lx-grad-blue:   linear-gradient(135deg, rgba(123,168,214,0.07), rgba(123,168,214,0.015) 60%, rgba(255,255,255,0.008));
+  --lx-grad-yellow: linear-gradient(135deg, rgba(224,179,106,0.07), rgba(224,179,106,0.015) 60%, rgba(255,255,255,0.008));
+
+  --lx-hero-text:    #E6E8EC;
+  --lx-hero-muted:   rgba(230,232,236,0.66);
+  --lx-hero-divider: rgba(230,232,236,0.10);
+}
+.dark .lumina .lx-grad-mu,
+.dark .lumina .lx-grad-green,
+.dark .lumina .lx-grad-blue,
+.dark .lumina .lx-grad-yellow,
+.dark .lumina .lx-grad-main {
+  background-color: var(--lx-surface);
+  border: 1px solid var(--lx-border);
+}
+.dark .lumina .lx-hero-sheen { display: none; }
+.dark .lumina .lx-card {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.35);
+}
+.dark .lumina .lx-card:hover {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 12px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35);
+}
+.dark .lumina .lx-pill:hover  { border-color: #2F353F; }
+.dark .lumina .lx-tab[data-active="true"] {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.35);
+}
+
+
+

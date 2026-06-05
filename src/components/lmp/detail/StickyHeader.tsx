@@ -1,0 +1,196 @@
+import { Play, Pencil, Settings2, Crown, Briefcase, Eye, UserCog, FileText, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
+import { STATUS_META } from "@/lib/lmpTypes";
+import { useRole } from "@/lib/rolesContext";
+import { TAG_STYLES } from "@/lib/pocAllocation";
+import { useJd, type JdData } from "@/lib/jdStore";
+import { JdUploadModal } from "@/components/lmp/JdUploadModal";
+import { JdPreviewModal } from "@/components/lmp/JdPreviewModal";
+import { StatusDropdown } from "@/components/lmp/StatusDropdown";
+import { useLmpChatDrawer } from "@/lib/lmpChatContext";
+import { useLmpTotalCommentCount } from "@/lib/hooks/useLmpTotalCommentCount";
+
+const STATUS_PILL: Record<string, string> = {
+  ongoing: "pill-ongoing", dormant: "pill-dormant", hold: "pill-hold",
+  "not-started": "pill-not-started", converted: "pill-converted", "not-converted": "pill-not-converted", closed: "pill-closed", "converted-na": "pill-na",
+  "offer-received": "pill-ongoing",
+};
+
+export function StickyHeader({
+  lmp, candidateCount, onConfigureRounds, readOnly, onChangeStatus,
+}: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; readOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
+  const { viewAsRole: role, user } = useRole();
+  const domain = lmp.prepPoc || lmp.domainPrepPoc;
+  const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
+  const isDual = !behavioral || (domain && behavioral.name === domain.name);
+
+  const canManage = role === "allocator" || role === "admin";
+  const isPocActor = role === "poc";
+  const [jdData, setJdData] = useJd(lmp.id);
+  const hasJd = !!jdData;
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const statusLabel = STATUS_META[lmp.status]?.label ?? lmp.status;
+  const statusPill = STATUS_PILL[lmp.status] ?? "pill-not-started";
+
+  const { open: openChat } = useLmpChatDrawer();
+  const commentCount = useLmpTotalCommentCount(lmp.id);
+  const canEditStatus = !!onChangeStatus && !readOnly;
+
+  const hasActions = (isPocActor && !readOnly) || (onConfigureRounds && !readOnly);
+
+  return (
+    <section className="rounded-2xl bg-card border border-n200 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_4px_16px_-8px_rgba(15,23,42,0.08)] p-4 md:p-5 space-y-3">
+      {/* ROW 1 — Actions (only when present) */}
+      {hasActions && (
+        <div className="flex items-center justify-end gap-2">
+          {isPocActor && !readOnly && (
+            <button className="inline-flex items-center gap-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-4 h-9 shadow-sm transition-colors">
+              <Play className="h-3.5 w-3.5" strokeWidth={2.25} /> Run Mentor Match
+            </button>
+          )}
+          {onConfigureRounds && !readOnly && <HeaderBtn icon={Settings2} label="Rounds" onClick={onConfigureRounds} />}
+        </div>
+      )}
+
+      {/* ROW 2 — Title ↔ Allocation tags */}
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-[24px] md:text-[28px] font-semibold text-n900 leading-[1.2] tracking-[-0.4px] line-clamp-2">
+          {!lmp.role && !lmp.company ? (
+            <span className="italic text-n400">Untitled LMP</span>
+          ) : (
+            <>
+              {lmp.company ? lmp.company : <span className="italic text-n400">No company data</span>}
+              {" "}<span className="text-n400 font-normal">—</span>{" "}
+              {lmp.role ? lmp.role : <span className="italic text-n400">No role data</span>}
+            </>
+          )}
+        </h1>
+        <div className="flex flex-wrap items-center gap-2 justify-end shrink-0">
+          {/* JD status pill */}
+          <button
+            onClick={() => {
+              if (hasJd) setPreviewOpen(true);
+              else if (!readOnly) setUploadOpen(true);
+            }}
+            disabled={!hasJd && readOnly}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12px] font-medium cursor-pointer transition-colors",
+              hasJd
+                ? "bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100"
+                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+            )}
+          >
+            <FileText className="h-3 w-3" strokeWidth={1.75} />
+            {hasJd ? "JD Attached" : "JD Missing"}
+          </button>
+          {lmp.jdMode === "LOAD_ONLY" && (
+            <span className="inline-flex items-center rounded-full border bg-yellow-50 text-yellow-700 border-yellow-300 px-3 h-7 text-[12px] font-medium">
+              LOAD_ONLY
+            </span>
+          )}
+          {lmp.allocationTags?.map((t) => (
+            <span
+              key={t}
+              className={cn(
+                "inline-flex items-center rounded-full border px-3 h-7 text-[12px] font-medium",
+                TAG_STYLES[t],
+              )}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* ROW 3 — Meta + Comments ↔ POC owners */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 text-[13px] text-n600">
+          <span className="font-medium text-n700">
+            {candidateCount} Candidate{candidateCount !== 1 ? "s" : ""}
+          </span>
+          <span className="text-n300">•</span>
+          <span className="inline-flex items-center rounded-full bg-n100 border border-n200 text-n700 px-3 h-7 text-[12px] font-medium">
+            Type: {lmp.type || "—"}
+          </span>
+          {canEditStatus ? (
+            <StatusDropdown value={lmp.status} onChange={(s) => onChangeStatus!(s)} size="md" />
+          ) : (
+            <span className={cn("pill", statusPill)}>{statusLabel}</span>
+          )}
+          {lmp.domain && (
+            <span className="inline-flex items-center rounded-full bg-n100 border border-n200 text-n700 px-3 h-7 text-[12px] font-medium">
+              {lmp.domain}
+            </span>
+          )}
+          <button
+            onClick={() => openChat(lmp.id)}
+            className="relative inline-flex items-center gap-1.5 rounded-full bg-card border border-n200 hover:border-orange-300 hover:text-orange-600 text-n700 px-3 h-7 text-[12px] font-medium transition-colors"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Comments
+            {commentCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-orange-500 text-white text-[10px] font-semibold px-1 tabular-nums">
+                {commentCount}
+              </span>
+            )}
+          </button>
+        </div>
+        {domain && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 justify-end shrink-0">
+            <PocOwner label="Prep" poc={domain} />
+            {!isDual && behavioral && <PocOwner label="Support" poc={behavioral} />}
+          </div>
+        )}
+      </div>
+
+      <JdUploadModal
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        lmpId={lmp.id}
+        role={lmp.role || ""}
+        company={lmp.company || ""}
+        domain={lmp.domain}
+        onUploaded={(data) => { setJdData(data); }}
+      />
+
+      {jdData && (
+        <JdPreviewModal
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          jdData={jdData}
+          onRemoved={() => setJdData(null)}
+          onReplace={() => { setPreviewOpen(false); setUploadOpen(true); }}
+        />
+      )}
+    </section>
+  );
+}
+
+function HeaderBtn({ icon: Icon, label, onClick }: { icon: typeof Pencil; label: string; onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-md bg-card border border-n300 hover:bg-n100 text-n800 text-[13px] font-medium px-3 h-9 transition-colors"
+    >
+      <Icon className="h-3.5 w-3.5" /> {label}
+    </button>
+  );
+}
+
+function PocOwner({ label, poc }: { label: string; poc: { name: string; initials: string; color: string } }) {
+  return (
+    <span className="inline-flex items-center gap-1.5" title={`${label} Prep · ${poc.name}`}>
+      <span className={cn("h-6 w-6 rounded-full inline-flex items-center justify-center text-[10px] font-semibold shrink-0", poc.color)}>
+        {poc.initials}
+      </span>
+      <span className="text-[12.5px] text-n700">
+        <span className="text-n400">{label}: </span>
+        <span className="text-n800 font-medium">{poc.name.split(" ")[0]}</span>
+      </span>
+    </span>
+  );
+}

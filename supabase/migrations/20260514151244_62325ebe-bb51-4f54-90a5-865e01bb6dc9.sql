@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS public.lmp_progress_history CASCADE;

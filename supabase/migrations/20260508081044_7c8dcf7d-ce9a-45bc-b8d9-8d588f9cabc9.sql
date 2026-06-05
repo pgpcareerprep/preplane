@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS mentors_email_unique ON public.mentors(email) WHERE email IS NOT NULL;

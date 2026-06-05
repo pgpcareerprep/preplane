@@ -1,0 +1,529 @@
+/**
+ * Shared mentor-matching pipeline.
+ *
+ * Extracted from `src/components/lmp/detail/MentorsTab.tsx` so the same
+ * scoring / ranking logic can be reused outside the LMP detail flow
+ * (e.g. the "Run Mentor" quick-match modal on /mentors).
+ *
+ * NOTHING in this module is allowed to import React or any LMP-specific code.
+ * It must stay pure so both the LMP MentorsTab and the standalone modal
+ * produce identical results for the same JD input.
+ */
+
+import { type Mentor, type MentorSource } from "@/lib/mentor";
+import { TOTAL_LIMIT } from "@/lib/config/thresholds";
+import { type ALUMentor } from "@/lib/alumniStore";
+import { type ExternalMentor, type ExternalPlatform } from "@/lib/externalMentors";
+import { type ScoringWeights, weightFactor } from "@/lib/scoringWeights";
+
+export type MatchMode = "balanced" | "industry" | "role" | "company";
+
+export type ScoringCandidate = {
+  id: string;
+  name: string;
+  role: string;
+  company: string;
+  allCompanies: string[];
+  skills: string[];
+  seniority_level: string;
+  industry?: string;
+  last_active_days?: number;
+  linkedin?: string;
+  email?: string;
+  phone?: string;
+  remunerationInr?: number;
+  source: "MU" | "ALU" | "EXT";
+  // External-only metadata that should pass through scoring → Mentor
+  platform?: ExternalPlatform;
+  external_links?: { platform: string; booking: string | null; linkedin: string | null };
+  sessions_taken?: number | null;
+  rating?: number | null;
+  possibleDuplicate?: boolean;
+  /** Extra badges merged into Mentor.decisionTags (e.g. "Previously aligned"). */
+  extraTags?: { emoji: string; label: string }[];
+  /** True when the backend already accepted an external web result as relevant. */
+  web_relevance?: boolean;
+};
+
+export type JdInfo = {
+  jdSkills: string[];
+  jdRole: string;
+  jdSeniority: string;
+  jdCompany: string;
+  jdIndustry: string;
+  gapSkills: string[];
+};
+
+// ─── Normalisation ───
+
+function daysSince(iso?: string | null): number | undefined {
+  if (!iso) return undefined;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return undefined;
+  return Math.max(0, Math.round((Date.now() - t) / 86400000));
+}
+
+export function inferSeniorityFromRole(role: string): string {
+  const r = role.toLowerCase();
+  if (r.includes("ceo") || r.includes("cto") || r.includes("cfo") || r.includes("coo") || r.includes("chief")) return "C-Suite";
+  if (r.includes("vp") || r.includes("vice president")) return "VP";
+  if (r.includes("director")) return "Director";
+  if (r.includes("lead") || r.includes("senior") || r.includes("sr.") || r.includes("principal") || r.includes("staff")) return "Senior";
+  if (r.includes("junior") || r.includes("jr.") || r.includes("associate") || r.includes("intern")) return "Junior";
+  if (r.includes("manager") || r.includes("head")) return "Mid";
+  return "Mid";
+}
+
+export function normaliseDbMentor(m: any): ScoringCandidate {
+  const src: "MU" | "ALU" = m.source === "ALU" ? "ALU" : "MU";
+  return {
+    id: m.id || `db_${Math.random().toString(36).slice(2)}`,
+    name: m.name || "",
+    role: m.designation || m.role || "",
+    company: m.company || "",
+    allCompanies: [m.company].filter(Boolean),
+    skills: Array.isArray(m.skill_tags) ? m.skill_tags : [],
+    seniority_level: m.seniority || inferSeniorityFromRole(m.designation || m.role || ""),
+    industry: m.industry || m.functional_domain || undefined,
+    last_active_days: daysSince(m.updated_at),
+    linkedin: m.linkedin,
+    email: m.email,
+    phone: m.phone,
+    remunerationInr: m.rate,
+    source: src,
+    rating: src === "MU" ? (m.rating != null ? Number(m.rating) : null) : null,
+    sessions_taken: src === "MU" ? (m.reviews ?? null) : null,
+  };
+}
+
+export function normaliseALU(a: ALUMentor): ScoringCandidate {
+  const prior = [a.role2, a.role3, a.role4, a.role5, a.role6].filter(Boolean) as string[];
+  const allCompanies = Array.from(new Set([
+    ...(a.allCompanies || []),
+    a.company2, a.company3, a.company4, a.company5, a.company6,
+  ].filter(Boolean) as string[]));
+  return {
+    id: a.id,
+    name: a.name,
+    role: a.currentRole || prior[0] || "",
+    company: a.currentCompany || allCompanies[0] || "",
+    allCompanies,
+    skills: a.skills,
+    seniority_level: inferSeniorityFromRole(a.currentRole || prior[0] || ""),
+    industry: a.industry || a.domain1 || a.domain2,
+    last_active_days: undefined,
+    linkedin: a.linkedin,
+    email: a.muEmail,
+    source: "ALU",
+  };
+}
+
+export function normaliseExternal(e: ExternalMentor): ScoringCandidate {
+  return {
+    id: e.mentor_id,
+    name: e.name,
+    role: e.current_role,
+    company: e.company,
+    allCompanies: [e.company].filter(Boolean),
+    skills: e.skills,
+    seniority_level: e.seniority_level || inferSeniorityFromRole(e.current_role),
+    industry: e.industry,
+    last_active_days: e.last_active_days,
+    linkedin: e.external_links.linkedin || undefined,
+    email: e.email || undefined,
+    phone: e.phone || undefined,
+    remunerationInr: e.remuneration_inr,
+    source: "EXT",
+    platform: e.platform,
+    external_links: e.external_links,
+    sessions_taken: e.sessions_taken,
+    rating: e.rating,
+    web_relevance: !!e.source_url,
+  };
+}
+
+// ─── Deduplication ───
+
+export function deduplicateCandidates(candidates: ScoringCandidate[]): ScoringCandidate[] {
+  const seen = new Map<string, ScoringCandidate>();
+  const priority: Record<string, number> = { MU: 3, ALU: 2, EXT: 1 };
+
+  for (const c of candidates) {
+    const key = c.linkedin
+      ? c.linkedin.toLowerCase().trim()
+      : `${c.name.toLowerCase().trim()}|${c.company.toLowerCase().trim()}`;
+
+    if (seen.has(key)) {
+      const existing = seen.get(key)!;
+      const mergedTags = [...(existing.extraTags ?? []), ...(c.extraTags ?? [])];
+      if (priority[c.source] > priority[existing.source]) {
+        seen.set(key, {
+          ...existing,
+          ...c,
+          skills: [...new Set([...c.skills, ...existing.skills])],
+          allCompanies: [...new Set([...c.allCompanies, ...existing.allCompanies])],
+          extraTags: mergedTags,
+        });
+      } else {
+        existing.extraTags = mergedTags;
+      }
+    } else {
+      seen.set(key, c);
+    }
+  }
+
+  // Pass 2: name+role collision without company match → flag the lower-priority one.
+  const list = Array.from(seen.values());
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      const sameNameRole =
+        a.name.toLowerCase().trim() === b.name.toLowerCase().trim() &&
+        a.role.toLowerCase().trim() === b.role.toLowerCase().trim();
+      const sameCompany = a.company.toLowerCase().trim() === b.company.toLowerCase().trim();
+      if (sameNameRole && !sameCompany) {
+        const lower = priority[a.source] >= priority[b.source] ? b : a;
+        lower.possibleDuplicate = true;
+      }
+    }
+  }
+  return list;
+}
+
+// ─── Scoring (0–45 spec) ───
+
+const TIER1_COMPANIES = [
+  "google", "alphabet", "apple", "meta", "facebook", "amazon", "microsoft",
+  "netflix", "openai", "nvidia", "tesla", "mckinsey", "bcg", "boston consulting",
+  "bain", "goldman", "goldman sachs", "morgan stanley", "jpmorgan", "jp morgan",
+  "deloitte consulting", "blackrock",
+];
+const TIER2_COMPANIES = [
+  "swiggy", "zomato", "flipkart", "razorpay", "paytm", "uber", "lyft", "stripe",
+  "atlassian", "adobe", "salesforce", "oracle", "ibm", "linkedin", "snowflake",
+  "airbnb", "spotify", "shopify", "twilio", "datadog", "vercel", "cloudflare",
+  "intel", "qualcomm", "samsung", "tcs", "infosys", "wipro", "accenture",
+  "cred", "phonepe", "ola", "zerodha", "myntra", "dream11", "byju", "unacademy",
+  "freshworks", "zoho", "postman",
+];
+
+const STARTUPISH = ["labs", "ai", "tech", "studio", "ventures"];
+
+function companyTierScore(company: string): { pts: number; tierLabel: "Tier 1" | "Tier 2" | "Tier 3" | "Startup" | "Unknown" } {
+  if (!company) return { pts: 1, tierLabel: "Unknown" };
+  const c = company.toLowerCase();
+  if (TIER1_COMPANIES.some(t => c.includes(t))) return { pts: 5, tierLabel: "Tier 1" };
+  if (TIER2_COMPANIES.some(t => c.includes(t))) return { pts: 4, tierLabel: "Tier 2" };
+  if (STARTUPISH.some(t => c.includes(t))) return { pts: 2, tierLabel: "Startup" };
+  return { pts: 3, tierLabel: "Tier 3" };
+}
+
+const SENIORITY_PTS: Record<string, number> = {
+  "c-suite": 10, "cxo": 10, "vp": 9, "vice president": 9,
+  "director": 8, "lead": 6, "senior": 6, "mid": 4, "junior": 2,
+};
+
+function seniorityScore(s: string): number {
+  return SENIORITY_PTS[(s || "mid").toLowerCase()] ?? 4;
+}
+
+function sourceScore(s: string): number {
+  if (s === "MU") return 5;
+  if (s === "ALU") return 3;
+  return 0;
+}
+
+function skillOverlap(mentorSkills: string[], jdSkills: string[]): { matched: string[]; missing: string[] } {
+  const matched: string[] = [];
+  const used = new Set<string>();
+  for (const ms of mentorSkills) {
+    const msl = ms.toLowerCase().trim();
+    for (const js of jdSkills) {
+      const jsl = js.toLowerCase().trim();
+      if (!jsl) continue;
+      if (msl.includes(jsl) || jsl.includes(msl)) {
+        matched.push(ms);
+        used.add(jsl);
+        break;
+      }
+    }
+  }
+  const missing = jdSkills.filter(j => !used.has(j.toLowerCase().trim()));
+  return { matched, missing };
+}
+
+function tokenize(s: string | undefined): string[] {
+  if (!s) return [];
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2);
+}
+
+function industryOverlap(mentorIndustry: string | undefined, jdIndustry: string | undefined): boolean {
+  if (!mentorIndustry || !jdIndustry) return false;
+  const a = mentorIndustry.toLowerCase();
+  const b = jdIndustry.toLowerCase();
+  if (a.includes(b) || b.includes(a)) return true;
+  const at = new Set(tokenize(mentorIndustry));
+  const bt = tokenize(jdIndustry);
+  return bt.some(t => at.has(t));
+}
+
+function roleAffinityScore(mentorRole: string | undefined, mentorDesignation: string | undefined, jdRole: string): number {
+  const jdTokens = tokenize(jdRole);
+  if (jdTokens.length === 0) return 0;
+  const mTokens = new Set([...tokenize(mentorRole), ...tokenize(mentorDesignation)]);
+  const hits = jdTokens.filter(t => mTokens.has(t)).length;
+  if (hits === 0) return 0;
+  return Math.min(8, hits * 3);
+}
+
+function assignTier(score: number): { tier: "L1" | "L2" | "L3" | "L4" | "L5"; tier_label: string } {
+  if (score >= 38) return { tier: "L1", tier_label: "Elite Match" };
+  if (score >= 30) return { tier: "L2", tier_label: "Strong Match" };
+  if (score >= 22) return { tier: "L3", tier_label: "Good Match" };
+  if (score >= 14) return { tier: "L4", tier_label: "Partial Match" };
+  return { tier: "L5", tier_label: "Exploratory" };
+}
+
+function senioritySignal(level: string, jdLevel: string): string {
+  const lvl = (level || "Mid");
+  const jd = (jdLevel || "Mid");
+  if (lvl.toLowerCase() === jd.toLowerCase()) return `${lvl} — matches target seniority for this role.`;
+  const diff = Math.abs(seniorityScore(lvl) - seniorityScore(jd));
+  if (diff <= 2) return `${lvl} — adjacent to target (${jd}).`;
+  return `${lvl} — differs from target seniority (${jd}).`;
+}
+
+function companySignal(c: ScoringCandidate, jdCompany: string): string {
+  if (jdCompany && c.allCompanies.some(co => co.toLowerCase().includes(jdCompany.toLowerCase()))) {
+    return `Ex-${c.company || jdCompany} — target company alumni. Strong domain authority.`;
+  }
+  const t = companyTierScore(c.company);
+  if (t.tierLabel === "Tier 1") return `${c.company} — Tier 1 company. Strong brand signal.`;
+  if (t.tierLabel === "Tier 2") return `${c.company} — Tier 2 unicorn / large MNC.`;
+  if (t.tierLabel === "Tier 3") return `${c.company} — established mid-market company.`;
+  if (t.tierLabel === "Startup") return `${c.company} — early-stage / startup background.`;
+  return c.company ? `${c.company} — limited public signal.` : "Company unknown.";
+}
+
+function sourceSignal(source: string): string {
+  if (source === "MU") return "Verified Mentor Union profile.";
+  if (source === "ALU") return "Alumni network — known graduate.";
+  return "External directory profile.";
+}
+
+// ─── Pipeline (dedup → pre-filter → score → sort/rank) ───
+
+const PIPELINE_COLORS = [
+  "bg-orange-200 text-orange-600",
+  "bg-teal-200 text-teal-600",
+  "bg-sky-200 text-sky-600",
+  "bg-purple-200 text-purple-600",
+];
+
+export function runPipeline(
+  rawCandidates: ScoringCandidate[],
+  jd: JdInfo,
+  weights: ScoringWeights,
+  matchMode: MatchMode = "balanced",
+): Mentor[] {
+  const deduplicated = deduplicateCandidates(rawCandidates);
+
+  const fRole = weightFactor(weights, "role");
+  const fSkills = weightFactor(weights, "skills");
+  const fCompany = weightFactor(weights, "company");
+  const fIndustry = weightFactor(weights, "industry");
+  const fSeniority = weightFactor(weights, "seniority");
+
+  const enRole = weights.role > 0;
+  const enSkills = weights.skills > 0;
+  const enCompany = weights.company > 0;
+  const enIndustry = weights.industry > 0;
+
+  const jdCompanyL = (jd.jdCompany || "").toLowerCase().trim();
+  const jdRoleTokens = tokenize(jd.jdRole);
+
+  const eligible: Array<{
+    c: ScoringCandidate;
+    penalty: number;
+    matched: string[];
+    missing: string[];
+    roleAff: number;
+    currentCompanyHit: boolean;
+    priorCompanyHit: boolean;
+    keywordHit: boolean;
+  }> = [];
+
+  for (const c of deduplicated) {
+    if (!c.name) continue;
+    const { matched, missing } = skillOverlap(c.skills, jd.jdSkills);
+    const indOverlap = industryOverlap(c.industry, jd.jdIndustry);
+    const roleAff = roleAffinityScore(c.role, undefined, jd.jdRole);
+    const currentCompanyHit = !!jdCompanyL && !!c.company && c.company.toLowerCase().includes(jdCompanyL);
+    const priorCompanyHit = !!jdCompanyL && !currentCompanyHit &&
+      c.allCompanies.some(co => co.toLowerCase().includes(jdCompanyL));
+    const haystack = `${c.role} ${c.industry || ""} ${c.allCompanies.join(" ")}`.toLowerCase();
+    const keywordHit = jdRoleTokens.some(t => haystack.includes(t));
+
+    const gateHits = [
+      enCompany && (currentCompanyHit || priorCompanyHit),
+      enIndustry && indOverlap,
+      enSkills && matched.length > 0,
+      enRole && (roleAff > 0 || keywordHit),
+    ];
+    const anyEnabled = enCompany || enIndustry || enSkills || enRole;
+    // Candidates carrying extra tags (e.g. previously aligned / prior sessions)
+    // are always eligible — they're proven mentors and should be surfaced.
+    const hasExtraTags = (c.extraTags?.length ?? 0) > 0;
+    const hasExternalWebRelevance = c.source === "EXT" && c.web_relevance;
+    if (anyEnabled && !hasExtraTags && !hasExternalWebRelevance && !gateHits.some(Boolean)) continue;
+
+    if ((c.source === "ALU" || c.source === "EXT") && c.last_active_days !== undefined && c.last_active_days > 730) continue;
+    let penalty = 0;
+    if (enSkills && c.skills.length === 0) penalty = -1;
+    eligible.push({ c, penalty, matched, missing, roleAff, currentCompanyHit, priorCompanyHit, keywordHit });
+  }
+
+  const scored = eligible.map(({ c, penalty, matched, missing, roleAff, currentCompanyHit, priorCompanyHit, keywordHit }) => {
+    const skillRaw = Math.min(20, matched.length * 2);
+    const skill = Math.round(skillRaw * fSkills);
+    const seniorityRaw = seniorityScore(c.seniority_level);
+    const seniority = Math.round(seniorityRaw * fSeniority);
+    const tierInfo = companyTierScore(c.company);
+    const prestige = tierInfo.pts;
+    const srcPts = sourceScore(c.source);
+    const indPtsRaw = industryOverlap(c.industry, jd.jdIndustry) ? 4 : 0;
+    const indPts = Math.round(indPtsRaw * fIndustry);
+    let roleAffWeighted = Math.round(roleAff * fRole);
+    const roleHit = enRole && (roleAff > 0 || keywordHit);
+    const companyBonusRaw = roleHit && currentCompanyHit ? 25
+      : roleHit && priorCompanyHit ? 18
+      : currentCompanyHit ? 12
+      : priorCompanyHit ? 8
+      : 0;
+    let companyBonus = Math.round(companyBonusRaw * fCompany);
+    let indPtsMode = indPts;
+    switch (matchMode) {
+      case "role":
+        roleAffWeighted = Math.min(75, Math.round(roleAffWeighted * 2.5));
+        companyBonus = Math.round(companyBonus * 0.5);
+        indPtsMode = Math.round(indPtsMode * 0.5);
+        break;
+      case "industry":
+        indPtsMode = Math.min(40, Math.round(indPtsMode * 4));
+        roleAffWeighted = Math.round(roleAffWeighted * 0.6);
+        companyBonus = Math.round(companyBonus * 0.6);
+        break;
+      case "company":
+        companyBonus = Math.round(companyBonus * 2.5);
+        roleAffWeighted = Math.round(roleAffWeighted * 0.6);
+        indPtsMode = Math.round(indPtsMode * 0.6);
+        break;
+    }
+    const total = Math.max(0, skill + seniority + prestige + srcPts + roleAffWeighted + indPtsMode + companyBonus + penalty);
+    const { tier, tier_label } = assignTier(total);
+
+    const gapCoverage = enSkills && jd.gapSkills.length > 0
+      ? c.skills.filter(s => jd.gapSkills.some(g =>
+          g.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(g.toLowerCase())
+        ))
+      : [];
+
+    const colorIdx = c.name.charCodeAt(0) % PIPELINE_COLORS.length;
+    const tags: { emoji: string; label: string }[] = [];
+    if (enCompany && jd.jdCompany && c.allCompanies.some(co => co.toLowerCase().includes(jd.jdCompany.toLowerCase()))) {
+      tags.push({ emoji: "🏢", label: "Target Company Alumni" });
+    }
+    if (enSkills && gapCoverage.length > 0) tags.push({ emoji: "🎯", label: "Covers Skill Gap" });
+    if (enCompany && tierInfo.tierLabel === "Tier 1") tags.push({ emoji: "🏆", label: "Tier 1 Company" });
+    if (c.possibleDuplicate) tags.push({ emoji: "⚠", label: "Possible duplicate" });
+    if (c.extraTags?.length) tags.push(...c.extraTags);
+
+    const m: Mentor = {
+      id: c.id,
+      name: c.name,
+      initials: c.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+      color: PIPELINE_COLORS[colorIdx],
+      role: c.role,
+      company: c.company,
+      source: c.source as MentorSource,
+      score: total,
+      scores: {
+        role: roleAff,
+        skills: skill,
+        company: prestige,
+        industry: indPts,
+        seniority,
+      },
+      layer: tier_label,
+      tier,
+      tier_label,
+      score_breakdown: { skill, seniority, prestige, source: srcPts, total },
+      match_signals: {
+        matched_skills: matched,
+        missing_skills: missing,
+        seniority_note: senioritySignal(c.seniority_level, jd.jdSeniority),
+        company_note: companySignal(c, jd.jdCompany),
+        source_note: sourceSignal(c.source),
+        gap_coverage: gapCoverage,
+      },
+      decisionTags: tags,
+      rating: c.rating ?? null,
+      reviews: c.sessions_taken ?? null,
+      outcome: Math.min(100, Math.round((total / 45) * 100)),
+      availability: "available",
+      email: c.email || "",
+      phone: c.phone || "",
+      seniority: (["Senior", "Lead", "Mid", "Staff", "VP", "Director"].includes(c.seniority_level)
+        ? c.seniority_level : "Mid") as "Mid" | "Senior" | "Lead" | "Staff",
+      linkedin: c.linkedin,
+      mentorUnion: c.source === "MU",
+      remunerationInr: c.remunerationInr,
+      platform: c.platform,
+      external_links: c.external_links,
+      sessions_taken: c.sessions_taken ?? null,
+      possibleDuplicate: c.possibleDuplicate,
+    };
+    return m;
+  });
+
+  const sourceRankMap: Record<"MU" | "ALU" | "EXT", 1 | 2 | 3> = { MU: 1, ALU: 2, EXT: 3 };
+
+  // Per-source quota: guarantee each present source gets a fair share of the
+  // TOTAL_LIMIT slots so MU/ALU score boosts don't crowd out EXT results.
+  const sortedAll = scored.slice().sort((a, b) => b.score - a.score);
+  const bySource: Record<string, Mentor[]> = {};
+  for (const m of sortedAll) {
+    const k = m.source as string;
+    (bySource[k] ||= []).push(m);
+  }
+  const presentSources = Object.keys(bySource);
+  const perSourceQuota = presentSources.length > 0
+    ? Math.ceil(TOTAL_LIMIT / presentSources.length)
+    : TOTAL_LIMIT;
+  const picked = new Set<string>();
+  const finalList: Mentor[] = [];
+  for (const src of presentSources) {
+    for (const m of bySource[src].slice(0, perSourceQuota)) {
+      if (finalList.length >= TOTAL_LIMIT) break;
+      picked.add(m.id);
+      finalList.push(m);
+    }
+  }
+  // Fill remaining slots by absolute score.
+  if (finalList.length < TOTAL_LIMIT) {
+    for (const m of sortedAll) {
+      if (finalList.length >= TOTAL_LIMIT) break;
+      if (picked.has(m.id)) continue;
+      picked.add(m.id);
+      finalList.push(m);
+    }
+  }
+
+  return finalList
+    .sort((a, b) => b.score - a.score)
+    .map((m, i) => ({
+      ...m,
+      sourceRank: sourceRankMap[m.source as "MU" | "ALU" | "EXT"] ?? 3,
+      rank: i + 1,
+    }));
+}

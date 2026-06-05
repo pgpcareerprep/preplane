@@ -1,0 +1,3 @@
+INSERT INTO public.lmp_guide_manual (title, url, description)
+SELECT 'LMP Process Manual', '', '<p><strong>What can you do in a LMP?</strong></p><ol><li>Confirm selection process with Outreach POC.</li><li>Share Prep Guide and assign mentor (if timeline permits).</li><li>Identify relevant alumni and collect transcripts/resources.</li><li>Capture R1 insights from students in group.</li><li>Confirm upcoming rounds (PPT/campus/assignment) and provide support if needed.</li><li>Confirm process completion and update tracker sheet.</li></ol>'
+WHERE NOT EXISTS (SELECT 1 FROM public.lmp_guide_manual);

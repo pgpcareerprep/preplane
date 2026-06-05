@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS tg_lmp_process_delete_sheet_sync ON public.lmp_processes;

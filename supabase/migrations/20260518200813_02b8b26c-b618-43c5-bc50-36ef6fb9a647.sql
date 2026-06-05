@@ -1,0 +1,1 @@
+ALTER TABLE public.lmp_processes ADD COLUMN IF NOT EXISTS mentor_rating numeric;

@@ -1,0 +1,1 @@
+ALTER TABLE public.lmp_checklists ADD COLUMN IF NOT EXISTS notes_meta jsonb NOT NULL DEFAULT '[]'::jsonb;

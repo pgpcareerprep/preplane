@@ -1,0 +1,293 @@
+// Live mentor profile enrichment.
+//
+// Given a mentor id (or ad-hoc name/role/company/linkedin), fetches public
+// info via Firecrawl (LinkedIn scrape + web search fallback) and structures
+// it through the Lovable AI gateway (Gemini Flash) into a stable JSON shape:
+//
+//   {
+//     overview: string,            // 2-3 sentence bio
+//     experience: [{ role, company, years }],
+//     languages: string[],
+//     decisionRationale: { rationale: string, tags: string[] },
+//     remuneration: { min_inr: number|null, max_inr: number|null, notes: string },
+//     sources: string[],
+//   }
+//
+// Results are cached on public.mentors.enrichment for 30 days so repeated
+// drawer opens don't burn Firecrawl credits. Never returns mock data — if
+// no source material is available, fields are left null/empty.
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { buildCorsHeaders } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
+
+const FIRECRAWL = "https://api.firecrawl.dev/v2";
+const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const AI_MODEL = "google/gemini-3-flash-preview";
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+type Enrichment = {
+  overview: string;
+  experience: { role: string; company: string; years: string }[];
+  languages: string[];
+  decisionRationale: { rationale: string; tags: string[] };
+  remuneration: { min_inr: number | null; max_inr: number | null; notes: string };
+  sources: string[];
+  fetched_at: string;
+};
+
+function jsonResp(body: unknown, status: number, cors: Record<string, string>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
+}
+
+async function firecrawlScrape(url: string, apiKey: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${FIRECRAWL}/scrape`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const md = data?.data?.markdown ?? data?.markdown ?? null;
+    return typeof md === "string" && md.length > 50 ? md.slice(0, 8000) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function firecrawlSearch(query: string, apiKey: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${FIRECRAWL}/search`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        limit: 4,
+        scrapeOptions: { formats: ["markdown"] },
+      }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const results: any[] = data?.data?.web ?? data?.data ?? data?.web ?? [];
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const chunks = results
+      .map((res: any) => {
+        const title = res.title ?? "";
+        const url = res.url ?? "";
+        const md = (res.markdown ?? res.description ?? "").slice(0, 1500);
+        return `### ${title}\n${url}\n${md}`;
+      })
+      .join("\n\n");
+    return chunks.slice(0, 8000);
+  } catch {
+    return null;
+  }
+}
+
+async function structureWithAi(
+  apiKey: string,
+  ctx: { name: string; role: string; company: string; sources: string[]; corpus: string },
+): Promise<Enrichment | null> {
+  const system = `You extract structured mentor profile data from raw public web content.
+Strict rules:
+- ONLY use facts literally present in the provided source material.
+- Never invent companies, roles, years, languages, or salary numbers.
+- If a field is not supported by the sources, return an empty string, empty array, or null.
+- "remuneration" should reflect typical compensation for the mentor's role/seniority based on the sources, in INR. Leave numbers null if no signal.
+- "decisionRationale.rationale" is a 1-2 sentence explanation of why this mentor is a strong fit, grounded in the sources.
+- "languages" must only include languages explicitly mentioned in the sources.
+Return JSON only.`;
+
+  const user = `Mentor: ${ctx.name}
+Stated role: ${ctx.role}
+Stated company: ${ctx.company}
+Source URLs: ${ctx.sources.join(", ") || "(none)"}
+
+SOURCE MATERIAL:
+${ctx.corpus || "(no source material available)"}
+
+Output JSON schema:
+{
+  "overview": "string (2-3 sentences, factual)",
+  "experience": [{ "role": "string", "company": "string", "years": "string e.g. '2020 - 2023' or '3 yrs'" }],
+  "languages": ["string"],
+  "decisionRationale": { "rationale": "string", "tags": ["string"] },
+  "remuneration": { "min_inr": number|null, "max_inr": number|null, "notes": "string" }
+}`;
+
+  try {
+    const r = await fetch(AI_GATEWAY, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) {
+      console.warn("[enrich] AI gateway failed", r.status, await r.text());
+      return null;
+    }
+    const data = await r.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content);
+    return {
+      overview: String(parsed.overview ?? "").trim(),
+      experience: Array.isArray(parsed.experience)
+        ? parsed.experience
+            .map((e: any) => ({
+              role: String(e?.role ?? "").trim(),
+              company: String(e?.company ?? "").trim(),
+              years: String(e?.years ?? "").trim(),
+            }))
+            .filter((e: any) => e.role || e.company)
+            .slice(0, 8)
+        : [],
+      languages: Array.isArray(parsed.languages)
+        ? parsed.languages.map((l: any) => String(l).trim()).filter(Boolean).slice(0, 6)
+        : [],
+      decisionRationale: {
+        rationale: String(parsed.decisionRationale?.rationale ?? "").trim(),
+        tags: Array.isArray(parsed.decisionRationale?.tags)
+          ? parsed.decisionRationale.tags.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 6)
+          : [],
+      },
+      remuneration: {
+        min_inr: Number.isFinite(Number(parsed.remuneration?.min_inr)) ? Number(parsed.remuneration.min_inr) : null,
+        max_inr: Number.isFinite(Number(parsed.remuneration?.max_inr)) ? Number(parsed.remuneration.max_inr) : null,
+        notes: String(parsed.remuneration?.notes ?? "").trim(),
+      },
+      sources: ctx.sources,
+      fetched_at: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.warn("[enrich] AI structure failed", e);
+    return null;
+  }
+}
+
+Deno.serve(async (req: Request) => {
+  const cors = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+
+  const auth = await requireAuth(req, cors);
+  if ("error" in auth) return auth.error;
+
+  let body: any;
+  try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400, cors); }
+
+  const mentorId: string | null = body?.mentorId ?? null;
+  const refresh = body?.refresh === true;
+
+  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!FIRECRAWL_API_KEY || !LOVABLE_API_KEY) {
+    return jsonResp({ error: "Missing FIRECRAWL_API_KEY or LOVABLE_API_KEY" }, 500, cors);
+  }
+
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+
+  // Resolve mentor row (cache lookup) or fall back to ad-hoc payload.
+  let name: string = String(body?.name ?? "").trim();
+  let role: string = String(body?.role ?? "").trim();
+  let company: string = String(body?.company ?? "").trim();
+  let linkedin: string | null = body?.linkedin ?? null;
+  let existing: any = null;
+
+  let mentorRowFound = false;
+  if (mentorId) {
+    const { data, error } = await admin
+      .from("mentors")
+      .select("id, name, role, company, linkedin, enrichment, enrichment_updated_at")
+      .eq("id", mentorId)
+      .maybeSingle();
+    if (error) return jsonResp({ error: error.message }, 500, cors);
+    if (data) {
+      mentorRowFound = true;
+      existing = data;
+      name = name || data.name || "";
+      role = role || data.role || "";
+      company = company || data.company || "";
+      linkedin = linkedin || data.linkedin || null;
+
+      if (!refresh && data.enrichment && data.enrichment_updated_at) {
+        const age = Date.now() - new Date(data.enrichment_updated_at).getTime();
+        if (age < CACHE_TTL_MS) {
+          return jsonResp({ enrichment: data.enrichment, cached: true }, 200, cors);
+        }
+      }
+    }
+    // If row not found, fall through and enrich ad-hoc using the supplied
+    // name/role/company/linkedin from the request body (external/shortlist
+    // mentors live outside the `mentors` table).
+  }
+
+
+  if (!name) return jsonResp({ error: "Missing mentor name" }, 400, cors);
+
+  // Build source material.
+  const sources: string[] = [];
+  const corpora: string[] = [];
+
+  if (linkedin) {
+    const li = linkedin.startsWith("http") ? linkedin : `https://www.linkedin.com/in/${linkedin.replace(/^\/+/, "")}`;
+    const md = await firecrawlScrape(li, FIRECRAWL_API_KEY);
+    if (md) { sources.push(li); corpora.push(`# LinkedIn (${li})\n${md}`); }
+  }
+
+  // Always do a web search to broaden coverage.
+  const q = [name, role, company].filter(Boolean).join(" ");
+  if (q) {
+    const md = await firecrawlSearch(`${q} profile`, FIRECRAWL_API_KEY);
+    if (md) { sources.push(`search:${q}`); corpora.push(`# Web search results\n${md}`); }
+  }
+
+  const enrichment = await structureWithAi(LOVABLE_API_KEY, {
+    name, role, company,
+    sources,
+    corpus: corpora.join("\n\n---\n\n"),
+  });
+
+  if (!enrichment) {
+    return jsonResp({
+      enrichment: {
+        overview: "",
+        experience: [],
+        languages: [],
+        decisionRationale: { rationale: "", tags: [] },
+        remuneration: { min_inr: null, max_inr: null, notes: "" },
+        sources,
+        fetched_at: new Date().toISOString(),
+      },
+      cached: false,
+      empty: true,
+    }, 200, cors);
+  }
+
+  if (mentorId && mentorRowFound && existing) {
+    try {
+      await admin.from("mentors").update({
+        enrichment,
+        enrichment_updated_at: new Date().toISOString(),
+      }).eq("id", mentorId);
+    } catch (e) {
+      console.warn("[enrich] cache write failed", e);
+    }
+  }
+
+
+  return jsonResp({ enrichment, cached: false }, 200, cors);
+});

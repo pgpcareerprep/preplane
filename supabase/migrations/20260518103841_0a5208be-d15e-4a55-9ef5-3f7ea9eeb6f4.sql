@@ -1,0 +1,2 @@
+ALTER TABLE public.copilot_threads ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_copilot_threads_lmp ON public.copilot_threads ((metadata->>'lmp_id'));

@@ -1,0 +1,1 @@
+ALTER TABLE public.lmp_processes DROP CONSTRAINT IF EXISTS lmp_processes_company_role_key;

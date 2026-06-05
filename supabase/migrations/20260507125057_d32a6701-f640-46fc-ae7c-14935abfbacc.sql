@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lmp_candidates_unique ON public.lmp_candidates (lmp_id, lower(student_name));

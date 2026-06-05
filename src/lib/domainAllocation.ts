@@ -1,0 +1,123 @@
+import { type Domain, type Process, isConverted } from "@/lib/lmpProcessQueries";
+
+/**
+ * POC → primary domain map, built at call time from live `poc_profiles`
+ * (see `usePocPrimaryDomainMap` for the React-Query hook).
+ *
+ * The previous module-level `POC_PRIMARY_DOMAIN` constant was sourced from
+ * the now-empty mock `POCS` / `DOMAINS` arrays and silently classified every
+ * LMP as in-domain. All helpers now take an explicit map so callers must
+ * provide live data.
+ */
+export type PocPrimaryDomainMap = Record<string, string>;
+
+export function pocPrimaryDomain(
+  name: string,
+  map: PocPrimaryDomainMap,
+): string | undefined {
+  return map[name];
+}
+
+/** Tag an LMP as cross-domain if its prep POC's primary domain ≠ LMP domain. */
+export function isCrossDomain(r: Process, map: PocPrimaryDomainMap): boolean {
+  const pd = map[r.prepPoc];
+  return !!pd && pd.toLowerCase() !== (r.domain ?? "").toLowerCase();
+}
+
+export type DomainAllocation = {
+  domain: Domain;
+  total: number;
+  inDomain: number;
+  cross: number;
+  inDomainConvPct: number;
+  crossConvPct: number;
+};
+
+export function domainAllocation(
+  rows: Process[],
+  map: PocPrimaryDomainMap,
+): DomainAllocation[] {
+  const domains = Array.from(new Set(rows.map((r) => r.domain).filter(Boolean))) as Domain[];
+  return domains.map((d) => {
+    const list = rows.filter((r) => r.domain === d);
+    const inD = list.filter((r) => !isCrossDomain(r, map));
+    const crD = list.filter((r) => isCrossDomain(r, map));
+    const pct = (arr: Process[]) =>
+      arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+    return {
+      domain: d,
+      total: list.length,
+      inDomain: inD.length,
+      cross: crD.length,
+      inDomainConvPct: +pct(inD).toFixed(1),
+      crossConvPct: +pct(crD).toFixed(1),
+    };
+  });
+}
+
+export type PocPurityRow = {
+  poc: string;
+  primaryDomain: Domain;
+  inDomainCount: number;
+  crossCount: number;
+  inDomainConvPct: number;
+  crossConvPct: number;
+};
+
+export function pocPurityMatrix(
+  rows: Process[],
+  map: PocPrimaryDomainMap,
+): PocPurityRow[] {
+  const names = new Set<string>();
+  rows.forEach((r) => { if (r.prepPoc) names.add(r.prepPoc); });
+  const result: PocPurityRow[] = [];
+  names.forEach((name) => {
+    const primary = map[name];
+    if (!primary) return;
+    const owned = rows.filter((r) => r.prepPoc === name);
+    const inD = owned.filter((r) => r.domain === primary);
+    const crD = owned.filter((r) => r.domain !== primary);
+    const conv = (arr: Process[]) =>
+      arr.length ? +((arr.filter(isConverted).length / arr.length) * 100).toFixed(0) : 0;
+    result.push({
+      poc: name,
+      primaryDomain: primary as Domain,
+      inDomainCount: inD.length,
+      crossCount: crD.length,
+      inDomainConvPct: conv(inD),
+      crossConvPct: conv(crD),
+    });
+  });
+  return result.sort((a, b) => b.inDomainCount + b.crossCount - (a.inDomainCount + a.crossCount));
+}
+
+export function allocationKpis(rows: Process[], map: PocPrimaryDomainMap) {
+  const total = rows.length;
+  const cross = rows.filter((r) => isCrossDomain(r, map)).length;
+  const crossPct = total ? (cross / total) * 100 : 0;
+  const inD = rows.filter((r) => !isCrossDomain(r, map));
+  const crD = rows.filter((r) => isCrossDomain(r, map));
+  const conv = (arr: Process[]) =>
+    arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+  const inDomainConv = conv(inD);
+  const crossConv = conv(crD);
+  const gap = inDomainConv - crossConv;
+
+  const alloc = domainAllocation(rows, map);
+  const mostMis = [...alloc]
+    .filter((d) => d.total > 0)
+    .sort((a, b) => (b.cross / Math.max(1, b.total)) - (a.cross / Math.max(1, a.total)))[0];
+
+  const purity = pocPurityMatrix(rows, map);
+  const bestCross = [...purity]
+    .filter((p) => p.crossCount >= 2)
+    .sort((a, b) => b.crossConvPct - a.crossConvPct)[0];
+
+  return {
+    total, cross, crossPct,
+    inDomainConv, crossConv, gap,
+    mostMisallocatedDomain: mostMis ? mostMis.domain : "—",
+    mostMisallocatedPct: mostMis ? (mostMis.cross / Math.max(1, mostMis.total)) * 100 : 0,
+    bestCrossPoc: bestCross ? `${bestCross.poc} · ${bestCross.crossConvPct}%` : "—",
+  };
+}

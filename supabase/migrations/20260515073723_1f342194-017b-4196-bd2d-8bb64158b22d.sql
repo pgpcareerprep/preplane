@@ -1,0 +1,1 @@
+ALTER VIEW public.lmp_full_view SET (security_invoker = true);
