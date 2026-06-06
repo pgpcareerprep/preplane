@@ -9,7 +9,7 @@ import {
 import { checkPermission } from "../_shared/rbac.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
@@ -3201,14 +3201,6 @@ Deno.serve(async (req: Request) => {
       // If the AI wants to call tools
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         telemetry.tool_rounds++;
-        // Add the assistant message with tool_calls
-        aiMessages.push({
-          role: "assistant",
-          content: msg.content || "",
-          tool_calls: msg.tool_calls,
-        });
-        telemetry.tool_rounds++;
-        // Add the assistant message with tool_calls
         aiMessages.push({
           role: "assistant",
           content: msg.content || "",

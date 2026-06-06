@@ -445,7 +445,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   };
 }
 
-interface VoiceMessage { role: "user" | "assistant"; content: string; }
+interface VoiceMessage { role: "user" | "assistant"; content: string; blocks?: any[]; }
 interface PendingAction { entity: string; target_name: string; field: string; value: string; }
 
 interface VoiceConversationOverlayProps {
@@ -464,6 +464,56 @@ interface VoiceConversationOverlayProps {
   onPersistMessage?: (threadId: string, msg: any) => Promise<void> | void;
 }
 
+function renderVoiceBlocks(blocks: any[]) {
+  const notable = blocks.filter(b =>
+    b.type === "count" ||
+    (b.type === "lmp_list" && (b.rows as any[])?.length) ||
+    (b.type === "analytics" && b.data?.distribution) ||
+    b.type === "pending_action"
+  );
+  if (!notable.length) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-1 border-t border-black/10 pt-1.5 text-[11px]">
+      {notable.map((b, i) => {
+        if (b.type === "count") return (
+          <span key={i} className="text-n600">
+            <strong>{b.count}</strong> {b.entity}(s)
+            {(b.sample as string[])?.length > 0 && (
+              <span className="text-n400"> — {(b.sample as string[]).slice(0, 3).join(", ")}</span>
+            )}
+          </span>
+        );
+        if (b.type === "lmp_list") return (
+          <div key={i} className="text-n600 space-y-0.5">
+            {(b.rows as any[]).slice(0, 5).map((r: any, j: number) => (
+              <div key={j} className="flex gap-1 justify-between">
+                <span className="truncate">{r.company} – {r.role}</span>
+                <span className="text-n400 shrink-0">{r.status}</span>
+              </div>
+            ))}
+            {b.total > 5 && <span className="text-n400">+{b.total - 5} more</span>}
+          </div>
+        );
+        if (b.type === "analytics" && b.data?.distribution) return (
+          <div key={i} className="text-n600 space-y-0.5">
+            {Object.entries(b.data.distribution as Record<string, number>).slice(0, 6).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-2">
+                <span>{k}</span><strong>{v}</strong>
+              </div>
+            ))}
+          </div>
+        );
+        if (b.type === "pending_action") return (
+          <div key={i} className="bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 text-orange-800">
+            {b.summary}
+          </div>
+        );
+        return null;
+      })}
+    </div>
+  );
+}
+
 const AFFIRM = /\b(yes|yep|yeah|sure|do it|go ahead|confirm|ok|okay|please do|haan|haa|theek hai|kar do|of course|absolutely)\b/i;
 const NEGATE = /\b(no|nope|cancel|stop|don't|do not|never mind|nevermind|nahi|nahin|abort|skip)\b/i;
 
@@ -475,6 +525,8 @@ export function VoiceConversationOverlay({
   const [thinking, setThinking] = useState(false);
   const [lastSpoken, setLastSpoken] = useState("");
   const [muted, setMuted] = useState(false);
+  const [visibleMessages, setVisibleMessages] = useState<VoiceMessage[]>([]);
+  const scrollEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<VoiceMessage[]>([]);
   const handlingRef = useRef(false);
   const autoListenRef = useRef(true);
@@ -506,6 +558,10 @@ export function VoiceConversationOverlay({
     viewAsRole: viewAsRole || null,
   }), [userName, role, userId, userEmail, viewAsUserName, viewAsRole]);
 
+  useEffect(() => {
+    scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [visibleMessages]);
+
   const callVoiceCopilot = useCallback(async (userText: string) => {
     // Cancel any in-flight request (barge-in)
     abortRef.current?.abort();
@@ -528,6 +584,7 @@ export function VoiceConversationOverlay({
           pendingActionRef.current = null;
           const spoken = stripForVoice(data.spoken || "Done.");
           messagesRef.current.push({ role: "assistant", content: spoken });
+          setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
           setThinking(false);
           await speak(spoken);
         } catch (err) {
@@ -540,6 +597,7 @@ export function VoiceConversationOverlay({
         pendingActionRef.current = null;
         const spoken = "Cancelled.";
         messagesRef.current.push({ role: "assistant", content: spoken });
+        setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
         await speak(spoken);
         return;
       }
@@ -547,6 +605,7 @@ export function VoiceConversationOverlay({
     }
 
     messagesRef.current = [...messagesRef.current, { role: "user", content: userText }];
+    setVisibleMessages(prev => [...prev, { role: "user", content: userText }]);
     setThinking(true);
     try {
       const resp = await fetch(VOICE_COPILOT_URL, {
@@ -562,6 +621,7 @@ export function VoiceConversationOverlay({
       const spoken = stripForVoice(data.spoken || "Sorry, I didn't catch that.");
       if (data.pendingAction) pendingActionRef.current = data.pendingAction;
       messagesRef.current.push({ role: "assistant", content: spoken });
+      setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken, blocks: data.blocks || [] }]);
       setThinking(false);
       await speak(spoken);
     } catch (err) {
@@ -602,8 +662,10 @@ export function VoiceConversationOverlay({
     messagesRef.current = [];
     setLastSpoken("");
     setTranscript("");
+    setVisibleMessages([]);
     const greet = "Hi! I'm listening. What would you like to do?";
     setLastSpoken(greet);
+    setVisibleMessages([{ role: "assistant", content: greet }]);
     if (!muted) {
       void speakWithEleven(greet, {
         onStart: () => setSpeaking(true),
@@ -693,15 +755,30 @@ export function VoiceConversationOverlay({
            "Tap the mic to speak"}
         </div>
 
-        {transcript && (
-          <div className="w-full bg-red-50/60 border border-red-100 rounded-xl p-3 text-[13px] text-n800 italic">
-            "{transcript}"
-          </div>
-        )}
-
-        {lastSpoken && !transcript && (
-          <div className="w-full bg-n50 border border-n100 rounded-xl p-3 text-[13px] text-n700 max-h-[120px] overflow-y-auto">
-            {lastSpoken}
+        {/* Conversation history */}
+        {(visibleMessages.length > 0 || transcript) && (
+          <div className="w-full flex flex-col gap-2 max-h-[200px] overflow-y-auto">
+            {visibleMessages.map((msg, idx) => (
+              <div key={idx} className={cn("flex w-full", msg.role === "user" ? "justify-end" : "justify-start")}>
+                <div className={cn(
+                  "max-w-[90%] px-3 py-2 rounded-2xl text-[12.5px] leading-snug",
+                  msg.role === "user"
+                    ? "bg-orange-100 text-orange-900 rounded-tr-sm"
+                    : "bg-n100 text-n800 rounded-tl-sm"
+                )}>
+                  {msg.content}
+                  {!!msg.blocks?.length && renderVoiceBlocks(msg.blocks)}
+                </div>
+              </div>
+            ))}
+            {transcript && (
+              <div className="flex justify-end w-full">
+                <div className="max-w-[90%] px-3 py-2 rounded-2xl rounded-tr-sm text-[12.5px] bg-orange-50 text-orange-700 italic border border-dashed border-orange-200">
+                  {transcript}…
+                </div>
+              </div>
+            )}
+            <div ref={scrollEndRef} />
           </div>
         )}
 
