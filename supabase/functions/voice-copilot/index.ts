@@ -11,15 +11,15 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 // Inline CORS headers — the npm:@supabase/supabase-js@2/cors subpath
 // does not exist in the published package and throws at runtime.
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const AI_URL = "https://api.groq.com/openai/v1/chat/completions";
-// Voice path uses Groq's Llama 3.3 70B — ultra-fast inference for short structured queries.
-const MODEL = "llama-3.3-70b-versatile";
-const MAX_ROUNDS = 4;
+const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+// Voice path uses Gemini 2.0 Flash via the OpenAI-compat endpoint — fast and already configured.
+const MODEL = "gemini-2.0-flash";
+const MAX_ROUNDS = 8;
 
 // Request-scoped view-as flag. Set per-request before runTool runs.
 // View-as is always read-only — runTool will refuse prepare_write while true.
@@ -578,8 +578,8 @@ async function executePending(
 
 // ─── LLM ───────────────────────────────────────────────────────────────────
 async function callModel(messages: any[], forceTool = false) {
-  const key = Deno.env.get("GROQ_API_KEY");
-  if (!key) throw new Error("GROQ_API_KEY not configured");
+  const key = Deno.env.get("GEMINI_API_KEY");
+  if (!key) throw new Error("GEMINI_API_KEY not configured");
   const t0 = Date.now();
   const promptText = messages.map((m: any) => typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "")).join("\n");
   let resp: Response;
@@ -599,7 +599,7 @@ async function callModel(messages: any[], forceTool = false) {
     });
   } catch (e) {
     logAiUsage({
-      userId: CURRENT_VOICE_USER_ID, feature: "voice", model: MODEL,
+      userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: MODEL,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0, status: "error",
       errorMessage: (e as Error).message,
@@ -616,11 +616,10 @@ async function callModel(messages: any[], forceTool = false) {
       userId: CURRENT_VOICE_USER_ID, feature: "voice", model: MODEL,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0,
-      status: resp.status === 429 ? "rate_limited" : resp.status === 402 ? "credits_exhausted" : "error",
+      status: resp.status === 429 ? "rate_limited" : "error",
       errorMessage: errText.slice(0, 200),
     });
     if (resp.status === 429) throw new Error("Rate limited. Please retry in a moment.");
-    if (resp.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace settings.");
     throw new Error(`AI ${resp.status}: ${errText}`);
   }
   const data = await resp.json();
@@ -628,7 +627,7 @@ async function callModel(messages: any[], forceTool = false) {
   const pt = Number(usage.prompt_tokens) || estimateTokens(promptText);
   const rt = Number(usage.completion_tokens) || estimateTokens(JSON.stringify(data?.choices?.[0]?.message ?? ""));
   logAiUsage({
-    userId: CURRENT_VOICE_USER_ID, feature: "voice", model: MODEL,
+    userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: MODEL,
     promptTokens: pt, responseTokens: rt,
     totalTokens: Number(usage.total_tokens) || (pt + rt),
     latencyMs: Date.now() - t0, status: "ok",
@@ -637,13 +636,28 @@ async function callModel(messages: any[], forceTool = false) {
 }
 
 
-async function runTool(name: string, args: any): Promise<{ result: any; pending?: PendingAction }> {
+async function runTool(name: string, args: any): Promise<{ result: any; pending?: PendingAction; block?: any }> {
   switch (name) {
-    case "list_entities": return { result: await execListEntities(args) };
-    case "resolve_entity": return { result: await execResolveEntity(args) };
-    case "search_lmp_records": return { result: await execSearchLmp(args) };
-    case "get_student_profile": return { result: await execStudentProfile(args) };
-    case "get_analytics": return { result: await execAnalytics(args) };
+    case "list_entities": {
+      const result = await execListEntities(args);
+      return { result, block: { type: "count", entity: args.entity_type, count: result.count, sample: result.sample } };
+    }
+    case "resolve_entity": {
+      const result = await execResolveEntity(args);
+      return { result, block: { type: "entity_lookup", query: args.query, result } };
+    }
+    case "search_lmp_records": {
+      const result = await execSearchLmp(args);
+      return { result, block: result.total > 0 ? { type: "lmp_list", rows: result.rows, total: result.total } : undefined };
+    }
+    case "get_student_profile": {
+      const result = await execStudentProfile(args);
+      return { result, block: !result.error ? { type: "student_profile", data: result } : undefined };
+    }
+    case "get_analytics": {
+      const result = await execAnalytics(args);
+      return { result, block: { type: "analytics", metric: args.metric, data: result } };
+    }
     case "prepare_write": {
       const pending = args as PendingAction;
       if (CURRENT_VIEW_AS.impersonating) {
@@ -663,6 +677,7 @@ async function runTool(name: string, args: any): Promise<{ result: any; pending?
       return {
         result: { staged: true, current: pending._current || null, summary: summarisePending(pending) + ". Should I go ahead?" },
         pending,
+        block: { type: "pending_action", action: pending.action, summary: summarisePending(pending) },
       };
     }
     default:
@@ -757,6 +772,7 @@ Deno.serve(async (req) => {
     const convo: any[] = [{ role: "system", content: sysPrompt }, ...messages];
     let pendingAction: PendingAction | null = null;
     let lastSpoken = "";
+    const responseBlocks: any[] = [];
 
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
     const FORCE = /\b(how many|count|list|show|all|total|create|add|assign|update|change|set|delete|remove|status|conversion|workload|domain|ongoing|tell me|find|who|what|recommend|progress|performance|how is|how's|how are|update on|status of|doing|load|active|working on|kriti|kirti|my|me|mine|today)\b/i;
@@ -804,8 +820,9 @@ Deno.serve(async (req) => {
         try { args = JSON.parse(tc.function?.arguments || "{}"); } catch { /* noop */ }
         const tTool = performance.now();
         try {
-          const { result, pending } = await runTool(name, args);
+          const { result, pending, block } = await runTool(name, args);
           if (pending) pendingAction = pending;
+          if (block) responseBlocks.push(block);
           userLog.event("tool_result", {
             round,
             tool: name,
@@ -845,7 +862,7 @@ Deno.serve(async (req) => {
       ms: Math.round(performance.now() - t0),
     });
 
-    return new Response(JSON.stringify({ spoken: lastSpoken, pendingAction }), {
+    return new Response(JSON.stringify({ spoken: lastSpoken, pendingAction, blocks: responseBlocks }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

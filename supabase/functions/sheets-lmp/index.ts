@@ -4,7 +4,7 @@ import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
@@ -247,6 +247,7 @@ Deno.serve(async (req: Request) => {
   });
   const batchGet = (ranges: string[]) => sheetsClient.batchGet(ranges, "UNFORMATTED_VALUE");
   const batchUpdate = (data: { range: string; values: unknown[][] }[]) => sheetsClient.batchUpdate(data);
+
   const cachedBatchGet = async (ranges: string[]) => {
     const key = ranges.join("||");
     const cached = rangeCache.get(key);
@@ -280,7 +281,7 @@ Deno.serve(async (req: Request) => {
   async function getSheetIdByTitle(tabTitle: string): Promise<number> {
     const cached = sheetIdByTitleCache.get(tabTitle);
     if (cached !== undefined) return cached;
-    const res = await fetch(`${baseUrl}?fields=sheets.properties`, { headers: gHeaders });
+    const res = await sheetsClient.rawFetch(`${baseUrl}?fields=sheets.properties`);
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`getSheetIdByTitle [${res.status}]: ${txt.slice(0, 300)}`);
@@ -340,9 +341,8 @@ Deno.serve(async (req: Request) => {
         },
       ],
     };
-    const insRes = await fetch(`${baseUrl}:batchUpdate`, {
+    const insRes = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
       method: "POST",
-      headers: gHeaders,
       body: JSON.stringify(insertReqBody),
     });
     if (!insRes.ok) {
@@ -365,7 +365,7 @@ Deno.serve(async (req: Request) => {
         if (metadataCache && Date.now() - metadataCache.ts < METADATA_CACHE_MS) {
           return jsonOk(metadataCache.data);
         }
-        const res = await fetch(`${baseUrl}?fields=sheets.properties`, { headers: gHeaders });
+        const res = await sheetsClient.rawFetch(`${baseUrl}?fields=sheets.properties`);
         if (!res.ok) {
           const err = new Error(`metadata [${res.status}]: ${await res.text()}`);
           if (res.status === 429 && metadataCache) return jsonOk({ ...(metadataCache.data as Record<string, unknown>), stale: true });
@@ -680,11 +680,10 @@ Deno.serve(async (req: Request) => {
               const stampRow = headerRow + rowIndex;
               const colLetter = colIndexToLetter(lmpIdCol);
               try {
-                await fetch(
-                  `${GATEWAY_URL}/spreadsheets/${SPREADSHEET_ID}/values/'${tab}'!${colLetter}${stampRow}?valueInputOption=USER_ENTERED`,
+                await sheetsClient.rawFetch(
+                  `${baseUrl}/values/'${tab}'!${colLetter}${stampRow}?valueInputOption=USER_ENTERED`,
                   {
                     method: "PUT",
-                    headers: gHeaders,
                     body: JSON.stringify({ values: [[lmpIdFromFindBy]] }),
                   },
                 );
@@ -987,7 +986,7 @@ Deno.serve(async (req: Request) => {
         // Resolve the numeric sheetId (gid) for the tab.
         let sheetIdNum: number | null = null;
         try {
-          const res = await fetch(`${baseUrl}?fields=sheets.properties`, { headers: gHeaders });
+          const res = await sheetsClient.rawFetch(`${baseUrl}?fields=sheets.properties`);
           if (res.ok) {
             const data = await res.json();
             const match = (data.sheets || []).find((s: any) => s.properties?.title === tab);
@@ -1013,9 +1012,8 @@ Deno.serve(async (req: Request) => {
             },
           }],
         };
-        const delRes = await fetch(`${baseUrl}:batchUpdate`, {
+        const delRes = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
           method: "POST",
-          headers: gHeaders,
           body: JSON.stringify(reqBody),
         });
         if (!delRes.ok) {
