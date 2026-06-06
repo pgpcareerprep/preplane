@@ -132,9 +132,10 @@ export function createSheetsClient(opts: SheetsClientOpts): SheetsClient {
     baseUrl,
     headers,
     async batchGet(ranges, renderOption = "FORMATTED_VALUE") {
+      const token = await getGoogleAccessToken([SHEETS_SCOPE]);
       const params = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join("&");
-      const url = `${baseUrl}/values:batchGet?${params}&valueRenderOption=${renderOption}&key=${apiKey}`;
-      const res = await attempt(url, { headers }, "batchGet");
+      const url = `${baseUrl}/values:batchGet?${params}&valueRenderOption=${renderOption}`;
+      const res = await attempt(url, { headers: { ...headers, Authorization: `Bearer ${token}` } }, "batchGet");
       const data = await res.json();
       const out: Record<string, string[][]> = {};
       for (const vr of data.valueRanges || []) out[vr.range] = vr.values || [];
