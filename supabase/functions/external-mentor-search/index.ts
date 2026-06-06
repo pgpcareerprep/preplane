@@ -11,10 +11,10 @@
 // Returns the same envelope as before — `{ mentors: [...] }` — with extra
 // optional fields: email, phone, years_experience, pricing, source_url.
 
-import { buildCorsHeaders } from "../_shared/cors.ts";
+import { buildCorsHeaders, BASE_CORS_HEADERS, DEFAULT_ORIGIN } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 
-const corsHeaders: Record<string, string> = buildCorsHeaders(new Request("https://lmpmagic.lovable.app"));
+const corsHeaders: Record<string, string> = { ...BASE_CORS_HEADERS, "Access-Control-Allow-Origin": DEFAULT_ORIGIN };
 
 type Body = {
   role?: string;
