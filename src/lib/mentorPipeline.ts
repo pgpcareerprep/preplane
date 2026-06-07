@@ -161,7 +161,18 @@ export function deduplicateCandidates(candidates: ScoringCandidate[]): ScoringCa
     if (seen.has(key)) {
       const existing = seen.get(key)!;
       const mergedTags = [...(existing.extraTags ?? []), ...(c.extraTags ?? [])];
+      // When an EXT candidate overlaps with a higher-priority MU/ALU entry, tag the
+      // surviving record so the UI can still indicate it was found externally.
+      if (c.source === "EXT" && priority[existing.source] > priority[c.source]) {
+        if (!mergedTags.some((t) => t.label === "Also on External")) {
+          mergedTags.push({ emoji: "🌐", label: "Also on External" });
+        }
+      }
       if (priority[c.source] > priority[existing.source]) {
+        // Higher-priority source absorbs lower; preserve an external tag if merging away EXT
+        if (existing.source === "EXT" && !mergedTags.some((t) => t.label === "Also on External")) {
+          mergedTags.push({ emoji: "🌐", label: "Also on External" });
+        }
         seen.set(key, {
           ...existing,
           ...c,

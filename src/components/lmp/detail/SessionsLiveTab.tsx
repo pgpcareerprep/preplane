@@ -117,12 +117,23 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
   };
 
   const handleMarkComplete = (g: GroupedSession) => {
+    // Auto-generate a student feedback token if the session doesn't have one.
+    // This enables the copy-link feature in the Feedback tab immediately.
+    const feedbackToken = g.primary.student_feedback_token
+      ?? crypto.randomUUID().replace(/-/g, "");
     updateStatus.mutate(
-      { ids: g.sessionIds, patch: { status: "completed", completed_at: new Date().toISOString() } },
+      {
+        ids: g.sessionIds,
+        patch: {
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          student_feedback_token: feedbackToken,
+        },
+      },
       {
         onSuccess: () => {
           toast.success("Session marked complete — fill POC feedback");
-          setFeedbackRow({ row: { ...g.primary, status: "completed" }, candidates: g.candidates });
+          setFeedbackRow({ row: { ...g.primary, status: "completed", student_feedback_token: feedbackToken }, candidates: g.candidates });
         },
       },
     );

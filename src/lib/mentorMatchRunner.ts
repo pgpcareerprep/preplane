@@ -168,10 +168,13 @@ export async function runMentorMatch(
   })();
 
   const [extCandidates, { alignedIds, priorSessionCounts }] = await Promise.all([extPromise, priorPromise]);
+  // Record raw EXT count BEFORE deduplication so the source counter is accurate
+  // even when EXT mentors overlap with existing MU/ALU entries (and get absorbed).
+  const rawExtCount = extCandidates.length;
   raw.push(...extCandidates);
 
   // Surface "EXT requested but returned 0" so the UI can show a banner.
-  if (wantEXT && shouldRunExt && extCandidates.length === 0) {
+  if (wantEXT && shouldRunExt && rawExtCount === 0) {
     ctx.onError?.("External discovery returned no usable results after platform search and scoring. Try a clearer role or add company/industry context.");
   }
 
@@ -219,7 +222,9 @@ export async function runMentorMatch(
     counts: {
       MU: suggested.filter((m) => m.source === "MU").length,
       ALU: suggested.filter((m) => m.source === "ALU").length,
-      EXT: suggested.filter((m) => m.source === "EXT").length,
+      // Use raw pre-dedup count: EXT candidates absorbed into MU/ALU still
+      // represent valid external discoveries and should be counted.
+      EXT: wantEXT ? rawExtCount : 0,
       prior: priorBucket,
       aligned: alignedBucket,
     },

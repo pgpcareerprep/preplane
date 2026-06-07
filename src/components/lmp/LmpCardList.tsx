@@ -200,7 +200,9 @@ function LmpStripCard({
   const mode = useLmpMode(rec);
   const commentCount = dbComments.length + (sheetComment.trim() ? 1 : 0);
   const { viewAsRole } = useRole();
-  const canDelete = canPerform(viewAsRole, "delete_lmp");
+  // Delete is role-gated (poc only) AND requires ownership (mode === "action" means
+  // the current user is the assigned prep/support POC for this specific record).
+  const canDelete = canPerform(viewAsRole, "delete_lmp") && mode === "action";
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);

@@ -1,4 +1,4 @@
-import { Play, Pencil, Settings2, Crown, Briefcase, Eye, UserCog, FileText, MessageSquare, MoreVertical, Trash2 } from "lucide-react";
+import { Settings2, FileText, MessageSquare, MoreVertical, Trash2, UserPlus, UserCog } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
@@ -12,13 +12,15 @@ import { StatusDropdown } from "@/components/lmp/StatusDropdown";
 import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpTotalCommentCount } from "@/lib/hooks/useLmpTotalCommentCount";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
+import { AddOutreachPocDialog } from "@/components/lmp/AddOutreachPocDialog";
+import { ReassignPocModal } from "@/components/lmp/ReassignPocModal";
 
 const STATUS_PILL: Record<string, string> = {
   ongoing: "pill-ongoing", dormant: "pill-dormant", hold: "pill-hold",
@@ -51,22 +53,17 @@ export function StickyHeader({
   const commentCount = useLmpTotalCommentCount(lmp.id);
   const canEditStatus = !!onChangeStatus && !readOnly;
 
-  const hasActions = (isPocActor && !readOnly) || (onConfigureRounds && !readOnly);
-
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
   const deleteMutation = useDeleteLmpProcess();
 
   return (
     <section className="rounded-2xl bg-card border border-n200 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_4px_16px_-8px_rgba(15,23,42,0.08)] p-4 md:p-5 space-y-3">
-      {/* ROW 1 — Actions (only when present) */}
-      {hasActions && (
+      {/* ROW 1 — Rounds button (only when configure-rounds handler provided) */}
+      {onConfigureRounds && !readOnly && (
         <div className="flex items-center justify-end gap-2">
-          {isPocActor && !readOnly && (
-            <button className="inline-flex items-center gap-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-4 h-9 shadow-sm transition-colors">
-              <Play className="h-3.5 w-3.5" strokeWidth={2.25} /> Run Mentor Match
-            </button>
-          )}
-          {onConfigureRounds && !readOnly && <HeaderBtn icon={Settings2} label="Rounds" onClick={onConfigureRounds} />}
+          <HeaderBtn icon={Settings2} label="Rounds" onClick={onConfigureRounds} />
         </div>
       )}
 
@@ -117,20 +114,34 @@ export function StickyHeader({
               {t}
             </span>
           ))}
-          {canDelete && (
+          {(canDelete || canReassignPoc) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-n200 hover:bg-n100 text-n500 hover:text-n700 transition-colors">
                   <MoreVertical className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem
-                  onClick={() => setDeleteOpen(true)}
-                  className="text-coral-600 focus:text-coral-700 focus:bg-coral-50"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete LMP
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
+                  <UserPlus className="h-3.5 w-3.5 mr-2" />
+                  {lmp.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
                 </DropdownMenuItem>
+                {canReassignPoc && (
+                  <DropdownMenuItem onClick={() => setReassignOpen(true)}>
+                    <UserCog className="h-3.5 w-3.5 mr-2" /> Reassign POCs
+                  </DropdownMenuItem>
+                )}
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setDeleteOpen(true)}
+                      className="text-coral-600 focus:text-coral-700 focus:bg-coral-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete LMP
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -197,6 +208,21 @@ export function StickyHeader({
           onReplace={() => { setPreviewOpen(false); setUploadOpen(true); }}
         />
       )}
+
+      <AddOutreachPocDialog
+        open={outreachOpen}
+        onOpenChange={setOutreachOpen}
+        lmpId={lmp.id}
+        lmpLabel={`${lmp.role ?? ""} @ ${lmp.company ?? ""}`}
+        currentOutreachPocName={lmp.outreachPoc?.name ?? null}
+      />
+      <ReassignPocModal
+        open={reassignOpen}
+        onOpenChange={setReassignOpen}
+        lmpId={lmp.id}
+        lmpLabel={`${lmp.role ?? ""} @ ${lmp.company ?? ""}`}
+        scope={canReassignPoc ? "all" : "support_outreach"}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
