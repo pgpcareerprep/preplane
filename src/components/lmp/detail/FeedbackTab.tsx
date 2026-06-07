@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { motion } from "framer-motion";
 import { Loader2, Star, Copy, RefreshCcw, Eye } from "lucide-react";
 import { toast } from "sonner";
@@ -94,7 +95,19 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     },
   });
 
+  // Realtime: refresh when sessions or student feedbacks change for this LMP
+  useRealtimeInvalidate("sessions", [["lmp-sessions", lmpId]], {
+    filter: `lmp_id=eq.${lmpId}`,
+    enabled: !!lmpId,
+  });
+
   const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
+
+  useRealtimeInvalidate("session_student_feedbacks", [
+    ["lmp-session-student-feedbacks", lmpId, sessionIds],
+    ["lmp-sessions", lmpId],
+  ], { enabled: !!lmpId });
+
   const { data: studentFeedbacks = [] } = useQuery({
     enabled: sessionIds.length > 0,
     queryKey: ["lmp-session-student-feedbacks", lmpId, sessionIds],

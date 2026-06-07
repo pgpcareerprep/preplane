@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { Download, FileText, Loader2, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUploadHistory } from "@/lib/hooks/useDbData";
@@ -87,6 +88,9 @@ export default function HistoryPage() {
 
   const { data, isLoading } = useUploadHistory(filter);
   const rows = (data ?? []) as HistoryRow[];
+
+  useRealtimeInvalidate("activity_log", [["db-upload-history"]], { enabled: true });
+  useRealtimeInvalidate("upload_history", [["db-upload-history"]], { enabled: true });
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);

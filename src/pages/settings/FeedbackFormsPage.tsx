@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, Save, ChevronDown, ChevronRight, FilePlus, Palette } from "lucide-react";
+import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useFeedbackTemplate, useSaveFeedbackTemplate } from "@/lib/hooks/useFeedbackTemplates";
@@ -28,6 +29,8 @@ const FIELD_TYPES: FieldType[] = ["vibe", "rating", "rating_group", "toggle_grou
 
 export default function FeedbackFormsPage() {
   const [audience, setAudience] = useState<Audience>("student");
+
+  useRealtimeInvalidate("feedback_templates", [["db-feedback-templates"], ["feedback-templates"]], { enabled: true });
 
   return (
     <div>

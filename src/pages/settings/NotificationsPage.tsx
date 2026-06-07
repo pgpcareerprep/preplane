@@ -503,6 +503,16 @@ function ReminderActivityPanel() {
     load();
   }, []);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel("reminders-rt-panel")
+      .on("postgres_changes" as never, { event: "*", schema: "public", table: "lmp_progress_reminders" }, () => {
+        load();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const statusColor = (s: string) =>
     s === "sent"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"

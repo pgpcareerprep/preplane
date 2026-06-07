@@ -94,6 +94,16 @@ export default function UserManagementPage() {
 
   useEffect(() => { reload(); }, []);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel("profiles-rt-users-page")
+      .on("postgres_changes" as never, { event: "*", schema: "public", table: "profiles" }, () => {
+        reload();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return users.filter(u => {

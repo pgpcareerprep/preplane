@@ -21,6 +21,7 @@ type RealtimeTable =
   | "lmp_processes"
   | "lmp_candidates"
   | "sessions"
+  | "session_student_feedbacks"
   | "lmp_mentors"
   | "lmp_daily_logs"
   | "lmp_poc_links"
@@ -28,7 +29,16 @@ type RealtimeTable =
   | "students"
   | "alumni_records"
   | "poc_profiles"
-  | "domains";
+  | "domains"
+  | "profiles"
+  | "feedback_templates"
+  | "activity_log"
+  | "upload_history"
+  | "lmp_guide_manual"
+  | "lmp_guide_nodes"
+  | "lmp_drafts"
+  | "sync_conflicts"
+  | "copilot_messages";
 
 interface Options {
   /** PostgREST-style filter, e.g. `lmp_id=eq.xxx`. */

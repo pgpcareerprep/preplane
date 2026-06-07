@@ -51,7 +51,7 @@ export default function StudentDetailPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <Link to="/students" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+      <Link to="/data-sources?tab=sources" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="h-4 w-4" /> Back to Students
       </Link>
 

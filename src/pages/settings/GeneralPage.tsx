@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Moon, Sun, Upload, Loader2, Mail, KeyRound, User as UserIcon, Briefcase, Shield } from "lucide-react";
+import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { useRole } from "@/lib/rolesContext";
 import { useTheme } from "@/lib/themeContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,6 +30,8 @@ export default function GeneralPage() {
   const { theme, setTheme } = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
   const invalidateAvatars = useInvalidateAvatarUrls();
+
+  useRealtimeInvalidate("profiles", [["db-profile-me"], ["db-profiles-all"]], { enabled: true });
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(user.name || "");

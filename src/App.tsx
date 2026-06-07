@@ -127,8 +127,13 @@ const AppRoutes = () => (
     
     <Route path="/audit-log" element={<Navigate to="/data-sources?tab=audit-log" replace />} />
     <Route path="/copilot/insights" element={<Navigate to="/data-sources?tab=copilot-insights" replace />} />
+    <Route path="/ai-usage" element={<Navigate to="/data-sources?tab=copilot-insights" replace />} />
 
-    <Route path="/settings" element={<SettingsLayout />}>
+    <Route path="/settings" element={
+      <RouteRoleGate allowed={["admin", "allocator", "poc"]}>
+        <SettingsLayout />
+      </RouteRoleGate>
+    }>
       <Route index element={<GeneralPage />} />
       <Route path="scoring" element={<ScoringWeightsPage />} />
       <Route path="poc-domains" element={<PocDomainsPage />} />

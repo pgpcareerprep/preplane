@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { ChevronDown, Info, Play, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,10 @@ function toPocCapability(entry: PocRegistryEntry): PocCapability {
 
 export default function PocDomainsPage() {
   const [pocsModalOpen, setPocsModalOpen] = useState(false);
+
+  useRealtimeInvalidate("poc_profiles", [["db-all-poc-profiles"]], { enabled: true });
+  useRealtimeInvalidate("domains", [["db-domains"]], { enabled: true });
+
   return (
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">

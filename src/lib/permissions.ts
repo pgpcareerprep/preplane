@@ -63,21 +63,21 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["poc"],
+  delete_lmp: ["admin", "allocator", "poc"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
   change_domain: ["admin", "allocator"],
   change_status: ["admin", "allocator", "poc"],
   edit_daily_progress: ["admin", "allocator", "poc"],
-  edit_prep_status: ["admin", "poc"],
-  edit_mentor_status: ["admin", "poc"],
-  edit_mock_status: ["admin", "poc"],
-  edit_assignment_review: ["admin", "poc"],
-  edit_outreach_progress: ["admin", "poc"],
+  edit_prep_status: ["admin", "allocator", "poc"],
+  edit_mentor_status: ["admin", "allocator", "poc"],
+  edit_mock_status: ["admin", "allocator", "poc"],
+  edit_assignment_review: ["admin", "allocator", "poc"],
+  edit_outreach_progress: ["admin", "allocator", "poc"],
   edit_remarks: ["admin", "allocator", "poc"],
 
   // Students
-  view_all_students: ["admin"],
+  view_all_students: ["admin", "allocator", "poc"],
   view_own_students: ["admin", "allocator", "poc"],
 
   // POCs
@@ -110,7 +110,7 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   // Domains
   view_domains: ["admin", "allocator", "poc"],
   edit_domains: ["admin", "allocator"],
-  view_unmapped: ["admin"],
+  view_unmapped: ["admin", "allocator", "poc"],
   resolve_unmapped: ["admin"],
 
   // Allocation
@@ -139,32 +139,32 @@ type FieldPermission = {
 };
 
 const FIELD_PERMISSIONS: Record<LmpField, FieldPermission> = {
-  company: { editable: ["admin"], requiresOwnership: false },
-  role: { editable: ["admin"], requiresOwnership: false },
-  domain: { editable: ["admin", "allocator"], requiresOwnership: false },
+  company: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  role: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  domain: { editable: ["admin", "allocator"], requiresOwnership: true },
   status: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  type: { editable: ["admin", "allocator"], requiresOwnership: false },
-  date: { editable: ["admin"], requiresOwnership: false },
-  closing_date: { editable: ["admin", "allocator"], requiresOwnership: false },
-  admin_owner: { editable: ["admin"], requiresOwnership: false },
-  allocator: { editable: ["admin"], requiresOwnership: false },
-  prep_poc: { editable: ["admin", "allocator"], requiresOwnership: false },
-  support_poc: { editable: ["admin", "allocator"], requiresOwnership: false },
-  outreach_poc: { editable: ["admin", "allocator"], requiresOwnership: false },
+  type: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  date: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  closing_date: { editable: ["admin", "allocator"], requiresOwnership: true },
+  admin_owner: { editable: ["admin"], requiresOwnership: true },
+  allocator: { editable: ["admin"], requiresOwnership: true },
+  prep_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
+  support_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
+  outreach_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
   daily_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  prep_progress: { editable: ["admin", "poc"], requiresOwnership: true },
+  prep_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   placement_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r1_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r2_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r3_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  final_convert: { editable: ["admin", "allocator"], requiresOwnership: false },
+  final_convert: { editable: ["admin", "allocator"], requiresOwnership: true },
   convert_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  prep_doc: { editable: ["admin", "poc"], requiresOwnership: true },
+  prep_doc: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   remarks: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  mentor_aligned: { editable: ["admin", "poc"], requiresOwnership: true },
-  assignment_review: { editable: ["admin", "poc"], requiresOwnership: true },
-  one_to_one_mock: { editable: ["admin", "poc"], requiresOwnership: true },
-  behavioral_status: { editable: ["admin"], requiresOwnership: false },
+  mentor_aligned: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  assignment_review: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  one_to_one_mock: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  behavioral_status: { editable: ["admin"], requiresOwnership: true },
 };
 
 export function canEditField(
@@ -175,7 +175,7 @@ export function canEditField(
   const perm = FIELD_PERMISSIONS[field];
   if (!perm) return false;
   if (!perm.editable.includes(role)) return false;
-  if (perm.requiresOwnership && role === "poc" && !isOwner) return false;
+  if (perm.requiresOwnership && !isOwner) return false;
   return true;
 }
 
@@ -209,11 +209,10 @@ export function isLmpOwner(userName: string, lmp: LmpOwnership, pocId?: string |
   if (pocId) {
     if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
     if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
   }
   const name = userName.toLowerCase().trim();
   if (!name) return false;
-  return [lmp.prep_poc, lmp.support_poc, lmp.outreach_poc, lmp.allocator, lmp.admin_owner]
+  return [lmp.prep_poc, lmp.support_poc]
     .filter(Boolean)
     .some((n) => n!.toLowerCase().trim() === name);
 }
@@ -247,12 +246,12 @@ export function getLmpAccessLevel(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): "full" | "summary" | "none" {
-  // Admin/allocator have read-only (summary) access for operational fields.
-  // They can reassign POCs but cannot perform operational edits.
+  // If the user is assigned as primary prep/support POC, they always get full access
+  if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
+  // Admin/allocator without ownership get summary (can view but not edit operational fields)
   if (role === "admin") return "summary";
   if (role === "allocator") return "summary";
-  // Only the assigned prep/support POC gets full operational access.
-  if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
+  // POC not assigned to this LMP
   return "summary";
 }
 
@@ -300,8 +299,27 @@ export function canCopilotAction(
     return { allowed: true }; // Filtered server-side
   }
 
-  // Draft update: everyone can draft
-  if (action === "draft_update") return { allowed: true };
+  // Draft update: only allowed for owned LMPs
+  if (action === "draft_update") {
+    if (role === "admin" || role === "allocator") {
+      if (targetLmpOwnership && isLmpPrepPoc(userName, targetLmpOwnership)) {
+        return { allowed: true };
+      }
+      if (!targetLmpOwnership) return { allowed: true }; // no LMP context (global chat)
+      return {
+        allowed: false,
+        reason: "You can only draft updates for LMPs you are assigned to.",
+      };
+    }
+    if (targetLmpOwnership && isLmpOwner(userName, targetLmpOwnership)) {
+      return { allowed: true };
+    }
+    if (!targetLmpOwnership) return { allowed: true }; // no LMP context
+    return {
+      allowed: false,
+      reason: "You can only draft updates for LMPs you are assigned to.",
+    };
+  }
 
   // Execute update: check ownership
   if (action === "execute_update") {
@@ -356,9 +374,15 @@ export function canEditFieldFinal(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): boolean {
-  if (role === "admin") return canEditField(role, field, true);
-  if (role === "allocator") return canEditField(role, field, true);
-
+  const isOwner = isLmpPrepPoc(userName, lmp, pocId);
+  if (role === "admin") {
+    if (!isOwner) return false;
+    return canEditField(role, field, true);
+  }
+  if (role === "allocator") {
+    if (!isOwner) return false;
+    return canEditField(role, field, true);
+  }
   const subRole = getPocSubRole(userName, lmp, pocId);
   if (subRole === "none") return false;
   if (subRole === "outreach_poc") return canOutreachPocEditField(field);

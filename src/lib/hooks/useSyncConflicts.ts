@@ -143,6 +143,31 @@ export function useSyncConflicts() {
   });
 }
 
+/**
+ * Returns conflicts related to LMPs where the current user is assigned as POC.
+ * Used to show POCs when their edits failed to sync.
+ */
+export function useMySyncConflicts(lmpIds: string[]) {
+  return useQuery({
+    queryKey: ["sync_conflicts", "my", lmpIds],
+    enabled: lmpIds.length > 0,
+    queryFn: async () => {
+      if (!lmpIds.length) return [];
+      const { data, error } = await (supabase as any)
+        .from("sync_conflicts")
+        .select("*")
+        .eq("status", "open")
+        .eq("table_name", "lmp_processes")
+        .in("record_id", lmpIds)
+        .order("detected_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as SyncConflict[];
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useResolveConflict() {
   const qc = useQueryClient();
   return useMutation({

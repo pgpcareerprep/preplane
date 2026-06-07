@@ -6,6 +6,7 @@ import { WeightSlider } from "@/components/settings/WeightSlider";
 import { WeightDonut } from "@/components/settings/WeightDonut";
 import { cn } from "@/lib/utils";
 import { fetchScoringWeights, saveScoringWeights, DEFAULT_WEIGHTS } from "@/lib/scoringWeights";
+import { supabase } from "@/integrations/supabase/client";
 
 type Key = "role" | "skills" | "company" | "industry" | "seniority";
 
@@ -46,6 +47,18 @@ export default function ScoringWeightsPage() {
       .catch(() => toast.error("Couldn't load saved weights — showing defaults."))
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("scoring-weights-rt")
+      .on("postgres_changes" as never, { event: "*", schema: "public", table: "system_settings" }, () => {
+        fetchScoringWeights()
+          .then((w) => setWeights(w))
+          .catch(() => {});
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const total = useMemo(() => Object.values(weights).reduce((a, b) => a + b, 0), [weights]);
