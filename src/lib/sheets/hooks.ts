@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { sheets } from "./sheetsClient";
 import { TABS, getHeaderRow } from "./schema";
 import { toast } from "@/hooks/use-toast";
@@ -6,6 +7,7 @@ import type { LmpRecord, LmpStatus, Health, LmpPoc } from "@/lib/lmpTypes";
 import type { Session, SessionStatus } from "@/lib/session";
 import type { AllocationTag, JdMode } from "@/lib/pocAllocation";
 import { useLmpProcesses, useLmpProcessById, clearCachePrefix } from "@/lib/hooks/useDbData";
+import { usePocCapabilityList } from "@/lib/hooks/usePocCapabilityLive";
 import { supabase } from "@/integrations/supabase/client";
 
 // Canonical sheet ↔ DB column map. Edits go in src/lib/sheets/fieldMap.ts
@@ -290,9 +292,48 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
 
 export function useLmpRows() {
   const dbQuery = useLmpProcesses({ includeArchived: true });
+  const { data: pocCapabilities } = usePocCapabilityList();
+
+  // Build a name → {primary, secondary} map so we can compute the real domain
+  // tier for each LMP's prep POC without a per-row DB call.
+  const pocDomainMap = useMemo(() => {
+    const map = new Map<string, { primary: string[]; secondary: string[] }>();
+    for (const p of pocCapabilities ?? []) {
+      const key = (p.name ?? "").toLowerCase().trim();
+      if (!key) continue;
+      map.set(key, {
+        primary: p.primaryDomains ?? [],
+        secondary: p.secondaryDomains ?? [],
+      });
+    }
+    return map;
+  }, [pocCapabilities]);
+
+  const hasPocData = (pocCapabilities?.length ?? 0) > 0;
+
   return {
     ...dbQuery,
-    data: ((dbQuery.data ?? []) as Record<string, any>[]).map(dbLmpToRecord),
+    data: useMemo(() => {
+      return ((dbQuery.data ?? []) as Record<string, any>[]).map(row => {
+        const rec = dbLmpToRecord(row);
+        if (!hasPocData || !rec.prepPoc?.name || !rec.domain) return rec;
+
+        const pocKey = rec.prepPoc.name.toLowerCase().trim();
+        const pocDomains = pocDomainMap.get(pocKey);
+        if (!pocDomains) return rec;
+
+        const domainLower = rec.domain.toLowerCase().trim();
+        const isPrimary = pocDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
+        const isSecondary = !isPrimary && pocDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
+        const domainTag: AllocationTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+
+        // Replace any existing In-Domain/Cross-Domain/Secondary Domain tag with the computed one
+        const otherTags = (rec.allocationTags ?? []).filter(
+          t => t !== "In-Domain" && t !== "Cross-Domain" && t !== "Secondary Domain",
+        );
+        return { ...rec, allocationTags: [domainTag, ...otherTags] };
+      });
+    }, [dbQuery.data, pocDomainMap, hasPocData]),
   };
 }
 

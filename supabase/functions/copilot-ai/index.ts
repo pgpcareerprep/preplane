@@ -51,8 +51,8 @@ async function callSynthesis(
         break; // model unavailable → next model
       }
       if (resp.status === 429 && attempt === 0) {
-        console.warn(`[hybrid] ${model} 429 — waiting 3s then retrying`);
-        await new Promise((r) => setTimeout(r, 3000));
+        console.warn(`[hybrid] ${model} 429 — waiting 8s then retrying`);
+        await new Promise((r) => setTimeout(r, 8000));
         continue; // retry same model once
       }
       return { resp, model };
@@ -3191,24 +3191,28 @@ Deno.serve(async (req: Request) => {
         throw e;
       }
 
-      // On 429, wait 3s and retry the tool call once before giving up.
+      // On 429, exponential backoff: 3s → 10s → 20s before giving up.
       if (aiResponse.status === 429) {
-        console.warn("[tool-loop] 429 on tool call — waiting 3s and retrying");
-        await new Promise((r) => setTimeout(r, 3000));
-        try {
-          aiResponse = await fetch(AI_GATEWAY_URL, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(90_000),
-            body: JSON.stringify({ model: TOOL_MODEL, messages: aiMessages, tools: TOOLS, stream: false }),
-          });
-        } catch (_retryErr) { /* fall through to rate_limited response below */ }
+        const backoffs = [3000, 10000, 20000];
+        for (const delay of backoffs) {
+          console.warn(`[tool-loop] 429 on tool call — waiting ${delay / 1000}s then retrying`);
+          await new Promise((r) => setTimeout(r, delay));
+          try {
+            aiResponse = await fetch(AI_GATEWAY_URL, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(90_000),
+              body: JSON.stringify({ model: TOOL_MODEL, messages: aiMessages, tools: TOOLS, stream: false }),
+            });
+            if (aiResponse.status !== 429) break;
+          } catch (_retryErr) { break; }
+        }
       }
 
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
+          return new Response(JSON.stringify({ error: "AI is busy right now (rate limit). Please wait 30–60 seconds and try again — the free tier allows ~15 requests per minute." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
