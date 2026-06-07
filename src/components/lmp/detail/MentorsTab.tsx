@@ -701,7 +701,7 @@ function MentorsTabImpl({
       .from("lmp_mentors")
       .upsert(
         { lmp_id: reqId, mentor_id: mentorIdForDb, status: "assigned", sync_source: "app" },
-        { onConflict: "lmp_id,mentor_id", ignoreDuplicates: true },
+        { onConflict: "lmp_id,mentor_id" },
       );
 
     // Back-reference: stamp mentor_id on each lmp_candidates row so per-candidate
@@ -733,6 +733,9 @@ function MentorsTabImpl({
     queryClient.invalidateQueries({ queryKey: ["lmp_candidates_live", reqId] });
     queryClient.invalidateQueries({ queryKey: ["sessions-live", reqId] });
     queryClient.invalidateQueries({ queryKey: ["sessions-live", "all"] });
+    queryClient.invalidateQueries({ queryKey: ["mentors-with-lmp-assignment"] });
+    queryClient.invalidateQueries({ queryKey: ["db-all-mentors"] });
+    queryClient.invalidateQueries({ queryKey: ["mentor-session-formats"] });
 
     const next: Assignment[] = picked.map((candidate, i) => ({
       id: `as-${Date.now()}-${i}`,

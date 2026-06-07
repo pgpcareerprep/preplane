@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -101,6 +102,7 @@ function CopilotPageInner() {
   const [interimVoice, setInterimVoice] = useState("");
   const [voiceOverlay, setVoiceOverlay] = useState(false);
   const quota = useCopilotQuota();
+  const queryClient = useQueryClient();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -383,6 +385,11 @@ function CopilotPageInner() {
     } finally {
       clearTimeout(timeoutId);
       setPending(false);
+      // Refresh quota counters ~3s after the turn completes to give the edge
+      // function time to write the copilot_turns row.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["copilot-quota"] });
+      }, 3000);
       // Persist the final assistant message (no streaming spam to DB).
       if (assistantContent.trim()) {
         void persistMessage(activeId, {
@@ -393,7 +400,7 @@ function CopilotPageInner() {
         });
       }
     }
-  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, setThreads, persistMessage, renameThreadIfNew]);
+  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, setThreads, persistMessage, renameThreadIfNew, queryClient]);
 
   const send = (text: string) => {
     const trimmed = text.trim();

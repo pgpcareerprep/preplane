@@ -297,11 +297,12 @@ export function AddCandidatesModal({
             ) : (
               <>
                 {/* Header row */}
-                <div className="mt-3 grid grid-cols-[28px_32px_1fr_1fr_60px_70px] gap-2 items-center px-3 py-1.5 text-[10px] uppercase tracking-[0.5px] font-semibold text-muted-foreground border-b">
+                <div className="mt-3 grid grid-cols-[28px_32px_1fr_100px_100px_70px_60px] gap-2 items-center px-3 py-1.5 text-[10px] uppercase tracking-[0.5px] font-semibold text-muted-foreground border-b">
                   <span />
                   <span />
-                  <span>Name</span>
-                  <span>Email</span>
+                  <span>Name / Email</span>
+                  <span>Primary Domain</span>
+                  <span>Secondary Domain</span>
                   <span>Program</span>
                   <span>Cohort</span>
                 </div>
@@ -315,6 +316,8 @@ export function AddCandidatesModal({
                     const prog = deriveProgram(s.roll_no || "");
                     const year = deriveCohortYear(s.roll_no || "");
                     const initials = (s.name || "").split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("");
+                    const primaryDomain = (s.primary_domain || "").trim();
+                    const secondaryDomain = (s.secondary_domain || "").trim();
                     return (
                       <li key={s.id}>
                         <button
@@ -322,7 +325,7 @@ export function AddCandidatesModal({
                           disabled={isTaken}
                           onClick={() => toggle(s.id)}
                           className={cn(
-                            "w-full grid grid-cols-[28px_32px_1fr_1fr_60px_70px] gap-2 items-center px-3 py-2 text-left transition-colors",
+                            "w-full grid grid-cols-[28px_32px_1fr_100px_100px_70px_60px] gap-2 items-center px-3 py-2 text-left transition-colors",
                             isTaken ? "opacity-50 cursor-not-allowed" : "hover:bg-muted/50",
                             isPicked && "bg-orange-50/60",
                           )}
@@ -336,8 +339,12 @@ export function AddCandidatesModal({
                           )}>
                             {initials || "??"}
                           </span>
-                          <span className="text-[13px] font-medium text-foreground truncate">{s.name}</span>
-                          <span className="text-[12px] text-muted-foreground truncate">{s.email || "—"}</span>
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-medium text-foreground truncate">{s.name}</div>
+                            <div className="text-[11px] text-muted-foreground truncate">{s.email || "—"}</div>
+                          </div>
+                          <span className="text-[12px] text-muted-foreground truncate">{primaryDomain || "—"}</span>
+                          <span className="text-[12px] text-muted-foreground truncate">{secondaryDomain || "—"}</span>
                           <span>
                             {prog ? (
                               <Badge variant="outline" className={cn(

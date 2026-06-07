@@ -453,6 +453,96 @@ async function firecrawlScrape(url: string, apiKey: string): Promise<any | null>
   }
 }
 
+// ─── Gemini-native search fallback (no Firecrawl) ─────────────────────────
+// Uses Gemini 2.0 Flash with Google Search grounding to discover mentors.
+
+async function discoverViаGeminiSearch(
+  apiKey: string,
+  role: string,
+  company: string,
+  industry: string,
+  skills: string[],
+  seniority: string,
+  jdText: string,
+  limit: number,
+  platforms: Platform[],
+): Promise<DiscoveredMentor[]> {
+  const skillList = skills.slice(0, 5).join(", ");
+  const context = [
+    role && `Role: ${role}`,
+    company && `Target company background: ${company}`,
+    industry && `Industry: ${industry}`,
+    seniority && `Seniority: ${seniority}`,
+    skillList && `Key skills: ${skillList}`,
+    jdText && `JD excerpt: ${jdText.slice(0, 500)}`,
+  ].filter(Boolean).join("\n");
+
+  const platformHint = platforms.includes("LinkedIn") ? "LinkedIn profiles and " : "";
+  const prompt = `You are a mentor discovery assistant. Find real ${role || "professional"} mentors for interview preparation.
+${context}
+
+Search for real people who:
+1. Have ${role} experience${company ? ` at companies like ${company}` : ""}
+2. Are available as mentors on ${platformHint}Topmate, ADPList, or similar platforms
+3. Match skills: ${skillList || role}
+
+Return a JSON array of up to ${limit} real mentors with this exact structure:
+[{
+  "name": "Full Name",
+  "current_role": "Current Job Title",
+  "company": "Current Company",
+  "industry": "${industry || "Technology"}",
+  "skills": ["skill1", "skill2"],
+  "seniority_level": "Senior|Mid|Junior|Lead|Director|VP|C-Suite",
+  "years_experience": null,
+  "email": null,
+  "phone": null,
+  "pricing": null,
+  "platform": "LinkedIn|Topmate|ADPList",
+  "linkedin": null,
+  "booking_url": null,
+  "source_url": "https://..."
+}]
+
+IMPORTANT: Only include real people you can verify. Return valid JSON array only.`;
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: {
+          responseMimeType: "text/plain",
+          temperature: 0.1,
+          maxOutputTokens: 2048,
+        },
+      }),
+    },
+  );
+
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`Gemini search API ${resp.status}: ${t.slice(0, 200)}`);
+  }
+
+  const data = await resp.json() as Record<string, unknown>;
+  const rawText = (data?.candidates as any)?.[0]?.content?.parts?.[0]?.text ?? "";
+
+  // Extract JSON array from the response
+  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as DiscoveredMentor[];
+    return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -463,12 +553,6 @@ Deno.serve(async (req) => {
 
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
   const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? null;
-  if (!FIRECRAWL_API_KEY) {
-    return new Response(
-      JSON.stringify({ mentors: [], error: "Firecrawl is not connected. Link the Firecrawl connector in Connectors." }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
 
   let body: Body = {};
   try { body = await req.json(); } catch { body = {}; }
@@ -488,6 +572,30 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ mentors: [], error: "role or skills required" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  }
+
+  // Gemini-native fallback: use Google Search grounding when Firecrawl is unavailable.
+  if (!FIRECRAWL_API_KEY) {
+    if (!LOVABLE_API_KEY) {
+      return new Response(
+        JSON.stringify({ mentors: [], error: "Neither Firecrawl nor Gemini API key is configured." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    try {
+      const geminiMentors = await discoverViаGeminiSearch(
+        LOVABLE_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
+      );
+      return new Response(JSON.stringify({ mentors: geminiMentors }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ mentors: [], error: `Gemini search fallback failed: ${(e as Error).message}` }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
   }
   const effectiveRole = role || skills[0] || "";
   const region = typeof body.region === "string" ? body.region.toLowerCase() : "global";

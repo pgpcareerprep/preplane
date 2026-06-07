@@ -57,7 +57,7 @@ export function useCopilotQuota(): CopilotQuota {
 
   const { data, isLoading } = useQuery({
     queryKey: ["copilot-quota", usageDate],
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data: userRes } = await supabase.auth.getUser();

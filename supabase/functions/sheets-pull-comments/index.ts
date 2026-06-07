@@ -123,7 +123,6 @@ Deno.serve(async (req: Request) => {
   // Sheet lines that don't already carry a [timestamp] prefix are attributed
   // to "Abhinav Arora" (the designated sheet commentor) so they render
   // correctly in the comments drawer UI.
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
   const TIMESTAMP_PREFIX = /^\[\d{4}-\d{2}-\d{2}/;
   const AUTHOR_PREFIX = /^[^:]+:\s/; // "Name: text"
   const nowIso = () => new Date().toISOString();
@@ -136,14 +135,23 @@ Deno.serve(async (req: Request) => {
     }
     return `[${nowIso()}] Abhinav Arora: ${trimmed}`;
   };
+  // Strip [timestamp] and Author: prefix to get raw content for dedup comparison.
+  // DB lines are stored as "[timestamp] Author: text"; sheet lines may be raw.
+  // Comparing stripped content prevents infinite re-insertion on every poll.
+  const stripForDedup = (s: string): string => {
+    const t = s.trim();
+    const noTs = TIMESTAMP_PREFIX.test(t) ? t.replace(/^\[[^\]]+\]\s*/, "") : t;
+    const noAuth = AUTHOR_PREFIX.test(noTs) ? noTs.replace(/^[^:]+:\s*/, "") : noTs;
+    return noAuth.trim().toLowerCase().replace(/\s+/g, " ");
+  };
   for (const { lmp_code, comment } of pairs) {
     if (!currentByCode.has(lmp_code)) continue;
     const dbVal = currentByCode.get(lmp_code) ?? "";
     const dbLines = dbVal.split(/\r?\n/);
-    const dbSet = new Set(dbLines.map(norm).filter(Boolean));
+    const dbContentSet = new Set(dbLines.map(stripForDedup).filter(Boolean));
     const rawNewLines = comment
       .split(/\r?\n/)
-      .filter((l) => l.trim() !== "" && !dbSet.has(norm(l)));
+      .filter((l) => l.trim() !== "" && !dbContentSet.has(stripForDedup(l)));
     if (rawNewLines.length === 0) continue;
     const newSheetLines = rawNewLines.map(formatSheetLine);
     const merged = (dbVal.trim() === "" ? "" : dbVal + "\n") + newSheetLines.join("\n");
