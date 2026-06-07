@@ -34,7 +34,10 @@ export function StickyHeader({
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
 
-  const canManage = role === "allocator" || role === "admin";
+  // Only the assigned Primary/Support POC can delete an LMP.
+  // Admin and allocator can reassign POCs but must NOT delete.
+  const canDelete = !readOnly;
+  const canReassignPoc = role === "allocator" || role === "admin";
   const isPocActor = role === "poc";
   const [jdData, setJdData] = useJd(lmp.id);
   const hasJd = !!jdData;
@@ -114,7 +117,7 @@ export function StickyHeader({
               {t}
             </span>
           ))}
-          {canManage && (
+          {canDelete && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-n200 hover:bg-n100 text-n500 hover:text-n700 transition-colors">

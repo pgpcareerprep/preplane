@@ -22,6 +22,8 @@ import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
 import { lmpsByStatus, lmpsActive, lmpsRisk, snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
+import { useLmpRows } from "@/lib/sheets/hooks";
+import { isUserOperationalPoc, isUserPocOnRecord } from "@/lib/lmpViewingContext";
 
 const STATUS_ACCENT: Record<Process["status"], { hex: string; soft: string; fg: string }> = {
   Ongoing:          { hex: LX_HEX.info,    soft: "rgba(74,142,232,0.12)",  fg: LX_HEX.info },
@@ -93,6 +95,28 @@ export function PocLmpDashboard() {
     { label: "Close & log outcome", done: outcomeLogged,   total: finished.length },
   ];
 
+  // Domain & assignment breakdown (user-specific via allocationTags)
+  const { data: lmpRows = [] } = useLmpRows();
+  const myLmpRowById = new Map(
+    lmpRows.filter(r => isUserPocOnRecord(r, pocName)).map(r => [r.id, r])
+  );
+  const inDomainProcs  = filtered.filter(p => myLmpRowById.get(p.processId)?.allocationTags?.includes("In-Domain") ?? false);
+  const crossDomainProcs = filtered.filter(p => myLmpRowById.get(p.processId)?.allocationTags?.includes("Cross-Domain") ?? false);
+  const primaryProcs = filtered.filter(p => {
+    const r = myLmpRowById.get(p.processId);
+    if (!r || !pocName) return false;
+    const pn = (r.prepPoc?.name ?? r.domainPrepPoc?.name ?? "").toLowerCase().trim();
+    const un = pocName.toLowerCase().trim();
+    return pn === un || (pn.split(/\s+/)[0].length >= 3 && pn.split(/\s+/)[0] === un.split(/\s+/)[0]);
+  });
+  const supportProcs = filtered.filter(p => {
+    const r = myLmpRowById.get(p.processId);
+    if (!r || !pocName) return false;
+    const sn = (r.supportPoc?.name ?? r.behavioralPrepPoc?.name ?? "").toLowerCase().trim();
+    const un = pocName.toLowerCase().trim();
+    return sn === un || (sn.split(/\s+/)[0].length >= 3 && sn.split(/\s+/)[0] === un.split(/\s+/)[0]);
+  });
+
   // Active processes
   const activeRows = filtered
     .filter((r) => r.status === "Ongoing" || r.status === "Offer Received" || r.status === "On Hold")
@@ -152,6 +176,18 @@ export function PocLmpDashboard() {
           <LxKpi span={6} label="Total processes" accent="teal"  value={filtered.length} sub="In my scope"
             info={info("poc.kpi.total")} onClick={() => openLmps(filtered, "All my LMPs", `${filtered.length} processes`)} />
         </div>
+      </LxGrid>
+
+      {/* SECTION 1b — Domain & assignment breakdown */}
+      <LxGrid>
+        <LxKpi span={3} label="In-domain LMPs"  accent="success" value={inDomainProcs.length}   sub="Matches my domains"
+          info={info("poc.kpi.indomain")}    onClick={() => openLmps(inDomainProcs,   "In-domain LMPs",    `${inDomainProcs.length} of ${filtered.length}`)} />
+        <LxKpi span={3} label="Cross-domain"    accent="orange"  value={crossDomainProcs.length} sub="Outside my domains"
+          info={info("poc.kpi.crossdomain")} onClick={() => openLmps(crossDomainProcs, "Cross-domain LMPs", `${crossDomainProcs.length} of ${filtered.length}`)} />
+        <LxKpi span={3} label="Primary POC"     accent="teal"    value={primaryProcs.length}     sub="Prep / primary role"
+          info={info("poc.kpi.primary")}     onClick={() => openLmps(primaryProcs,    "Primary POC LMPs",  `${primaryProcs.length} processes`)} />
+        <LxKpi span={3} label="Support POC"     accent="ai"      value={supportProcs.length}     sub="Support / secondary role"
+          info={info("poc.kpi.support")}     onClick={() => openLmps(supportProcs,    "Support POC LMPs",  `${supportProcs.length} processes`)} />
       </LxGrid>
 
       {/* Live snapshot strip — counts of overdue / pending / stale items */}

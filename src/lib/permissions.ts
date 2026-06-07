@@ -63,7 +63,7 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin"],
+  delete_lmp: ["poc"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
   change_domain: ["admin", "allocator"],
@@ -247,9 +247,12 @@ export function getLmpAccessLevel(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): "full" | "summary" | "none" {
-  if (role === "admin") return "full";
-  if (role === "allocator") return "full";
-  if (isLmpOwner(userName, lmp, pocId)) return "full";
+  // Admin/allocator have read-only (summary) access for operational fields.
+  // They can reassign POCs but cannot perform operational edits.
+  if (role === "admin") return "summary";
+  if (role === "allocator") return "summary";
+  // Only the assigned prep/support POC gets full operational access.
+  if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
   return "summary";
 }
 

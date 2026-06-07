@@ -91,6 +91,21 @@ export function isUserPocOnRecord(rec: LmpRecord, userName: string): boolean {
   return false;
 }
 
+/**
+ * Operational POC check — only Primary POC (prepPoc) and Support POC (supportPoc).
+ * Excludes allocator, adminOwner, and outreachPoc — those roles have read-only
+ * access to operational actions like editing progress, scheduling sessions, etc.
+ */
+export function isUserOperationalPoc(rec: LmpRecord, userName: string): boolean {
+  if (!userName) return false;
+  if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
+  if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
+  // deprecated compat fields
+  if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
+  if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
+  return false;
+}
+
 /** Check if a specific POC name appears on this record in any role */
 function isPocOnRecord(rec: LmpRecord, pocName: string): boolean {
   if (!pocName) return false;
@@ -230,8 +245,10 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       return isPocOnRecord(rec, target);
     };
 
+    // Edit access is strictly for assigned Primary/Support POC only.
+    // Admin, allocator, outreach POC, and other users get read-only summary mode.
     const modeFor = (rec: LmpRecord): LmpInteractionMode =>
-      isUserPocOnRecord(rec, matchName) ? "action" : "summary";
+      isUserOperationalPoc(rec, matchName) ? "action" : "summary";
 
     return { target, setTarget, pocOptions, modeFor, filterFor, currentUserName: matchName };
   }, [target, pocOptions, matchName, setTarget]);

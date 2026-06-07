@@ -9,6 +9,7 @@ import type { AllocationTag, JdMode } from "@/lib/pocAllocation";
 import { useLmpProcesses, useLmpProcessById, clearCachePrefix } from "@/lib/hooks/useDbData";
 import { usePocCapabilityList } from "@/lib/hooks/usePocCapabilityLive";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/lib/rolesContext";
 
 // Canonical sheet ↔ DB column map. Edits go in src/lib/sheets/fieldMap.ts
 // (and the Deno mirror at supabase/functions/_shared/fieldMap.ts).
@@ -293,9 +294,13 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
 export function useLmpRows() {
   const dbQuery = useLmpProcesses({ includeArchived: true });
   const { data: pocCapabilities } = usePocCapabilityList();
+  const { user } = useRole();
+
+  // Logged-in user's canonical name — used to compute user-specific domain tags.
+  const currentUserName = (user.pocProfileName ?? user.name ?? "").toLowerCase().trim();
 
   // Build a name → {primary, secondary} map so we can compute the real domain
-  // tier for each LMP's prep POC without a per-row DB call.
+  // tier for each LMP without a per-row DB call.
   const pocDomainMap = useMemo(() => {
     const map = new Map<string, { primary: string[]; secondary: string[] }>();
     for (const p of pocCapabilities ?? []) {
@@ -316,16 +321,32 @@ export function useLmpRows() {
     data: useMemo(() => {
       return ((dbQuery.data ?? []) as Record<string, any>[]).map(row => {
         const rec = dbLmpToRecord(row);
-        if (!hasPocData || !rec.prepPoc?.name || !rec.domain) return rec;
+        if (!hasPocData || !rec.domain) return rec;
 
-        const pocKey = rec.prepPoc.name.toLowerCase().trim();
-        const pocDomains = pocDomainMap.get(pocKey);
-        if (!pocDomains) return rec;
-
+        // Domain tag is user-specific: computed from the LOGGED-IN user's domain
+        // mapping, so the same LMP shows "In-Domain" for one POC and "Cross-Domain"
+        // for another depending on their own domain assignments.
         const domainLower = rec.domain.toLowerCase().trim();
-        const isPrimary = pocDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
-        const isSecondary = !isPrimary && pocDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
-        const domainTag: AllocationTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+
+        // Try logged-in user's domains first
+        const userDomains = currentUserName ? pocDomainMap.get(currentUserName) : undefined;
+        let domainTag: AllocationTag;
+
+        if (userDomains) {
+          const isPrimary = userDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
+          const isSecondary = !isPrimary && userDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
+          domainTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+        } else {
+          // Logged-in user has no domain profile (admin/allocator without POC mapping).
+          // Fall back to prep POC's perspective so admin dashboards still show useful info.
+          if (!rec.prepPoc?.name) return rec;
+          const pocKey = rec.prepPoc.name.toLowerCase().trim();
+          const pocDomains = pocDomainMap.get(pocKey);
+          if (!pocDomains) return rec;
+          const isPrimary = pocDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
+          const isSecondary = !isPrimary && pocDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
+          domainTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+        }
 
         // Replace any existing In-Domain/Cross-Domain/Secondary Domain tag with the computed one
         const otherTags = (rec.allocationTags ?? []).filter(
@@ -333,7 +354,7 @@ export function useLmpRows() {
         );
         return { ...rec, allocationTags: [domainTag, ...otherTags] };
       });
-    }, [dbQuery.data, pocDomainMap, hasPocData]),
+    }, [dbQuery.data, pocDomainMap, hasPocData, currentUserName]),
   };
 }
 
