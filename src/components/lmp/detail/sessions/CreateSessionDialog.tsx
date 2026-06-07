@@ -34,23 +34,45 @@ export function CreateSessionDialog({ open, onOpenChange, lmpId }: Props) {
     enabled: open && !!lmpId,
     queryKey: ["create-session-mentors", lmpId],
     queryFn: async () => {
-      const [linkedRes, sessionsRes] = await Promise.all([
+      const [linkedRes, sessionsRes, procRes] = await Promise.all([
         supabase
           .from("lmp_mentors")
-          .select("mentor_id, mentors:mentors!inner(id, name, designation, company)")
+          .select("mentor_id, mentors:mentors(id, name, designation, company)")
           .eq("lmp_id", lmpId),
         supabase
           .from("sessions")
-          .select("mentor_id, mentors:mentors!inner(id, name, designation, company)")
+          .select("mentor_id, mentors:mentors(id, name, designation, company)")
           .eq("lmp_id", lmpId)
           .not("mentor_id", "is", null),
+        supabase
+          .from("lmp_processes")
+          .select("mentor_selected")
+          .eq("id", lmpId)
+          .maybeSingle(),
       ]);
       if (linkedRes.error) throw linkedRes.error;
       if (sessionsRes.error) throw sessionsRes.error;
       const map = new Map<string, any>();
       [...(linkedRes.data ?? []), ...(sessionsRes.data ?? [])].forEach((r: any) => {
-        if (r?.mentors?.id) map.set(r.mentors.id, r);
+        // PostgREST may return the relation as an array; normalise to object
+        const mentor = Array.isArray(r?.mentors) ? r.mentors[0] : r?.mentors;
+        if (mentor?.id) map.set(mentor.id, { ...r, mentors: mentor });
       });
+      // Fallback: if mentor was aligned via the quick-select (MentorSnapshotCard)
+      // it writes only to lmp_processes.mentor_selected, not lmp_mentors. Look it up
+      // by name so it still appears in the session dropdown.
+      const mentorSelected = procRes.data?.mentor_selected;
+      if (mentorSelected && map.size === 0) {
+        const { data: byName } = await supabase
+          .from("mentors")
+          .select("id, name, designation, company")
+          .ilike("name", mentorSelected.trim())
+          .limit(1)
+          .maybeSingle();
+        if (byName?.id) {
+          map.set(byName.id, { mentor_id: byName.id, mentors: byName });
+        }
+      }
       return Array.from(map.values());
     },
   });
