@@ -90,7 +90,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <span className="text-orange-500 text-[28px] font-bold tracking-tight">
-            PrepLene
+            PrepLane
           </span>
           <p className="mt-2 text-[12px] text-n500 dark:text-d-muted font-normal leading-relaxed tracking-wide">
             Your end-to-end AI-powered career prep platform
@@ -99,7 +99,7 @@ export default function LoginPage() {
 
         <div className="bg-white dark:bg-d-surface rounded-xl border border-n200 dark:border-d-border shadow-sm p-6">
           <h2 className="text-lg font-semibold text-n900 dark:text-d-text text-center">
-            Login to PrepLene Tool
+            Login to PrepLane Tool
           </h2>
           <p className="mt-1 text-sm text-n500 dark:text-d-muted text-center">
             Sign in with your official Google account.
