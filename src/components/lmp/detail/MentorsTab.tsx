@@ -692,17 +692,23 @@ function MentorsTabImpl({
       sync_source: "app",
       ...(candidateStudentIds.length > 0 ? { candidate_ids: candidateStudentIds } : {}),
     };
-    const { error: insErr } = await supabase.from("sessions").insert(sessionRow);
-    if (insErr) {
-      toast.error(`Failed to schedule session: ${insErr.message}`);
-      return;
-    }
-    await supabase
+    // Always record the mentor assignment first — decoupled from session scheduling.
+    const { error: lmpMentorErr } = await supabase
       .from("lmp_mentors")
       .upsert(
         { lmp_id: reqId, mentor_id: mentorIdForDb, status: "assigned", sync_source: "app" },
         { onConflict: "lmp_id,mentor_id" },
       );
+    if (lmpMentorErr) {
+      toast.error(`Failed to assign mentor: ${lmpMentorErr.message}`);
+      return;
+    }
+
+    // Insert session (best-effort — mentor is already assigned above).
+    const { error: insErr } = await supabase.from("sessions").insert(sessionRow);
+    if (insErr) {
+      toast.warning(`${mentor.name} assigned. Session couldn't be auto-scheduled (${insErr.message}) — use "+ Schedule session" in the Sessions tab.`);
+    }
 
     // Back-reference: stamp mentor_id on each lmp_candidates row so per-candidate
     // mentor displays (candidate list, drawers) reflect the assignment without
