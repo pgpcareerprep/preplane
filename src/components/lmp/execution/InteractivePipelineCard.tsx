@@ -1,7 +1,20 @@
 import { useMemo, useState } from "react";
-import { Settings2, UserPlus, X } from "lucide-react";
+import { Settings2, UserPlus, X, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord } from "@/lib/lmpTypes";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  MouseSensor,
+  TouchSensor,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
 import { RoundConfigModal } from "@/components/lmp/detail/RoundConfigModal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,13 +26,14 @@ import { resolveStageToRoundId, sheetIndexToRoundId } from "@/lib/pipelineStage"
 import { toast } from "sonner";
 
 /**
- * Parse a sheet cell that may contain comma/newline-separated names or a number.
- * Returns an array of name strings.
+ * Parse a sheet cell that may contain comma/newline-separated names.
+ * Filters out purely numeric tokens (e.g. count "1" written by the DB trigger).
  */
 function parseNames(raw?: string): string[] {
   if (!raw || !raw.trim()) return [];
-  // Split on commas, newlines, semicolons
-  return raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  return raw.split(/[,;\n]+/)
+    .map(s => s.trim())
+    .filter(s => s && !/^\d+$/.test(s));
 }
 
 function initialsFrom(name: string): string {
@@ -39,7 +53,7 @@ const CANDIDATE_COLORS = [
 
 type PipelineItem = {
   name: string;
-  id?: string; // DB candidate id when source === "db"
+  id?: string;
   source: "sheet" | "db";
 };
 
@@ -56,7 +70,6 @@ function buildPipelineFromLmp(
 ): PipelineColumn[] {
   if (!lmp && dbCandidates.length === 0) return [];
 
-  // Sheet-derived names by their sheet position (R1=0, R2=1, R3=2, Convert=3)
   const sheetByIdx: string[][] = [
     parseNames(lmp?.r1Shortlisted),
     parseNames(lmp?.r2Shortlisted),
@@ -64,7 +77,6 @@ function buildPipelineFromLmp(
     parseNames(lmp?.convertNames || lmp?.finalConvert),
   ];
 
-  // Bucket each sheet name into the configured round id at that index
   const itemsByRoundId: Record<string, PipelineItem[]> = { pool: [] };
   for (const r of rounds) itemsByRoundId[r.id] = [];
   ([0, 1, 2, 3] as const).forEach((idx) => {
@@ -75,7 +87,6 @@ function buildPipelineFromLmp(
     }
   });
 
-  // Bucket DB candidates using the configured rounds
   for (const c of dbCandidates) {
     const name = (c.student_name || "").trim();
     if (!name) continue;
@@ -84,7 +95,6 @@ function buildPipelineFromLmp(
     itemsByRoundId[target].push({ name, id: c.id, source: "db" });
   }
 
-  // Dedupe per column (case-insensitive). Prefer DB entry over sheet so it stays deletable.
   const dedupe = (arr: PipelineItem[]) => {
     const byKey = new Map<string, PipelineItem>();
     for (const item of arr) {
@@ -99,7 +109,7 @@ function buildPipelineFromLmp(
     return Array.from(byKey.values());
   };
 
-  const cols: PipelineColumn[] = [
+  return [
     { id: "pool", label: "Pool — Newly added", items: dedupe(itemsByRoundId.pool || []) },
     ...rounds.map((r) => ({
       id: r.id,
@@ -107,13 +117,40 @@ function buildPipelineFromLmp(
       items: dedupe(itemsByRoundId[r.id] || []),
     })),
   ];
-  return cols;
 }
 
-/**
- * Pipeline card that displays real round data from the LMP sheet record.
- * Shows candidate names parsed from sheet columns (R1/R2/R3 Shortlisted, Convert Names).
- */
+// ── DnD sub-components ──────────────────────────────────────────────────────
+
+function DroppableColumn({ id, isOver, children }: { id: string; isOver: boolean; children: React.ReactNode }) {
+  const { setNodeRef } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "p-2 space-y-1.5 min-h-[80px] rounded-b-xl transition-colors",
+        isOver && "bg-orange-50",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DraggableCard({ id, children }: { id: string; children: (dragHandleProps: Record<string, unknown>) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={cn(isDragging && "opacity-40")}
+    >
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
 export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpId: string; lmp?: LmpRecord; readOnly?: boolean }) {
   const [addOpen, setAddOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
@@ -121,6 +158,8 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
   const deleteMutation = useDeleteLmpCandidate();
   const stageMutation = useUpdateLmpCandidateStage();
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [activeItem, setActiveItem] = useState<(PipelineItem & { colorIdx: number }) | null>(null);
   const dbLmpId = useDbLmpId({ id: lmp?.id, company: lmp?.company, role: lmp?.role });
 
   const { data: rounds = DEFAULT_ROUNDS } = useLmpRounds(dbLmpId);
@@ -136,6 +175,39 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
     [lmp, rounds, existingCandidates],
   );
   const hasAnyData = columns.some((c) => c.items.length > 0);
+
+  const mouseSensor = useSensor(MouseSensor, { activationConstraint: { distance: 6 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } });
+  const sensors = useSensors(mouseSensor, touchSensor);
+
+  function handleDragStart(event: DragStartEvent) {
+    const activeId = event.active.id as string;
+    for (let ci = 0; ci < columns.length; ci++) {
+      const col = columns[ci];
+      const itemIdx = col.items.findIndex(i => i.id === activeId);
+      if (itemIdx !== -1) {
+        setActiveItem({ ...col.items[itemIdx], colorIdx: itemIdx % CANDIDATE_COLORS.length });
+        break;
+      }
+    }
+  }
+
+  function handleDragOver(event: { over: { id: string } | null }) {
+    setOverId(event.over?.id ?? null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setOverId(null);
+    setActiveItem(null);
+    const { active, over } = event;
+    if (!over || !dbLmpId) return;
+    const candidateId = active.id as string;
+    const newColId = over.id as string;
+    // Find current column of this candidate
+    const currentCol = columns.find(col => col.items.some(i => i.id === candidateId));
+    if (!currentCol || currentCol.id === newColId) return;
+    stageMutation.mutate({ id: candidateId, pipeline_stage: newColId, lmp_id: dbLmpId });
+  }
 
   return (
     <div className="rounded-2xl bg-card border border-n200 shadow-sm p-4">
@@ -162,99 +234,182 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
           >
             <Settings2 className="h-3.5 w-3.5" /> Configure Rounds
           </button>
-
         </div>
       </div>
 
       {!hasAnyData ? (
         <div className="rounded-xl border border-n200 bg-n50/50 py-10 grid place-items-center">
           <p className="text-[12.5px] text-n400 italic">
-            No pipeline data yet. Round columns (R1/R2/R3 Shortlisted) are empty in the sheet.
+            No pipeline data yet. Add candidates or move them through rounds.
           </p>
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
-          {columns.map((col) => (
-            <div
-              key={col.id}
-              className="shrink-0 w-[260px] rounded-xl border border-n200 bg-n50/50 flex flex-col"
-            >
-              <div className="flex items-center justify-between px-3 py-2 border-b border-n200">
-                <span className="text-[11.5px] uppercase tracking-[0.5px] text-n600 font-semibold truncate">
-                  {col.label}
-                </span>
-                <span className="text-[11px] text-n500 tabular-nums bg-card border border-n200 rounded-full px-1.5 min-w-[20px] text-center">
-                  {col.items.length}
-                </span>
-              </div>
-              <div className="p-2 space-y-1.5 min-h-[80px]">
-                {col.items.length === 0 ? (
-                  <div className="h-[60px] grid place-items-center text-[11px] italic text-n400">
-                    —
-                  </div>
-                ) : (
-                  col.items.map((item, i) => (
-                    <div
-                      key={`${col.id}-${i}-${item.name}`}
-                      className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm"
-                    >
-                      <div
-                        className={cn(
-                          "h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0",
-                          CANDIDATE_COLORS[i % CANDIDATE_COLORS.length],
-                        )}
-                      >
-                        {initialsFrom(item.name)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12.5px] text-n800 font-medium truncate">{item.name}</div>
-                      </div>
-                      {item.source === "db" && item.id ? (
-                        <>
-                          <select
-                            value={col.id}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              if (next === col.id || !dbLmpId) return;
-                              stageMutation.mutate({ id: item.id!, pipeline_stage: next, lmp_id: dbLmpId });
-                            }}
-                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 text-[11px] rounded border border-n200 bg-card text-n700 px-1 shrink-0"
-                            aria-label={`Move ${item.name} to another round`}
-                            title="Move to round"
-                          >
-                            <option value="pool">Pool</option>
-                            {rounds.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => setPendingDelete({ id: item.id!, name: item.name })}
-                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-5 w-5 grid place-items-center rounded text-n400 hover:text-coral-600 hover:bg-coral-50 shrink-0"
-                            aria-label={`Remove ${item.name}`}
-                            title="Remove from this round"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : (
-                        <span
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-n400 italic shrink-0"
-                          title="From sheet — edit in source"
-                        >
-                          sheet
-                        </span>
-                      )}
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver as any}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            {columns.map((col) => (
+              <div
+                key={col.id}
+                className="shrink-0 w-[260px] rounded-xl border border-n200 bg-n50/50 flex flex-col"
+              >
+                <div className="flex items-center justify-between px-3 py-2 border-b border-n200">
+                  <span className="text-[11.5px] uppercase tracking-[0.5px] text-n600 font-semibold truncate">
+                    {col.label}
+                  </span>
+                  <span className="text-[11px] text-n500 tabular-nums bg-card border border-n200 rounded-full px-1.5 min-w-[20px] text-center">
+                    {col.items.length}
+                  </span>
+                </div>
+
+                <DroppableColumn id={col.id} isOver={overId === col.id}>
+                  {col.items.length === 0 ? (
+                    <div className="h-[60px] grid place-items-center text-[11px] italic text-n400">
+                      —
                     </div>
-                  ))
-                )}
+                  ) : (
+                    col.items.map((item, i) => {
+                      const isDb = item.source === "db" && !!item.id;
+                      const card = (
+                        <div className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm">
+                          {isDb ? (
+                            <span
+                              className="cursor-grab active:cursor-grabbing text-n300 hover:text-n600 shrink-0 h-4 w-4 flex items-center justify-center"
+                              title="Drag to move"
+                            >
+                              <GripVertical className="h-3.5 w-3.5" />
+                            </span>
+                          ) : (
+                            <span className="h-4 w-4 shrink-0" />
+                          )}
+                          <div
+                            className={cn(
+                              "h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0",
+                              CANDIDATE_COLORS[i % CANDIDATE_COLORS.length],
+                            )}
+                          >
+                            {initialsFrom(item.name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[12.5px] text-n800 font-medium truncate">{item.name}</div>
+                          </div>
+                          {isDb ? (
+                            <>
+                              <select
+                                value={col.id}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  if (next === col.id || !dbLmpId) return;
+                                  stageMutation.mutate({ id: item.id!, pipeline_stage: next, lmp_id: dbLmpId });
+                                }}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 text-[11px] rounded border border-n200 bg-card text-n700 px-1 shrink-0"
+                                aria-label={`Move ${item.name} to another round`}
+                                title="Move to round"
+                              >
+                                <option value="pool">Pool</option>
+                                {rounds.map((r) => (
+                                  <option key={r.id} value={r.id}>{r.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete({ id: item.id!, name: item.name })}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-5 w-5 grid place-items-center rounded text-n400 hover:text-coral-600 hover:bg-coral-50 shrink-0"
+                                aria-label={`Remove ${item.name}`}
+                                title="Remove from this round"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <span
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-n400 italic shrink-0"
+                              title="From sheet — edit in source"
+                            >
+                              sheet
+                            </span>
+                          )}
+                        </div>
+                      );
+
+                      if (!isDb) {
+                        return <div key={`${col.id}-${i}-${item.name}`}>{card}</div>;
+                      }
+                      return (
+                        <DraggableCard key={`${col.id}-${i}-${item.id}`} id={item.id!}>
+                          {(dragHandleProps) => (
+                            <div className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm">
+                              <span
+                                className="cursor-grab active:cursor-grabbing text-n300 hover:text-n600 shrink-0 h-4 w-4 flex items-center justify-center"
+                                title="Drag to move"
+                                {...dragHandleProps}
+                              >
+                                <GripVertical className="h-3.5 w-3.5" />
+                              </span>
+                              <div
+                                className={cn(
+                                  "h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0",
+                                  CANDIDATE_COLORS[i % CANDIDATE_COLORS.length],
+                                )}
+                              >
+                                {initialsFrom(item.name)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[12.5px] text-n800 font-medium truncate">{item.name}</div>
+                              </div>
+                              <select
+                                value={col.id}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  if (next === col.id || !dbLmpId) return;
+                                  stageMutation.mutate({ id: item.id!, pipeline_stage: next, lmp_id: dbLmpId });
+                                }}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 text-[11px] rounded border border-n200 bg-card text-n700 px-1 shrink-0"
+                                aria-label={`Move ${item.name} to another round`}
+                                title="Move to round"
+                              >
+                                <option value="pool">Pool</option>
+                                {rounds.map((r) => (
+                                  <option key={r.id} value={r.id}>{r.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete({ id: item.id!, name: item.name })}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-5 w-5 grid place-items-center rounded text-n400 hover:text-coral-600 hover:bg-coral-50 shrink-0"
+                                aria-label={`Remove ${item.name}`}
+                                title="Remove"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </DraggableCard>
+                      );
+                    })
+                  )}
+                </DroppableColumn>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+
+          <DragOverlay dropAnimation={null}>
+            {activeItem && (
+              <div className="flex items-center gap-2 rounded-md border border-orange-300 bg-card px-2 py-1.5 shadow-lg w-[220px]">
+                <GripVertical className="h-3.5 w-3.5 text-n300 shrink-0" />
+                <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0", CANDIDATE_COLORS[activeItem.colorIdx])}>
+                  {initialsFrom(activeItem.name)}
+                </div>
+                <span className="text-[12.5px] text-n800 font-medium truncate">{activeItem.name}</span>
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
       )}
 
-      {/* Stage / progress from sheet */}
       {lmp?.stage && (
         <div className="mt-3 pt-3 border-t border-n200/70 flex items-center gap-2 text-[11.5px] text-n600">
           <span>Current Stage:</span>

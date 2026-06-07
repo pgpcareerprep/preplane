@@ -52,6 +52,11 @@ export type JdInfo = {
   jdCompany: string;
   jdIndustry: string;
   gapSkills: string[];
+  companySignals?: {
+    namedCompanies: string[];
+    stageKeywords: string[];
+    typeKeywords: string[];
+  };
 };
 
 // ─── Normalisation ───
@@ -354,31 +359,56 @@ export function runPipeline(
     eligible.push({ c, matched, missing });
   }
 
-  // ─── Score (new algorithm: 40+20+25+10+15 = 110pt max) ───
-  const scored = eligible.map(({ c, matched, missing }) => {
+  // ─── Score (new algorithm: 40+20+25+20+10+15 = 130pt max) ───
+  const scored = eligible.map(({ c, matched, missing }): Mentor | null => {
+    const companyStr = (c.company || "").toLowerCase();
+
+    // Noise filter: skip test accounts
+    if (c.name.toLowerCase().includes("test") || companyStr.includes("test account")) return null;
+
     const functionalDomain = `${c.industry || ""} ${c.role || ""}`.toLowerCase();
 
-    // 1. Domain match (40pts): primaryDomains vs mentor's functional domain + role
+    // 1. Domain match (40pts)
     const domainHit = domainTokens.some(t => functionalDomain.includes(t));
     let domainScore = domainHit ? 40 : 0;
 
-    // 2. Designation match (20pts): designationKeywords vs mentor.role
+    // 2. Designation match (20pts)
     const designationHit = designationTokens.some(kw => c.role.toLowerCase().includes(kw));
     let designationScore = designationHit ? 20 : 0;
 
-    // 3. Expertise match (25pts max, 8pts per keyword hit): expertiseKeywords vs mentor.skills
+    // 3. Expertise match (25pts max, 8pts per keyword hit)
     const expertiseScore = Math.min(25, matched.length * 8);
 
-    // 4. Industry match (10pts): industries vs mentor.industry
+    // 4. Company match (20pts hard / 10pts soft)
+    let companyScore = 0;
+    const allCoLower = c.allCompanies.map(co => co.toLowerCase());
+    if (jd.companySignals) {
+      const namedHit = jd.companySignals.namedCompanies.some(nc =>
+        allCoLower.some(co => co.includes(nc.toLowerCase()))
+      );
+      const stageHit = jd.companySignals.stageKeywords.some(k => companyStr.includes(k.toLowerCase()));
+      const typeHit = jd.companySignals.typeKeywords.some(k => companyStr.includes(k.toLowerCase()));
+      if (namedHit) companyScore = 20;
+      else if (stageHit || typeHit) companyScore = 10;
+    } else if (jd.jdCompany) {
+      const jdCoLower = jd.jdCompany.toLowerCase();
+      if (allCoLower.some(co => co.includes(jdCoLower) || jdCoLower.includes(co))) companyScore = 20;
+    }
+
+    // 5. Industry match (10pts)
     const industryHit = industryTokens.some(t => (c.industry || "").toLowerCase().includes(t));
     let industryScore = industryHit ? 10 : 0;
 
-    // 5. Quality bonus (15pts max): completed calls + reliable rating (totalRatings >= 5)
+    // 6. Quality signals (15pts max): stacking tiers require reliable sample (>= 5 sessions)
     const completedCalls = c.sessions_taken ?? 0;
     const hasReliableRating = (c.rating != null && c.rating > 0) && completedCalls >= 5;
-    const callBonus = completedCalls > 0 ? Math.min(10, Math.floor(completedCalls / 2)) : 0;
-    const ratingBonus = hasReliableRating ? 5 : 0;
-    const qualitySignals = Math.min(15, callBonus + ratingBonus);
+    const reliableRating = hasReliableRating ? (c.rating ?? 0) : 0;
+    let qualityScore = 0;
+    if (completedCalls > 10) qualityScore += 5;
+    if (completedCalls > 40) qualityScore += 3;
+    if (reliableRating >= 4.5) qualityScore += 4;
+    if (reliableRating >= 4.8) qualityScore += 3;
+    const qualitySignals = Math.min(15, qualityScore);
 
     // Apply matchMode boosts
     switch (matchMode) {
@@ -391,17 +421,12 @@ export function runPipeline(
         industryScore = Math.min(20, Math.round(industryScore * 2));
         designationScore = Math.round(designationScore * 0.6);
         break;
-      case "company": {
-        const companyMatch = !!(jd.jdCompany &&
-          c.allCompanies.some(co => co.toLowerCase().includes(jd.jdCompany.toLowerCase())));
-        designationScore = companyMatch
-          ? Math.min(30, Math.round(designationScore * 1.5))
-          : Math.round(designationScore * 0.8);
+      case "company":
+        companyScore = Math.min(30, Math.round(companyScore * 1.5));
         break;
-      }
     }
 
-    const total = Math.max(0, domainScore + designationScore + expertiseScore + industryScore + qualitySignals);
+    const total = Math.max(0, domainScore + designationScore + expertiseScore + companyScore + industryScore + qualitySignals);
     const { tier, tier_label } = assignTier(total);
 
     const gapCoverage = jd.gapSkills.length > 0
@@ -432,15 +457,14 @@ export function runPipeline(
       scores: {
         role: designationScore,
         skills: expertiseScore,
-        company: (jd.jdCompany && c.allCompanies.some(co => co.toLowerCase().includes(jd.jdCompany.toLowerCase())))
-          ? 25 : companyTierScore(c.company).pts,
+        company: companyScore,
         industry: industryScore,
         seniority: qualitySignals,
       },
       layer: tier_label,
       tier,
       tier_label,
-      score_breakdown: { skill: expertiseScore, seniority: qualitySignals, prestige: domainScore, source: designationScore, total },
+      score_breakdown: { skill: expertiseScore, seniority: qualitySignals, prestige: domainScore, source: designationScore, company: companyScore, total },
       match_signals: {
         matched_skills: matched,
         missing_skills: missing,
@@ -452,7 +476,7 @@ export function runPipeline(
       decisionTags: tags,
       rating: c.rating ?? null,
       reviews: c.sessions_taken ?? null,
-      outcome: Math.min(100, Math.round((total / 110) * 100)),
+      outcome: Math.min(100, Math.round((total / 130) * 100)),
       availability: "available",
       email: c.email || "",
       phone: c.phone || "",
@@ -467,7 +491,7 @@ export function runPipeline(
       possibleDuplicate: c.possibleDuplicate,
     };
     return m;
-  });
+  }).filter((m): m is Mentor => m !== null);
 
   const sourceRankMap: Record<"MU" | "ALU" | "EXT", 1 | 2 | 3> = { MU: 1, ALU: 2, EXT: 3 };
 
