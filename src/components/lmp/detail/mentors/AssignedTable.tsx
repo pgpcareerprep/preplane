@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Users2, X, ChevronDown, ChevronRight } from "lucide-react";
+import { Users2, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -132,7 +132,7 @@ export function AssignedTable({
                         onClick={() => setOpenGroup(g)}
                         className="inline-flex items-center gap-1 rounded-md border border-n300 bg-card text-n700 hover:bg-n100 text-[12px] font-medium px-2.5 py-1.5 transition-colors"
                       >
-                        Manage <ChevronDown className="h-3.5 w-3.5" />
+                        Bulk Assign
                       </button>
                     ) : (
                       <button

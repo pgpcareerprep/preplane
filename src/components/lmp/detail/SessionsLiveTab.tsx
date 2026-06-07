@@ -51,7 +51,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, lmp_id, session_type, status, scheduled_at, duration_min, notes, mentor_rating, student_rating, mentor_id, student_id, candidate_ids, poc_feedback, student_feedback, student_feedback_token, mentors:mentors(name), students:students(name)")
+        .select("id, lmp_id, session_type, status, scheduled_at, duration_min, notes, mentor_rating, student_rating, mentor_id, student_id, candidate_ids, poc_feedback, student_feedback, student_feedback_token, mentors:mentors(name)")
         .eq("lmp_id", lmpId)
         .order("scheduled_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
@@ -157,7 +157,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
 
   const toMockSession = (s: Row): MockSession => {
     const mentorName = s.mentors?.name || "Unassigned mentor";
-    const studentName = s.students?.name || "Unassigned candidate";
+    const studentName = (s.student_id ? studentMap[s.student_id]?.name : null) || "Unassigned candidate";
     const initials = (n: string) => n.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "·";
     return {
       id: s.id,
@@ -199,7 +199,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
             const isGroup = g.candidates.length > 1;
             const studentName = isGroup
               ? "Group Session"
-              : (g.candidates[0]?.name || s.students?.name || "Unassigned candidate");
+              : (g.candidates[0]?.name || "Unassigned candidate");
             const date = s.scheduled_at ? new Date(s.scheduled_at) : null;
             const hasPocFeedback = !!s.poc_feedback;
             const hasStudentFeedback = !!s.student_feedback;
@@ -381,7 +381,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
           {shareRow?.student_feedback_token ? (
             <ShareLinkBlock
               link={`${window.location.origin}/feedback/${shareRow.student_feedback_token}`}
-              candidateName={shareRow.students?.name || "the candidate"}
+              candidateName={(shareRow.student_id ? studentMap[shareRow.student_id]?.name : null) || "the candidate"}
             />
           ) : (
             <p className="text-[13px] text-n500">No student token on this session.</p>
@@ -504,7 +504,7 @@ function buildGroups(
       if (ids.length === 0) {
         anonRows.push({
           row: r,
-          cand: { id: null, name: r.students?.name || "Unassigned candidate" },
+          cand: { id: null, name: "Unassigned candidate" },
         });
         continue;
       }
@@ -515,7 +515,7 @@ function buildGroups(
         } else {
           candById.set(id, {
             id,
-            name: studentMap[id]?.name || r.students?.name || "Unknown candidate",
+            name: studentMap[id]?.name || "Unknown candidate",
             email: studentMap[id]?.email ?? null,
             sessionIds: [r.id],
           });

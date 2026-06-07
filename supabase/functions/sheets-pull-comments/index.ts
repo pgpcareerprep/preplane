@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!isInternal) {
-    const auth = await requireAuth(req, corsHeaders, { requireRoles: ["admin", "allocator"] });
+    const auth = await requireAuth(req, corsHeaders);
     if ("error" in auth) return auth.error;
   }
 
@@ -120,16 +120,32 @@ Deno.serve(async (req: Request) => {
 
   // Line-level merge: union of existing DB lines + sheet lines, preserving
   // order (DB first, then any genuinely new sheet line). Never shrinks.
+  // Sheet lines that don't already carry a [timestamp] prefix are attributed
+  // to "Abhinav Arora" (the designated sheet commentor) so they render
+  // correctly in the comments drawer UI.
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const TIMESTAMP_PREFIX = /^\[\d{4}-\d{2}-\d{2}/;
+  const AUTHOR_PREFIX = /^[^:]+:\s/; // "Name: text"
+  const nowIso = () => new Date().toISOString();
+  const formatSheetLine = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (TIMESTAMP_PREFIX.test(trimmed)) return trimmed; // already formatted
+    if (AUTHOR_PREFIX.test(trimmed)) {
+      // Has "Name: text" but no timestamp — add one
+      return `[${nowIso()}] ${trimmed}`;
+    }
+    return `[${nowIso()}] Abhinav Arora: ${trimmed}`;
+  };
   for (const { lmp_code, comment } of pairs) {
     if (!currentByCode.has(lmp_code)) continue;
     const dbVal = currentByCode.get(lmp_code) ?? "";
     const dbLines = dbVal.split(/\r?\n/);
     const dbSet = new Set(dbLines.map(norm).filter(Boolean));
-    const newSheetLines = comment
+    const rawNewLines = comment
       .split(/\r?\n/)
       .filter((l) => l.trim() !== "" && !dbSet.has(norm(l)));
-    if (newSheetLines.length === 0) continue;
+    if (rawNewLines.length === 0) continue;
+    const newSheetLines = rawNewLines.map(formatSheetLine);
     const merged = (dbVal.trim() === "" ? "" : dbVal + "\n") + newSheetLines.join("\n");
     const { error: updErr } = await serviceClient
       .from("lmp_processes")

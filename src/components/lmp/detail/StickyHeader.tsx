@@ -1,4 +1,4 @@
-import { Play, Pencil, Settings2, Crown, Briefcase, Eye, UserCog, FileText, MessageSquare } from "lucide-react";
+import { Play, Pencil, Settings2, Crown, Briefcase, Eye, UserCog, FileText, MessageSquare, MoreVertical, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
@@ -11,6 +11,14 @@ import { JdPreviewModal } from "@/components/lmp/JdPreviewModal";
 import { StatusDropdown } from "@/components/lmp/StatusDropdown";
 import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpTotalCommentCount } from "@/lib/hooks/useLmpTotalCommentCount";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 
 const STATUS_PILL: Record<string, string> = {
   ongoing: "pill-ongoing", dormant: "pill-dormant", hold: "pill-hold",
@@ -41,6 +49,9 @@ export function StickyHeader({
   const canEditStatus = !!onChangeStatus && !readOnly;
 
   const hasActions = (isPocActor && !readOnly) || (onConfigureRounds && !readOnly);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const deleteMutation = useDeleteLmpProcess();
 
   return (
     <section className="rounded-2xl bg-card border border-n200 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_4px_16px_-8px_rgba(15,23,42,0.08)] p-4 md:p-5 space-y-3">
@@ -103,6 +114,23 @@ export function StickyHeader({
               {t}
             </span>
           ))}
+          {canManage && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-n200 hover:bg-n100 text-n500 hover:text-n700 transition-colors">
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onClick={() => setDeleteOpen(true)}
+                  className="text-coral-600 focus:text-coral-700 focus:bg-coral-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete LMP
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -166,6 +194,27 @@ export function StickyHeader({
           onReplace={() => { setPreviewOpen(false); setUploadOpen(true); }}
         />
       )}
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this LMP process?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{lmp.company} — {lmp.role}</strong> and all its associated data. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMutation.mutate(lmp.id)}
+              className="bg-coral-600 hover:bg-coral-700 text-white"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
