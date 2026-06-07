@@ -263,8 +263,10 @@ function CopilotPageInner() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
       if (!accessToken) {
+        clearTimeout(timeoutId);
+        setPending(false);
+        replaceAssistantWithError("⚠️ Your session has expired. Please sign in again.");
         toast.error("Your session has expired. Please sign in again.");
-        replaceAssistantWith("⚠️ Your session has expired. Please sign in again.");
         return;
       }
       const resp = await fetch(COPILOT_URL, {

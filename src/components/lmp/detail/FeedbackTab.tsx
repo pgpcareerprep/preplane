@@ -420,12 +420,14 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
                             >
                               <Copy className="h-3 w-3" /> Copy link
                             </button>
-                            <button
-                              onClick={() => setRegenId(s.id)}
-                              className="inline-flex items-center gap-1 text-coral-600 hover:text-coral-700 font-medium"
-                            >
-                              <RefreshCcw className="h-3 w-3" /> Regenerate
-                            </button>
+                            {!readOnly && (
+                              <button
+                                onClick={() => setRegenId(s.id)}
+                                className="inline-flex items-center gap-1 text-coral-600 hover:text-coral-700 font-medium"
+                              >
+                                <RefreshCcw className="h-3 w-3" /> Regenerate
+                              </button>
+                            )}
                           </span>
                         ) : (
                           <span className="text-n400">— Awaiting POC</span>

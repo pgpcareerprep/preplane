@@ -17,6 +17,50 @@ const corsHeaders: Record<string, string> = {
 const AI_GATEWAY_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
+// Free-tier model only — gemini-2.0-flash: 15 RPM, 1500 RPD on Gemini free tier.
+// gemini-2.5-flash-preview-05-20 dropped (500 RPD exhausted fast with shared key).
+const TOOL_MODEL = "gemini-2.0-flash";
+const SYNTHESIS_MODELS = ["gemini-2.0-flash"] as const;
+
+/** Try each model in SYNTHESIS_MODELS until one succeeds. On 429 waits 3s and
+ *  retries the same model once before falling through to the next. */
+async function callSynthesis(
+  key: string,
+  body: Record<string, unknown>,
+  timeoutMs = 90_000,
+): Promise<{ resp: Response; model: string }> {
+  let lastErr: unknown;
+  for (const model of SYNTHESIS_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let resp: Response;
+      try {
+        resp = await fetch(AI_GATEWAY_URL, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(timeoutMs),
+          body: JSON.stringify({ ...body, model }),
+        });
+      } catch (e) {
+        lastErr = e;
+        const n = (e as { name?: string })?.name ?? "";
+        if (n === "TimeoutError" || n === "AbortError") throw e;
+        break; // network error → try next model
+      }
+      if (!resp.ok && (resp.status === 404 || resp.status === 403 || resp.status === 400)) {
+        console.warn(`[hybrid] ${model} ${resp.status} — trying next model`);
+        break; // model unavailable → next model
+      }
+      if (resp.status === 429 && attempt === 0) {
+        console.warn(`[hybrid] ${model} 429 — waiting 3s then retrying`);
+        await new Promise((r) => setTimeout(r, 3000));
+        continue; // retry same model once
+      }
+      return { resp, model };
+    }
+  }
+  throw lastErr ?? new Error("All synthesis models failed");
+}
+
 type SupabaseLike = ReturnType<typeof createClient>;
 
 // Embed user query with Gemini text-embedding-004 then call rag_search RPC.
@@ -2061,7 +2105,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
             signal: AbortSignal.timeout(90_000),
             body: JSON.stringify({
-              model: "gemini-2.5-flash-lite",
+              model: "gemini-2.0-flash",
               messages: [
                 { role: "system", content: "You are a keyword expansion engine. Given a search query about placement/recruitment data, output ONLY a JSON array of 8-15 related keywords/synonyms that would help find relevant rows. Include abbreviations, alternate spellings, related terms. Example: for 'finance internship converted' output [\"finance\",\"internship\",\"converted\",\"placed\",\"FT\",\"intern\",\"banking\",\"accounting\",\"offer received\",\"selected\",\"fin\",\"financial\"]" },
                 { role: "user", content: query },
@@ -2854,7 +2898,7 @@ Deno.serve(async (req: Request) => {
     tool_calls_count: 0,
     intent: "agent" as string,
     cache_hit: false,
-    model: "gemini-2.5-flash",
+    model: TOOL_MODEL,
     scope_summary: [] as Array<{
       round: number;
       tool: string;
@@ -3118,6 +3162,7 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      // Tool-call rounds always use the fast model (low latency, cheap)
       let aiResponse: Response;
       try {
         aiResponse = await fetch(AI_GATEWAY_URL, {
@@ -3128,10 +3173,10 @@ Deno.serve(async (req: Request) => {
           },
           signal: AbortSignal.timeout(90_000),
           body: JSON.stringify({
-            model: "gemini-2.5-flash",
+            model: TOOL_MODEL,
             messages: aiMessages,
             tools: TOOLS,
-            stream: false, // Non-streaming for tool-calling rounds
+            stream: false,
           }),
         });
       } catch (e) {
@@ -3144,6 +3189,20 @@ Deno.serve(async (req: Request) => {
           );
         }
         throw e;
+      }
+
+      // On 429, wait 3s and retry the tool call once before giving up.
+      if (aiResponse.status === 429) {
+        console.warn("[tool-loop] 429 on tool call — waiting 3s and retrying");
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          aiResponse = await fetch(AI_GATEWAY_URL, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(90_000),
+            body: JSON.stringify({ model: TOOL_MODEL, messages: aiMessages, tools: TOOLS, stream: false }),
+          });
+        } catch (_retryErr) { /* fall through to rate_limited response below */ }
       }
 
       if (!aiResponse.ok) {
@@ -3320,24 +3379,17 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // No tool calls — this is the final response. Stream it back.
-      // Make a final streaming call with the full conversation
+      // No tool calls — final synthesis. Use best available model (hybrid fallback).
       let streamResponse: Response;
+      let synthModel = TOOL_MODEL;
       try {
-        streamResponse = await fetch(AI_GATEWAY_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${GEMINI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(90_000),
-          body: JSON.stringify({
-            model: "gemini-2.5-flash",
-            messages: aiMessages,
-            stream: true,
-            // No tools — just generate the final response
-          }),
+        const { resp, model } = await callSynthesis(GEMINI_API_KEY, {
+          messages: aiMessages,
+          stream: true,
         });
+        streamResponse = resp;
+        synthModel = model;
+        telemetry.model = model;
       } catch (e) {
         const name = (e as { name?: string })?.name ?? "";
         if (name === "TimeoutError" || name === "AbortError") {
@@ -3396,15 +3448,9 @@ Deno.serve(async (req: Request) => {
       content: "You have reached the tool round limit. Do NOT call any more tools. Summarize the most useful insight from the data you've already retrieved, then on a new line append exactly:\n\n:::blocks\n[{\"type\":\"follow-ups\",\"suggestions\":[\"Continue from where you left off and finish the previous task\"]}]\n:::",
     });
     try {
-      const summaryResp = await fetch(AI_GATEWAY_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(90_000),
-        body: JSON.stringify({
-          model: "gemini-2.5-flash",
-          messages: aiMessages,
-          stream: true,
-        }),
+      const { resp: summaryResp } = await callSynthesis(GEMINI_API_KEY, {
+        messages: aiMessages,
+        stream: true,
       });
       if (summaryResp.ok && summaryResp.body) {
         const teed = teeSseForCache(summaryResp.body, (fullText) => {

@@ -3,7 +3,7 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };

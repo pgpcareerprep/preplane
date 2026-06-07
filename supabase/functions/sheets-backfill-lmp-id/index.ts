@@ -10,7 +10,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

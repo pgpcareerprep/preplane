@@ -1,14 +1,44 @@
 // Conversational TTS for the LMP Copilot.
-// Tries Groq PlayAI first, falls back to Gemini TTS via Lovable AI gateway,
-// and returns a JSON { fallback: true } when both fail so the client can use
+// Tries Groq PlayAI first, falls back to Gemini TTS,
+// and returns JSON { fallback: true } when both fail so the client can use
 // the browser's built-in speechSynthesis.
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
-
 const DEFAULT_GROQ_VOICE = "Fritz-PlayAI";
 const DEFAULT_GEMINI_VOICE = "Kore";
+
+// Build a valid WAV file from raw PCM bytes (24 kHz, 16-bit, mono, little-endian).
+function pcmToWav(pcmBytes: Uint8Array): Uint8Array {
+  const sampleRate = 24000;
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmBytes.length;
+  const headerSize = 44;
+  const buf = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(buf);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);          // PCM chunk size
+  view.setUint16(20, 1, true);           // PCM format
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, dataSize, true);
+  new Uint8Array(buf).set(pcmBytes, headerSize);
+  return new Uint8Array(buf);
+}
 
 Deno.serve(async (req) => {
   const corsHeaders = {
@@ -47,7 +77,7 @@ Deno.serve(async (req) => {
             model: "playai-tts",
             input: truncated,
             voice: voiceId,
-            response_format: "wav",
+            response_format: "mp3",
           }),
         });
         if (resp.ok && resp.body) {
@@ -61,7 +91,7 @@ Deno.serve(async (req) => {
             status: 200,
             headers: {
               ...corsHeaders,
-              "Content-Type": "audio/wav",
+              "Content-Type": "audio/mpeg",
               "Cache-Control": "no-store",
             },
           });
@@ -86,48 +116,57 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Fallback: Gemini TTS via Google API ──────────────────────────
+    // ── Fallback: Gemini TTS ─────────────────────────────────────────
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     if (geminiKey) {
       const t0 = Date.now();
-      try {
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: truncated }] }],
-              generationConfig: {
-                responseModalities: ["AUDIO"],
-                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: DEFAULT_GEMINI_VOICE } } },
-              },
-            }),
-          },
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          const audioB64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (audioB64) {
-            const binary = atob(audioB64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            logAiUsage({
-              userId: auth.user.id, feature: "tts", model: "gemini-2.5-flash-preview-tts",
-              promptTokens: estimateTokens(truncated),
-              latencyMs: Date.now() - t0, status: "ok",
-              metadata: { provider: "gemini", voice: DEFAULT_GEMINI_VOICE, chars: truncated.length },
-            });
-            return new Response(bytes, {
-              status: 200,
-              headers: { ...corsHeaders, "Content-Type": "audio/wav", "Cache-Control": "no-store" },
-            });
+      // Try stable model name first, then preview fallback
+      for (const model of ["gemini-2.5-flash-preview-tts", "gemini-2.0-flash-exp"]) {
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: truncated }] }],
+                generationConfig: {
+                  responseModalities: ["AUDIO"],
+                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: DEFAULT_GEMINI_VOICE } } },
+                },
+              }),
+            },
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            const part = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+            const audioB64 = part?.data;
+            if (audioB64) {
+              const binary = atob(audioB64);
+              const pcm = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) pcm[i] = binary.charCodeAt(i);
+              // Wrap raw PCM in a valid WAV container so browsers can play it.
+              const wav = pcmToWav(pcm);
+              logAiUsage({
+                userId: auth.user.id, feature: "tts", model,
+                promptTokens: estimateTokens(truncated),
+                latencyMs: Date.now() - t0, status: "ok",
+                metadata: { provider: "gemini", voice: DEFAULT_GEMINI_VOICE, chars: truncated.length },
+              });
+              return new Response(wav, {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "audio/wav", "Cache-Control": "no-store" },
+              });
+            }
           }
+          const errText = await resp.text().catch(() => "");
+          console.warn(`[voice-speak] Gemini ${model} ${resp.status}: ${errText.slice(0, 200)}`);
+          // If 404 (model not found), try next model; otherwise stop trying Gemini
+          if (resp.status !== 404) break;
+        } catch (err) {
+          console.warn(`[voice-speak] Gemini ${model} error: ${(err as Error).message}`);
+          break;
         }
-        const errText = await resp.text().catch(() => "");
-        console.warn(`[voice-speak] Gemini ${resp.status}: ${errText.slice(0, 200)}`);
-      } catch (err) {
-        console.warn(`[voice-speak] Gemini error: ${(err as Error).message}`);
       }
     }
 

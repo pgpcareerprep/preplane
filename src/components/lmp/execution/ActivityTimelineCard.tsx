@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -150,12 +151,20 @@ function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string 
   const Icon = KIND_ICON[e.kind] ?? Activity;
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const submit = () => {
-    if (!text.trim()) return;
-    addTimelineComment(lmpId, e.id, text);
-    setText("");
-    setOpen(false);
-  };
+  const [submitting, setSubmitting] = useState(false);
+  const submit = useCallback(async () => {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await addTimelineComment(lmpId, e.id, text);
+      setText("");
+      setOpen(false);
+    } catch (err) {
+      toast.error(`Couldn't add note: ${(err as Error).message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [text, submitting, lmpId, e.id]);
   return (
     <li className="relative">
       <span
@@ -210,18 +219,19 @@ function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string 
               <input
                 value={text}
                 onChange={(ev) => setText(ev.target.value)}
-                onKeyDown={(ev) => ev.key === "Enter" && submit()}
+                onKeyDown={(ev) => { if (ev.key === "Enter" && !submitting) { ev.preventDefault(); void submit(); } }}
                 placeholder="Add a comment…"
                 autoFocus
-                className="flex-1 h-7 px-2 rounded-md border border-n200 bg-card text-[12px] text-n800 focus:outline-none focus:border-orange-300"
+                disabled={submitting}
+                className="flex-1 h-7 px-2 rounded-md border border-n200 bg-card text-[12px] text-n800 focus:outline-none focus:border-orange-300 disabled:opacity-50"
               />
               <button
                 type="button"
-                onClick={submit}
-                disabled={!text.trim()}
+                onClick={() => void submit()}
+                disabled={!text.trim() || submitting}
                 className="h-7 px-2.5 rounded-md bg-n900 text-white text-[11.5px] font-medium disabled:opacity-40"
               >
-                Post
+                {submitting ? "…" : "Post"}
               </button>
             </div>
           )}

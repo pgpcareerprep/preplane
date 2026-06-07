@@ -1,9 +1,13 @@
-// Pulls column Z ("Comments") from the LMP Tracker sheet and writes it
-// into public.lmp_processes.comments keyed by lmp_code (column AA).
-// One-way sync: Sheet → DB. Reuses GOOGLE_SHEETS_API_KEY + LMP_SPREADSHEET_ID.
+// Pulls the "Comment" column from the LMP Tracker sheet and writes it
+// into public.lmp_processes.comments keyed by lmp_code (LMP ID column).
+// One-way sync: Sheet → DB. Uses SA OAuth token (not API key) to avoid
+// HTTP-referrer restrictions on the API key.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
+import { getGoogleAccessToken } from "../_shared/googleAuth.ts";
+
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 
 Deno.serve(async (req: Request) => {
   const corsHeaders: Record<string, string> = {
@@ -16,7 +20,6 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // Allow internal cron (service-role bearer or _internal_cron_auth token) or admin/allocator users.
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
   const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
@@ -43,7 +46,6 @@ Deno.serve(async (req: Request) => {
     if ("error" in auth) return auth.error;
   }
 
-  const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";
   if (!SPREADSHEET_ID) {
     return json({ error: "LMP_SPREADSHEET_ID not configured" }, 500, corsHeaders);
@@ -51,10 +53,18 @@ Deno.serve(async (req: Request) => {
   const idMatch = SPREADSHEET_ID.match(/\/d\/([a-zA-Z0-9_-]+)/);
   SPREADSHEET_ID = idMatch ? idMatch[1] : SPREADSHEET_ID.split("/")[0].split("?")[0];
 
-  // Read header row (row 15) + data rows. Range Z15:Z10000 + AA15:AA10000.
+  // Use SA OAuth token (avoids HTTP referrer restrictions on the API key).
+  let token: string;
+  try {
+    token = await getGoogleAccessToken([SHEETS_SCOPE]);
+  } catch (e) {
+    return json({ error: `SA token error: ${(e as Error).message}` }, 500, corsHeaders);
+  }
+
+  // Read header row (row 15) + data rows. Columns Z (Comment) + AA (LMP ID).
   const range = `'LMP Tracker'!Z15:AA10000`;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?key=${GOOGLE_API_KEY}`;
-  const resp = await fetch(url);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) {
     const body = await resp.text();
     return json({ error: "Sheets fetch failed", status: resp.status, body }, 502, corsHeaders);
@@ -109,19 +119,17 @@ Deno.serve(async (req: Request) => {
   const errorDetails: { lmp_code: string; error: string }[] = [];
 
   // Line-level merge: union of existing DB lines + sheet lines, preserving
-  // order (DB first, then any genuinely new sheet line). Never shrinks, so
-  // a stale or partially-edited Column Z can't wipe app-posted chat lines.
+  // order (DB first, then any genuinely new sheet line). Never shrinks.
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
   for (const { lmp_code, comment } of pairs) {
-    if (!currentByCode.has(lmp_code)) continue; // unknown LMP ID — skip
+    if (!currentByCode.has(lmp_code)) continue;
     const dbVal = currentByCode.get(lmp_code) ?? "";
     const dbLines = dbVal.split(/\r?\n/);
     const dbSet = new Set(dbLines.map(norm).filter(Boolean));
     const newSheetLines = comment
       .split(/\r?\n/)
-      .map((l) => l)
       .filter((l) => l.trim() !== "" && !dbSet.has(norm(l)));
-    if (newSheetLines.length === 0) continue; // nothing new in sheet
+    if (newSheetLines.length === 0) continue;
     const merged = (dbVal.trim() === "" ? "" : dbVal + "\n") + newSheetLines.join("\n");
     const { error: updErr } = await serviceClient
       .from("lmp_processes")
@@ -134,7 +142,6 @@ Deno.serve(async (req: Request) => {
       updated++;
     }
   }
-
 
   return json({
     ok: true,

@@ -4,7 +4,7 @@ import { requireAuth } from "../_shared/requireAuth.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.netlify.app",
+  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

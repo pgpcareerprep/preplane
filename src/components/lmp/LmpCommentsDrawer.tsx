@@ -549,19 +549,22 @@ function Composer({
 
   const submit = () => {
     const text = value.trim();
-    if (!text) return;
+    if (!text || postComment.isPending) return;
     postComment.mutate(
       { lmpId, body: text },
       {
+        onSuccess: () => {
+          setValue("");
+          setMentions([]);
+          setPickerOpen(false);
+          if (ref.current) ref.current.style.height = "auto";
+        },
         onError: (err) => {
           toast.error((err as Error)?.message || "Failed to post reply");
+          // Text stays in textarea so the user can retry
         },
       },
     );
-    setValue("");
-    setMentions([]);
-    setPickerOpen(false);
-    if (ref.current) ref.current.style.height = "auto";
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

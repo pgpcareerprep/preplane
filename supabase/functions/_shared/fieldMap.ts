@@ -46,6 +46,7 @@ export const DB_TO_SHEET: Record<string, string> = {
   mentor_rating: "Mentor Rating",
   comments: "Comment",
   lmp_code: "LMP ID",
+  jd_url: "JD",
 };
 
 /**

@@ -88,7 +88,7 @@ export function useMentorPerformance(mentorId: string | undefined, baseCost = 40
       // 1) sessions for this mentor
       const { data: sessRows, error: sessErr } = await supabase
         .from("sessions")
-        .select("id,mentor_id,student_id,candidate_ids,lmp_id,scheduled_at,completed_at,status,session_type,mentor_rating,student_rating,student_feedback,duration_min,notes")
+        .select("id,mentor_id,student_id,candidate_ids,lmp_id,scheduled_at,completed_at,created_at,status,session_type,mentor_rating,student_rating,student_feedback,duration_min,notes")
         .eq("mentor_id", mentorId);
       if (sessErr) throw sessErr;
       const sessions = sessRows ?? [];

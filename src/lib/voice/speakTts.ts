@@ -28,10 +28,21 @@ function speakBrowser(text: string, opts?: { onStart?: () => void; onEnd?: () =>
     try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.05; u.lang = "en-US";
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      opts?.onEnd?.();
+      resolve();
+    };
+    // Chrome has a known bug where onend never fires. Failsafe: resolve after
+    // an estimated duration + 1 s so the mic always starts eventually.
+    const estimatedMs = Math.max(3000, (text.length / 15) * 1000 + 1000);
+    const fallbackTimer = window.setTimeout(finish, estimatedMs);
     u.onstart = () => opts?.onStart?.();
-    u.onend = () => { opts?.onEnd?.(); resolve(); };
-    u.onerror = () => { opts?.onEnd?.(); resolve(); };
-    try { window.speechSynthesis.speak(u); } catch { opts?.onEnd?.(); resolve(); }
+    u.onend = () => { window.clearTimeout(fallbackTimer); finish(); };
+    u.onerror = () => { window.clearTimeout(fallbackTimer); finish(); };
+    try { window.speechSynthesis.speak(u); } catch { window.clearTimeout(fallbackTimer); finish(); }
   });
 }
 

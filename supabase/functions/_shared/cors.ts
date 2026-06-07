@@ -1,9 +1,10 @@
 const ALLOWED_ORIGINS = new Set<string>([
   "https://preplane.netlify.app",
   "https://heroic-nougat-e7d667.netlify.app",
+  "https://preplane.pages.dev",
 ]);
 
-const DEFAULT_ORIGIN = "https://preplane.netlify.app";
+const DEFAULT_ORIGIN = "https://preplane.pages.dev";
 
 export const BASE_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers":
