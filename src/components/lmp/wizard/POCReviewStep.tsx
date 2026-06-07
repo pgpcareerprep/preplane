@@ -245,9 +245,9 @@ export function POCReviewStep({
     const p = find(initial.prepName);
     const s = find(initial.supportName);
     const o = find(initial.outreachName);
-    if (p) setPrepOverride(toAssignedFromPool(p));
-    if (s) setSupportOverride(toAssignedFromPool(s));
-    if (o) setOutreachPoc(toAssignedFromPool(o));
+    if (p) setPrepOverride(toAssignedFromPool(p, reqDomain));
+    if (s) setSupportOverride(toAssignedFromPool(s, reqDomain));
+    if (o) setOutreachPoc(toAssignedFromPool(o, reqDomain));
     hydratedRef.current = true;
   }, [initial, pocPool]);
 
@@ -337,7 +337,7 @@ export function POCReviewStep({
                 <PocSwitcher
                   pocs={manualPool}
                   domain={reqDomain}
-                  onSelect={(p) => selectAsPrep(toAssignedFromPool(p))}
+                  onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain))}
                   onClose={() => setShowPrepSwitcher(false)}
                   label="Manually assign Prep POC"
                 />
@@ -445,7 +445,7 @@ export function POCReviewStep({
                 currentName={activePrep?.name}
                 excludeName={activeSupport?.name}
                 domain={reqDomain}
-                onSelect={(p) => selectAsPrep(toAssignedFromPool(p))}
+                onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain))}
                 onClose={() => setShowPrepSwitcher(false)}
                 label="Select Assigned Prep POC"
               />
@@ -502,7 +502,7 @@ export function POCReviewStep({
                 currentName={activeSupport?.name}
                 excludeName={activePrep?.name}
                 domain={reqDomain}
-                onSelect={(p) => selectAsSupport(toAssignedFromPool(p))}
+                onSelect={(p) => selectAsSupport(toAssignedFromPool(p, reqDomain))}
                 onClose={() => setShowSupportSwitcher(false)}
                 label="Select Support POC"
               />
@@ -543,7 +543,7 @@ export function POCReviewStep({
                 pocs={pocPool.filter(p => p.pocType === "outreach")}
                 currentName={outreachPoc?.name}
                 domain={reqDomain}
-                onSelect={(p) => { setOutreachPoc(toAssignedFromPool(p)); setShowOutreachSelector(false); }}
+                onSelect={(p) => { setOutreachPoc(toAssignedFromPool(p, reqDomain)); setShowOutreachSelector(false); }}
                 onClose={() => setShowOutreachSelector(false)}
                 label="Select Outreach POC"
               />
@@ -702,7 +702,15 @@ function ConfirmChip({
 
 // ─── Sub-components ──────────────────────────────────────────────────────
 
-function toAssignedFromPool(p: PocCapability): AssignedPoc {
+function toAssignedFromPool(p: PocCapability, processDomain?: string): AssignedPoc {
+  let domainTier: AssignedPoc["domainTier"] = "cross";
+  if (processDomain && processDomain.trim()) {
+    const target = processDomain.trim().toLowerCase();
+    const primary = p.primaryDomains ?? [];
+    const secondary = p.secondaryDomains ?? [];
+    if (primary.some(d => d.trim().toLowerCase() === target)) domainTier = "primary";
+    else if (secondary.some(d => d.trim().toLowerCase() === target)) domainTier = "secondary";
+  }
   return {
     name: p.name,
     initials: p.initials,
@@ -712,7 +720,7 @@ function toAssignedFromPool(p: PocCapability): AssignedPoc {
     maxThreshold: p.maxThreshold,
     scoreBreakdown: null,
     confidence: 0,
-    domainTier: "cross",
+    domainTier,
   };
 }
 
