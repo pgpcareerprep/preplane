@@ -32,11 +32,9 @@ export default function LoginPage() {
     return "/dashboard";
   }, [searchParams]);
 
-  // On mount:
-  // 1. Show error from ?error= query param (set by RoleProvider on not_approved).
-  // 2. If this is an OAuth callback (#access_token=...), clear the tokens from
-  //    the URL bar. Supabase's detectSessionInUrl already read the hash during
-  //    client initialization (before React mounted), so it's safe to clear now.
+  // On mount: show any ?error= message and mark that we're processing an OAuth callback.
+  // Do NOT clear the hash here — Supabase processes the hash asynchronously, and clearing
+  // it early (before detectSessionInUrl reads it) prevents the session from being established.
   useEffect(() => {
     const errKey = searchParams.get("error");
     if (errKey && ERROR_MESSAGES[errKey]) {
@@ -45,13 +43,8 @@ export default function LoginPage() {
 
     if (window.location.hash.includes("access_token=")) {
       setOauthPending(true);
-      window.history.replaceState(
-        {},
-        document.title,
-        window.location.pathname + window.location.search,
-      );
       if (import.meta.env.DEV) {
-        console.log("[auth] OAuth hash detected — awaiting session from RoleProvider");
+        console.log("[auth] OAuth hash detected — waiting for Supabase to process session");
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,6 +55,10 @@ export default function LoginPage() {
     if (authLoading) return;
 
     if (isAuthenticated) {
+      // Only now that the session is confirmed do we clean the OAuth tokens from the URL.
+      if (window.location.hash.includes("access_token=")) {
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      }
       if (import.meta.env.DEV) {
         console.log("[auth] Authenticated — navigating to", redirectTarget);
       }
@@ -70,7 +67,7 @@ export default function LoginPage() {
     }
 
     // Auth resolved but user is not authenticated. Stop the pending spinner.
-    // (RoleProvider already redirected to ?error=not_approved if not approved.)
+    // RoleProvider redirects to ?error=not_approved if the profile check failed.
     if (oauthPending) setOauthPending(false);
     if (signInLoading) setSignInLoading(false);
   }, [authLoading, isAuthenticated, navigate, redirectTarget, oauthPending, signInLoading]);

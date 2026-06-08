@@ -109,30 +109,55 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
       // Look up profile by user_id first, then by email (first-time OAuth users
       // may not have user_id bound yet if the trigger hasn't run on this row).
-      let { data: profile } = await supabase
+      const { data: byUid, error: uidErr } = await supabase
         .from("profiles")
         .select("id, user_id, display_name, email, role, access_status, is_active, avatar_url")
         .eq("user_id", uid)
         .maybeSingle();
 
+      // If the DB query itself failed (network/RLS error), do NOT sign the user out.
+      // A transient failure must not revoke a legitimate session.
+      if (uidErr) {
+        if (import.meta.env.DEV) {
+          console.error("[auth] Profile lookup by user_id failed:", uidErr.message);
+        }
+        if (!cancelled) setIsLoading(false);
+        return;
+      }
+
+      let profile = byUid ?? null;
+
       if (!profile && userEmail) {
-        const { data: byEmail } = await supabase
+        const { data: byEmail, error: emailErr } = await supabase
           .from("profiles")
           .select("id, user_id, display_name, email, role, access_status, is_active, avatar_url")
-          .ilike("email", userEmail)
+          .ilike("email", userEmail.trim())
           .maybeSingle();
+
+        if (emailErr) {
+          if (import.meta.env.DEV) {
+            console.error("[auth] Profile lookup by email failed:", emailErr.message);
+          }
+          if (!cancelled) setIsLoading(false);
+          return;
+        }
         profile = byEmail ?? null;
       }
 
       if (import.meta.env.DEV) {
         if (profile) {
-          console.log("[auth] Profile found:", { role: profile.role, access_status: profile.access_status, is_active: profile.is_active });
+          console.log("[auth] Profile found:", {
+            role: profile.role,
+            access_status: profile.access_status,
+            is_active: profile.is_active,
+          });
         } else {
-          console.warn("[auth] No profile found for uid:", uid, "email:", userEmail);
+          console.warn("[auth] No profile row found for uid:", uid, "/ email:", userEmail);
         }
       }
 
-      // Gate access: must exist + approved + active + have an assigned role.
+      // Gate access: profile must exist, access_status approved (or null = legacy),
+      // is_active must not be explicitly false, role must be admin/allocator/poc.
       const profileRole = ((profile?.role as string | null) ?? "").trim().toLowerCase();
       const hasValidRole = profileRole === "admin" || profileRole === "allocator" || profileRole === "poc";
       const isApproved = !!profile
