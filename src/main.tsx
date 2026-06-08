@@ -26,7 +26,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
         </div>
       );
     }
-    return this.state.error ? null : this.props.children;
+    return this.props.children;
   }
 }
 

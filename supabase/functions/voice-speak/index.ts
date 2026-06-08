@@ -2,7 +2,7 @@
 // Tries Groq PlayAI first, falls back to Gemini TTS,
 // and returns JSON { fallback: true } when both fail so the client can use
 // the browser's built-in speechSynthesis.
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
@@ -41,10 +41,7 @@ function pcmToWav(pcmBytes: Uint8Array): Uint8Array {
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    ...buildCorsHeaders(req),
-    "Access-Control-Allow-Origin": pickAllowedOrigin(req),
-  };
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = await requireAuth(req, corsHeaders);

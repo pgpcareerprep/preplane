@@ -8,9 +8,7 @@ import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
 
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const EMBED_MODEL = "text-embedding-004";
-const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -205,6 +203,9 @@ async function getEmbedding(
   taskType = "RETRIEVAL_DOCUMENT",
   ctx: { userId?: string | null; sourceTable?: string } = {},
 ): Promise<number[]> {
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+  if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY secret is not set");
+  const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
   const t0 = Date.now();
   try {
     const res = await fetch(EMBED_URL, {
