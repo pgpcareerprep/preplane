@@ -20,10 +20,11 @@ const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-
 
 // Model names per provider (both use OpenAI-compatible chat completions format).
 const GEMINI_TOOL_MODEL = "gemini-2.0-flash";
-const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash"] as const;
+// gemini-2.0-flash-lite has a higher RPM quota — used as fallback when flash hits 429.
+const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
 // OpenRouter free-tier Gemini: higher RPM ceiling than Gemini direct free tier.
 const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-exp:free";
-const OPENROUTER_SYNTHESIS_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-flash-1.5-8b"] as const;
+const OPENROUTER_SYNTHESIS_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-2.0-flash-lite-exp:free", "google/gemini-flash-1.5-8b"] as const;
 
 // Resolved per-request in the handler; fallback values used at module load only.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
@@ -61,10 +62,14 @@ async function callSynthesis(
         console.warn(`[hybrid] ${model} ${resp.status} — trying next model`);
         break; // model unavailable → next model
       }
-      if (resp.status === 429 && attempt === 0) {
-        console.warn(`[hybrid] ${model} 429 — waiting 2s then retrying`);
-        await new Promise((r) => setTimeout(r, 2000));
-        continue; // retry same model once
+      if (resp.status === 429) {
+        if (attempt === 0) {
+          console.warn(`[hybrid] ${model} 429 — waiting 2s then retrying once`);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        console.warn(`[hybrid] ${model} 429 on retry — trying next model`);
+        break; // second 429 → fall through to next model
       }
       return { resp, model };
     }
@@ -3229,9 +3234,9 @@ Deno.serve(async (req: Request) => {
         throw e;
       }
 
-      // On 429, exponential backoff: 3s → 10s → 20s before giving up.
+      // On 429, short backoff then give up quickly — don't block the user for 30s.
       if (aiResponse.status === 429) {
-        const backoffs = [3000, 10000, 20000];
+        const backoffs = [1000, 3000];
         for (const delay of backoffs) {
           console.warn(`[tool-loop] 429 on tool call — waiting ${delay / 1000}s then retrying`);
           await new Promise((r) => setTimeout(r, delay));
@@ -3250,7 +3255,7 @@ Deno.serve(async (req: Request) => {
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI rate limit reached. Try again in a few minutes." }), {
+          return new Response(JSON.stringify({ error: "AI quota/rate limit reached across all models. Gemini free-tier resets every minute — try again shortly, or ask a simpler query." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

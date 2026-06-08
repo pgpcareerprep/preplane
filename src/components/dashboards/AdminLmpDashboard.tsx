@@ -214,6 +214,15 @@ export function AdminLmpDashboard() {
           supportLinks.forEach((l) => {
             const id = l.lmp_id;
             const st = norm(l.lmp_processes?.status);
+            // Include support LMPs in the total and status breakdown.
+            totalIds.add(id);
+            if (st === "not-started") statusIds.notStarted.add(id);
+            else if (st === "prep-ongoing") statusIds.prepOngoing.add(id);
+            else if (st === "prep-done") statusIds.prepDone.add(id);
+            else if (st === "hold") statusIds.hold.add(id);
+            else if (st === "converted") statusIds.converted.add(id);
+            else if (st === "not-converted") statusIds.notConverted.add(id);
+            else if (st === "other-reasons") statusIds.otherReasons.add(id);
             if (l.is_active && !TERMINAL.has(st)) supportActiveIds.add(id);
           });
 
