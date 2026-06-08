@@ -8,9 +8,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { DocumentLink } from "./DocumentsCard";
-
-export type DocumentLinkInput = { label: string; url: string };
+import type { DocumentLink, DocumentLinkInput } from "./documentTypes";
+export type { DocumentLinkInput } from "./documentTypes";
 
 type Props = {
   open: boolean;
