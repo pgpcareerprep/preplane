@@ -248,7 +248,7 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
     supportPoc,
     behavioralPrepPoc: supportPoc,
     outreachPoc,
-    allocationTags: pocs.length ? ["In-Domain"] : [],
+    allocationTags: [],
     jdMode: "FULL_SCORING" as JdMode,
     type: row.type || "",
     prepProgress: row.prep_progress || "",
