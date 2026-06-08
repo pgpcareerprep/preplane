@@ -1,9 +1,6 @@
 /**
- * Live POC capability adapter — bridges the legacy `PocCapability` /
- * `PocConversionStats` shapes to the live `poc_profiles_with_load` view +
- * `lmp_processes` table. This is the single seam consumers should use; the
- * old static `POC_CAPABILITIES` / `getPocCapability` / `getPocConversion`
- * stubs in `@/lib/pocCapability` have been removed.
+ * Live POC capability adapter — bridges `PocCapability` / `PocConversionStats`
+ * shapes to the `poc_profiles` table + `lmp_processes` table.
  */
 import { useMemo } from "react";
 import { usePocProfilesWithLoad, useLmpProcesses } from "@/lib/hooks/useDbData";

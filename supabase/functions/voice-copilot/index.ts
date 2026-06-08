@@ -370,18 +370,24 @@ async function execAnalytics(a: { metric: string; domain?: string; poc?: string 
     return { metric: a.metric, total: data?.length ?? 0, distribution: dist };
   }
   if (a.metric === "poc_workload") {
-    // Live counts from poc_profiles_with_load (built from lmp_poc_links).
-    let q = c.from("poc_profiles_with_load").select("name,role_type,live_active_lmp_count,live_prep_active,ongoing_count,converted_count").order("live_active_lmp_count", { ascending: false }).limit(10);
-    if (a.poc) q = q.ilike("name", `%${a.poc}%`);
-    const { data } = await q;
-    const top = (data || []).map((r: any) => ({
-      name: r.name,
-      role_type: r.role_type,
-      total_lmps: Number(r.live_active_lmp_count ?? 0),
-      prep_count: Number(r.live_prep_active ?? 0),
-      ongoing: r.ongoing_count ?? 0,
-      converted: r.converted_count ?? 0,
-    }));
+    let pocQ = c.from("poc_profiles").select("name,role_type,active_load,max_threshold").order("active_load", { ascending: false }).limit(20);
+    if (a.poc) pocQ = pocQ.ilike("name", `%${a.poc}%`);
+    const { data: pocData } = await pocQ;
+    const { data: lmpData } = await c.from("lmp_processes").select("prep_poc,outreach_poc,status");
+    const lmps = lmpData || [];
+    const top = ((pocData || []) as any[]).slice(0, 10).map((r: any) => {
+      const name = r.name as string;
+      const ongoing = lmps.filter((l) => (l.prep_poc === name || l.outreach_poc === name) && /ongoing/i.test(l.status || "")).length;
+      const converted = lmps.filter((l) => (l.prep_poc === name || l.outreach_poc === name) && /converted|offer/i.test(l.status || "")).length;
+      return {
+        name,
+        role_type: r.role_type,
+        total_lmps: Number(r.active_load ?? 0),
+        prep_count: ongoing,
+        ongoing,
+        converted,
+      };
+    });
     return { metric: a.metric, top };
   }
   if (a.metric === "conversion_rate") {

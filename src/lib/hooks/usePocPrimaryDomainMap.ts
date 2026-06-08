@@ -2,11 +2,7 @@ import { useMemo } from "react";
 import { usePocCapabilityList } from "@/lib/hooks/usePocCapabilityLive";
 import type { PocPrimaryDomainMap } from "@/lib/domainAllocation";
 
-/**
- * Live POC → primary-domain map, sourced from `poc_profiles_with_load`.
- * Replaces the deprecated module-level `POC_PRIMARY_DOMAIN` constant which
- * was built from the empty mock `POCS`/`DOMAINS` arrays.
- */
+/** Live POC → primary-domain map sourced from `poc_profiles`. */
 export function usePocPrimaryDomainMap(): {
   map: PocPrimaryDomainMap;
   isLoading: boolean;

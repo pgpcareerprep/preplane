@@ -887,7 +887,7 @@ export function usePocProfilesWithLoad() {
     queryFn: async () =>
       withCache(queryKey, async () => {
         const { data, error } = await (supabase as any)
-          .from("poc_profiles_with_load")
+          .from("poc_profiles")
           .select("*")
           .order("name");
         if (error) throw error;

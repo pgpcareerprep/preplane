@@ -19,11 +19,11 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
 // Model names per provider (both use OpenAI-compatible chat completions format).
-const GEMINI_TOOL_MODEL = "gemini-2.0-flash";
-// gemini-2.0-flash-lite has a higher RPM quota — used as fallback when flash hits 429.
+// flash-lite has 30 RPM free quota vs 15 for flash — use it as primary tool model to maximise throughput.
+const GEMINI_TOOL_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_TOOL_FALLBACK_MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash"] as const;
 const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
-// OpenRouter free-tier Gemini: higher RPM ceiling than Gemini direct free tier.
-const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-exp:free";
+const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-lite-exp:free";
 const OPENROUTER_SYNTHESIS_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-2.0-flash-lite-exp:free", "google/gemini-flash-1.5-8b"] as const;
 
 // Resolved per-request in the handler; fallback values used at module load only.
@@ -3234,28 +3234,33 @@ Deno.serve(async (req: Request) => {
         throw e;
       }
 
-      // On 429, short backoff then give up quickly — don't block the user for 30s.
+      // On 429, try fallback models with increasing backoff before giving up.
       if (aiResponse.status === 429) {
-        const backoffs = [1000, 3000];
-        for (const delay of backoffs) {
-          console.warn(`[tool-loop] 429 on tool call — waiting ${delay / 1000}s then retrying`);
-          await new Promise((r) => setTimeout(r, delay));
-          try {
-            aiResponse = await fetch(AI_GATEWAY_URL, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
-              signal: AbortSignal.timeout(90_000),
-              body: JSON.stringify({ model: TOOL_MODEL, messages: aiMessages, tools: TOOLS, stream: false }),
-            });
-            if (aiResponse.status !== 429) break;
-          } catch (_retryErr) { break; }
+        const toolModels = AI_GATEWAY_URL === GEMINI_DIRECT_URL
+          ? [...GEMINI_TOOL_FALLBACK_MODELS]
+          : [TOOL_MODEL];
+        const backoffs = [3000, 8000];
+        outer: for (const fallbackModel of toolModels) {
+          for (const delay of backoffs) {
+            console.warn(`[tool-loop] 429 — waiting ${delay / 1000}s then retrying with ${fallbackModel}`);
+            await new Promise((r) => setTimeout(r, delay));
+            try {
+              aiResponse = await fetch(AI_GATEWAY_URL, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
+                signal: AbortSignal.timeout(90_000),
+                body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
+              });
+              if (aiResponse.status !== 429) break outer;
+            } catch (_retryErr) { break outer; }
+          }
         }
       }
 
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI quota/rate limit reached across all models. Gemini free-tier resets every minute — try again shortly, or ask a simpler query." }), {
+          return new Response(JSON.stringify({ error: "AI quota/rate limit reached. Gemini free-tier resets every minute — please wait ~60 seconds and try again, or ask a shorter/simpler question." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

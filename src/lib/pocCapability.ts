@@ -1,8 +1,7 @@
 /**
  * POC Capability & Domain-Conversion types + pure helpers.
- * Live data lives in `poc_profiles_with_load`; consume it via
- * `@/lib/hooks/usePocCapabilityLive` (usePocCapabilityList /
- * usePocCapability / usePocConversionMap).
+ * Live data comes from `poc_profiles`; consume it via
+ * `@/lib/hooks/usePocCapabilityLive`.
  */
 
 export type AssignmentType = "domain" | "cross";
