@@ -45,9 +45,10 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
   const [groupModal, setGroupModal] = useState<GroupedSession | null>(null);
   const [editGroup, setEditGroup] = useState<GroupedSession | null>(null);
 
-  const { data: sessions = [], isLoading } = useQuery({
+  const { data: sessions = [], isLoading, isError } = useQuery({
     enabled: !!lmpId,
     queryKey: ["lmp-sessions", lmpId],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
@@ -236,6 +237,10 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
 
       {isLoading ? (
         <div className="rounded-xl border border-n200 p-8 text-center text-[13px] text-n500">Loading…</div>
+      ) : isError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center text-[13px] text-red-600">
+          Failed to load sessions — check your connection and refresh.
+        </div>
       ) : grouped.length === 0 ? (
         <div className="rounded-xl border border-dashed border-n300 bg-card p-12 text-center text-[13px] text-n500">
           No sessions scheduled for this LMP process yet.
