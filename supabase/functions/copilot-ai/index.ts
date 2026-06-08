@@ -28,11 +28,14 @@ const GEMINI_TOOL_FALLBACK_MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash"
 const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
 
 // OpenRouter free models — primary provider, multiple free models, no per-minute quota
-const OPENROUTER_TOOL_MODEL = "deepseek/deepseek-chat-v3-0324:free";
+// deepseek/deepseek-chat:free  = DeepSeek V3 (stable, supports tool calls)
+// meta-llama/llama-3.3-70b-instruct:free = Llama 3.3 70B (supports tool calls)
+// mistralai/mistral-7b-instruct:free = lightweight reliable fallback
+const OPENROUTER_TOOL_MODEL = "deepseek/deepseek-chat:free";
 const OPENROUTER_SYNTHESIS_MODELS = [
-  "deepseek/deepseek-chat-v3-0324:free",
-  "meta-llama/llama-4-maverick:free",
-  "google/gemini-2.0-flash-exp:free",
+  "deepseek/deepseek-chat:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
 ] as const;
 
 // Grok/xAI — middle fallback (api.x.ai, GROK_API_KEY)
