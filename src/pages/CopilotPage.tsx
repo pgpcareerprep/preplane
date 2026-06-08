@@ -198,7 +198,7 @@ function CopilotPageInner() {
       enrichedContent += `\n\n[Attached files:\n${msgAttachments.map(a => `--- ${a.name} ---\n${a.content.slice(0, 3000)}`).join("\n")}]`;
     }
 
-    const userMsg: ChatMessage = { id: `u-${ts}`, role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
 
     // Get conversation history for context.
     // Cap at last 20 messages (10 turns) to bound prompt size and reduce latency.
@@ -230,7 +230,7 @@ function CopilotPageInner() {
 
     // Pre-create the assistant placeholder so error paths can replace it
     // (instead of leaving an empty bubble forever).
-    const assistantId = `a-${ts + 1}`;
+    const assistantId = crypto.randomUUID();
     setThreads(prev => prev.map(t =>
       t.id === activeId
         ? { ...t, messages: [...t.messages, { id: assistantId, role: "assistant" as const, content: "", ts: ts + 1, streaming: true }] }
