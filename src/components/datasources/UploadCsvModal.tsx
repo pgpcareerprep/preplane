@@ -1,6 +1,5 @@
 import { useRef, useState, useMemo } from "react";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { Upload, X, ArrowRight, Loader2, CheckCircle2, AlertCircle, AlertTriangle, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -199,8 +198,9 @@ export function UploadCsvModal({
       });
     } else if (isXlsx) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
+          const XLSX = await import("xlsx");
           const buf = e.target?.result as ArrayBuffer;
           const wb = XLSX.read(buf, { type: "array" });
           const ws = wb.Sheets[wb.SheetNames[0]];

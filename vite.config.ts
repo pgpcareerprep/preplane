@@ -40,14 +40,6 @@ export default defineConfig(({ mode: _mode }) => ({
           // Supabase client
           if (id.includes("/@supabase/")) return "supabase";
 
-          // Heavy document processing — only used by DataSources / Import pages
-          if (
-            id.includes("/pdfjs-dist/") ||
-            id.includes("/mammoth/") ||
-            id.includes("/xlsx/") ||
-            id.includes("/papaparse/")
-          ) return "documents";
-
           // Markdown rendering — only used in Copilot
           if (
             id.includes("/react-markdown/") ||
