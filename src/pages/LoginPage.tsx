@@ -50,6 +50,30 @@ export default function LoginPage() {
       done = true;
       void finishSignIn();
     };
+
+    // Belt-and-suspenders: if the Supabase client hasn't auto-processed the
+    // hash-based OAuth callback (#access_token=...), do it explicitly.
+    const hash = window.location.hash;
+    if (hash.includes("access_token=")) {
+      const params = new URLSearchParams(hash.slice(1));
+      const access_token = params.get("access_token") ?? "";
+      const refresh_token = params.get("refresh_token") ?? "";
+      if (access_token) {
+        setLoading(true);
+        supabase.auth.setSession({ access_token, refresh_token }).then(({ data, error }) => {
+          // Clear the tokens from the URL bar regardless of outcome.
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          if (error || !data.session?.user) {
+            setLoading(false);
+            setError(ERROR_MESSAGES.oauth_failed);
+            return;
+          }
+          go();
+        });
+        return;
+      }
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) go();
     });

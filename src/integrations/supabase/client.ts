@@ -13,5 +13,9 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // Supabase project uses implicit flow (access_token in URL hash).
+    // PKCE is the newer default but only applies when the dashboard has it enabled.
+    flowType: "implicit",
+    detectSessionInUrl: true,
   }
 });
