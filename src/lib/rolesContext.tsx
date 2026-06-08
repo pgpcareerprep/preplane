@@ -103,6 +103,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     (async () => {
       const userEmail = session.user.email?.toLowerCase() || "";
 
+      if (import.meta.env.DEV) {
+        console.log("[auth] Session found — uid:", uid, "email:", userEmail);
+      }
+
       // Look up profile by user_id first, then by email (first-time OAuth users
       // may not have user_id bound yet if the trigger hasn't run on this row).
       let { data: profile } = await supabase
@@ -120,6 +124,14 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         profile = byEmail ?? null;
       }
 
+      if (import.meta.env.DEV) {
+        if (profile) {
+          console.log("[auth] Profile found:", { role: profile.role, access_status: profile.access_status, is_active: profile.is_active });
+        } else {
+          console.warn("[auth] No profile found for uid:", uid, "email:", userEmail);
+        }
+      }
+
       // Gate access: must exist + approved + active + have an assigned role.
       const profileRole = ((profile?.role as string | null) ?? "").trim().toLowerCase();
       const hasValidRole = profileRole === "admin" || profileRole === "allocator" || profileRole === "poc";
@@ -128,15 +140,25 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         && profile.is_active !== false
         && hasValidRole;
 
-
       if (!isApproved) {
+        if (import.meta.env.DEV) {
+          console.warn("[auth] Approval failed —", {
+            profileExists: !!profile,
+            access_status: profile?.access_status,
+            is_active: profile?.is_active,
+            role: profile?.role,
+            hasValidRole,
+          });
+        }
         if (cancelled) return;
         await supabase.auth.signOut();
         setSession(null);
         setUser(GUEST);
         setRole("poc");
         setIsLoading(false);
-        if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        // Always redirect to /login?error=not_approved, even if already on /login,
+        // so the user sees a clear error message regardless of current path.
+        if (typeof window !== "undefined") {
           window.location.replace("/login?error=not_approved");
         }
         return;

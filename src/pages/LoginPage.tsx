@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { lovable } from "@/integrations/lovable";
-import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/lib/rolesContext";
 import { cn } from "@/lib/utils";
 import { Loader2, AlertCircle } from "lucide-react";
 
@@ -11,12 +11,18 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export default function LoginPage() {
-  const [loading, setLoading] = useState(false);
+  // Watch RoleProvider's auth state — it runs the actual profile/approval check.
+  const { isAuthenticated, isLoading: authLoading } = useRole();
+
+  const [signInLoading, setSignInLoading] = useState(false);
+  // True while we're waiting for the OAuth callback hash to be processed.
+  const [oauthPending, setOauthPending] = useState(false);
   const [error, setError] = useState("");
+
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const redirectTarget = (() => {
+  const redirectTarget = useMemo(() => {
     const r = searchParams.get("redirect");
     if (!r) return "/dashboard";
     try {
@@ -24,71 +30,61 @@ export default function LoginPage() {
       if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
     } catch { /* fallthrough */ }
     return "/dashboard";
-  })();
-
-  const finishSignIn = useCallback(async () => {
-    setLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      navigate(redirectTarget, { replace: true });
-      return true;
-    }
-    setLoading(false);
-    return false;
-  }, [navigate, redirectTarget]);
-
-  useEffect(() => {
-    const errKey = searchParams.get("error");
-    if (errKey && ERROR_MESSAGES[errKey]) setError(ERROR_MESSAGES[errKey]);
   }, [searchParams]);
 
-  // Redirect as soon as a session exists (either already there, or set after OAuth callback).
+  // On mount:
+  // 1. Show error from ?error= query param (set by RoleProvider on not_approved).
+  // 2. If this is an OAuth callback (#access_token=...), clear the tokens from
+  //    the URL bar. Supabase's detectSessionInUrl already read the hash during
+  //    client initialization (before React mounted), so it's safe to clear now.
   useEffect(() => {
-    let done = false;
-    const go = () => {
-      if (done) return;
-      done = true;
-      void finishSignIn();
-    };
-
-    // Belt-and-suspenders: if the Supabase client hasn't auto-processed the
-    // hash-based OAuth callback (#access_token=...), do it explicitly.
-    const hash = window.location.hash;
-    if (hash.includes("access_token=")) {
-      const params = new URLSearchParams(hash.slice(1));
-      const access_token = params.get("access_token") ?? "";
-      const refresh_token = params.get("refresh_token") ?? "";
-      if (access_token) {
-        setLoading(true);
-        supabase.auth.setSession({ access_token, refresh_token }).then(({ data, error }) => {
-          // Clear the tokens from the URL bar regardless of outcome.
-          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-          if (error || !data.session?.user) {
-            setLoading(false);
-            setError(ERROR_MESSAGES.oauth_failed);
-            return;
-          }
-          go();
-        });
-        return;
-      }
+    const errKey = searchParams.get("error");
+    if (errKey && ERROR_MESSAGES[errKey]) {
+      setError(ERROR_MESSAGES[errKey]);
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) go();
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
-      if (s?.user) go();
-    });
-    return () => subscription.unsubscribe();
-  }, [finishSignIn]);
+    if (window.location.hash.includes("access_token=")) {
+      setOauthPending(true);
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + window.location.search,
+      );
+      if (import.meta.env.DEV) {
+        console.log("[auth] OAuth hash detected — awaiting session from RoleProvider");
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount
+
+  // Navigate to dashboard once RoleProvider confirms the user is authenticated.
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (isAuthenticated) {
+      if (import.meta.env.DEV) {
+        console.log("[auth] Authenticated — navigating to", redirectTarget);
+      }
+      navigate(redirectTarget, { replace: true });
+      return;
+    }
+
+    // Auth resolved but user is not authenticated. Stop the pending spinner.
+    // (RoleProvider already redirected to ?error=not_approved if not approved.)
+    if (oauthPending) setOauthPending(false);
+    if (signInLoading) setSignInLoading(false);
+  }, [authLoading, isAuthenticated, navigate, redirectTarget, oauthPending, signInLoading]);
+
+  const isLoading = signInLoading || oauthPending || authLoading;
 
   const handleGoogleSignIn = async () => {
     setError("");
-    setLoading(true);
+    setSignInLoading(true);
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin + "/login" +
+        redirect_uri:
+          window.location.origin +
+          "/login" +
           (redirectTarget !== "/dashboard"
             ? `?redirect=${encodeURIComponent(redirectTarget)}`
             : ""),
@@ -96,16 +92,15 @@ export default function LoginPage() {
 
       if (result.error) {
         setError(ERROR_MESSAGES.oauth_failed);
-        setLoading(false);
+        setSignInLoading(false);
         return;
       }
-      if (result.redirected) return; // Browser will redirect
-      // Tokens received in-place
-      await finishSignIn();
+      // result.redirected = true — browser is navigating away to Google.
+      // Nothing more to do here; the page will unload.
     } catch (err) {
-      console.error("Google sign-in error:", err);
+      console.error("[auth] Google sign-in error:", err);
       setError(ERROR_MESSAGES.oauth_failed);
-      setLoading(false);
+      setSignInLoading(false);
     }
   };
 
@@ -139,7 +134,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleGoogleSignIn}
-            disabled={loading}
+            disabled={isLoading}
             className={cn(
               "mt-5 w-full flex items-center justify-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
               "bg-white dark:bg-d-surface-2 text-n900 dark:text-d-text",
@@ -147,7 +142,7 @@ export default function LoginPage() {
               "disabled:opacity-60 disabled:cursor-not-allowed",
             )}
           >
-            {loading ? (
+            {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
@@ -157,7 +152,7 @@ export default function LoginPage() {
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.07l3.66 2.83C6.71 7.31 9.14 5.38 12 5.38z" fill="#EA4335"/>
               </svg>
             )}
-            {loading ? "Redirecting…" : "Continue with Google"}
+            {isLoading ? "Signing in…" : "Continue with Google"}
           </button>
         </div>
 
