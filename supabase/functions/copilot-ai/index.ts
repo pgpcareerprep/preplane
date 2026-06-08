@@ -35,6 +35,11 @@ const OPENROUTER_SYNTHESIS_MODELS = [
   "google/gemini-2.0-flash-exp:free",
 ] as const;
 
+// Grok/xAI — middle fallback (api.x.ai, GROK_API_KEY)
+const GROK_URL = "https://api.x.ai/v1/chat/completions";
+const GROK_TOOL_MODEL = "grok-3-mini";
+const GROK_SYNTHESIS_MODELS = ["grok-3-mini"] as const;
+
 // Resolved per-request in the handler; module-load defaults are overwritten each request.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
 let TOOL_MODEL = GEMINI_TOOL_MODEL;
@@ -89,6 +94,47 @@ async function callSynthesis(
 
 type SupabaseLike = ReturnType<typeof createClient>;
 
+// ─── Vault / Edge-Function secret reader ─────────────────────────────────────
+// Deno.env.get() reads Edge Function secrets (set via `supabase secrets set`).
+// If a secret lives in Supabase Vault (set via Dashboard > Vault) it is NOT
+// accessible via Deno.env.get(). ensureVaultLoaded() fetches Vault secrets once
+// per cold start so getEnv() covers both paths transparently.
+const _vault: Map<string, string> = new Map();
+let _vaultLoaded = false;
+
+async function ensureVaultLoaded(): Promise<void> {
+  if (_vaultLoaded) return;
+  _vaultLoaded = true;
+  try {
+    const sbUrl = Deno.env.get("SUPABASE_URL")!;
+    const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const vaultSb = createClient(sbUrl, sbKey, {
+      db: { schema: "vault" },
+      auth: { persistSession: false },
+    });
+    const { data, error } = await (vaultSb as SupabaseLike)
+      .from("decrypted_secrets")
+      .select("name,decrypted_secret");
+    if (error) {
+      console.warn("[copilot-ai] vault query error (non-fatal):", error.message);
+      return;
+    }
+    for (const row of (data ?? []) as Array<{ name: string; decrypted_secret: string }>) {
+      if (row.name && row.decrypted_secret) {
+        _vault.set(row.name, row.decrypted_secret.trim());
+      }
+    }
+    console.log(`[copilot-ai] vault loaded ${_vault.size} secrets`);
+  } catch (e) {
+    console.warn("[copilot-ai] vault load skipped (non-fatal):", (e as Error).message);
+  }
+}
+
+function getEnv(name: string): string | undefined {
+  return Deno.env.get(name)?.trim() || _vault.get(name) || undefined;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Embed user query with Gemini text-embedding-004 then call rag_search RPC.
 // Returns a system-prompt-ready block; empty string on any failure (non-fatal).
 async function retrieveRAGContext(
@@ -98,7 +144,7 @@ async function retrieveRAGContext(
   opts?: { limit?: number; threshold?: number },
 ): Promise<string> {
   try {
-    const key = Deno.env.get("GEMINI_API_KEY");
+    const key = getEnv("GEMINI_API_KEY");
     if (!key || !userMessage || !userMessage.trim()) return "";
     const limit = opts?.limit ?? 6;
     const threshold = opts?.threshold ?? 0.68;
@@ -2125,10 +2171,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
         let expandedKeywords: string[] = [...baseKeywords];
         try {
-          const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
           const expandRes = await fetch(AI_GATEWAY_URL, {
             method: "POST",
-            headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+            headers: { Authorization: `Bearer ${AI_KEY_FOR_CHAT}`, "Content-Type": "application/json", ...AI_EXTRA_HEADERS },
             signal: AbortSignal.timeout(90_000),
             body: JSON.stringify({
               model: "gemini-2.0-flash",
@@ -2894,8 +2939,12 @@ Deno.serve(async (req: Request) => {
   const authedUser = auth.user;
   log = log.child({ user_id: authedUser.id, role: authedUser.role });
 
-  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")?.trim();
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim();
+  // Load Vault secrets once per cold start; getEnv() checks Deno.env first then Vault.
+  await ensureVaultLoaded();
+
+  const OPENROUTER_API_KEY = getEnv("OPENROUTER_API_KEY");
+  const GROK_API_KEY = getEnv("GROK_API_KEY");
+  const GEMINI_API_KEY = getEnv("GEMINI_API_KEY");
 
   if (OPENROUTER_API_KEY) {
     AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
@@ -2908,6 +2957,14 @@ Deno.serve(async (req: Request) => {
       "HTTP-Referer": "https://preplane.pages.dev",
       "X-Title": "Preplane LMP Copilot",
     };
+  } else if (GROK_API_KEY) {
+    AI_KEY_FOR_CHAT = GROK_API_KEY;
+    AI_GATEWAY_URL = GROK_URL;
+    TOOL_MODEL = GROK_TOOL_MODEL;
+    TOOL_FALLBACK_MODELS = [...GROK_SYNTHESIS_MODELS];
+    SYNTHESIS_MODELS.length = 0;
+    SYNTHESIS_MODELS.push(...GROK_SYNTHESIS_MODELS);
+    AI_EXTRA_HEADERS = {};
   } else if (GEMINI_API_KEY) {
     AI_KEY_FOR_CHAT = GEMINI_API_KEY;
     AI_GATEWAY_URL = GEMINI_DIRECT_URL;
@@ -2917,14 +2974,17 @@ Deno.serve(async (req: Request) => {
     SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {};
   } else {
-    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY in Supabase Edge Function secrets.", 500);
+    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY (or GROK_API_KEY, GEMINI_API_KEY) in Supabase Edge Function secrets.", 500);
   }
 
+  console.log("[copilot-ai] deployed version: openrouter-grok-gemini-cascade-v2");
   console.log("[copilot-ai] provider config", {
     hasOpenRouter: Boolean(OPENROUTER_API_KEY),
+    hasGrok: Boolean(GROK_API_KEY),
     hasGemini: Boolean(GEMINI_API_KEY),
     selectedGateway: AI_GATEWAY_URL,
     toolModel: TOOL_MODEL,
+    synthesisModels: SYNTHESIS_MODELS,
   });
 
   let body: {
