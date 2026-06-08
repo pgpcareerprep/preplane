@@ -24,6 +24,9 @@ export type SheetOp =
 
 export async function sheetsInvoke<T = unknown>(payload: SheetOp): Promise<T> {
   const op = (payload as { op: string }).op;
+  if (import.meta.env.DEV) {
+    console.warn("[sheetsClient] no-op stub called — op:", op, payload);
+  }
   switch (op) {
     case "metadata":
       return { sheets: [], spreadsheetId: "" } as unknown as T;

@@ -1,31 +1,25 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Users,
-  Clock,
-  Calendar,
-  MoreVertical,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Pencil,
-  Plus,
-  RefreshCw,
-  UserCog,
-  ArrowRightLeft,
-  Trash2,
+  Users, Clock, Calendar, MoreVertical, AlertTriangle, CheckCircle2, XCircle,
+  Pencil, Plus, RefreshCw, UserCog, ArrowRightLeft, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Requisition, ReqStatus } from "@/lib/lmpProcessMutations";
+import { STATUS_OPTIONS } from "@/lib/lmpProcessMutations";
 import type { Responsibility } from "@/lib/workspaceViewContext";
 import { PocAvatarStack } from "./PocAvatarStack";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useLmpMutation } from "@/lib/sheets/hooks";
+import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { toast } from "sonner";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
@@ -137,6 +131,16 @@ export function LmpProcessCompactCard({
   isMine: boolean;
 }) {
   const navigate = useNavigate();
+  const { update: updateMutation } = useLmpMutation();
+  const deleteLmp = useDeleteLmpProcess();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleChangeStatus = (newStatus: ReqStatus) => {
+    updateMutation.mutate(
+      { id: req.id, patch: { status: newStatus, lastActivity: "Just now — Status updated" } },
+      { onSuccess: () => toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`) },
+    );
+  };
 
   const handleCardClick = (e: React.MouseEvent) => {
     // Ignore clicks coming from interactive children
@@ -177,15 +181,28 @@ export function LmpProcessCompactCard({
               <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
                 <Plus className="h-3.5 w-3.5 mr-2" /> Add Candidates
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.info("Status change coming soon")}>
-                <RefreshCw className="h-3.5 w-3.5 mr-2" /> Change Status
-              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> Change Status
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-44">
+                  {STATUS_OPTIONS.map((opt) => (
+                    <DropdownMenuItem
+                      key={opt.value}
+                      onClick={() => handleChangeStatus(opt.value)}
+                      className={cn(req.status === opt.value && "bg-n100")}
+                    >
+                      {opt.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem onClick={() => onEditPoc(req)}>
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Reassign POC
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => toast.error("Delete is disabled in demo")}
+                onClick={() => setConfirmDelete(true)}
                 className="text-coral-600 focus:text-coral-600"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
@@ -254,5 +271,25 @@ export function LmpProcessCompactCard({
         </div>
       </div>
     </motion.div>
+
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this LMP process?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently remove <span className="font-semibold">{req.role} @ {req.company}</span> and all its candidates and POC assignments. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            onClick={() => deleteLmp.mutate(req.id)}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

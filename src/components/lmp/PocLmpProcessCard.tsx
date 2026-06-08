@@ -1,16 +1,22 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronDown, Users, Clock, Calendar, ArrowRight, Settings2, Sparkles,
+  ChevronDown, Users, Clock, Calendar, ArrowRight,
   MoreVertical, Pencil, Plus, RefreshCw, UserCog, ArrowRightLeft, Trash2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Requisition, ReqStatus } from "@/lib/lmpProcessMutations";
-import { DEFAULT_ROUNDS } from "@/lib/lmpProcessMutations";
+import { DEFAULT_ROUNDS, STATUS_OPTIONS } from "@/lib/lmpProcessMutations";
 import { useRole } from "@/lib/rolesContext";
 import { useLmpCandidatesLive } from "@/lib/hooks/useLmpCandidatesLive";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useLmpMutation } from "@/lib/sheets/hooks";
+import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 
 const DOT_COLORS = [
   "bg-orange-200 text-orange-600",
@@ -21,11 +27,8 @@ const DOT_COLORS = [
 ];
 import { PocAvatarStack } from "./PocAvatarStack";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
@@ -57,8 +60,18 @@ function slaTone(days: number) {
 
 export function PocLmpProcessCard({ req, index }: { req: Requisition; index: number }) {
   const [expanded, setExpanded] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const navigate = useNavigate();
   const { user } = useRole();
+  const { update: updateMutation } = useLmpMutation();
+  const deleteLmp = useDeleteLmpProcess();
+
+  const handleChangeStatus = (newStatus: ReqStatus) => {
+    updateMutation.mutate(
+      { id: req.id, patch: { status: newStatus, lastActivity: "Just now — Status updated" } },
+      { onSuccess: () => toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`) },
+    );
+  };
 
   // Identify the signed-in POC against this requisition's named POCs.
   const myName = (user.pocProfileName || user.name || "").trim().toLowerCase();
@@ -76,6 +89,7 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
   const totalDist = dist.reduce((s, d) => s + d.count, 0) || 1;
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -112,15 +126,28 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
               <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
                 <Plus className="h-3.5 w-3.5 mr-2" /> Add Candidates
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.info("Status change coming soon")}>
-                <RefreshCw className="h-3.5 w-3.5 mr-2" /> Change Status
-              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> Change Status
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-44">
+                  {STATUS_OPTIONS.map((opt) => (
+                    <DropdownMenuItem
+                      key={opt.value}
+                      onClick={() => handleChangeStatus(opt.value)}
+                      className={cn(req.status === opt.value && "bg-n100")}
+                    >
+                      {opt.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Reassign POC
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => toast.error("Delete is disabled in demo")}
+                onClick={() => setConfirmDelete(true)}
                 className="text-coral-600 focus:text-coral-600"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
@@ -255,5 +282,26 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
         )}
       </AnimatePresence>
     </motion.div>
+
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this LMP process?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently remove <span className="font-semibold">{req.role} @ {req.company}</span> and all its candidates and POC assignments. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            onClick={() => deleteLmp.mutate(req.id)}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

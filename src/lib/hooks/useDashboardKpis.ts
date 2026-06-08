@@ -112,13 +112,21 @@ export function useDashboardKpis(opts: { pocId?: string | null } = {}) {
         supabase.from("mentors").select("id", { count: "exact", head: true }).eq("availability", "available"),
       ]);
 
+      // Normalise legacy status slugs onto canonical buckets so the KPIs are
+      // correct regardless of whether rows were written by app code ("prep-ongoing")
+      // or by older sheet-sync paths ("ongoing", "dormant", etc.).
+      const n = (k: string) => byStatus[k] ?? 0;
       return {
         totalProcesses: total,
-        ongoing: byStatus.ongoing ?? 0,
-        converted: byStatus.converted ?? 0,
-        notConverted: byStatus["not-converted"] ?? byStatus.not_converted ?? 0,
-        hold: byStatus.hold ?? 0,
-        notStarted: byStatus["not-started"] ?? byStatus.not_started ?? 0,
+        // "ongoing" is a legacy alias for the canonical "prep-ongoing" state.
+        ongoing: n("prep-ongoing") + n("ongoing"),
+        // "offer-received" is a legacy alias treated the same as converted.
+        converted: n("converted") + n("offer-received"),
+        // All terminal-loss states collapse into notConverted.
+        notConverted: n("not-converted") + n("closed") + n("converted-na") + n("other-reasons"),
+        // "dormant" and "on-hold" are legacy aliases for hold.
+        hold: n("hold") + n("on-hold") + n("dormant"),
+        notStarted: n("not-started"),
         candidatesTotal: candRows?.length ?? 0,
         candidatesByStage,
         sessionsLast7d: recentCount ?? 0,
