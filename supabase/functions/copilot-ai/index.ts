@@ -16,19 +16,35 @@ const corsHeaders: Record<string, string> = {
 
 const GEMINI_DIRECT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const GROK_URL = "https://api.x.ai/v1/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
-// Model names per provider (both use OpenAI-compatible chat completions format).
-// flash-lite has 30 RPM free quota vs 15 for flash — use it as primary tool model to maximise throughput.
+// Gemini direct (free tier: 30 RPM flash-lite, 15 RPM flash)
 const GEMINI_TOOL_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_TOOL_FALLBACK_MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash"] as const;
 const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
-const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-lite-exp:free";
-const OPENROUTER_SYNTHESIS_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-2.0-flash-lite-exp:free", "google/gemini-flash-1.5-8b"] as const;
+
+// OpenRouter free models — higher rate limits, no direct Gemini quota dependency
+const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-exp:free";
+const OPENROUTER_TOOL_FALLBACK_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "deepseek/deepseek-chat-v3-0324:free",
+  "meta-llama/llama-4-maverick:free",
+] as const;
+const OPENROUTER_SYNTHESIS_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "deepseek/deepseek-chat-v3-0324:free",
+  "meta-llama/llama-4-maverick:free",
+] as const;
+
+// Grok (xAI) — OpenAI-compatible, good tool-use support
+const GROK_TOOL_MODEL = "grok-3-mini";
+const GROK_SYNTHESIS_MODELS = ["grok-3-mini", "grok-3"] as const;
 
 // Resolved per-request in the handler; fallback values used at module load only.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
 let TOOL_MODEL = GEMINI_TOOL_MODEL;
+let TOOL_FALLBACK_MODELS: string[] = [...GEMINI_TOOL_FALLBACK_MODELS];
 const SYNTHESIS_MODELS: string[] = [...GEMINI_SYNTHESIS_MODELS];
 let AI_EXTRA_HEADERS: Record<string, string> = {};
 let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
@@ -2886,26 +2902,39 @@ Deno.serve(async (req: Request) => {
 
   const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
   const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
-    return jsonError("No AI API key configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)", 500);
+  const GROK_API_KEY = Deno.env.get("GROK_API_KEY");
+
+  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY && !GROK_API_KEY) {
+    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY, GROK_API_KEY, or GEMINI_API_KEY as a Supabase secret.", 500);
   }
 
-  // Prefer OpenRouter: same Gemini models but with higher RPM ceiling on free tier.
-  // Falls back to Gemini direct if OPENROUTER_API_KEY is not set.
+  // Provider priority: OpenRouter (free, multiple models, highest limits)
+  //   > Grok (xAI, strong tool-use, generous free tier)
+  //   > Gemini direct (fallback)
   if (OPENROUTER_API_KEY) {
     AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
     AI_GATEWAY_URL = OPENROUTER_URL;
     TOOL_MODEL = OPENROUTER_TOOL_MODEL;
+    TOOL_FALLBACK_MODELS = [...OPENROUTER_TOOL_FALLBACK_MODELS];
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...OPENROUTER_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {
       "HTTP-Referer": "https://preplane.pages.dev",
       "X-Title": "Preplane LMP Copilot",
     };
+  } else if (GROK_API_KEY) {
+    AI_KEY_FOR_CHAT = GROK_API_KEY;
+    AI_GATEWAY_URL = GROK_URL;
+    TOOL_MODEL = GROK_TOOL_MODEL;
+    TOOL_FALLBACK_MODELS = [...GROK_SYNTHESIS_MODELS];
+    SYNTHESIS_MODELS.length = 0;
+    SYNTHESIS_MODELS.push(...GROK_SYNTHESIS_MODELS);
+    AI_EXTRA_HEADERS = {};
   } else {
     AI_KEY_FOR_CHAT = GEMINI_API_KEY!;
     AI_GATEWAY_URL = GEMINI_DIRECT_URL;
     TOOL_MODEL = GEMINI_TOOL_MODEL;
+    TOOL_FALLBACK_MODELS = [...GEMINI_TOOL_FALLBACK_MODELS];
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {};
@@ -3236,9 +3265,7 @@ Deno.serve(async (req: Request) => {
 
       // On 429, try fallback models with increasing backoff before giving up.
       if (aiResponse.status === 429) {
-        const toolModels = AI_GATEWAY_URL === GEMINI_DIRECT_URL
-          ? [...GEMINI_TOOL_FALLBACK_MODELS]
-          : [TOOL_MODEL];
+        const toolModels = TOOL_FALLBACK_MODELS.length > 0 ? TOOL_FALLBACK_MODELS : [TOOL_MODEL];
         const backoffs = [3000, 8000];
         outer: for (const fallbackModel of toolModels) {
           for (const delay of backoffs) {
