@@ -8,40 +8,34 @@ import {
 } from "./intentRouter.ts";
 import { checkPermission } from "../_shared/rbac.ts";
 
+// corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
+// This module-level object is mutated in-place so all existing response sites keep working.
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  "Vary": "Origin",
 };
 
 const GEMINI_DIRECT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const GROK_URL = "https://api.x.ai/v1/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
-// Gemini direct (free tier: 30 RPM flash-lite, 15 RPM flash)
+// Gemini direct (fallback only — 30 RPM flash-lite, 15 RPM flash on free tier)
 const GEMINI_TOOL_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_TOOL_FALLBACK_MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash"] as const;
 const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
 
-// OpenRouter free models — higher rate limits, no direct Gemini quota dependency
-const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-exp:free";
-const OPENROUTER_TOOL_FALLBACK_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
-  "deepseek/deepseek-chat-v3-0324:free",
-  "meta-llama/llama-4-maverick:free",
-] as const;
+// OpenRouter free models — primary provider, multiple free models, no per-minute quota
+const OPENROUTER_TOOL_MODEL = "deepseek/deepseek-chat-v3-0324:free";
 const OPENROUTER_SYNTHESIS_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
   "deepseek/deepseek-chat-v3-0324:free",
   "meta-llama/llama-4-maverick:free",
+  "google/gemini-2.0-flash-exp:free",
 ] as const;
 
-// Grok (xAI) — OpenAI-compatible, good tool-use support
-const GROK_TOOL_MODEL = "grok-3-mini";
-const GROK_SYNTHESIS_MODELS = ["grok-3-mini", "grok-3"] as const;
-
-// Resolved per-request in the handler; fallback values used at module load only.
+// Resolved per-request in the handler; module-load defaults are overwritten each request.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
 let TOOL_MODEL = GEMINI_TOOL_MODEL;
 let TOOL_FALLBACK_MODELS: string[] = [...GEMINI_TOOL_FALLBACK_MODELS];
@@ -2900,45 +2894,38 @@ Deno.serve(async (req: Request) => {
   const authedUser = auth.user;
   log = log.child({ user_id: authedUser.id, role: authedUser.role });
 
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-  const GROK_API_KEY = Deno.env.get("GROK_API_KEY");
+  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")?.trim();
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim();
 
-  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY && !GROK_API_KEY) {
-    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY, GROK_API_KEY, or GEMINI_API_KEY as a Supabase secret.", 500);
-  }
-
-  // Provider priority: OpenRouter (free, multiple models, highest limits)
-  //   > Grok (xAI, strong tool-use, generous free tier)
-  //   > Gemini direct (fallback)
   if (OPENROUTER_API_KEY) {
     AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
     AI_GATEWAY_URL = OPENROUTER_URL;
     TOOL_MODEL = OPENROUTER_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...OPENROUTER_TOOL_FALLBACK_MODELS];
+    TOOL_FALLBACK_MODELS = [...OPENROUTER_SYNTHESIS_MODELS];
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...OPENROUTER_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {
       "HTTP-Referer": "https://preplane.pages.dev",
       "X-Title": "Preplane LMP Copilot",
     };
-  } else if (GROK_API_KEY) {
-    AI_KEY_FOR_CHAT = GROK_API_KEY;
-    AI_GATEWAY_URL = GROK_URL;
-    TOOL_MODEL = GROK_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...GROK_SYNTHESIS_MODELS];
-    SYNTHESIS_MODELS.length = 0;
-    SYNTHESIS_MODELS.push(...GROK_SYNTHESIS_MODELS);
-    AI_EXTRA_HEADERS = {};
-  } else {
-    AI_KEY_FOR_CHAT = GEMINI_API_KEY!;
+  } else if (GEMINI_API_KEY) {
+    AI_KEY_FOR_CHAT = GEMINI_API_KEY;
     AI_GATEWAY_URL = GEMINI_DIRECT_URL;
     TOOL_MODEL = GEMINI_TOOL_MODEL;
     TOOL_FALLBACK_MODELS = [...GEMINI_TOOL_FALLBACK_MODELS];
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {};
+  } else {
+    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY in Supabase Edge Function secrets.", 500);
   }
+
+  console.log("[copilot-ai] provider config", {
+    hasOpenRouter: Boolean(OPENROUTER_API_KEY),
+    hasGemini: Boolean(GEMINI_API_KEY),
+    selectedGateway: AI_GATEWAY_URL,
+    toolModel: TOOL_MODEL,
+  });
 
   let body: {
     messages?: { role: string; content: string }[];
@@ -3287,7 +3274,7 @@ Deno.serve(async (req: Request) => {
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI quota/rate limit reached. Gemini free-tier resets every minute — please wait ~60 seconds and try again, or ask a shorter/simpler question." }), {
+          return new Response(JSON.stringify({ error: "AI provider quota is temporarily exhausted. Please retry after 60 seconds or ask a simpler query." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -3462,7 +3449,7 @@ Deno.serve(async (req: Request) => {
       let streamResponse: Response;
       let synthModel = TOOL_MODEL;
       try {
-        const { resp, model } = await callSynthesis(GEMINI_API_KEY, {
+        const { resp, model } = await callSynthesis("", {
           messages: aiMessages,
           stream: true,
         });
@@ -3527,7 +3514,7 @@ Deno.serve(async (req: Request) => {
       content: "You have reached the tool round limit. Do NOT call any more tools. Summarize the most useful insight from the data you've already retrieved, then on a new line append exactly:\n\n:::blocks\n[{\"type\":\"follow-ups\",\"suggestions\":[\"Continue from where you left off and finish the previous task\"]}]\n:::",
     });
     try {
-      const { resp: summaryResp } = await callSynthesis(GEMINI_API_KEY, {
+      const { resp: summaryResp } = await callSynthesis("", {
         messages: aiMessages,
         stream: true,
       });
