@@ -62,8 +62,8 @@ async function callSynthesis(
         break; // model unavailable → next model
       }
       if (resp.status === 429 && attempt === 0) {
-        console.warn(`[hybrid] ${model} 429 — waiting 8s then retrying`);
-        await new Promise((r) => setTimeout(r, 8000));
+        console.warn(`[hybrid] ${model} 429 — waiting 2s then retrying`);
+        await new Promise((r) => setTimeout(r, 2000));
         continue; // retry same model once
       }
       return { resp, model };
@@ -3250,7 +3250,7 @@ Deno.serve(async (req: Request) => {
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI is temporarily busy. Please wait a moment and try again." }), {
+          return new Response(JSON.stringify({ error: "AI rate limit reached. Try again in a few minutes." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

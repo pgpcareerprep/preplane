@@ -294,12 +294,13 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
 export function useLmpRows() {
   const dbQuery = useLmpProcesses({ includeArchived: true });
   const { data: pocCapabilities } = usePocCapabilityList();
-  const { user } = useRole();
+  const { user, viewAsUser } = useRole();
 
-  // Logged-in user's canonical name AND email — used to compute user-specific domain tags.
-  // Email-based lookup is tried first (exact, no name-mismatch risk); name is the fallback.
-  const currentUserName = (user.pocProfileName ?? user.name ?? "").toLowerCase().trim();
-  const currentUserEmail = (user.email ?? "").toLowerCase().trim();
+  // When an admin impersonates a POC via "View As", use that POC's identity for
+  // domain tag computation so the tag reflects the viewed-as user's perspective.
+  const effectiveEmail = ((viewAsUser?.email ?? user.email) ?? "").toLowerCase().trim();
+  const effectiveName = ((viewAsUser?.name ?? user.pocProfileName ?? user.name) ?? "").toLowerCase().trim();
+  const isAdminWithoutPoc = !viewAsUser && user.email && !user.pocProfileName;
 
   // Build name → {primary, secondary} AND email → {primary, secondary} maps.
   const pocDomainMap = useMemo(() => {
@@ -324,40 +325,34 @@ export function useLmpRows() {
         const rec = dbLmpToRecord(row);
         if (!hasPocData || !rec.domain) return rec;
 
-        // Domain tag is user-specific: computed from the LOGGED-IN user's domain
-        // mapping, so the same LMP shows "In-Domain" for one POC and "Cross-Domain"
-        // for another depending on their own domain assignments.
         const domainLower = rec.domain.toLowerCase().trim();
 
-        // Try logged-in user's domains: email-first (avoids display-name mismatch), then name.
+        // Resolve effective user's domain profile: try email first, then display name.
         const userDomains =
-          (currentUserEmail ? pocDomainMap.byEmail.get(currentUserEmail) : undefined) ??
-          (currentUserName ? pocDomainMap.byName.get(currentUserName) : undefined);
+          (effectiveEmail ? pocDomainMap.byEmail.get(effectiveEmail) : undefined) ??
+          (effectiveName ? pocDomainMap.byName.get(effectiveName) : undefined);
+
         let domainTag: AllocationTag;
 
         if (userDomains) {
           const isPrimary = userDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
           const isSecondary = !isPrimary && userDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
           domainTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+        } else if (isAdminWithoutPoc) {
+          // Admin with no POC profile and no viewAsUser — omit domain tag (no perspective to compute from).
+          return rec;
         } else {
-          // Logged-in user has no domain profile (admin/allocator without POC mapping).
-          // Fall back to prep POC's perspective so admin dashboards still show useful info.
-          if (!rec.prepPoc?.name) return rec;
-          const pocKey = rec.prepPoc.name.toLowerCase().trim();
-          const pocDomains = pocDomainMap.byName.get(pocKey);
-          if (!pocDomains) return rec;
-          const isPrimary = pocDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
-          const isSecondary = !isPrimary && pocDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
-          domainTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+          // POC user whose profile wasn't found in pocCapabilities — omit tag rather than guessing.
+          return rec;
         }
 
-        // Replace any existing In-Domain/Cross-Domain/Secondary Domain tag with the computed one
+        // Replace any existing In-Domain/Cross-Domain/Secondary Domain tag with the computed one.
         const otherTags = (rec.allocationTags ?? []).filter(
           t => t !== "In-Domain" && t !== "Cross-Domain" && t !== "Secondary Domain",
         );
         return { ...rec, allocationTags: [domainTag, ...otherTags] };
       });
-    }, [dbQuery.data, pocDomainMap, hasPocData, currentUserName, currentUserEmail]),
+    }, [dbQuery.data, pocDomainMap, hasPocData, effectiveName, effectiveEmail, isAdminWithoutPoc]),
   };
 }
 
