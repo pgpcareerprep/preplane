@@ -48,15 +48,19 @@ const SYNTHESIS_MODELS: string[] = [...GEMINI_SYNTHESIS_MODELS];
 let AI_EXTRA_HEADERS: Record<string, string> = {};
 let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
 
-/** Try each model in SYNTHESIS_MODELS until one succeeds. On 429 waits 3s and
- *  retries the same model once before falling through to the next. */
+/** Try each model in SYNTHESIS_MODELS until one succeeds.
+ *  Logs provider/model/status/body for every failure.
+ *  Retries same model once on 429; all other errors immediately try next model. */
 async function callSynthesis(
   _key: string, // kept for signature compat; actual key comes from AI_KEY_FOR_CHAT
   body: Record<string, unknown>,
   timeoutMs = 90_000,
 ): Promise<{ resp: Response; model: string }> {
-  let lastErr: unknown;
   const key = AI_KEY_FOR_CHAT;
+  const provider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
+    : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
+  let lastFailMsg = `${provider}: all synthesis models exhausted`;
+
   for (const model of SYNTHESIS_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       let resp: Response;
@@ -68,28 +72,29 @@ async function callSynthesis(
           body: JSON.stringify({ ...body, model }),
         });
       } catch (e) {
-        lastErr = e;
         const n = (e as { name?: string })?.name ?? "";
         if (n === "TimeoutError" || n === "AbortError") throw e;
+        lastFailMsg = `${provider}/${model} network error: ${(e as Error).message}`;
+        console.warn(`[synthesis] ${lastFailMsg}`);
         break; // network error → try next model
       }
-      if (!resp.ok && (resp.status === 404 || resp.status === 403 || resp.status === 400)) {
-        console.warn(`[hybrid] ${model} ${resp.status} — trying next model`);
-        break; // model unavailable → next model
+
+      if (resp.ok) return { resp, model };
+
+      // Log exact failure: provider, model, HTTP status, body excerpt (no key)
+      const errBody = await resp.text().catch(() => "");
+      lastFailMsg = `${provider}/${model} ${resp.status}: ${errBody.slice(0, 300)}`;
+      console.warn(`[synthesis] ${lastFailMsg}`);
+
+      if (resp.status === 429 && attempt === 0) {
+        console.warn(`[synthesis] ${provider}/${model} 429 — waiting 2s then retrying once`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue; // retry same model once
       }
-      if (resp.status === 429) {
-        if (attempt === 0) {
-          console.warn(`[hybrid] ${model} 429 — waiting 2s then retrying once`);
-          await new Promise((r) => setTimeout(r, 2000));
-          continue;
-        }
-        console.warn(`[hybrid] ${model} 429 on retry — trying next model`);
-        break; // second 429 → fall through to next model
-      }
-      return { resp, model };
+      break; // any other error (401/402/403/404/5xx) or second 429 → try next model
     }
   }
-  throw lastErr ?? new Error("All synthesis models failed");
+  throw new Error(lastFailMsg);
 }
 
 type SupabaseLike = ReturnType<typeof createClient>;
@@ -3310,45 +3315,61 @@ Deno.serve(async (req: Request) => {
         throw e;
       }
 
-      // On 429, try fallback models with increasing backoff before giving up.
-      if (aiResponse.status === 429) {
-        const toolModels = TOOL_FALLBACK_MODELS.length > 0 ? TOOL_FALLBACK_MODELS : [TOOL_MODEL];
-        const backoffs = [3000, 8000];
-        outer: for (const fallbackModel of toolModels) {
-          for (const delay of backoffs) {
-            console.warn(`[tool-loop] 429 — waiting ${delay / 1000}s then retrying with ${fallbackModel}`);
-            await new Promise((r) => setTimeout(r, delay));
-            try {
-              aiResponse = await fetch(AI_GATEWAY_URL, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
-                signal: AbortSignal.timeout(90_000),
-                body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
-              });
-              if (aiResponse.status !== 429) break outer;
-            } catch (_retryErr) { break outer; }
-          }
-        }
-      }
-
+      // On any non-ok response, try each TOOL_FALLBACK_MODEL before giving up.
+      // 429 → short delay; 401/403/404 → immediate retry with next model.
+      // lastErrBody tracks the most recent error so we read the body only once per response.
       if (!aiResponse.ok) {
-        if (aiResponse.status === 429) {
-          void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI provider quota is temporarily exhausted. Please retry after 60 seconds or ask a simpler query." }), {
-            status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        const toolProvider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
+          : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
+        let lastErrStatus = aiResponse.status;
+        let lastErrBody = await aiResponse.text().catch(() => "");
+        console.warn(`[tool-loop] ${toolProvider}/${TOOL_MODEL} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);
+
+        const fallbacks = TOOL_FALLBACK_MODELS.filter((m) => m !== TOOL_MODEL);
+        for (const fallbackModel of fallbacks) {
+          if (lastErrStatus === 429) {
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+          console.warn(`[tool-loop] trying fallback: ${toolProvider}/${fallbackModel}`);
+          try {
+            aiResponse = await fetch(AI_GATEWAY_URL, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
+              signal: AbortSignal.timeout(90_000),
+              body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
+            });
+            if (aiResponse.ok) break;
+            lastErrStatus = aiResponse.status;
+            lastErrBody = await aiResponse.text().catch(() => "");
+            console.warn(`[tool-loop] ${toolProvider}/${fallbackModel} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);
+          } catch (_retryErr) { break; }
         }
-        if (aiResponse.status === 402) {
-          void logTurn({ status: "credits_exhausted", error_message: "402" });
-          return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-            status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+
+        if (!aiResponse.ok) {
+          const toolProvider2 = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
+            : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
+          if (lastErrStatus === 429) {
+            void logTurn({ status: "rate_limited", error_message: "429" });
+            return new Response(JSON.stringify({ error: "AI provider quota is temporarily exhausted. Please retry after 60 seconds or ask a simpler query." }), {
+              status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          if (lastErrStatus === 402) {
+            void logTurn({ status: "credits_exhausted", error_message: "402" });
+            return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
+              status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          if (lastErrStatus === 401) {
+            log.error("ai_gateway_auth", null, { provider: toolProvider2, status: 401, body: lastErrBody.slice(0, 300) });
+            void logTurn({ status: "ai_gateway_error", error_message: `401 auth: ${lastErrBody.slice(0, 100)}` });
+            return jsonError(`AI gateway auth failed: ${toolProvider2} 401 — check OPENROUTER_API_KEY / GROK_API_KEY / GEMINI_API_KEY in Edge Function secrets`, 500);
+          }
+          log.error("ai_gateway_error", null, { provider: toolProvider2, status: lastErrStatus, body: lastErrBody.slice(0, 300) });
+          console.error(`[tool-loop] ${toolProvider2} ${lastErrStatus}: ${lastErrBody}`);
+          void logTurn({ status: "ai_gateway_error", error_message: `${lastErrStatus}: ${lastErrBody.slice(0, 200)}` });
+          return jsonError(`AI gateway failed: ${toolProvider2} ${lastErrStatus} — ${lastErrBody.slice(0, 120)}`, 500);
         }
-        const t = await aiResponse.text();
-        log.error("ai_gateway_error", null, { status: aiResponse.status, body: t.slice(0, 300) });
-        console.error("AI gateway error:", aiResponse.status, t);
-        void logTurn({ status: "ai_gateway_error", error_message: `${aiResponse.status}: ${t.slice(0, 200)}` });
-        return jsonError("AI gateway error", 500);
       }
 
       const aiResult = await aiResponse.json();
