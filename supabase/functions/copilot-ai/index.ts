@@ -14,29 +14,40 @@ const corsHeaders: Record<string, string> = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const AI_GATEWAY_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_DIRECT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
-// Free-tier model only — gemini-2.0-flash: 15 RPM, 1500 RPD on Gemini free tier.
-// gemini-2.5-flash-preview-05-20 dropped (500 RPD exhausted fast with shared key).
-const TOOL_MODEL = "gemini-2.0-flash";
-const SYNTHESIS_MODELS = ["gemini-2.0-flash"] as const;
+// Model names per provider (both use OpenAI-compatible chat completions format).
+const GEMINI_TOOL_MODEL = "gemini-2.0-flash";
+const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash"] as const;
+// OpenRouter free-tier Gemini: higher RPM ceiling than Gemini direct free tier.
+const OPENROUTER_TOOL_MODEL = "google/gemini-2.0-flash-exp:free";
+const OPENROUTER_SYNTHESIS_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-flash-1.5-8b"] as const;
+
+// Resolved per-request in the handler; fallback values used at module load only.
+let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
+let TOOL_MODEL = GEMINI_TOOL_MODEL;
+const SYNTHESIS_MODELS: string[] = [...GEMINI_SYNTHESIS_MODELS];
+let AI_EXTRA_HEADERS: Record<string, string> = {};
+let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
 
 /** Try each model in SYNTHESIS_MODELS until one succeeds. On 429 waits 3s and
  *  retries the same model once before falling through to the next. */
 async function callSynthesis(
-  key: string,
+  _key: string, // kept for signature compat; actual key comes from AI_KEY_FOR_CHAT
   body: Record<string, unknown>,
   timeoutMs = 90_000,
 ): Promise<{ resp: Response; model: string }> {
   let lastErr: unknown;
+  const key = AI_KEY_FOR_CHAT;
   for (const model of SYNTHESIS_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       let resp: Response;
       try {
         resp = await fetch(AI_GATEWAY_URL, {
           method: "POST",
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...AI_EXTRA_HEADERS },
           signal: AbortSignal.timeout(timeoutMs),
           body: JSON.stringify({ ...body, model }),
         });
@@ -2869,7 +2880,31 @@ Deno.serve(async (req: Request) => {
   log = log.child({ user_id: authedUser.id, role: authedUser.role });
 
   const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-  if (!GEMINI_API_KEY) return jsonError("GEMINI_API_KEY not configured", 500);
+  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
+    return jsonError("No AI API key configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)", 500);
+  }
+
+  // Prefer OpenRouter: same Gemini models but with higher RPM ceiling on free tier.
+  // Falls back to Gemini direct if OPENROUTER_API_KEY is not set.
+  if (OPENROUTER_API_KEY) {
+    AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
+    AI_GATEWAY_URL = OPENROUTER_URL;
+    TOOL_MODEL = OPENROUTER_TOOL_MODEL;
+    SYNTHESIS_MODELS.length = 0;
+    SYNTHESIS_MODELS.push(...OPENROUTER_SYNTHESIS_MODELS);
+    AI_EXTRA_HEADERS = {
+      "HTTP-Referer": "https://preplane.pages.dev",
+      "X-Title": "Preplane LMP Copilot",
+    };
+  } else {
+    AI_KEY_FOR_CHAT = GEMINI_API_KEY!;
+    AI_GATEWAY_URL = GEMINI_DIRECT_URL;
+    TOOL_MODEL = GEMINI_TOOL_MODEL;
+    SYNTHESIS_MODELS.length = 0;
+    SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
+    AI_EXTRA_HEADERS = {};
+  }
 
   let body: {
     messages?: { role: string; content: string }[];
@@ -3163,13 +3198,16 @@ Deno.serve(async (req: Request) => {
       }
 
       // Tool-call rounds always use the fast model (low latency, cheap)
+      const chatKey = AI_KEY_FOR_CHAT;
+      const chatExtraHeaders = AI_EXTRA_HEADERS;
       let aiResponse: Response;
       try {
         aiResponse = await fetch(AI_GATEWAY_URL, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${GEMINI_API_KEY}`,
+            Authorization: `Bearer ${chatKey}`,
             "Content-Type": "application/json",
+            ...chatExtraHeaders,
           },
           signal: AbortSignal.timeout(90_000),
           body: JSON.stringify({
@@ -3200,7 +3238,7 @@ Deno.serve(async (req: Request) => {
           try {
             aiResponse = await fetch(AI_GATEWAY_URL, {
               method: "POST",
-              headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+              headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
               signal: AbortSignal.timeout(90_000),
               body: JSON.stringify({ model: TOOL_MODEL, messages: aiMessages, tools: TOOLS, stream: false }),
             });
@@ -3212,7 +3250,7 @@ Deno.serve(async (req: Request) => {
       if (!aiResponse.ok) {
         if (aiResponse.status === 429) {
           void logTurn({ status: "rate_limited", error_message: "429" });
-          return new Response(JSON.stringify({ error: "AI is busy right now (rate limit). Please wait 30–60 seconds and try again — the free tier allows ~15 requests per minute." }), {
+          return new Response(JSON.stringify({ error: "AI is temporarily busy. Please wait a moment and try again." }), {
             status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

@@ -296,22 +296,23 @@ export function useLmpRows() {
   const { data: pocCapabilities } = usePocCapabilityList();
   const { user } = useRole();
 
-  // Logged-in user's canonical name — used to compute user-specific domain tags.
+  // Logged-in user's canonical name AND email — used to compute user-specific domain tags.
+  // Email-based lookup is tried first (exact, no name-mismatch risk); name is the fallback.
   const currentUserName = (user.pocProfileName ?? user.name ?? "").toLowerCase().trim();
+  const currentUserEmail = (user.email ?? "").toLowerCase().trim();
 
-  // Build a name → {primary, secondary} map so we can compute the real domain
-  // tier for each LMP without a per-row DB call.
+  // Build name → {primary, secondary} AND email → {primary, secondary} maps.
   const pocDomainMap = useMemo(() => {
-    const map = new Map<string, { primary: string[]; secondary: string[] }>();
+    const byName = new Map<string, { primary: string[]; secondary: string[] }>();
+    const byEmail = new Map<string, { primary: string[]; secondary: string[] }>();
     for (const p of pocCapabilities ?? []) {
-      const key = (p.name ?? "").toLowerCase().trim();
-      if (!key) continue;
-      map.set(key, {
-        primary: p.primaryDomains ?? [],
-        secondary: p.secondaryDomains ?? [],
-      });
+      const nameKey = (p.name ?? "").toLowerCase().trim();
+      const emailKey = ((p as any).email ?? "").toLowerCase().trim();
+      const domains = { primary: p.primaryDomains ?? [], secondary: p.secondaryDomains ?? [] };
+      if (nameKey) byName.set(nameKey, domains);
+      if (emailKey) byEmail.set(emailKey, domains);
     }
-    return map;
+    return { byName, byEmail };
   }, [pocCapabilities]);
 
   const hasPocData = (pocCapabilities?.length ?? 0) > 0;
@@ -328,8 +329,10 @@ export function useLmpRows() {
         // for another depending on their own domain assignments.
         const domainLower = rec.domain.toLowerCase().trim();
 
-        // Try logged-in user's domains first
-        const userDomains = currentUserName ? pocDomainMap.get(currentUserName) : undefined;
+        // Try logged-in user's domains: email-first (avoids display-name mismatch), then name.
+        const userDomains =
+          (currentUserEmail ? pocDomainMap.byEmail.get(currentUserEmail) : undefined) ??
+          (currentUserName ? pocDomainMap.byName.get(currentUserName) : undefined);
         let domainTag: AllocationTag;
 
         if (userDomains) {
@@ -341,7 +344,7 @@ export function useLmpRows() {
           // Fall back to prep POC's perspective so admin dashboards still show useful info.
           if (!rec.prepPoc?.name) return rec;
           const pocKey = rec.prepPoc.name.toLowerCase().trim();
-          const pocDomains = pocDomainMap.get(pocKey);
+          const pocDomains = pocDomainMap.byName.get(pocKey);
           if (!pocDomains) return rec;
           const isPrimary = pocDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
           const isSecondary = !isPrimary && pocDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
@@ -354,7 +357,7 @@ export function useLmpRows() {
         );
         return { ...rec, allocationTags: [domainTag, ...otherTags] };
       });
-    }, [dbQuery.data, pocDomainMap, hasPocData, currentUserName]),
+    }, [dbQuery.data, pocDomainMap, hasPocData, currentUserName, currentUserEmail]),
   };
 }
 

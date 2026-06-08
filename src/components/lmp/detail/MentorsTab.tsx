@@ -217,9 +217,10 @@ function MentorsTabImpl({
     const sig = sources.sort().join(",");
     if (sig === lastMatchingErrorSig.current) return;
     lastMatchingErrorSig.current = sig;
+    const extErr = fatal.find((e) => e.source === "EXT");
     const description =
       sources.length === 1 && sources[0] === "EXT"
-        ? "EXT source unavailable. Showing MU + ALU results."
+        ? `External search unavailable${extErr?.message ? `: ${extErr.message}` : ""}. Showing MU + ALU results.`
         : `${sources.join(", ")} source unavailable. Showing remaining results.`;
     shadcnToast({
       variant: "destructive",
@@ -506,7 +507,7 @@ function MentorsTabImpl({
         await supabase
           .from("lmp_mentors")
           .upsert(
-            { lmp_id: reqId, mentor_id: dbId, status: "shortlisted", sync_source: "app" },
+            { lmp_id: reqId, mentor_id: dbId, mentor_name: m.name, mentor_source: m.source, match_score: m.score ?? null, status: "shortlisted", sync_source: "app" } as any,
             { onConflict: "lmp_id,mentor_id", ignoreDuplicates: false },
           );
         queryClient.invalidateQueries({ queryKey: ["lmp-mentors-live", reqId] });
@@ -567,7 +568,7 @@ function MentorsTabImpl({
       await supabase
         .from("lmp_mentors")
         .upsert(
-          { lmp_id: reqId, mentor_id: dbId, status: "shortlisted", sync_source: "app" },
+          { lmp_id: reqId, mentor_id: dbId, mentor_name: add.mentor.name, mentor_source: add.mentor.source, match_score: (add.mentor as any).score ?? null, status: "shortlisted", sync_source: "app" } as any,
           { onConflict: "lmp_id,mentor_id", ignoreDuplicates: false },
         );
     }
@@ -681,22 +682,12 @@ function MentorsTabImpl({
     const candidateStudentIds = picked
       .map((c) => (UUID_RE.test(c.studentId ?? "") ? c.studentId! : null))
       .filter((x): x is string => !!x);
-    const sessionRow: any = {
-      lmp_id: reqId,
-      mentor_id: mentorIdForDb,
-      student_id: candidateStudentIds[0] ?? null,
-      scheduled_at: sessionDateObj.toISOString(),
-      session_type: "mock",
-      status: "scheduled",
-      notes: `${round.name} · ${role}${isGroup ? ` · group ${groupId}` : ""}`,
-      sync_source: "app",
-      ...(candidateStudentIds.length > 0 ? { candidate_ids: candidateStudentIds } : {}),
-    };
+
     // Always record the mentor assignment first — decoupled from session scheduling.
     const { error: lmpMentorErr } = await supabase
       .from("lmp_mentors")
       .upsert(
-        { lmp_id: reqId, mentor_id: mentorIdForDb, status: "assigned", sync_source: "app" },
+        { lmp_id: reqId, mentor_id: mentorIdForDb, mentor_name: mentor.name, mentor_source: mentor.source, match_score: mentor.score ?? null, status: "assigned", sync_source: "app", assigned_at: new Date().toISOString() } as any,
         { onConflict: "lmp_id,mentor_id" },
       );
     if (lmpMentorErr) {
@@ -704,10 +695,41 @@ function MentorsTabImpl({
       return;
     }
 
-    // Insert session (best-effort — mentor is already assigned above).
-    const { error: insErr } = await supabase.from("sessions").insert(sessionRow);
-    if (insErr) {
-      toast.warning(`${mentor.name} assigned. Session couldn't be auto-scheduled (${insErr.message}) — use "+ Schedule session" in the Sessions tab.`);
+    // Build and insert sessions so they appear immediately in the Sessions tab.
+    // Group mode → one session row with all candidate IDs in candidate_ids[].
+    // 1:1 mode  → one session row for the single selected candidate.
+    const sessionBase: any = {
+      lmp_id: reqId,
+      mentor_id: mentorIdForDb,
+      scheduled_at: sessionDateObj.toISOString(),
+      session_type: "mock",
+      status: "scheduled",
+      sync_source: "app",
+    };
+
+    let sessionInsertErr: Error | null = null;
+    if (isGroup) {
+      const groupRow: any = {
+        ...sessionBase,
+        student_id: candidateStudentIds[0] ?? null,
+        candidate_ids: candidateStudentIds,
+        notes: `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`,
+      };
+      const { error } = await supabase.from("sessions").insert(groupRow);
+      sessionInsertErr = error ?? null;
+    } else {
+      // 1:1 — single candidate (modal enforces this).
+      const singleRow: any = {
+        ...sessionBase,
+        student_id: candidateStudentIds[0] ?? null,
+        candidate_ids: candidateStudentIds,
+        notes: `${round.name} · ${role} · ${picked[0]?.name ?? ""}`,
+      };
+      const { error } = await supabase.from("sessions").insert(singleRow);
+      sessionInsertErr = error ?? null;
+    }
+    if (sessionInsertErr) {
+      toast.warning(`${mentor.name} assigned. Session auto-creation failed (${sessionInsertErr.message}) — use "+ Schedule session" in the Sessions tab.`);
     }
 
     // Back-reference: stamp mentor_id on each lmp_candidates row so per-candidate
@@ -871,7 +893,7 @@ function MentorsTabImpl({
     const { data: upserted, error: upErr } = await supabase
       .from("lmp_mentors")
       .upsert(
-        { lmp_id: reqId, mentor_id: mentorIdForDb, status: "assigned", sync_source: "app", assigned_at: new Date().toISOString() },
+        { lmp_id: reqId, mentor_id: mentorIdForDb, mentor_name: mentor.name, mentor_source: mentor.source, match_score: mentor.score ?? null, status: "assigned", sync_source: "app", assigned_at: new Date().toISOString() } as any,
         { onConflict: "lmp_id,mentor_id" },
       )
       .select("id")

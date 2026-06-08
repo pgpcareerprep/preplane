@@ -278,10 +278,10 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
     });
 
     if (error) {
-      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${error.message}`, recoverable: true }] };
+      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${error.message}`, recoverable: false }] };
     }
     if (data?.error) {
-      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${data.error}`, recoverable: true }] };
+      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${data.error}`, recoverable: false }] };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
     const mentors: ExternalMentor[] = list.map((m) => ({
