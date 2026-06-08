@@ -51,11 +51,32 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, lmp_id, session_type, status, scheduled_at, duration_min, notes, mentor_rating, student_rating, mentor_id, student_id, candidate_ids, poc_feedback, student_feedback, student_feedback_token, mentors:mentors(name)")
+        .select("id, lmp_id, session_type, status, scheduled_at, duration_min, notes, mentor_rating, student_rating, mentor_id, student_id, candidate_ids, poc_feedback, student_feedback, student_feedback_token")
         .eq("lmp_id", lmpId)
         .order("scheduled_at", { ascending: false, nullsFirst: false });
-      if (error) throw error;
+      if (error) {
+        console.error("[SessionsLiveTab] sessions query error:", error);
+        throw error;
+      }
       return data ?? [];
+    },
+  });
+
+  // Resolve mentor names separately to avoid FK dependency on mentors table
+  const allMentorIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions) { if (s.mentor_id) set.add(s.mentor_id); }
+    return Array.from(set);
+  }, [sessions]);
+
+  const { data: mentorMap = {} as Record<string, string> } = useQuery({
+    enabled: allMentorIds.length > 0,
+    queryKey: ["lmp-sessions-mentors", allMentorIds.sort().join(",")],
+    queryFn: async () => {
+      const { data } = await supabase.from("mentors").select("id,name").in("id", allMentorIds);
+      const m: Record<string, string> = {};
+      for (const r of data ?? []) m[r.id] = r.name;
+      return m;
     },
   });
 
@@ -167,7 +188,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
   };
 
   const toMockSession = (s: Row): MockSession => {
-    const mentorName = s.mentors?.name || "Unassigned mentor";
+    const mentorName = (s.mentor_id ? mentorMap[s.mentor_id] : null) || "Unassigned mentor";
     const studentName = (s.student_id ? studentMap[s.student_id]?.name : null) || "Unassigned candidate";
     const initials = (n: string) => n.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "·";
     return {
@@ -206,7 +227,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
         <div className="space-y-2">
           {grouped.map((g) => {
             const s = g.primary;
-            const mentorName = s.mentors?.name || "Unassigned mentor";
+            const mentorName = (s.mentor_id ? mentorMap[s.mentor_id] : null) || "Unassigned mentor";
             const isGroup = g.candidates.length > 1;
             const studentName = isGroup
               ? "Group Session"
@@ -314,7 +335,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
           {groupModal && (
             <div className="space-y-3">
               <div className="text-[12.5px] text-n600 space-y-0.5">
-                <div><span className="text-n500">Mentor:</span> <span className="text-n800 font-medium">{groupModal.primary.mentors?.name || "Unassigned"}</span></div>
+                <div><span className="text-n500">Mentor:</span> <span className="text-n800 font-medium">{(groupModal.primary.mentor_id ? mentorMap[groupModal.primary.mentor_id] : null) || "Unassigned"}</span></div>
                 <div><span className="text-n500">When:</span> {groupModal.primary.scheduled_at ? new Date(groupModal.primary.scheduled_at).toLocaleString() : "Unscheduled"}</div>
                 <div><span className="text-n500">Type:</span> {TYPE_LABEL[groupModal.primary.session_type] || groupModal.primary.session_type || "session"}</div>
               </div>

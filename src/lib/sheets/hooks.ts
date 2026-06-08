@@ -372,7 +372,11 @@ export function useLmpById(id: string) {
   const fromList = allRows?.find((r) => r.id === id || r.id.toLowerCase() === id?.toLowerCase());
   const fromDirect = directQuery.data ? dbLmpToRecord(directQuery.data as Record<string, any>) : undefined;
   return {
-    data: fromDirect ?? fromList,
+    // Prefer fromList: it has computed domain tags (In-Domain / Cross-Domain)
+    // based on the logged-in user's domains. fromDirect uses dbLmpToRecord()
+    // which hardcodes "In-Domain" whenever there are POCs. Fall back to
+    // fromDirect only for newly-created LMPs not yet in the cached list.
+    data: fromList ?? fromDirect,
     isLoading: (directId ? directQuery.isLoading : false) && listLoading,
     isError: directQuery.isError,
     error: directQuery.error,

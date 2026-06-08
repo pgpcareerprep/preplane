@@ -707,29 +707,28 @@ function MentorsTabImpl({
       sync_source: "app",
     };
 
-    let sessionInsertErr: Error | null = null;
-    if (isGroup) {
-      const groupRow: any = {
-        ...sessionBase,
-        student_id: candidateStudentIds[0] ?? null,
-        candidate_ids: candidateStudentIds,
-        notes: `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`,
-      };
-      const { error } = await supabase.from("sessions").insert(groupRow);
-      sessionInsertErr = error ?? null;
-    } else {
-      // 1:1 — single candidate (modal enforces this).
-      const singleRow: any = {
-        ...sessionBase,
-        student_id: candidateStudentIds[0] ?? null,
-        candidate_ids: candidateStudentIds,
-        notes: `${round.name} · ${role} · ${picked[0]?.name ?? ""}`,
-      };
-      const { error } = await supabase.from("sessions").insert(singleRow);
-      sessionInsertErr = error ?? null;
-    }
-    if (sessionInsertErr) {
-      toast.warning(`${mentor.name} assigned. Session auto-creation failed (${sessionInsertErr.message}) — use "+ Schedule session" in the Sessions tab.`);
+    // Use upsert so re-assigning the same mentor at the same time silently
+    // succeeds instead of throwing duplicate key on sessions_unique_lmp_mentor_time.
+    const CONFLICT_COLS = "lmp_id,mentor_id,scheduled_at";
+    const sessionRow: any = isGroup
+      ? {
+          ...sessionBase,
+          student_id: candidateStudentIds[0] ?? null,
+          candidate_ids: candidateStudentIds,
+          notes: `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`,
+        }
+      : {
+          ...sessionBase,
+          student_id: candidateStudentIds[0] ?? null,
+          candidate_ids: candidateStudentIds,
+          notes: `${round.name} · ${role} · ${picked[0]?.name ?? ""}`,
+        };
+    const { error: sessionErr } = await supabase
+      .from("sessions")
+      .upsert(sessionRow, { onConflict: CONFLICT_COLS, ignoreDuplicates: false });
+    if (sessionErr) {
+      console.warn("[MentorsTab] session upsert error:", sessionErr);
+      toast.warning(`${mentor.name} assigned. Session auto-creation failed (${sessionErr.message}) — use "+ Schedule session" in the Sessions tab.`);
     }
 
     // Back-reference: stamp mentor_id on each lmp_candidates row so per-candidate
