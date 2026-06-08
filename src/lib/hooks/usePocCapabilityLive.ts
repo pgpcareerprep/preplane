@@ -64,12 +64,29 @@ function normalize(s: string) {
   return (s || "").trim().toLowerCase();
 }
 
+const ACTIVE_STATUSES = new Set(["ongoing", "on hold", "offer received"]);
+
 export function usePocCapabilityList() {
   const { data, isLoading, error } = usePocProfilesWithLoad();
+  const { data: lmps } = useLmpProcesses();
+
+  const liveLoadMap = useMemo<Record<string, number>>(() => {
+    const rows = (lmps as any[]) || [];
+    const counts: Record<string, number> = {};
+    for (const r of rows) {
+      if (!ACTIVE_STATUSES.has(String(r.status || "").toLowerCase())) continue;
+      if (r.prep_poc) counts[r.prep_poc] = (counts[r.prep_poc] ?? 0) + 1;
+    }
+    return counts;
+  }, [lmps]);
+
   const list = useMemo<PocCapability[]>(() => {
     if (!data) return [];
-    return (data as any[]).map(rowToCapability);
-  }, [data]);
+    return (data as any[]).map((r) =>
+      rowToCapability({ ...r, live_active_lmp_count: liveLoadMap[r.name] ?? r.active_load ?? 0 }),
+    );
+  }, [data, liveLoadMap]);
+
   return { list, isLoading, error };
 }
 

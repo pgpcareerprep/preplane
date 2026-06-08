@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
-import { ExternalLink, ArrowUpDown } from "lucide-react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ExternalLink, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type ALUMentor } from "@/lib/alumniStore";
-import { useAlumniMentors } from "@/lib/hooks/useDbData";
+import { rowToALUMentor, type ALUMentor } from "@/lib/alumniStore";
+import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { PageHeader } from "@/components/ui/page-header";
 import { SearchInput } from "@/components/ui/search-input";
@@ -35,43 +36,81 @@ function avatarColor(name: string) {
 
 type SortKey = "name" | "company" | "domain" | "cohort";
 
-export default function AlumniPage() {
-  const { mentors: allAlumni } = useAlumniMentors();
-  useRealtimeInvalidate("alumni_records", [["db-all-alumni"], ["db-all-mentors"]]);
+const SORT_COL: Record<SortKey, string> = {
+  name: "student_name",
+  company: "current_company",
+  domain: "domain_1",
+  cohort: "cohort",
+};
 
+const PAGE_SIZE = 50;
+
+function escapeIlike(s: string) {
+  return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function useAlumniPaged(opts: { search: string; domain: string; sort: SortKey; page: number }) {
+  return useQuery({
+    queryKey: ["alumni-paged", opts],
+    queryFn: async () => {
+      let q = (supabase.from("alumni_records") as any).select("*", { count: "exact" });
+      const s = opts.search.trim();
+      if (s) {
+        const es = escapeIlike(s);
+        q = q.or(
+          `student_name.ilike.%${es}%,current_company.ilike.%${es}%,current_role_title.ilike.%${es}%,domain_1.ilike.%${es}%,domain_2.ilike.%${es}%`,
+        );
+      }
+      if (opts.domain !== "all") {
+        q = q.or(`domain_1.eq.${opts.domain},domain_2.eq.${opts.domain}`);
+      }
+      q = q.order(SORT_COL[opts.sort], { ascending: true, nullsFirst: false });
+      const from = (opts.page - 1) * PAGE_SIZE;
+      q = q.range(from, from + PAGE_SIZE - 1);
+      const { data, error, count } = await q;
+      if (error) throw error;
+      return { rows: (data ?? []).map(rowToALUMentor) as ALUMentor[], total: (count as number) ?? 0 };
+    },
+    staleTime: 30_000,
+    placeholderData: (prev: any) => prev,
+  });
+}
+
+function useAlumniDomains() {
+  return useQuery({
+    queryKey: ["alumni-domains"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("alumni_records")
+        .select("domain_1,domain_2")
+        .not("domain_1", "is", null);
+      const set = new Set<string>();
+      (data ?? []).forEach((r: any) => {
+        if (r.domain_1) set.add(r.domain_1);
+        if (r.domain_2) set.add(r.domain_2);
+      });
+      return Array.from(set).sort();
+    },
+    staleTime: 300_000,
+  });
+}
+
+export default function AlumniPage() {
   const [q, setQ] = useState("");
   const [domainFilter, setDomainFilter] = useState("all");
   const [sort, setSort] = useState<SortKey>("name");
+  const [page, setPage] = useState(1);
 
-  const domainOptions = useMemo(() => {
-    const set = new Set<string>();
-    allAlumni.forEach((a) => {
-      if (a.domain1) set.add(a.domain1);
-      if (a.domain2) set.add(a.domain2);
-    });
-    return Array.from(set).sort();
-  }, [allAlumni]);
+  useRealtimeInvalidate("alumni_records", [["alumni-paged"], ["alumni-domains"]]);
 
-  const rows = useMemo(() => {
-    const ql = q.trim().toLowerCase();
-    const filtered = allAlumni.filter((a) => {
-      if (domainFilter !== "all") {
-        if (a.domain1 !== domainFilter && a.domain2 !== domainFilter) return false;
-      }
-      if (ql) {
-        const hay = `${a.name} ${a.currentRole ?? ""} ${a.currentCompany ?? ""} ${a.domain1 ?? ""} ${a.domain2 ?? ""} ${a.skills.join(" ")}`.toLowerCase();
-        if (!hay.includes(ql)) return false;
-      }
-      return true;
-    });
-    const sorters: Record<SortKey, (a: ALUMentor, b: ALUMentor) => number> = {
-      name: (a, b) => a.name.localeCompare(b.name),
-      company: (a, b) => (a.currentCompany ?? "").localeCompare(b.currentCompany ?? ""),
-      domain: (a, b) => (a.domain1 ?? "").localeCompare(b.domain1 ?? ""),
-      cohort: (a, b) => (a.cohort ?? "").localeCompare(b.cohort ?? ""),
-    };
-    return [...filtered].sort(sorters[sort]);
-  }, [allAlumni, q, domainFilter, sort]);
+  const { data, isLoading } = useAlumniPaged({ search: q, domain: domainFilter, sort, page });
+  const { data: domainOptions = [] } = useAlumniDomains();
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const resetPage = (fn: () => void) => { fn(); setPage(1); };
 
   return (
     <div className="w-full space-y-6">
@@ -85,17 +124,17 @@ export default function AlumniPage() {
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => resetPage(() => setQ(e.target.value))}
             placeholder="Search name, role, company, skill…"
           />
           <PillSelect
             value={domainFilter}
-            onChange={setDomainFilter}
+            onChange={(v) => resetPage(() => setDomainFilter(v))}
             options={[{ value: "all", label: "All domains" }, ...domainOptions.map((d) => ({ value: d, label: d }))]}
           />
           <PillSelect
             value={sort}
-            onChange={(v) => setSort(v as SortKey)}
+            onChange={(v) => resetPage(() => setSort(v as SortKey))}
             prefix="Sort"
             icon={<ArrowUpDown className="h-3.5 w-3.5 text-n500" />}
             options={[
@@ -109,7 +148,7 @@ export default function AlumniPage() {
       </div>
 
       {/* Table */}
-      <DataTableShell footer={`Showing ${rows.length} of ${allAlumni.length} alumni`}>
+      <DataTableShell footer={`Showing ${rows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total} alumni`}>
         <table className="w-full text-[13px]">
           <thead className={TABLE_THEAD_CLASS}>
             <tr>
@@ -123,7 +162,14 @@ export default function AlumniPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((a) => (
+            {isLoading && (
+              <tr>
+                <td colSpan={7} className="py-12 text-center text-n400 text-[13px]">
+                  Loading alumni…
+                </td>
+              </tr>
+            )}
+            {!isLoading && rows.map((a) => (
               <tr key={a.id} className="border-t border-n100 hover:bg-orange-50/40 transition-colors">
                 <Td>
                   <div className="flex items-center gap-3">
@@ -172,17 +218,38 @@ export default function AlumniPage() {
                 </Td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {!isLoading && rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-12 text-center text-n500 text-[13px]">
-                  {allAlumni.length === 0 ? "No alumni data uploaded yet." : "No alumni match your filters."}
+                  {total === 0 && !q && domainFilter === "all" ? "No alumni data uploaded yet." : "No alumni match your filters."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+
+        {!isLoading && totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-n100 text-[12px] text-n500">
+            <span>Page {page} of {totalPages}</span>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-n200 hover:bg-n50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="h-3 w-3" /> Prev
+              </button>
+              <button
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-n200 hover:bg-n50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
       </DataTableShell>
     </div>
   );
 }
-

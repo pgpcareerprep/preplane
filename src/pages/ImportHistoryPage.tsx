@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
-import { Download, FileText, Loader2, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { Download, FileText, Loader2, ChevronLeft, ChevronRight, ArrowLeft, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUploadHistory } from "@/lib/hooks/useDbData";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Sheet,
   SheetContent,
@@ -290,6 +292,9 @@ function normalizeErrors(raw: unknown): ErrorEntry[] {
 
 function ImportRunDrawer({ run, onClose }: { run: HistoryRow | null; onClose: () => void }) {
   const open = !!run;
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const qc = useQueryClient();
   const summary = (run?.validation_summary ?? {}) as Record<string, unknown>;
   const errors = normalizeErrors(summary.errors);
   const completedAt = typeof summary.completed_at === "string" ? summary.completed_at : null;
@@ -303,6 +308,21 @@ function ImportRunDrawer({ run, onClose }: { run: HistoryRow | null; onClose: ()
         ? `${(durationMs / 1000).toFixed(1)}s`
         : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`
     : "—";
+
+  const handleDelete = async () => {
+    if (!run) return;
+    setDeleting(true);
+    try {
+      await supabase.from("data_source_sync_history").delete().eq("id", run.id);
+      qc.invalidateQueries({ queryKey: ["db-upload-history"] });
+      setConfirmDelete(false);
+      onClose();
+    } catch (e) {
+      console.warn("[import-history] delete failed:", e);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleDownload = () => {
     if (!run) return;
@@ -391,6 +411,35 @@ function ImportRunDrawer({ run, onClose }: { run: HistoryRow | null; onClose: ()
                       Showing first 200 of {errors.length}. Download the full report for all errors.
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-n100">
+              {!confirmDelete ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-coral-700 border-coral-200 hover:bg-coral-50"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Delete this import record
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-n600">Delete this record permanently?</span>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={deleting}
+                    onClick={handleDelete}
+                  >
+                    {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Confirm"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </Button>
                 </div>
               )}
             </div>
