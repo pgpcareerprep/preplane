@@ -679,9 +679,14 @@ function MentorsTabImpl({
       }
     }
 
+    // student_id (FK to students.id) — used for the feedback token flow. May be null.
     const candidateStudentIds = picked
       .map((c) => (UUID_RE.test(c.studentId ?? "") ? c.studentId! : null))
       .filter((x): x is string => !!x);
+    // candidate_ids stores lmp_candidates.id values (always available). This is the
+    // canonical identifier used by useMentorPerformance and the feedback tracker to
+    // resolve student_name from lmp_candidates, even when student_id FK is null.
+    const candidateLmpIds = picked.map((c) => c.id).filter((id): id is string => !!id);
 
     // Always record the mentor assignment first — decoupled from session scheduling.
     const { error: lmpMentorErr } = await supabase
@@ -714,13 +719,13 @@ function MentorsTabImpl({
       ? {
           ...sessionBase,
           student_id: candidateStudentIds[0] ?? null,
-          candidate_ids: candidateStudentIds,
+          candidate_ids: candidateLmpIds,
           notes: `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`,
         }
       : {
           ...sessionBase,
           student_id: candidateStudentIds[0] ?? null,
-          candidate_ids: candidateStudentIds,
+          candidate_ids: candidateLmpIds,
           notes: `${round.name} · ${role} · ${picked[0]?.name ?? ""}`,
         };
     const { error: sessionErr } = await supabase

@@ -561,7 +561,28 @@ Deno.serve(async (req) => {
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;
 
-  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  // Read FIRECRAWL_API_KEY: prefer the edge-function env var (set via Supabase
+  // Settings > Edge Functions > Secrets), then fall back to reading from the
+  // Supabase Vault (Integrations > Vault) which stores it as an encrypted DB secret.
+  let FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? null;
+  if (!FIRECRAWL_API_KEY) {
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (supabaseUrl && serviceKey) {
+        const vaultRes = await fetch(
+          `${supabaseUrl}/rest/v1/vault_decrypted_secrets?name=eq.FIRECRAWL_API_KEY&select=decrypted_secret&limit=1`,
+          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+        );
+        if (vaultRes.ok) {
+          const rows = await vaultRes.json();
+          FIRECRAWL_API_KEY = rows?.[0]?.decrypted_secret ?? null;
+        }
+      }
+    } catch {
+      // Vault unavailable — proceed with Gemini fallback below
+    }
+  }
   const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? null;
 
   let body: Body = {};

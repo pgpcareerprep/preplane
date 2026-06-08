@@ -4,7 +4,7 @@ import { Sparkles, Check, Loader2, AlertTriangle, Search, X, ChevronDown } from 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ConfirmedPocSelection } from "@/lib/createLmpProcess";
 import { cn } from "@/lib/utils";
-import { allocatePoc, setDomainAliasResolver, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type HistoricalProcess } from "@/lib/pocAllocation";
+import { allocatePoc, getDomainTier, setDomainAliasResolver, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type HistoricalProcess } from "@/lib/pocAllocation";
 import { usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
 import type { PocCapability } from "@/lib/pocCapability";
 import { useDomains, usePocLiveLoads } from "@/lib/hooks/useDbData";
@@ -703,14 +703,11 @@ function ConfirmChip({
 // ─── Sub-components ──────────────────────────────────────────────────────
 
 function toAssignedFromPool(p: PocCapability, processDomain?: string): AssignedPoc {
-  let domainTier: AssignedPoc["domainTier"] = "cross";
-  if (processDomain && processDomain.trim()) {
-    const target = processDomain.trim().toLowerCase();
-    const primary = p.primaryDomains ?? [];
-    const secondary = p.secondaryDomains ?? [];
-    if (primary.some(d => d.trim().toLowerCase() === target)) domainTier = "primary";
-    else if (secondary.some(d => d.trim().toLowerCase() === target)) domainTier = "secondary";
-  }
+  // Use the allocation engine's getDomainTier so alias resolution is applied —
+  // otherwise raw lowercase compare misses domain aliases (e.g. "PM" ≡ "Product Management").
+  const domainTier: AssignedPoc["domainTier"] = processDomain?.trim()
+    ? getDomainTier(p, processDomain)
+    : "cross";
   return {
     name: p.name,
     initials: p.initials,

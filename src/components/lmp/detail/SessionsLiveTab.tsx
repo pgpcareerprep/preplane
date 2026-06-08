@@ -80,8 +80,9 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
     },
   });
 
-  // Resolve names for every student id referenced (candidate_ids + student_id)
-  const allStudentIds = useMemo(() => {
+  // Collect all IDs from candidate_ids (lmp_candidate IDs for new sessions) +
+  // student_id (students.id FK) for name resolution.
+  const allCandidateIds = useMemo(() => {
     const set = new Set<string>();
     for (const s of sessions) {
       if (s.student_id) set.add(s.student_id);
@@ -90,18 +91,34 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
     return Array.from(set);
   }, [sessions]);
 
-  const { data: studentMap = {} as Record<string, { name: string; email?: string | null }> } = useQuery({
-    enabled: allStudentIds.length > 0,
-    queryKey: ["lmp-sessions-students", lmpId, allStudentIds.sort().join(",")],
+  // Primary: lmp_candidates.id → student_name (works for new sessions)
+  const { data: lmpCandRows = [] } = useQuery({
+    enabled: allCandidateIds.length > 0,
+    queryKey: ["sessions-lmp-candidates", allCandidateIds.sort().join(",")],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("students").select("id,name,email").in("id", allStudentIds);
-      if (error) throw error;
-      const m: Record<string, { name: string; email?: string | null }> = {};
-      for (const r of data ?? []) m[r.id] = { name: r.name, email: r.email };
-      return m;
+      const { data } = await supabase
+        .from("lmp_candidates").select("id,student_name").in("id", allCandidateIds);
+      return (data ?? []) as { id: string; student_name: string | null }[];
     },
   });
+
+  // Fallback: students.id → name (works for old sessions with student UUIDs)
+  const { data: studentRows = [] } = useQuery({
+    enabled: allCandidateIds.length > 0,
+    queryKey: ["sessions-students", allCandidateIds.sort().join(",")],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("students").select("id,name,email").in("id", allCandidateIds);
+      return (data ?? []) as { id: string; name: string; email?: string | null }[];
+    },
+  });
+
+  const studentMap = useMemo(() => {
+    const m: Record<string, { name: string; email?: string | null }> = {};
+    for (const r of studentRows) m[r.id] = { name: r.name, email: r.email };
+    for (const c of lmpCandRows) if (c.student_name) m[c.id] = { name: c.student_name };
+    return m;
+  }, [studentRows, lmpCandRows]);
 
   // Group sessions: explicit (candidate_ids.length > 1) OR legacy duplicates
   // sharing (mentor_id, scheduled_at, session_type).

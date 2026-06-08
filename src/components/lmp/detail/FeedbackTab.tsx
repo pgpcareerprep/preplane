@@ -22,8 +22,6 @@ type Row = {
   mentor_id: string | null;
   student_id: string | null;
   candidate_ids: string[] | null;
-  mentors: { id: string; name: string } | null;
-  students: { id: string; name: string } | null;
 };
 
 function studentRating(s: Row): number | null {
@@ -87,13 +85,36 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, session_type, status, scheduled_at, mentor_rating, student_rating, poc_feedback, student_feedback, student_feedback_token, mentor_id, student_id, candidate_ids, mentors:mentors(id,name), students:students(id,name)")
+        .select("id, session_type, status, scheduled_at, mentor_rating, student_rating, poc_feedback, student_feedback, student_feedback_token, mentor_id, student_id, candidate_ids")
         .eq("lmp_id", lmpId)
         .order("scheduled_at", { ascending: false, nullsFirst: false });
-      if (error) throw error;
+      if (error) {
+        console.error("[FeedbackTab] sessions query error:", error);
+        throw error;
+      }
       return (data ?? []) as Row[];
     },
   });
+
+  // Fetch mentor names separately (no FK dependency on mentors table)
+  const allMentorIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions) { if (s.mentor_id) set.add(s.mentor_id); }
+    return Array.from(set);
+  }, [sessions]);
+
+  const { data: mentorNameMap = {} as Record<string, string> } = useQuery({
+    enabled: allMentorIds.length > 0,
+    queryKey: ["feedback-mentors", allMentorIds.sort().join(",")],
+    queryFn: async () => {
+      const { data } = await supabase.from("mentors").select("id,name").in("id", allMentorIds);
+      const m: Record<string, string> = {};
+      for (const r of data ?? []) m[r.id] = r.name;
+      return m;
+    },
+  });
+
+  const mentorName = (s: Row) => (s.mentor_id ? mentorNameMap[s.mentor_id] : null) ?? "Unassigned mentor";
 
   // Realtime: refresh when sessions or student feedbacks change for this LMP
   useRealtimeInvalidate("sessions", [["lmp-sessions", lmpId]], {
@@ -135,11 +156,10 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     return ids.length;
   };
 
-  // Union of every student id referenced by any session (candidate_ids + student_id),
-  // so the names map covers every candidate even when the embedded `students` join
-  // doesn't resolve (e.g. RLS on the join, or merged group rows pulling in IDs that
-  // weren't the row's primary student_id).
-  const extraStudentIds = useMemo(() => {
+  // All candidate IDs across every session. candidate_ids stores lmp_candidates.id
+  // values (for sessions created after the June 2026 fix); older sessions may store
+  // student.id values or be empty. student_id is always a students.id FK when set.
+  const allCandidateIds = useMemo(() => {
     const set = new Set<string>();
     for (const s of sessions) {
       for (const id of s.candidate_ids ?? []) if (id) set.add(id);
@@ -148,27 +168,40 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     return Array.from(set);
   }, [sessions]);
 
-  const { data: extraStudents = [] } = useQuery({
-    enabled: extraStudentIds.length > 0,
-    queryKey: ["lmp-sessions-extra-students", lmpId, extraStudentIds],
+  // Primary lookup: lmp_candidates.id → student_name (canonical for new sessions)
+  const { data: lmpCandidateNames = [] } = useQuery({
+    enabled: allCandidateIds.length > 0,
+    queryKey: ["feedback-lmp-candidates", allCandidateIds.sort().join(",")],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
+        .from("lmp_candidates")
+        .select("id, student_name")
+        .in("id", allCandidateIds);
+      return (data ?? []) as { id: string; student_name: string | null }[];
+    },
+  });
+
+  // Fallback lookup: students.id → name (for older sessions that stored student UUIDs)
+  const { data: studentNames = [] } = useQuery({
+    enabled: allCandidateIds.length > 0,
+    queryKey: ["feedback-students", allCandidateIds.sort().join(",")],
+    queryFn: async () => {
+      const { data } = await supabase
         .from("students")
         .select("id, name")
-        .in("id", extraStudentIds);
-      if (error) throw error;
+        .in("id", allCandidateIds);
       return (data ?? []) as { id: string; name: string }[];
     },
   });
 
   const studentsById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const s of sessions) {
-      if (s.students?.id) map.set(s.students.id, s.students.name);
-    }
-    for (const s of extraStudents) map.set(s.id, s.name);
+    // Students fallback first (lower priority)
+    for (const s of studentNames) if (s.name) map.set(s.id, s.name);
+    // lmp_candidates takes priority (has student_name even without students FK)
+    for (const c of lmpCandidateNames) if (c.student_name) map.set(c.id, c.student_name);
     return map;
-  }, [sessions, extraStudents]);
+  }, [lmpCandidateNames, studentNames]);
 
   const candidateNames = (s: Row): string[] => {
     const ids = (s.candidate_ids?.length ? s.candidate_ids : (s.student_id ? [s.student_id] : []));
@@ -246,7 +279,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     const map = new Map<string, { mentorId: string | null; mentorName: string; rows: (Row & { __mergedIds: string[] })[] }>();
     for (const s of collapsedSessions) {
       const key = s.mentor_id ?? "unassigned";
-      const name = s.mentors?.name ?? "Unassigned mentor";
+      const name = mentorName(s);
       if (!map.has(key)) map.set(key, { mentorId: s.mentor_id, mentorName: name, rows: [] });
       map.get(key)!.rows.push(s);
     }
@@ -498,7 +531,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
             sessionIds={row.__mergedIds}
             candidates={cands}
             sessionLabel={(row.session_type ?? "session").replace(/^./, (c) => c.toUpperCase())}
-            mentorName={row.mentors?.name ?? "Unassigned mentor"}
+            mentorName={mentorName(row)}
             scheduledAt={row.scheduled_at}
             token={row.student_feedback_token}
           />

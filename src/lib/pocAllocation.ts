@@ -223,8 +223,8 @@ function canon(s: string): string {
   return _aliasResolver(s || "");
 }
 
-/** Tier detection: primary > secondary > cross. */
-function getDomainTier(p: PocCapability, processDomain: string): DomainTier {
+/** Tier detection: primary > secondary > cross. Exported so UI can reuse alias-aware matching. */
+export function getDomainTier(p: PocCapability, processDomain: string): DomainTier {
   const target = canon(processDomain);
   const primary = p.primaryDomains ?? p.domains;
   const secondary = p.secondaryDomains ?? [];
