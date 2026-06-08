@@ -46,6 +46,8 @@ export function useCopilotThreads(lmpId?: string | null) {
   const [activeId, setActiveId] = useState<string>("local-new");
   const [hydrated, setHydrated] = useState(false);
   const userIdRef = useRef<string | null>(null);
+  // Tracks threads currently being fetched to prevent concurrent duplicate requests.
+  const fetchingRef = useRef<Set<string>>(new Set());
 
   // BUG-FIX #7: clear the UI buffer the moment the LMP scope changes so the
   // previous LMP's transcript can't bleed into the new conversation while the
@@ -185,13 +187,17 @@ export function useCopilotThreads(lmpId?: string | null) {
   }, [threads]);
 
   /**
-   * Lazy-load messages for a thread when it has none in local state.
-   * Fixes the "clicking saved chat shows empty landing page" bug — initial
-   * hydrate no longer bulk-fetches messages, so this is always called when
-   * switching to a thread for the first time in a session.
+   * Lazy-load messages for a thread. Guards against:
+   * - concurrent duplicate fetches (fetchingRef)
+   * - needless setThreads calls that change threads reference when nothing changed
+   *   (empty→empty no-op prevents the infinite effect loop in CopilotPage)
    */
   const fetchMessagesForThread = useCallback(async (threadId: string, opts?: { force?: boolean }) => {
     if (!threadId || threadId.startsWith("local-")) return;
+    const force = !!opts?.force;
+    // Block concurrent fetches for the same thread (unless forced).
+    if (!force && fetchingRef.current.has(threadId)) return;
+    fetchingRef.current.add(threadId);
     try {
       const { data } = await supabase
         .from("copilot_messages")
@@ -206,16 +212,21 @@ export function useCopilotThreads(lmpId?: string | null) {
         mentions: Array.isArray(m.mentions) ? (m.mentions as unknown as MentionEntity[]) : undefined,
         attachments: Array.isArray(m.attachments) ? (m.attachments as unknown as Attachment[]) : undefined,
       } as ChatMessage));
-      const force = !!opts?.force;
       setThreads((prev) =>
-        prev.map((t) =>
-          t.id === threadId && (force || t.messages.length === 0)
-            ? { ...t, messages: msgs }
-            : t,
-        ),
+        prev.map((t) => {
+          if (t.id !== threadId) return t;
+          // Already has messages and not forced — preserve to avoid reference churn.
+          if (!force && t.messages.length > 0) return t;
+          // Both old and new are empty — no-op to avoid creating a new object
+          // reference that would re-trigger dependent effects.
+          if (!force && t.messages.length === 0 && msgs.length === 0) return t;
+          return { ...t, messages: msgs };
+        }),
       );
     } catch (e) {
       console.warn("[copilot-threads] fetchMessagesForThread failed:", e);
+    } finally {
+      fetchingRef.current.delete(threadId);
     }
   }, []);
 

@@ -82,12 +82,23 @@ function CopilotPageInner() {
     fetchMessagesForThread, renameThread,
   } = useCopilotThreads(lmpScopeId);
 
-  // Lazy-load messages when switching to a thread that has none in state
+  // Track which threads have already been fetched to prevent the infinite
+  // re-fetch loop caused by threads being in the dependency array.
+  // Each time setThreads is called (streaming, message add), threads changes
+  // reference — putting threads in deps would re-run this effect on every update.
+  const loadedThreadsRef = useRef<Set<string>>(new Set());
+  // Clear on scope change so the new scope's threads are re-fetched.
+  useEffect(() => { loadedThreadsRef.current.clear(); }, [lmpScopeId]);
+
+  // Lazy-load messages when switching to a thread — fires only on activeId change.
+  // threads is intentionally excluded from deps; the ref guard prevents duplicates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!hydrated || !activeId) return;
-    const t = threads.find((x) => x.id === activeId);
-    if (t && t.messages.length === 0) void fetchMessagesForThread(activeId);
-  }, [activeId, hydrated, threads, fetchMessagesForThread]);
+    if (!hydrated || !activeId || activeId.startsWith("local-")) return;
+    if (loadedThreadsRef.current.has(activeId)) return;
+    loadedThreadsRef.current.add(activeId);
+    void fetchMessagesForThread(activeId);
+  }, [activeId, hydrated, fetchMessagesForThread]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<CopilotMode>("auto");
   const [scope, setScope] = useState<CopilotScope>("auto");
