@@ -24,7 +24,7 @@ export function CopilotActivityFeed({ block, onAction }: { block: ActivityFeedBl
   const toggle = (idx: number) => {
     setExpanded(prev => {
       const next = new Set(prev);
-      next.has(idx) ? next.delete(idx) : next.add(idx);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
       return next;
     });
   };

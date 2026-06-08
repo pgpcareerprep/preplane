@@ -15,7 +15,7 @@ export function runInBackground<T>(
 ): void {
   const p = typeof promise === "function" ? promise() : promise;
   p.catch((err) => {
-    // eslint-disable-next-line no-console
+     
     console.warn(`[bg${opts?.label ? `:${opts.label}` : ""}]`, err);
     opts?.onError?.(err);
   });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { motion } from "framer-motion";
@@ -114,7 +114,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     },
   });
 
-  const mentorName = (s: Row) => (s.mentor_id ? mentorNameMap[s.mentor_id] : null) ?? "Unassigned mentor";
+  const mentorName = useCallback((s: Row) => (s.mentor_id ? mentorNameMap[s.mentor_id] : null) ?? "Unassigned mentor", [mentorNameMap]);
 
   // Realtime: refresh when sessions or student feedbacks change for this LMP
   useRealtimeInvalidate("sessions", [["lmp-sessions", lmpId]], {
@@ -291,7 +291,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
         submitted: ratings.length,
       };
     });
-  }, [collapsedSessions]);
+  }, [collapsedSessions, mentorName]);
 
   const copyLink = (token: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/feedback/${token}`);

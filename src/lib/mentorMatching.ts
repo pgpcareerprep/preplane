@@ -8,7 +8,8 @@ export function applyMatchMode(
   companyBonus: number,
   mode: MatchMode,
 ): number {
-  let { role, skills, company, industry, seniority } = scores;
+  const { skills, seniority } = scores;
+  let { role, company, industry } = scores;
   switch (mode) {
     case "role":
       role = Math.min(75, role * 2.5);

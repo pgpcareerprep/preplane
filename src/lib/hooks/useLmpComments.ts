@@ -1,4 +1,4 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/lib/rolesContext";
@@ -19,7 +19,7 @@ export type DbLmpComment = {
 export function useLmpComments(lmpId: string | null) {
   const qc = useQueryClient();
   const instanceId = useId();
-  const queryKey = ["lmp-comments", lmpId ?? ""] as const;
+  const queryKey = useMemo(() => ["lmp-comments", lmpId ?? ""] as const, [lmpId]);
 
   const query = useQuery({
     queryKey,
@@ -46,7 +46,7 @@ export function useLmpComments(lmpId: string | null) {
       )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [lmpId, qc, instanceId]);
+  }, [lmpId, qc, instanceId, queryKey]);
 
   return query;
 }

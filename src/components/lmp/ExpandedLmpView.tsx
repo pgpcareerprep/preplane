@@ -170,7 +170,7 @@ export function ExpandedLmpView({
       }
       return changed ? next : p;
     });
-  }, [rec.mentorAligned, rec.prepDocShared, rec.assignmentReview, rec.mockDoneByPoc]);
+  }, [rec]);
 
   // Mentor alignment — writes to sheet column V ("Mentor Selected")
   const handleAlignMentor = useCallback((mentorName: string) => {

@@ -16,7 +16,7 @@ export function validateEmail(val: string): FieldCheck {
 export function validatePhone(val: string): FieldCheck {
   const v = (val ?? "").trim();
   if (!v) return { valid: true };
-  const stripped = v.replace(/[\s\-]+/g, "");
+  const stripped = v.replace(/[\s-]+/g, "");
   return PHONE_RE.test(stripped)
     ? { valid: true }
     : { valid: false, error: "Invalid phone number" };

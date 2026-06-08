@@ -87,7 +87,7 @@ export default function HistoryPage() {
   const [active, setActive] = useState<HistoryRow | null>(null);
 
   const { data, isLoading } = useUploadHistory(filter);
-  const rows = (data ?? []) as HistoryRow[];
+  const rows = useMemo(() => (data ?? []) as HistoryRow[], [data]);
 
   useRealtimeInvalidate("activity_log", [["db-upload-history"]], { enabled: true });
   useRealtimeInvalidate("upload_history", [["db-upload-history"]], { enabled: true });

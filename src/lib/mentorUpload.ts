@@ -129,8 +129,8 @@ export function autoMapColumns(csvHeaders: string[]): ColumnMapping[] {
   const keys = Object.keys(AUTO_MAP);
   return csvHeaders.map((h) => {
     const norm = h.trim().toLowerCase()
-      .replace(/[\/\\]/g, "_")     // slashes to underscore
-      .replace(/[\s\-\.]+/g, "_")  // spaces, hyphens, dots to underscore
+      .replace(/[/\\]/g, "_")      // slashes to underscore
+      .replace(/[\s-.]+/g, "_")    // spaces, hyphens, dots to underscore
       .replace(/[^\w_]/g, "")      // remove remaining special chars
       .replace(/_+/g, "_")         // collapse multiple underscores
       .replace(/^_|_$/g, "");      // trim leading/trailing underscores

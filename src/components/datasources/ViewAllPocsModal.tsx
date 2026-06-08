@@ -22,7 +22,7 @@ const ROLE_LABEL: Record<string, string> = {
 export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { data: pocs, isLoading } = useAllPocProfiles();
   const { data: liveLoads } = usePocLiveLoads();
-  const byPoc = liveLoads?.byPoc ?? {};
+  const byPoc = useMemo(() => liveLoads?.byPoc ?? {}, [liveLoads?.byPoc]);
 
   /**
    * Robust load resolver — tolerant to role_type drift and naming variants.
@@ -67,6 +67,19 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
   const isPrep = pocKind === "prep";
 
   const rows = useMemo(() => {
+    const _loadFor = (p: any): number => {
+      const breakdown = byPoc[p.name];
+      if (!breakdown) return 0;
+      const role = (p.role_type ?? "").toLowerCase();
+      if (role === "outreach_poc") return breakdown.outreach || breakdown.total;
+      if (role === "prep_poc" || role === "support_poc" || role === "allocator" || role === "admin") {
+        return (breakdown.prep + breakdown.support) || breakdown.total;
+      }
+      return breakdown.total;
+    };
+    const _totalFor = (p: any): number => byPoc[p.name]?.historicalTotal ?? 0;
+    const _convertedFor = (p: any): number => byPoc[p.name]?.converted ?? 0;
+
     const q = search.toLowerCase();
     const list = (pocs ?? []).filter((p: any) => {
       const kind = p.role_type === "outreach_poc" ? "outreach" : "prep";
@@ -92,9 +105,9 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
     });
     return [...list].sort((a: any, b: any) => {
       const pick = (x: any) => {
-        if (sort.key === "active_load") return loadFor(x);
-        if (sort.key === "total_load") return totalFor(x);
-        if (sort.key === "converted_load") return convertedFor(x);
+        if (sort.key === "active_load") return _loadFor(x);
+        if (sort.key === "total_load") return _totalFor(x);
+        if (sort.key === "converted_load") return _convertedFor(x);
         return x[sort.key] ?? 0;
       };
       const av = pick(a);

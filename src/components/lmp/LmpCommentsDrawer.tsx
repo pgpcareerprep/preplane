@@ -225,7 +225,7 @@ function parseSheetComment(
     }
 
     // — Name (HH:mm): body
-    const appFmt = line.match(/^[—\-]\s+(.+?)\s+\((\d{1,2}):(\d{2})\):\s*(.*)$/);
+    const appFmt = line.match(/^[—-]\s+(.+?)\s+\((\d{1,2}):(\d{2})\):\s*(.*)$/);
     if (appFmt) {
       const [, name, , , body] = appFmt;
       attributedPush(idx, name, body, baseTs + idx * 1000);

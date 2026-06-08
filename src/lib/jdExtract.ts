@@ -2,7 +2,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import * as pdfjsLib from "pdfjs-dist";
 // Vite worker import — bundles the worker.
-// @ts-ignore
+// @ts-expect-error — Vite ?url import not in pdfjs types
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc = pdfWorker;

@@ -45,7 +45,7 @@ const AUTO_MAP_POCS: Record<string, string> = {
 
 export function autoMapPocColumns(csvHeaders: string[]): ColumnMapping[] {
   return csvHeaders.map((h) => {
-    const norm = h.trim().toLowerCase().replace(/[\s\-]+/g, "_");
+    const norm = h.trim().toLowerCase().replace(/[\s-]+/g, "_");
     return { csvColumn: h, dbField: AUTO_MAP_POCS[norm] || "" };
   });
 }
@@ -64,7 +64,7 @@ const ROLE_NORMALIZE: Record<string, string> = {
 };
 
 const normRole = (v?: string | null): string => {
-  const k = (v || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
+  const k = (v || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   return ROLE_NORMALIZE[k] || "prep_poc";
 };
 

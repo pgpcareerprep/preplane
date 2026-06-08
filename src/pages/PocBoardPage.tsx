@@ -23,10 +23,6 @@ export default function PocBoardPage() {
   const { data: candidateCounts = {} } = useLmpCandidateCounts();
   const { data: dbProcesses = [] } = useLmpProcesses();
 
-  // Resolve a possible UUID match for the route param against poc ids on processes.
-  const matchByName = (name?: string) =>
-    !!name && name.trim().toLowerCase() === pocName.trim().toLowerCase();
-
   const records = useMemo(() => {
     const companyRoleToId: Record<string, string> = {};
     for (const p of dbProcesses as any[]) {
@@ -43,16 +39,16 @@ export default function PocBoardPage() {
     });
   }, [rawRecords, dbProcesses, candidateCounts]);
 
-  const filtered = useMemo(
-    () =>
-      records.filter((r) =>
-        r.pocs.some((p) => matchByName(p.name)) ||
-        matchByName((r as any).prepPoc?.name) ||
-        matchByName((r as any).supportPoc?.name) ||
-        matchByName((r as any).outreachPoc?.name),
-      ),
-    [records, pocName],
-  );
+  const filtered = useMemo(() => {
+    const matchByName = (name?: string) =>
+      !!name && name.trim().toLowerCase() === pocName.trim().toLowerCase();
+    return records.filter((r) =>
+      r.pocs.some((p) => matchByName(p.name)) ||
+      matchByName((r as any).prepPoc?.name) ||
+      matchByName((r as any).supportPoc?.name) ||
+      matchByName((r as any).outreachPoc?.name),
+    );
+  }, [records, pocName]);
 
   const [sort, setSort] = useState<SortState>({ key: "age", dir: "asc" });
 

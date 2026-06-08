@@ -121,11 +121,11 @@ export function DailyProgressCard({
   // Sync from DB when props change
   useEffect(() => {
     if (nextProgressDateFromDb && !nextDate) setNextDate(nextProgressDateFromDb);
-  }, [nextProgressDateFromDb]);
+  }, [nextProgressDateFromDb, nextDate]);
   useEffect(() => {
     const norm = normalizeReminderType(reminderTypeFromDb);
     if (reminderTypeFromDb && norm !== nextKind) setNextKind(norm);
-  }, [reminderTypeFromDb]);
+  }, [reminderTypeFromDb, nextKind]);
 
   // Sheets → DB ingest is disabled. DB is the source of truth — daily
   // progress is read from `lmp_daily_logs` via `useProgressHistory`.
@@ -215,7 +215,7 @@ export function DailyProgressCard({
     });
 
     return [...dbDedup, ...filteredSheet].sort((a, b) => b.ts - a.ts);
-  }, [localEntries, sheetEntries, dbHistory]);
+  }, [sheetEntries, dbHistory]);
 
   // Group by date
   const groupedByDate = useMemo(() => {

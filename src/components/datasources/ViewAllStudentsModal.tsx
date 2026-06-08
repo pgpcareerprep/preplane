@@ -65,7 +65,7 @@ export function ViewAllStudentsModal({
       raw = raw.join(", ");
     }
     const parts = String(raw)
-      .replace(/[\[\]"]/g, "")
+      .replace(/[[\]"]/g, "")
       .split(/[,;|]+/)
       .map((x) => x.trim())
       .filter(Boolean);

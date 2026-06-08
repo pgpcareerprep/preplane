@@ -230,7 +230,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [session?.user?.id]);
+  }, [session?.user]);
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();

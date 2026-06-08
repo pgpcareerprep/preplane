@@ -50,7 +50,7 @@ export async function exportTableToCsv(
     const cols = opts?.columns ?? "*";
     let all: Record<string, unknown>[] = [];
     let from = 0;
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       let q = (supabase as any).from(table).select(cols).range(from, from + PAGE - 1);
       if (opts?.orderBy) q = q.order(opts.orderBy, { ascending: true });

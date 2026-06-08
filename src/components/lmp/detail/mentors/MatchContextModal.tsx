@@ -41,7 +41,7 @@ function getMUCount(): number {
       const parsed = JSON.parse(raw);
       return parsed.totalCount || 0;
     }
-  } catch {}
+  } catch { /* ignore */ }
   return 0;
 }
 
@@ -68,7 +68,7 @@ export function MatchContextModal({
   const muCount = getMUCount() || dbMentorCount;
   const aluCount = aluMentors.length || aluStore.totalCount;
 
-  const extCfg = useMemo(() => getExternalDiscoveryConfig(), [open]);
+  const extCfg = useMemo(() => getExternalDiscoveryConfig(), []);
   const extEnabledPlatforms = useMemo(() => {
     const list: string[] = [];
     if (extCfg.topmate) list.push("Topmate");
@@ -176,7 +176,7 @@ export function MatchContextModal({
       try {
         const text = await file.text();
         allSkills.push(...extractSkillsFromText(text));
-      } catch {}
+      } catch { /* ignore */ }
     }
     const unique = [...new Set(allSkills)];
     setResumeSkills(unique);
@@ -221,7 +221,7 @@ export function MatchContextModal({
       saveJd(next);
       setSelectedSkills(skills);
       setJdMode("jd");
-    } catch {}
+    } catch { /* ignore */ }
   }, [lmpId, role, company]);
 
   const handleConfirm = () => {

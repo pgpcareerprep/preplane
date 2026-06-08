@@ -85,7 +85,7 @@ function parseSheetLmp(row: SheetLmpRow): LmpRecord {
   const splitNames = (raw: string): string[] => {
     if (!raw || !raw.trim()) return [];
     const normalized = raw.replace(/\s+and\s+/gi, "/");
-    return normalized.split(/[\/,&+]/).map(s => s.trim()).filter(Boolean);
+    return normalized.split(/[/,&+]/).map(s => s.trim()).filter(Boolean);
   };
 
   const prepNames = splitNames(row["Prep POC"] || "");
@@ -374,7 +374,7 @@ export function useLmpRows() {
         );
         return { ...rec, allocationTags: [domainTag, ...otherTags] };
       });
-    }, [dbQuery.data, resolvedUserDomains, hasPocData]),
+    }, [dbQuery.data, resolvedUserDomains]),
   };
 }
 

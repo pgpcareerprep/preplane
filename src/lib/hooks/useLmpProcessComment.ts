@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 export function useLmpProcessComment(lmpId: string | null) {
   const qc = useQueryClient();
   const instanceId = useId();
-  const queryKey = ["lmp-process-comment", lmpId ?? ""] as const;
+  const queryKey = useMemo(() => ["lmp-process-comment", lmpId ?? ""] as const, [lmpId]);
 
   const query = useQuery({
     queryKey,
@@ -39,7 +39,7 @@ export function useLmpProcessComment(lmpId: string | null) {
       )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [lmpId, qc, instanceId]);
+  }, [lmpId, qc, instanceId, queryKey]);
 
   // Re-pull col Z when the tab regains focus, throttled to once per 10s,
   // so switching back into the app picks up new sheet edits fast.

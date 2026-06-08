@@ -388,7 +388,7 @@ function loadLinkedinCache(ttlHours: number): ExternalMentor[] {
     const meta = getLinkedinCacheMeta();
     if (!meta) return [];
     if (Date.now() - meta.uploadedAt > ttlHours * 60 * 60 * 1000) {
-      // eslint-disable-next-line no-console
+       
       console.warn("[external] LinkedIn cache expired");
       return [];
     }

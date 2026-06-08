@@ -1013,11 +1013,11 @@ function buildPocNameResolver(
     if (candidates && candidates.length === 1) return candidates[0];
     if (candidates && candidates.length > 1 && !warned.has(key)) {
       warned.add(key);
-      // eslint-disable-next-line no-console
+       
       console.warn(`[POC load] "${raw}" is ambiguous — matches: ${candidates.join(", ")}`);
     } else if (!candidates && !warned.has(key)) {
       warned.add(key);
-      // eslint-disable-next-line no-console
+       
       console.warn(`[POC load] "${raw}" did not match any canonical POC`);
     }
     return null;

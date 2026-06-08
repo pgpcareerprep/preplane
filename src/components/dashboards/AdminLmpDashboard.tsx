@@ -61,7 +61,7 @@ export function AdminLmpDashboard() {
       let from = 0;
       const out: any[] = [];
       // paginate to bypass the 1000-row default limit
-      // eslint-disable-next-line no-constant-condition
+       
       while (true) {
         const { data, error } = await supabase
           .from("students")
@@ -421,7 +421,7 @@ export function AdminLmpDashboard() {
       domainRowsTotal,
       domainRowsActive,
     };
-  }, [filtered, studentRoster]);
+  }, [filtered, studentRoster, domainRows]);
 
   const [domainPrefMode, setDomainPrefMode] = useState<"total" | "active">("total");
   const todaySet = useTodayDailyLogIds();
@@ -451,7 +451,7 @@ export function AdminLmpDashboard() {
     ] as const;
     const setKey = COL_TO_SET[cell.colIndex];
     const ids = cap?.ids?.[setKey] as Set<string> | undefined;
-    let rows = ids
+    const rows = ids
       ? all.filter((r) => ids.has(r.processId))
       : lmpsForPoc(all, name, "prep");
     openLmps(rows, `${name} · ${cell.col}`, subtitle);

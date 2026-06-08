@@ -135,7 +135,7 @@ export async function fetchJdFromDb(lmpId: string): Promise<JdData | null> {
       ...(jdUrl ? { link: jdUrl } : {}),
     };
     // Cache locally so subsequent renders are instant.
-    try { saveJd(data2); } catch {}
+    try { saveJd(data2); } catch { /* cache write failure is non-fatal */ }
     return data2;
   } catch {
     return null;
@@ -161,7 +161,7 @@ export const SKILL_KEYWORDS = [
 /** Parse skills from raw JD text using word-boundary matching. */
 export function extractSkillsFromText(text: string): string[] {
   return SKILL_KEYWORDS.filter((skill) => {
-    const escaped = skill.replace(/[.+/#\-]/g, "\\$&");
+    const escaped = skill.replace(/[.+/#-]/g, "\\$&");
     const re = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
     return re.test(text);
   });

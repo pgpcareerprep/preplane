@@ -41,7 +41,7 @@ export function ConflictResolutionModal({ open, onOpenChange }: Props) {
     try {
       for (const c of conflicts) {
         // sequential to avoid hammering the sheet queue / DB
-        // eslint-disable-next-line no-await-in-loop
+         
         await resolve.mutateAsync({ conflict: c, resolution });
       }
     } finally {

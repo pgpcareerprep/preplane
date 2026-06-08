@@ -77,8 +77,8 @@ export function POCReviewStep({
 }) {
   const { data: pocRegistry = [], isLoading: loadingPocs } = usePocRegistry();
   const { data: liveLoads, isLoading: loadingLoads } = usePocLiveLoads();
-  const prepLoad = liveLoads?.prepLoad ?? {};
-  const outreachLoad = liveLoads?.outreachLoad ?? {};
+  const prepLoad = useMemo(() => liveLoads?.prepLoad ?? {}, [liveLoads?.prepLoad]);
+  const outreachLoad = useMemo(() => liveLoads?.outreachLoad ?? {}, [liveLoads?.outreachLoad]);
   const { data: domainsList = [] } = useDomains();
 
   // Install an alias-aware resolver so engine matches e.g. "Founder's Office/
@@ -249,7 +249,7 @@ export function POCReviewStep({
     if (s) setSupportOverride(toAssignedFromPool(s, reqDomain));
     if (o) setOutreachPoc(toAssignedFromPool(o, reqDomain));
     hydratedRef.current = true;
-  }, [initial, pocPool]);
+  }, [initial, pocPool, reqDomain]);
 
   const handleSaveDraft = async () => {
     if (!onSaveDraft) return;

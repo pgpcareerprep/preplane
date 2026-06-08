@@ -94,7 +94,7 @@ export function AppSidebar() {
     return window.localStorage.getItem("lumina:sidebar-collapsed") === "1";
   });
   useEffect(() => {
-    try { window.localStorage.setItem("lumina:sidebar-collapsed", collapsed ? "1" : "0"); } catch {}
+    try { window.localStorage.setItem("lumina:sidebar-collapsed", collapsed ? "1" : "0"); } catch { /* storage unavailable */ }
   }, [collapsed]);
   const effectiveRole = viewAsRole;
 

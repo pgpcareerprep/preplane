@@ -74,7 +74,7 @@ export function ReassignPocModal({
       return dbRow.outreach_poc_ids as string[];
     }
     return ((dbRow?.outreach_poc as string | undefined) || "")
-      .split(/[\/,&+]| and /i)
+      .split(/[/,&+]| and /i)
       .map((s) => s.trim())
       .filter(Boolean)
       .map((n) => resolveByName(n))

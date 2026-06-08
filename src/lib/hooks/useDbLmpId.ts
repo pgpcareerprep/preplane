@@ -50,5 +50,5 @@ export function useDbLmpId(input: {
       return undefined;
     }
     return undefined;
-  }, [dbProcesses, input?.id, input?.lmpCode, input?.company, input?.role]);
+  }, [dbProcesses, input]);
 }

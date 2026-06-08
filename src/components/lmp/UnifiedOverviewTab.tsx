@@ -120,9 +120,10 @@ export function UnifiedOverviewTab({
   );
 
   // Documents — shared JSON array on lmp_processes.documents (checklist + general).
+  const lmpDocuments = (lmp as any).documents;
   const currentDocs: DocumentLink[] = useMemo(
-    () => normalizeDocuments((lmp as any).documents),
-    [(lmp as any).documents],
+    () => normalizeDocuments(lmpDocuments),
+    [lmpDocuments],
   );
 
   const persistDocs = useCallback(
@@ -193,7 +194,7 @@ export function UnifiedOverviewTab({
       }
       return changed ? next : p;
     });
-  }, [lmp.mentorAligned, lmp.prepDocShared, lmp.assignmentReview, lmp.mockDoneByPoc]);
+  }, [lmp]);
 
   // Normalise next-expected date: drop Excel-serial junk like "46150" from sheet
   const safeNextDate = (() => {

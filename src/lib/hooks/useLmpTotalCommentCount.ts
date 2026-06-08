@@ -26,7 +26,7 @@ export function useLmpTotalCommentCount(lmpId: string | null): number {
         /^\[\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\]\s+.+?:\s*(.*)$/,
       );
       if (bracketFmt) return bracketFmt[1];
-      const appFmt = line.match(/^[—\-]\s+.+?\s+\(\d{1,2}:\d{2}\):\s*(.*)$/);
+      const appFmt = line.match(/^[—-]\s+.+?\s+\(\d{1,2}:\d{2}\):\s*(.*)$/);
       if (appFmt) return appFmt[1];
       return line;
     };

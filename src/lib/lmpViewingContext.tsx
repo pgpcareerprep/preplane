@@ -41,7 +41,7 @@ const ViewingContext = createContext<Ctx | null>(null);
 function splitPocNames(raw: string): string[] {
   if (!raw || !raw.trim()) return [];
   const normalized = raw.replace(/\s+and\s+/gi, "/");
-  return normalized.split(/[\/,&+]/).map(s => s.trim()).filter(Boolean);
+  return normalized.split(/[/,&+]/).map(s => s.trim()).filter(Boolean);
 }
 
 export function ownerOf(rec: LmpRecord): string {

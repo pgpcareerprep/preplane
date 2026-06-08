@@ -120,7 +120,7 @@ function CopilotPageInner() {
   }, [lmpScopeId]);
 
   const active = threads.find((t) => t.id === activeId) ?? threads[0];
-  const messages = active?.messages ?? [];
+  const messages = useMemo(() => active?.messages ?? [], [active?.messages]);
   const hasChat = messages.length > 0;
 
   // Last assistant text for voice overlay
@@ -427,9 +427,10 @@ function CopilotPageInner() {
     void createThread();
   };
 
+  const lastMessageContent = messages[messages.length - 1]?.content;
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 1e9, behavior: "smooth" });
-  }, [messages.length, pending, activeId, messages[messages.length - 1]?.content]);
+  }, [messages.length, pending, activeId, lastMessageContent]);
 
   // @ mention detection
   const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

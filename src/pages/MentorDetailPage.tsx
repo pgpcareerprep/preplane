@@ -103,13 +103,13 @@ export default function MentorDetailPage() {
   const mentor = useMemo<MentorRecord | undefined>(() => {
     if (dbRow) return dbRowToMentorRecord(dbRow);
     return undefined;
-  }, [dbRow, id]);
+  }, [dbRow]);
 
   const { data: perf, isLoading: isPerfLoading } = useMentorPerformance(mentor?.id);
   const { data: goalMet } = useMentorGoalMet(mentor?.id);
   const m = perf?.metrics ?? null;
   const sessions: LiveMentorSession[] = perf?.sessions ?? [];
-  const pipeline: LivePipelineRow[] = perf?.pipeline ?? [];
+  const pipeline: LivePipelineRow[] = useMemo(() => perf?.pipeline ?? [], [perf?.pipeline]);
   const reqLabels: ReqLabelMap = perf?.reqLabels ?? {};
   CURRENT_REQ_LABELS = reqLabels;
   const { data: lmpRecords = [] } = useLmpRows();

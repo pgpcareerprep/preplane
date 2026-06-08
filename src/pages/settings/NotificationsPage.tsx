@@ -481,7 +481,7 @@ function ReminderActivityPanel() {
       .order("created_at", { ascending: false })
       .limit(15);
     const lmpIds = Array.from(new Set((reminders ?? []).map((r: any) => r.lmp_id)));
-    let lmpMap = new Map<string, { company: string; role: string }>();
+    const lmpMap = new Map<string, { company: string; role: string }>();
     if (lmpIds.length > 0) {
       const { data: lmps } = await supabase
         .from("lmp_processes")
