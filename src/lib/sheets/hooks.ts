@@ -296,13 +296,28 @@ export function useLmpRows() {
   const { data: pocCapabilities } = usePocCapabilityList();
   const { user, viewAsUser } = useRole();
 
-  // When an admin impersonates a POC via "View As", use that POC's identity for
-  // domain tag computation so the tag reflects the viewed-as user's perspective.
+  // When an admin impersonates a POC via "View As", use that POC's identity.
   const effectiveEmail = ((viewAsUser?.email ?? user.email) ?? "").toLowerCase().trim();
   const effectiveName = ((viewAsUser?.name ?? user.pocProfileName ?? user.name) ?? "").toLowerCase().trim();
-  const isAdminWithoutPoc = !viewAsUser && user.email && !user.pocProfileName;
 
-  // Build name → {primary, secondary} AND email → {primary, secondary} maps.
+  // Direct lookup for the effective user's poc_profile row — more reliable than
+  // going through poc_profiles_with_load (which may not expose email for every row).
+  const { data: myPocProfile } = useQuery({
+    enabled: !!effectiveEmail,
+    queryKey: ["poc-profile-domains", effectiveEmail],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("poc_profiles")
+        .select("primary_domain, domain_tags")
+        .eq("email", effectiveEmail)
+        .maybeSingle();
+      return data as { primary_domain: string | null; domain_tags: string[] | null } | null;
+    },
+  });
+
+  // Build name → {primary, secondary} AND email → {primary, secondary} maps
+  // from the capability list (used as a secondary lookup path).
   const pocDomainMap = useMemo(() => {
     const byName = new Map<string, { primary: string[]; secondary: string[] }>();
     const byEmail = new Map<string, { primary: string[]; secondary: string[] }>();
@@ -316,6 +331,24 @@ export function useLmpRows() {
     return { byName, byEmail };
   }, [pocCapabilities]);
 
+  // Resolve the effective user's domain lists — prefer the direct profile query,
+  // fall back to the capability-list maps (name or email key).
+  const resolvedUserDomains = useMemo((): { primary: string[]; secondary: string[] } | null => {
+    if (myPocProfile) {
+      const primaryDomains = myPocProfile.primary_domain ? [myPocProfile.primary_domain] : [];
+      const allDomains: string[] = Array.isArray(myPocProfile.domain_tags) && myPocProfile.domain_tags.length
+        ? myPocProfile.domain_tags : primaryDomains;
+      const secondaryDomains = allDomains.filter(d => d !== myPocProfile.primary_domain);
+      if (primaryDomains.length > 0 || secondaryDomains.length > 0) {
+        return { primary: primaryDomains, secondary: secondaryDomains };
+      }
+    }
+    // Capability-list fallback (covers viewAsUser whose email differs from login email).
+    return (effectiveEmail ? pocDomainMap.byEmail.get(effectiveEmail) : undefined)
+      ?? (effectiveName ? pocDomainMap.byName.get(effectiveName) : undefined)
+      ?? null;
+  }, [myPocProfile, pocDomainMap, effectiveEmail, effectiveName]);
+
   const hasPocData = (pocCapabilities?.length ?? 0) > 0;
 
   return {
@@ -323,36 +356,25 @@ export function useLmpRows() {
     data: useMemo(() => {
       return ((dbQuery.data ?? []) as Record<string, any>[]).map(row => {
         const rec = dbLmpToRecord(row);
-        if (!hasPocData || !rec.domain) return rec;
+        if (!rec.domain) return rec;
 
         const domainLower = rec.domain.toLowerCase().trim();
 
-        // Resolve effective user's domain profile: try email first, then display name.
-        const userDomains =
-          (effectiveEmail ? pocDomainMap.byEmail.get(effectiveEmail) : undefined) ??
-          (effectiveName ? pocDomainMap.byName.get(effectiveName) : undefined);
-
-        let domainTag: AllocationTag;
-
-        if (userDomains) {
-          const isPrimary = userDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
-          const isSecondary = !isPrimary && userDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
-          domainTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
-        } else if (isAdminWithoutPoc) {
-          // Admin with no POC profile and no viewAsUser — omit domain tag (no perspective to compute from).
-          return rec;
-        } else {
-          // POC user whose profile wasn't found in pocCapabilities — omit tag rather than guessing.
+        if (!resolvedUserDomains) {
+          // No domain profile found for the current user — show no tag.
           return rec;
         }
 
-        // Replace any existing In-Domain/Cross-Domain/Secondary Domain tag with the computed one.
+        const isPrimary = resolvedUserDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
+        const isSecondary = !isPrimary && resolvedUserDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
+        const domainTag: AllocationTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+
         const otherTags = (rec.allocationTags ?? []).filter(
           t => t !== "In-Domain" && t !== "Cross-Domain" && t !== "Secondary Domain",
         );
         return { ...rec, allocationTags: [domainTag, ...otherTags] };
       });
-    }, [dbQuery.data, pocDomainMap, hasPocData, effectiveName, effectiveEmail, isAdminWithoutPoc]),
+    }, [dbQuery.data, resolvedUserDomains, hasPocData]),
   };
 }
 
