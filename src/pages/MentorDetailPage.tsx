@@ -105,7 +105,7 @@ export default function MentorDetailPage() {
     return undefined;
   }, [dbRow, id]);
 
-  const { data: perf } = useMentorPerformance(mentor?.id);
+  const { data: perf, isLoading: isPerfLoading } = useMentorPerformance(mentor?.id);
   const { data: goalMet } = useMentorGoalMet(mentor?.id);
   const m = perf?.metrics ?? null;
   const sessions: LiveMentorSession[] = perf?.sessions ?? [];
@@ -137,7 +137,8 @@ export default function MentorDetailPage() {
   const activeLmp = pipeline.find((p) => p.reqId === activeLmpId);
 
 
-  if (isLoading && !mentor) {
+  // Show skeleton while either the mentor row or performance data is loading.
+  if (isLoading || (!!mentor && isPerfLoading && !m)) {
     return (
       <div className="w-full">
         <div className="h-6 w-40 bg-n100 rounded animate-pulse mb-4" />
@@ -146,7 +147,7 @@ export default function MentorDetailPage() {
     );
   }
 
-  if (!mentor || !m) {
+  if (!mentor) {
     return (
       <div className="w-full">
         <p className="text-n600">Mentor not found.</p>
@@ -155,7 +156,11 @@ export default function MentorDetailPage() {
     );
   }
 
+  // Provide safe fallback metrics while perf data finishes loading.
+  const emptyMetrics = { totalSessions: 0, activeReqs: 0, avgRating: 0, costPerSession: 4000, conversionImpactPct: 0, lastActive: null, isActive: false };
+
   const meta = SOURCE_META[mentor.source];
+  const metrics = m ?? emptyMetrics;
 
   const onConfirmAssign = (draft: AssignmentDraft) => {
     const round = DEFAULT_ROUNDS.find((r) => r.id === draft.roundId);
@@ -232,13 +237,13 @@ export default function MentorDetailPage() {
             <div className="mt-2 flex items-center gap-4 text-[12px] text-n600">
               <span className="inline-flex items-center gap-1">
                 <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                <span className="font-medium text-n800 tabular-nums">{m.avgRating ? m.avgRating.toFixed(1) : "—"}</span>
+                <span className="font-medium text-n800 tabular-nums">{metrics.avgRating ? metrics.avgRating.toFixed(1) : "—"}</span>
                 <span className="text-n500">avg rating</span>
               </span>
               <span>·</span>
-              <span><span className="font-medium text-n800 tabular-nums">{m.totalSessions}</span> sessions</span>
+              <span><span className="font-medium text-n800 tabular-nums">{metrics.totalSessions}</span> sessions</span>
               <span>·</span>
-              <span>₹{m.costPerSession.toLocaleString("en-IN")} / session</span>
+              <span>₹{metrics.costPerSession.toLocaleString("en-IN")} / session</span>
             </div>
           </div>
           <button
@@ -252,10 +257,10 @@ export default function MentorDetailPage() {
 
         {/* Metrics strip */}
         <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Metric label="Total sessions" value={String(m.totalSessions)} />
-          <Metric label="Active processes" value={String(m.activeReqs)} />
-          <Metric label="Conversion impact" value={`${m.conversionImpactPct}%`} accent />
-          <Metric label="Avg rating" value={m.avgRating ? m.avgRating.toFixed(1) : "—"} />
+          <Metric label="Total sessions" value={String(metrics.totalSessions)} />
+          <Metric label="Active processes" value={String(metrics.activeReqs)} />
+          <Metric label="Conversion impact" value={`${metrics.conversionImpactPct}%`} accent />
+          <Metric label="Avg rating" value={metrics.avgRating ? metrics.avgRating.toFixed(1) : "—"} />
         </div>
       </div>
 
@@ -364,10 +369,10 @@ export default function MentorDetailPage() {
                   {" — "}
                 </>
               ) : null}
-              {mentor.name.split(" ")[0]} has run <strong className="text-n800">{m.totalSessions}</strong> sessions
+              {mentor.name.split(" ")[0]} has run <strong className="text-n800">{metrics.totalSessions}</strong> sessions
               across <strong className="text-n800">{pipeline.length} LMP processes</strong>,
-              with a <strong className="text-n800">{m.conversionImpactPct}% conversion impact</strong> and an
-              average rating of <strong className="text-n800">{m.avgRating ? m.avgRating.toFixed(1) : "—"}</strong>.
+              with a <strong className="text-n800">{metrics.conversionImpactPct}% conversion impact</strong> and an
+              average rating of <strong className="text-n800">{metrics.avgRating ? metrics.avgRating.toFixed(1) : "—"}</strong>.
             </p>
           </div>
 
@@ -375,7 +380,7 @@ export default function MentorDetailPage() {
           <div className="rounded-2xl border border-n200 bg-card shadow-sm p-5 space-y-3">
             <h3 className="text-[13px] font-semibold text-n900 uppercase tracking-[0.5px]">Outcome</h3>
             <div>
-              <div className="text-[36px] font-bold text-orange-500 tabular-nums leading-none">{m.conversionImpactPct}%</div>
+              <div className="text-[36px] font-bold text-orange-500 tabular-nums leading-none">{metrics.conversionImpactPct}%</div>
               <div className="text-[12px] text-n500 mt-1">of touched processes converted</div>
             </div>
             <div className="text-[13px] text-n600 pt-3 border-t border-n100">
@@ -399,7 +404,7 @@ export default function MentorDetailPage() {
 
       {tab === "pipeline" && <PipelineImpact rows={pipeline} sessions={sessions} />}
 
-      {tab === "feedback" && <FeedbackTab sessions={sessions} avgRating={m.avgRating} />}
+      {tab === "feedback" && <FeedbackTab sessions={sessions} avgRating={metrics.avgRating} />}
 
       <AssignMentorModal
         open={assignOpen}

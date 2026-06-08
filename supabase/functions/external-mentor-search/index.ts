@@ -529,16 +529,26 @@ IMPORTANT: Only include real people you can verify. Return valid JSON array only
   }
 
   const data = await resp.json() as Record<string, unknown>;
-  const rawText = (data?.candidates as any)?.[0]?.content?.parts?.[0]?.text ?? "";
+  // Gemini Search grounding may return multiple parts (thought + answer).
+  // Concatenate ALL text parts so we don't miss the JSON when it lands in part[1+].
+  const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
+  const rawText = parts
+    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+    .join("\n");
 
-  // Extract JSON array from the response
-  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return [];
-
+  // Extract JSON array (top-level or embedded in a markdown code block).
+  const jsonMatch = rawText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/) ??
+    rawText.match(/(\[[\s\S]*\])/);
+  if (!jsonMatch) {
+    console.warn("discoverViаGeminiSearch: no JSON array found in response", rawText.slice(0, 400));
+    return [];
+  }
+  const jsonStr = jsonMatch[1] ?? jsonMatch[0];
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as DiscoveredMentor[];
+    const parsed = JSON.parse(jsonStr) as DiscoveredMentor[];
     return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
   } catch {
+    console.warn("discoverViаGeminiSearch: JSON parse failed", jsonStr.slice(0, 200));
     return [];
   }
 }
@@ -586,13 +596,19 @@ Deno.serve(async (req) => {
       const geminiMentors = await discoverViаGeminiSearch(
         LOVABLE_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
       );
+      if (!geminiMentors.length) {
+        return new Response(
+          JSON.stringify({ mentors: [], error: "Gemini search returned no results. External mentor discovery requires a Firecrawl API key for full coverage." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       return new Response(JSON.stringify({ mentors: geminiMentors }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (e) {
       return new Response(
-        JSON.stringify({ mentors: [], error: `Gemini search fallback failed: ${(e as Error).message}` }),
+        JSON.stringify({ mentors: [], error: `External search unavailable: ${(e as Error).message}` }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

@@ -363,7 +363,7 @@ export default function MentorsPage() {
                     </Td>
                     <Td align="right">
                       <button
-                        onClick={(e) => { e.stopPropagation(); }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/mentors/${m.id}`); }}
                         className="inline-flex items-center gap-1.5 h-8 rounded-md bg-orange-500 hover:bg-orange-600 text-white px-3 text-[12px] font-medium shadow-sm transition-colors"
                       >
                         <UserPlus className="h-3.5 w-3.5" />
