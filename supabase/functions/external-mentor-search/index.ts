@@ -11,10 +11,8 @@
 // Returns the same envelope as before — `{ mentors: [...] }` — with extra
 // optional fields: email, phone, years_experience, pricing, source_url.
 
-import { buildCorsHeaders, BASE_CORS_HEADERS, DEFAULT_ORIGIN } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
-
-const corsHeaders: Record<string, string> = { ...BASE_CORS_HEADERS, "Access-Control-Allow-Origin": DEFAULT_ORIGIN };
 
 type Body = {
   role?: string;
@@ -556,13 +554,26 @@ IMPORTANT: Only include real people you can verify. Return valid JSON array only
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? req.headers.get("Origin") ?? "";
-  corsHeaders["Access-Control-Allow-Origin"] = buildCorsHeaders(req)["Access-Control-Allow-Origin"];
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Build CORS headers fresh for every request (origin-specific, no shared state).
+  const corsH = buildCorsHeaders(req);
+
+  console.log("[external-mentor-search] incoming:", req.method);
+
+  // OPTIONS MUST be the very first check — before auth, before body parse, before anything.
+  if (req.method === "OPTIONS") {
+    console.log("[external-mentor-search] OPTIONS preflight — returning 200");
+    return new Response("ok", { status: 200, headers: corsH });
+  }
 
   try {
-  const auth = await requireAuth(req, corsHeaders);
-  if ("error" in auth) return auth.error;
+  const origin = req.headers.get("origin") ?? "";
+  console.log("[external-mentor-search] auth check starting, origin:", origin || "(none)");
+  const auth = await requireAuth(req, corsH);
+  if ("error" in auth) {
+    console.log("[external-mentor-search] auth rejected");
+    return auth.error;
+  }
+  console.log("[external-mentor-search] auth passed, role:", auth.user.role);
 
   // Read FIRECRAWL_API_KEY from EF secret first, then fall back to Supabase Vault.
   // Vault is accessed via the vault schema using Accept-Profile header.
@@ -622,7 +633,7 @@ Deno.serve(async (req) => {
 
   if (!role && skills.length === 0) {
     return new Response(JSON.stringify({ mentors: [], error: "role or skills required" }), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200, headers: { ...corsH, "Content-Type": "application/json" },
     });
   }
 
@@ -632,7 +643,7 @@ Deno.serve(async (req) => {
       console.warn("[external-mentor-search] no API keys configured");
       return new Response(
         JSON.stringify({ mentors: [], error: "External mentor search requires FIRECRAWL_API_KEY or GEMINI_API_KEY. Neither is configured." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
       );
     }
     try {
@@ -644,19 +655,19 @@ Deno.serve(async (req) => {
       if (!geminiMentors.length) {
         return new Response(
           JSON.stringify({ mentors: [], error: "Gemini search returned no results. Add a FIRECRAWL_API_KEY for full external mentor discovery." }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
         );
       }
       return new Response(JSON.stringify({ mentors: geminiMentors }), {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsH, "Content-Type": "application/json" },
       });
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
       console.warn("[external-mentor-search] Gemini fallback failed:", msg);
       return new Response(
         JSON.stringify({ mentors: [], error: `Gemini search failed: ${msg}` }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
       );
     }
   }
@@ -743,7 +754,7 @@ Deno.serve(async (req) => {
   if (ordered.length === 0 && mentors.length === 0) {
     const counts = `LinkedIn snippets:${byPlatform.LinkedIn.length}, Topmate:${byPlatform.Topmate.length}, ADPList:${byPlatform.ADPList.length}, Superpeer:${byPlatform.Superpeer.length}`;
     return new Response(JSON.stringify({ mentors: [], error: `No web results matched the role/company/industry. (${counts})` }), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200, headers: { ...corsH, "Content-Type": "application/json" },
     });
   }
 
@@ -857,7 +868,7 @@ Deno.serve(async (req) => {
   console.log(`[external-mentor-search] done — returning ${deduped.length} mentors`);
   return new Response(JSON.stringify({ mentors: deduped }), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsH, "Content-Type": "application/json" },
   });
 
   } catch (topErr) {
@@ -865,7 +876,7 @@ Deno.serve(async (req) => {
     console.error("[external-mentor-search] unhandled error:", msg);
     return new Response(
       JSON.stringify({ mentors: [], error: `External search failed: ${msg}` }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
     );
   }
 });
