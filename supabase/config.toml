@@ -1,3 +1,6 @@
 project_id = "sgqwnjajvgjcwqergnsr"
 [functions.parse-jd]
 verify_jwt = false
+
+[functions.external-mentor-search]
+verify_jwt = false

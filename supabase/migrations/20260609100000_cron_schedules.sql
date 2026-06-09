@@ -18,10 +18,10 @@ SELECT cron.schedule(
   BEGIN
     SELECT token INTO v_token FROM public._internal_cron_auth WHERE id = 't' LIMIT 1;
     PERFORM net.http_post(
-      url     := 'https://yhzcheqjzmikeczzoeih.supabase.co/functions/v1/embed-sync',
+      url     := 'https://sgqwnjajvgjcwqergnsr.supabase.co/functions/v1/embed-sync',
       headers := jsonb_build_object(
         'Content-Type',    'application/json',
-        'apikey',          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloemNoZXFqem1pa2VjenpvZWloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjI2NTUsImV4cCI6MjA5MzUzODY1NX0.QNcI87Zi23Xl94RJrm16h5HCvnFZR2ATCKWnOwVNP8Q',
+        'apikey',          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNncXduamFqdmdqY3dxZXJnbnNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODI4NTYsImV4cCI6MjA5NTk1ODg1Nn0.Wp_S69FO8IwZVog5VpPx2uS4ARdH6ZNiRlMEufmZxi4',
         'x-embed-trigger', COALESCE(v_token, '')
       ),
       body    := '{}'::jsonb
@@ -37,10 +37,10 @@ SELECT cron.schedule(
   '0 8 * * *',
   $cron$
   SELECT net.http_post(
-    url     := 'https://yhzcheqjzmikeczzoeih.supabase.co/functions/v1/progress-reminder-cron',
+    url     := 'https://sgqwnjajvgjcwqergnsr.supabase.co/functions/v1/progress-reminder-cron',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'apikey',       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloemNoZXFqem1pa2VjenpvZWloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjI2NTUsImV4cCI6MjA5MzUzODY1NX0.QNcI87Zi23Xl94RJrm16h5HCvnFZR2ATCKWnOwVNP8Q'
+      'apikey',       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNncXduamFqdmdqY3dxZXJnbnNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODI4NTYsImV4cCI6MjA5NTk1ODg1Nn0.Wp_S69FO8IwZVog5VpPx2uS4ARdH6ZNiRlMEufmZxi4'
     ),
     body    := '{}'::jsonb
   );

@@ -186,13 +186,16 @@ export function useSaveNextProgressDate() {
           reminder_version: newVersion,
           status: "pending",
         });
-        void supabase.functions.invoke("send-progress-confirmation-email", {
+        supabase.functions.invoke("send-progress-confirmation-email", {
           body: {
             lmp_id: params.lmpId,
             next_date: nextDate,
             reminder_type: params.reminderType || "Follow-up",
             ...(params.pocEmail ? { to_email: params.pocEmail } : {}),
           },
+        }).then(({ error, data }) => {
+          if (error) console.error("[progress-email] invoke error:", error);
+          else if (data && !data.ok) console.warn("[progress-email] send failed:", data);
         });
       }
 
