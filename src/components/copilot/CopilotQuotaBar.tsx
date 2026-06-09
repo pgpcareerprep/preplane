@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCopilotQuota, DAILY_REQUEST_QUOTA, DAILY_TOKEN_QUOTA, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
+import { useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
 import { cn } from "@/lib/utils";
 
 function fmt(n: number) {
@@ -21,6 +21,7 @@ function toneClasses(sev: QuotaSeverity) {
 
 interface CopilotUsageStripProps {
   className?: string;
+  active?: boolean;
 }
 
 /**
@@ -28,7 +29,7 @@ interface CopilotUsageStripProps {
  * Shows requests, tokens, two slim bars and local reset time.
  * No model or provider details are surfaced.
  */
-export function CopilotUsageStrip({ className }: CopilotUsageStripProps) {
+export function CopilotUsageStrip({ className, active = false }: CopilotUsageStripProps) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
 
@@ -42,9 +43,17 @@ export function CopilotUsageStrip({ className }: CopilotUsageStripProps) {
         role="status"
         aria-live="polite"
       >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={cn("max-w-[180px] truncate rounded-full border border-n200 px-2 py-1 text-[10px] font-medium", active ? "text-orange-600 bg-orange-50" : "text-n600 bg-n50")}>
+              {active ? "Searching via " : ""}{q.provider} · {q.model.split("/").pop()}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">Current model: {q.model}. Usage is calculated from live AI usage events.</TooltipContent>
+        </Tooltip>
         <div className="flex flex-col items-end gap-1 min-w-[140px]">
           <div className={cn("flex items-center gap-1.5 text-[11px] tabular-nums", t.text)}>
-            <span>{q.requestsUsed} / {DAILY_REQUEST_QUOTA} req</span>
+            <span>{q.requestsUsed} / {q.requestLimit} req</span>
           </div>
           <div className={cn("h-1 w-[140px] overflow-hidden rounded-full", t.track)}>
             <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.requestPercent}%` }} />
@@ -53,7 +62,7 @@ export function CopilotUsageStrip({ className }: CopilotUsageStripProps) {
 
         <div className="flex flex-col items-end gap-1 min-w-[150px]">
           <div className={cn("flex items-center gap-1.5 text-[11px] tabular-nums", t.text)}>
-            <span>{fmt(q.tokensUsed)} / {fmt(DAILY_TOKEN_QUOTA)} tk</span>
+            <span>{fmt(q.tokensUsed)} / {fmt(q.tokenLimit)} tk</span>
           </div>
           <div className={cn("h-1 w-[150px] overflow-hidden rounded-full", t.track)}>
             <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.tokenPercent}%` }} />
@@ -74,7 +83,7 @@ export function CopilotUsageStrip({ className }: CopilotUsageStripProps) {
 }
 
 /** Mobile-only compact pill (used inline on small screens). */
-export function CopilotUsageMini({ className }: { className?: string }) {
+export function CopilotUsageMini({ className, active = false }: { className?: string; active?: boolean }) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
   return (
@@ -84,10 +93,10 @@ export function CopilotUsageMini({ className }: { className?: string }) {
         t.text,
         className,
       )}
-      title={`${q.requestsUsed}/${DAILY_REQUEST_QUOTA} req · ${fmt(q.tokensUsed)}/${fmt(DAILY_TOKEN_QUOTA)} tk · reset ${q.resetLocal}`}
+      title={`${q.provider} · ${q.model} · ${q.requestsUsed}/${q.requestLimit} req · ${fmt(q.tokensUsed)}/${fmt(q.tokenLimit)} tk · reset ${q.resetLocal}`}
     >
       <span className={cn("h-1.5 w-1.5 rounded-full", t.bar)} />
-      {q.requestsUsed}/{DAILY_REQUEST_QUOTA}
+      {active ? q.model.split("/").pop() : `${q.requestsUsed}/${q.requestLimit}`}
     </span>
   );
 }

@@ -116,6 +116,10 @@ export function useVoiceDictation({ onTranscript, onInterimTranscript }: VoiceDi
         return;
       }
       flushingRef.current = true;
+      // Pause recognition while the assistant processes and speaks. The voice
+      // overlay restarts it after the reply, producing listen -> reply -> listen
+      // turn-taking instead of Chrome immediately reopening the microphone.
+      wantListeningRef.current = false;
       setStatus("thinking");
       setInterim("");
       try { recognition.stop(); } catch { /* noop */ }

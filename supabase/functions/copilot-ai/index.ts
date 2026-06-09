@@ -16,7 +16,7 @@ import {
   GROK_SYNTHESIS_MODELS,
 } from "./modelConfig.ts";
 import { checkPermission } from "../_shared/rbac.ts";
-import { isMentorCoverageQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
 // This module-level object is mutated in-place so all existing response sites keep working.
@@ -49,7 +49,7 @@ let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
 async function callSynthesis(
   _key: string, // kept for signature compat; actual key comes from AI_KEY_FOR_CHAT
   body: Record<string, unknown>,
-  timeoutMs = 90_000,
+  timeoutMs = 20_000,
 ): Promise<{ resp: Response; model: string }> {
   const key = AI_KEY_FOR_CHAT;
   const provider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
@@ -3143,6 +3143,10 @@ Deno.serve(async (req: Request) => {
       ? ((body as Record<string, unknown>).userName as string)
       : "there";
 
+  // Track whether the tool loop invoked any write tool. Declared before fast
+  // paths because logTurn records it for every response, including direct ones.
+  let usedWriteTool = false;
+
   if (intent === "greeting") {
     const text = getGreetingResponse(userName.split(/\s+/)[0] || "there");
     telemetry.intent = "greeting";
@@ -3197,8 +3201,64 @@ Deno.serve(async (req: Request) => {
     log.warn("mentor_coverage_fast_path_failed", { error: error.message });
   }
 
-  // Track whether the tool loop invoked any write tool. If so, skip cache write.
-  let usedWriteTool = false;
+  if (isPocWorkloadQuery(lastUserMessage)) {
+    const fastSb = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const [{ data: profiles, error: profilesError }, { data: lmps, error: lmpsError }] = await Promise.all([
+      fastSb.from("poc_profiles").select("name,role_type,primary_domain,active_load,max_threshold,conversion_rate").order("name"),
+      fastSb.from("lmp_processes").select("status,prep_poc,support_poc,outreach_poc").limit(3000),
+    ]);
+    if (!profilesError && !lmpsError) {
+      const rows = (profiles || []).map((p) => {
+        const assigned = (lmps || []).filter((l) =>
+          [l.prep_poc, l.support_poc, l.outreach_poc].some((name) => name && name.toLowerCase() === p.name?.toLowerCase())
+        );
+        const statusCounts: Record<string, number> = {};
+        for (const l of assigned) {
+          const status = l.status || "Unknown";
+          statusCounts[status] = (statusCounts[status] || 0) + 1;
+        }
+        const activeLoad = Number(p.active_load ?? statusCounts.Ongoing ?? 0);
+        const threshold = Number(p.max_threshold ?? 10);
+        const capacity = threshold > 0 ? Math.round((activeLoad / threshold) * 100) : 0;
+        const converted = assigned.filter((l) => /converted|offer/i.test(l.status || "")).length;
+        const conversion = Number.isFinite(Number(p.conversion_rate))
+          ? Number(p.conversion_rate)
+          : (assigned.length ? Math.round((converted / assigned.length) * 1000) / 10 : 0);
+        return {
+          capacity,
+          row: [
+            p.name || "—",
+            activeLoad,
+            threshold,
+            `${capacity}%${capacity > 80 ? " ⚠" : ""}`,
+            `${conversion}%`,
+            Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`).join(", ") || "No assigned processes",
+          ],
+        };
+      }).sort((a, b) => b.capacity - a.capacity);
+      const overCapacity = rows.filter((r) => r.capacity > 80).length;
+      const text = [
+        `${rows.length} POCs reviewed. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`,
+        "",
+        ":::blocks",
+        JSON.stringify([
+          { type: "executive-summary", content: `${rows.length} POCs reviewed using live POC profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
+          { type: "kpi-row", items: [{ label: "POCs", value: rows.length }, { label: "Above 80% capacity", value: overCapacity }] },
+          { type: "table", title: "POC workload", headers: ["POC", "Active load", "Max threshold", "Capacity", "Conversion rate", "Processes by status"], rows: rows.map((r) => r.row) },
+        ]),
+        ":::",
+      ].join("\n");
+      telemetry.intent = "poc_workload_fast_path";
+      void logTurn({ status: "ok", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
+      });
+    }
+    log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
+  }
 
   const ACTION_MODES = new Set(["update", "assign"]);
   const cacheable =
@@ -3301,8 +3361,8 @@ Deno.serve(async (req: Request) => {
       ...messages,
     ];
 
-    const MAX_TOOL_ROUNDS = 5;
-    const SOFT_WARN_AT = 4;
+    const MAX_TOOL_ROUNDS = 4;
+    const SOFT_WARN_AT = 3;
     let round = 0;
     let softWarned = false;
     // Per-turn tool-result memo so identical (name,args) calls don't repeat work
@@ -3334,7 +3394,7 @@ Deno.serve(async (req: Request) => {
             "Content-Type": "application/json",
             ...chatExtraHeaders,
           },
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(15_000),
           body: JSON.stringify({
             model: TOOL_MODEL,
             messages: aiMessages,
@@ -3343,15 +3403,8 @@ Deno.serve(async (req: Request) => {
           }),
         });
       } catch (e) {
-        const name = (e as { name?: string })?.name ?? "";
-        if (name === "TimeoutError" || name === "AbortError") {
-          void logTurn({ status: "ai_gateway_timeout", error_message: "90s timeout" });
-          return new Response(
-            JSON.stringify({ error: "AI took too long. Please try again." }),
-            { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
-        }
-        throw e;
+        console.warn(`[tool-loop] primary model network/timeout error: ${(e as Error).message}`);
+        aiResponse = new Response(JSON.stringify({ error: "primary model timed out" }), { status: 598 });
       }
 
       // On any non-ok response, try each TOOL_FALLBACK_MODEL before giving up.
@@ -3374,14 +3427,18 @@ Deno.serve(async (req: Request) => {
             aiResponse = await fetch(AI_GATEWAY_URL, {
               method: "POST",
               headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
-              signal: AbortSignal.timeout(30_000),
+              signal: AbortSignal.timeout(15_000),
               body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
             });
             if (aiResponse.ok) break;
             lastErrStatus = aiResponse.status;
             lastErrBody = await aiResponse.text().catch(() => "");
             console.warn(`[tool-loop] ${toolProvider}/${fallbackModel} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);
-          } catch (_retryErr) { break; }
+          } catch (retryErr) {
+            lastErrStatus = 598;
+            lastErrBody = (retryErr as Error).message;
+            continue;
+          }
         }
 
         if (!aiResponse.ok) {
@@ -3577,15 +3634,13 @@ Deno.serve(async (req: Request) => {
         synthModel = model;
         telemetry.model = model;
       } catch (e) {
-        const name = (e as { name?: string })?.name ?? "";
-        if (name === "TimeoutError" || name === "AbortError") {
-          void logTurn({ status: "ai_gateway_timeout", error_message: "90s timeout" });
-          return new Response(
-            JSON.stringify({ error: "AI took too long. Please try again." }),
-            { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
-        }
-        throw e;
+        const content = msg.content?.trim() ||
+          "The AI provider timed out while formatting the answer. I completed the data lookup; please retry once to render the result.";
+        const sseBody = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
+        void logTurn({ status: "synthesis_fallback", response_chars: content.length, error_message: (e as Error).message });
+        return new Response(sseBody, {
+          headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Fallback": "synthesis-timeout" },
+        });
       }
 
       if (!streamResponse.ok) {

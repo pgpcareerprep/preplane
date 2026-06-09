@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isMentorCoverageQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
+import { isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
 
 describe("Copilot fast paths", () => {
   it("recognizes ongoing LMPs missing mentor alignment", () => {
@@ -11,5 +11,10 @@ describe("Copilot fast paths", () => {
   it("prefetches RAG only for semantic discovery", () => {
     expect(shouldPrefetchRag("Find similar past finance processes")).toBe(true);
     expect(shouldPrefetchRag("Show ongoing LMPs without a mentor")).toBe(false);
+  });
+
+  it("recognizes POC workload reports", () => {
+    expect(isPocWorkloadQuery("Show me every POC's current active load, max threshold, conversion rate, and capacity.")).toBe(true);
+    expect(isPocWorkloadQuery("Find the POC for Google")).toBe(false);
   });
 });

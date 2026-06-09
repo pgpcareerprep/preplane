@@ -105,8 +105,14 @@ export function useCopilotThreads(lmpId?: string | null) {
         lastMessageAt: new Date(t.last_message_at).getTime(),
       }));
 
-      setThreads(built);
-      setActiveId(built[0].id);
+      // Always enter Copilot on a fresh conversation. Existing threads remain
+      // available in history, but returning from another page never opens a
+      // stale transcript or an unloaded blank historical thread.
+      const freshId = await ensureThread(uid).catch(() => `local-${Date.now()}`);
+      if (cancelled) return;
+      const fresh = { id: freshId, title: NEW_THREAD_TITLE, group: "Today" as const, messages: [] };
+      setThreads([fresh, ...built.filter((t) => t.id !== freshId)]);
+      setActiveId(freshId);
       setHydrated(true);
     })().catch((e) => {
       console.warn("[copilot-threads] hydrate failed:", e);

@@ -266,9 +266,10 @@ function CopilotPageInner() {
       ));
     };
 
-    // 75s request timeout — accommodates Sheets retry/backoff + extended LLM tool loop (up to 14 rounds).
+    // Hard client deadline. Structured quick prompts return directly; agentic
+    // requests fail fast and can be retried instead of hanging indefinitely.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 75_000);
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
     let assistantContent = "";
 
@@ -315,7 +316,10 @@ function CopilotPageInner() {
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Request failed" }));
-        const msg = err.error || `Error ${resp.status}`;
+        const raw = err.error || `Error ${resp.status}`;
+        const msg = /signal timed out|took too long|timeout/i.test(raw)
+          ? "The AI provider timed out before completing this request. Try again or use a quick report."
+          : raw;
         toast.error(msg);
         replaceAssistantWithError(msg);
         return;
@@ -379,7 +383,7 @@ function CopilotPageInner() {
       console.error("Stream error:", err);
       const isAbort = err instanceof Error && err.name === "AbortError";
       const friendly = isAbort
-        ? "Request timed out after 75 seconds. The server may be busy — please try again."
+        ? "Request timed out after 60 seconds. Try again or use one of the quick reports."
         : "Connection failed. Please check your internet and try again.";
       toast.error(friendly);
       // If we already streamed partial content, keep it and append a small note;
@@ -716,8 +720,8 @@ function CopilotPageInner() {
                 <ScopeSelector scope={scope} onChange={setScope} />
               </div>
               <div className="flex items-center gap-2">
-                <CopilotUsageStrip />
-                <CopilotUsageMini />
+                <CopilotUsageStrip active={pending} />
+                <CopilotUsageMini active={pending} />
                 <span className="hidden lg:inline text-[10.5px] uppercase tracking-[0.5px] text-n400">{activeMode.hint}</span>
                 <button
                   onClick={() => send(draft)}

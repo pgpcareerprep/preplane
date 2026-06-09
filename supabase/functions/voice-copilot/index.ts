@@ -5,7 +5,7 @@
 // - All writes go through prepare -> verbal confirm -> execute
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
-import { isMentorCoverageQuery } from "../_shared/copilotFastPaths.ts";
+import { isMentorCoverageQuery, isPocWorkloadQuery } from "../_shared/copilotFastPaths.ts";
 import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
 
 
@@ -373,7 +373,7 @@ async function execAnalytics(a: { metric: string; domain?: string; poc?: string 
     return { metric: a.metric, total: data?.length ?? 0, distribution: dist };
   }
   if (a.metric === "poc_workload") {
-    let pocQ = c.from("poc_profiles").select("name,role_type,active_load,max_threshold").order("active_load", { ascending: false }).limit(20);
+    let pocQ = c.from("poc_profiles").select("name,role_type,active_load,max_threshold,conversion_rate").order("active_load", { ascending: false }).limit(20);
     if (a.poc) pocQ = pocQ.ilike("name", `%${a.poc}%`);
     const { data: pocData } = await pocQ;
     const { data: lmpData } = await c.from("lmp_processes").select("prep_poc,outreach_poc,status");
@@ -386,6 +386,11 @@ async function execAnalytics(a: { metric: string; domain?: string; poc?: string 
         name,
         role_type: r.role_type,
         total_lmps: Number(r.active_load ?? 0),
+        max_threshold: Number(r.max_threshold ?? 10),
+        capacity_percent: Number(r.max_threshold ?? 10) > 0
+          ? Math.round((Number(r.active_load ?? 0) / Number(r.max_threshold ?? 10)) * 100)
+          : 0,
+        conversion_rate: Number(r.conversion_rate ?? 0),
         prep_count: ongoing,
         ongoing,
         converted,
@@ -801,6 +806,17 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         spoken,
         blocks: count > 0 ? [{ type: "lmp_list", rows: result.rows, total: count }] : [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (isPocWorkloadQuery(lastUser)) {
+      const result = await execAnalytics({ metric: "poc_workload" });
+      const overloaded = (result.top || []).filter((p: any) => p.capacity_percent > 80);
+      const spoken = overloaded.length
+        ? `${overloaded.length} POCs are above eighty percent capacity. ${overloaded.slice(0, 3).map((p: any) => p.name).join(", ")} need attention first.`
+        : "No POCs are above eighty percent capacity right now.";
+      return new Response(JSON.stringify({
+        spoken,
+        blocks: [{ type: "analytics", metric: "poc_workload", data: result }],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const FORCE = /\b(how many|count|list|show|all|total|create|add|assign|update|change|set|delete|remove|status|conversion|workload|domain|ongoing|tell me|find|who|what|recommend|progress|performance|how is|how's|how are|update on|status of|doing|load|active|working on|kriti|kirti|my|me|mine|today)\b/i;
