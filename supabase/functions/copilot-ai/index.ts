@@ -6,6 +6,15 @@ import {
   getHelpResponse,
   buildPlainSseResponse,
 } from "./intentRouter.ts";
+import {
+  GEMINI_TOOL_MODEL,
+  GEMINI_TOOL_FALLBACK_MODELS,
+  GEMINI_SYNTHESIS_MODELS,
+  OPENROUTER_TOOL_MODEL,
+  OPENROUTER_SYNTHESIS_MODELS,
+  GROK_TOOL_MODEL,
+  GROK_SYNTHESIS_MODELS,
+} from "./modelConfig.ts";
 import { checkPermission } from "../_shared/rbac.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
@@ -22,26 +31,8 @@ const GEMINI_DIRECT_URL = "https://generativelanguage.googleapis.com/v1beta/open
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
-// Gemini direct (fallback only — 30 RPM flash-lite, 15 RPM flash on free tier)
-const GEMINI_TOOL_MODEL = "gemini-2.0-flash-lite";
-const GEMINI_TOOL_FALLBACK_MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash"] as const;
-const GEMINI_SYNTHESIS_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"] as const;
-
-// OpenRouter free models — primary provider, multiple free models, no per-minute quota
-// deepseek/deepseek-chat-v3-0324:free = DeepSeek V3 Mar 2024 (stable, supports tool calls)
-// meta-llama/llama-4-maverick:free    = Llama 4 Maverick (supports tool calls)
-// google/gemini-2.0-flash-exp:free    = Gemini 2.0 Flash Experimental
-const OPENROUTER_TOOL_MODEL = "deepseek/deepseek-chat-v3-0324:free";
-const OPENROUTER_SYNTHESIS_MODELS = [
-  "deepseek/deepseek-chat-v3-0324:free",
-  "meta-llama/llama-4-maverick:free",
-  "google/gemini-2.0-flash-exp:free",
-] as const;
-
 // Grok/xAI — middle fallback (api.x.ai, GROK_API_KEY)
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
-const GROK_TOOL_MODEL = "grok-3-mini";
-const GROK_SYNTHESIS_MODELS = ["grok-3-mini"] as const;
 
 // Resolved per-request in the handler; module-load defaults are overwritten each request.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
@@ -97,7 +88,8 @@ async function callSynthesis(
       break; // any other error (401/402/403/404/5xx) or second 429 → try next model
     }
   }
-  throw new Error(lastFailMsg);
+  console.error(`[synthesis] exhausted all configured models: ${lastFailMsg}`);
+  throw new Error("AI gateway is temporarily unavailable after trying all configured models. Please retry in a moment.");
 }
 
 type SupabaseLike = ReturnType<typeof createClient>;
@@ -2184,7 +2176,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             headers: { Authorization: `Bearer ${AI_KEY_FOR_CHAT}`, "Content-Type": "application/json", ...AI_EXTRA_HEADERS },
             signal: AbortSignal.timeout(90_000),
             body: JSON.stringify({
-              model: "gemini-2.0-flash",
+              model: TOOL_MODEL,
               messages: [
                 { role: "system", content: "You are a keyword expansion engine. Given a search query about placement/recruitment data, output ONLY a JSON array of 8-15 related keywords/synonyms that would help find relevant rows. Include abbreviations, alternate spellings, related terms. Example: for 'finance internship converted' output [\"finance\",\"internship\",\"converted\",\"placed\",\"FT\",\"intern\",\"banking\",\"accounting\",\"offer received\",\"selected\",\"fin\",\"financial\"]" },
                 { role: "user", content: query },
@@ -2985,7 +2977,7 @@ Deno.serve(async (req: Request) => {
     return jsonError("No AI API key configured. Set OPENROUTER_API_KEY (or GROK_API_KEY, GEMINI_API_KEY) in Supabase Edge Function secrets.", 500);
   }
 
-  console.log("[copilot-ai] deployed version: openrouter-grok-gemini-cascade-v2");
+  console.log("[copilot-ai] deployed version: resilient-openrouter-free-router-v3");
   console.log("[copilot-ai] provider config", {
     hasOpenRouter: Boolean(OPENROUTER_API_KEY),
     hasGrok: Boolean(GROK_API_KEY),
@@ -3371,7 +3363,7 @@ Deno.serve(async (req: Request) => {
           log.error("ai_gateway_error", null, { provider: toolProvider2, status: lastErrStatus, body: lastErrBody.slice(0, 300) });
           console.error(`[tool-loop] ${toolProvider2} ${lastErrStatus}: ${lastErrBody}`);
           void logTurn({ status: "ai_gateway_error", error_message: `${lastErrStatus}: ${lastErrBody.slice(0, 200)}` });
-          return jsonError(`AI gateway failed: ${toolProvider2} ${lastErrStatus} — ${lastErrBody.slice(0, 120)}`, 500);
+          return jsonError("AI gateway is temporarily unavailable after trying all configured models. Please retry in a moment.", 503);
         }
       }
 
