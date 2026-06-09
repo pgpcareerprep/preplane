@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
+import { findLmpSheetRow } from "../_shared/lmpSheetIdentity.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
@@ -1052,41 +1053,16 @@ Deno.serve(async (req: Request) => {
         // allRows.length === 1 (headers only) is valid → falls through to append branch below.
 
         const headers = allRows[0];
-        const companyCol = headers.indexOf("Company");
-        const roleCol = headers.indexOf("Role");
-        const lmpIdCol = headers.indexOf("LMP ID");
-
-        let rowIndex = -1;
-
-        // 1) Prefer exact match on LMP ID (column AA) when we have one.
-        if (lmpCode && lmpIdCol !== -1) {
-          for (let i = 1; i < allRows.length; i++) {
-            if ((allRows[i][lmpIdCol] ?? "").toString().trim() === lmpCode.trim()) {
-              rowIndex = i;
-              break;
-            }
-          }
+        const lookup = findLmpSheetRow(headers, allRows, { lmpCode, company, role });
+        const rowIndex = lookup.rowIndex;
+        if (lookup.ambiguousCompanyRoleMatches > 0) {
+          console.warn(`[sync-db-to-sheet] AMBIGUOUS ${lookup.ambiguousCompanyRoleMatches} sheet rows for ${company}/${role} on "${tab}" and no lmp_code provided — refusing write to avoid clobber.`);
+          return jsonOk({ skipped: true, reason: "ambiguous_company_role", tab, company, role, matches: lookup.ambiguousCompanyRoleMatches });
         }
 
-        // 2) Fallback to (company, role). Guard against ambiguity.
-        if (rowIndex === -1) {
-          const matches: number[] = [];
-          for (let i = 1; i < allRows.length; i++) {
-            if ((allRows[i][companyCol] ?? "").toString().trim() === company.trim() &&
-                (allRows[i][roleCol] ?? "").toString().trim() === role.trim()) {
-              matches.push(i);
-            }
-          }
-          if (matches.length > 1 && !lmpCode) {
-            console.warn(`[sync-db-to-sheet] AMBIGUOUS ${matches.length} sheet rows for ${company}/${role} on "${tab}" and no lmp_code provided — refusing write to avoid clobber.`);
-            return jsonOk({ skipped: true, reason: "ambiguous_company_role", tab, company, role, matches: matches.length });
-          }
-          if (matches.length >= 1) rowIndex = matches[0];
-        }
-
-        // If the row is missing but we have an lmp_code, treat this as an
-        // INSERT and append a new row. Without lmp_code we can't safely
-        // identify the record later, so we soft-skip to avoid duplicates.
+        // A supplied lmp_code is authoritative. If that exact ID is absent,
+        // append a distinct row even when company/role matches an older LMP.
+        // Without lmp_code we can't safely identify a missing record later.
         const isAppend = rowIndex === -1;
         if (isAppend && !lmpCode) {
           console.warn(`[sync-db-to-sheet] sheet row missing for ${company} / ${role} (no lmp_code) on tab "${tab}" — skipping append`);
