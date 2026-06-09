@@ -27,10 +27,16 @@ type DomainRow = {
 };
 
 function toPocCapability(entry: PocRegistryEntry): PocCapability {
+  const primaryDomains = entry.primary_domain ? [entry.primary_domain] : [];
   return {
+    id: entry.id,
     name: entry.name,
     initials: entry.initials,
     domains: entry.domains,
+    primaryDomains,
+    secondaryDomains: entry.domains.filter(
+      (domain) => domain.toLowerCase() !== entry.primary_domain?.toLowerCase(),
+    ),
     label: entry.label,
     color: entry.color,
     pocType: entry.poc_type === "outreach" ? "outreach" : "prep",

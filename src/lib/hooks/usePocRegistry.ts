@@ -43,6 +43,19 @@ function roleTypeToPocType(role_type?: string | null): PocRegistryEntry["poc_typ
   return "prep";
 }
 
+export function mergePocDomains(primaryDomain?: string | null, domainTags?: string[] | null): string[] {
+  const domains: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [primaryDomain, ...(domainTags ?? [])]) {
+    const domain = raw?.trim();
+    const key = domain?.toLowerCase();
+    if (!domain || !key || seen.has(key)) continue;
+    seen.add(key);
+    domains.push(domain);
+  }
+  return domains;
+}
+
 export function usePocRegistry() {
   return useQuery({
     queryKey: ["poc_registry"],
@@ -59,7 +72,7 @@ export function usePocRegistry() {
         label: p.label || p.name,
         color: p.color || "bg-orange-200 text-orange-600",
         poc_type: roleTypeToPocType(p.role_type),
-        domains: p.domain_tags ?? [],
+        domains: mergePocDomains(p.primary_domain, p.domain_tags),
         primary_domain: p.primary_domain ?? null,
         skill_tags: p.skill_tags ?? [],
         max_threshold: p.max_threshold ?? 8,
