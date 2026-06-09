@@ -14,3 +14,9 @@ export function isPocWorkloadQuery(message: string): boolean {
   return /\bpocs?\b/.test(text) &&
     /\b(workload|active load|capacity|max threshold|conversion rate)\b/.test(text);
 }
+
+export function isConversionCountQuery(message: string): boolean {
+  const text = message.toLowerCase();
+  return /\b(how many|count|total|number of|tell me how many)\b/.test(text) &&
+    /\b(converted|conversions?|placed|offer received)\b/.test(text);
+}

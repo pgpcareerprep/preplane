@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
+import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
 
 describe("Copilot fast paths", () => {
   it("recognizes ongoing LMPs missing mentor alignment", () => {
@@ -16,5 +16,10 @@ describe("Copilot fast paths", () => {
   it("recognizes POC workload reports", () => {
     expect(isPocWorkloadQuery("Show me every POC's current active load, max threshold, conversion rate, and capacity.")).toBe(true);
     expect(isPocWorkloadQuery("Find the POC for Google")).toBe(false);
+  });
+
+  it("recognizes simple conversion count questions", () => {
+    expect(isConversionCountQuery("Tell me how many are converted?")).toBe(true);
+    expect(isConversionCountQuery("Show conversion trends by domain")).toBe(false);
   });
 });

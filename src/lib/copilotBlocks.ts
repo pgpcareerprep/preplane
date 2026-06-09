@@ -489,6 +489,10 @@ export function parseBlocks(
   const openerMatch = openerRegex.exec(content);
 
   if (!openerMatch) {
+    const danglingFence = content.indexOf(":::blocks");
+    if (danglingFence >= 0) {
+      return { blocks: [], plainText: content.slice(0, danglingFence).trim(), fenceDetected: true };
+    }
     return { blocks: [], plainText: content, fenceDetected: false };
   }
 
@@ -517,4 +521,3 @@ export function parseBlocks(
   const plainText = (before + after).trim();
   return { blocks, plainText, fenceDetected: true };
 }
-

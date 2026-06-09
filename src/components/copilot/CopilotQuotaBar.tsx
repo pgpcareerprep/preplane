@@ -1,10 +1,6 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
+import { useCopilotQuota, SHARED_USER_COUNT, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
 import { cn } from "@/lib/utils";
-
-function fmt(n: number) {
-  return n.toLocaleString("en-US");
-}
 
 function toneClasses(sev: QuotaSeverity) {
   switch (sev) {
@@ -37,7 +33,7 @@ export function CopilotUsageStrip({ className, active = false }: CopilotUsageStr
     <TooltipProvider delayDuration={250}>
       <div
         className={cn(
-          "hidden md:flex items-center gap-3 pr-2 select-none",
+          "hidden md:flex items-center gap-2 select-none",
           className,
         )}
         role="status"
@@ -45,37 +41,25 @@ export function CopilotUsageStrip({ className, active = false }: CopilotUsageStr
       >
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={cn("max-w-[180px] truncate rounded-full border border-n200 px-2 py-1 text-[10px] font-medium", active ? "text-orange-600 bg-orange-50" : "text-n600 bg-n50")}>
-              {active ? "Searching via " : ""}{q.provider} · {q.model.split("/").pop()}
+            <span className={cn("max-w-[150px] truncate rounded-full border border-n200 bg-white px-2.5 py-1 text-[10.5px] font-medium shadow-sm", active ? "text-orange-600 border-orange-200" : "text-n600")}>
+              {active ? "Using " : ""}{q.model.split("/").pop()?.replace(/:free$/, "")}
             </span>
           </TooltipTrigger>
-          <TooltipContent side="top">Current model: {q.model}. Usage is calculated from live AI usage events.</TooltipContent>
+          <TooltipContent side="top">Current model: {q.model}</TooltipContent>
         </Tooltip>
-        <div className="flex flex-col items-end gap-1 min-w-[140px]">
-          <div className={cn("flex items-center gap-1.5 text-[11px] tabular-nums", t.text)}>
-            <span>{q.requestsUsed} / {q.requestLimit} req</span>
-          </div>
-          <div className={cn("h-1 w-[140px] overflow-hidden rounded-full", t.track)}>
-            <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.requestPercent}%` }} />
-          </div>
-        </div>
-
-        <div className="flex flex-col items-end gap-1 min-w-[150px]">
-          <div className={cn("flex items-center gap-1.5 text-[11px] tabular-nums", t.text)}>
-            <span>{fmt(q.tokensUsed)} / {fmt(q.tokenLimit)} tk</span>
-          </div>
-          <div className={cn("h-1 w-[150px] overflow-hidden rounded-full", t.track)}>
-            <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.tokenPercent}%` }} />
-          </div>
-        </div>
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={cn("text-[11px] cursor-default", t.text)}>
-              Reset {q.resetLocal}
-            </span>
+            <div className="flex items-center gap-2 rounded-full border border-n200 bg-n50 px-2.5 py-1.5 min-w-[116px] cursor-default">
+              <div className={cn("h-1.5 flex-1 overflow-hidden rounded-full", t.track)}>
+                <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.percentRemaining}%` }} />
+              </div>
+              <span className={cn("text-[10.5px] font-semibold tabular-nums", t.text)}>{q.percentRemaining}% left</span>
+            </div>
           </TooltipTrigger>
-          <TooltipContent side="top">{q.resetUtc}</TooltipContent>
+          <TooltipContent side="top">
+            Refreshes in {q.resetIn} ({q.resetLocal}). Per-user share across {SHARED_USER_COUNT} users: {q.requestLimit} requests and {q.tokenLimit.toLocaleString()} tokens.
+          </TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>
@@ -93,10 +77,10 @@ export function CopilotUsageMini({ className, active = false }: { className?: st
         t.text,
         className,
       )}
-      title={`${q.provider} · ${q.model} · ${q.requestsUsed}/${q.requestLimit} req · ${fmt(q.tokensUsed)}/${fmt(q.tokenLimit)} tk · reset ${q.resetLocal}`}
+      title={`${q.model} · ${q.percentRemaining}% left · refreshes in ${q.resetIn}`}
     >
       <span className={cn("h-1.5 w-1.5 rounded-full", t.bar)} />
-      {active ? q.model.split("/").pop() : `${q.requestsUsed}/${q.requestLimit}`}
+      {active ? q.model.split("/").pop()?.replace(/:free$/, "") : `${q.percentRemaining}%`}
     </span>
   );
 }

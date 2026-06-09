@@ -8,6 +8,13 @@ describe("parseBlocks (Copilot acceptance suite)", () => {
     expect(plainText).toBe("Hello, no blocks here.");
   });
 
+  it("hides a dangling blocks marker instead of rendering it", () => {
+    const { blocks, plainText, fenceDetected } = parseBlocks("There are no converted processes.\n:::blocks");
+    expect(blocks).toEqual([]);
+    expect(plainText).toBe("There are no converted processes.");
+    expect(fenceDetected).toBe(true);
+  });
+
   it("parses a valid kpi-row block and strips the fence from text", () => {
     const content = `Here is your summary.\n:::blocks\n${JSON.stringify([
       { type: "kpi-row", items: [{ label: "Total", value: 42 }] },

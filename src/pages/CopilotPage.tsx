@@ -532,8 +532,6 @@ function CopilotPageInner() {
     }
   };
 
-  const activeMode = MODES.find((m) => m.id === mode) ?? MODES[0];
-
   return (
     <div className="-mx-6 -my-8 h-[calc(100vh-56px)] flex flex-col bg-card">
       {/* Top bar */}
@@ -722,7 +720,6 @@ function CopilotPageInner() {
               <div className="flex items-center gap-2">
                 <CopilotUsageStrip active={pending} />
                 <CopilotUsageMini active={pending} />
-                <span className="hidden lg:inline text-[10.5px] uppercase tracking-[0.5px] text-n400">{activeMode.hint}</span>
                 <button
                   onClick={() => send(draft)}
                   disabled={!draft.trim() || pending || quota.isAtLimit}

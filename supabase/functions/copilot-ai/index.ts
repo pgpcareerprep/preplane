@@ -16,7 +16,7 @@ import {
   GROK_SYNTHESIS_MODELS,
 } from "./modelConfig.ts";
 import { checkPermission } from "../_shared/rbac.ts";
-import { isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
 // This module-level object is mutated in-place so all existing response sites keep working.
@@ -1295,7 +1295,19 @@ async function enforceWriteGuard(
   return { ok: true };
 }
 
-async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+async function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  options: { confirmed?: boolean } = {},
+): Promise<string> {
+  if (name in WRITE_KIND_PERMS && !options.confirmed) {
+    return JSON.stringify({
+      blocked: true,
+      confirmation_required: true,
+      reason: "Prepare this change for user review before executing it.",
+    });
+  }
+
   try {
     // Hard write guard — applies regardless of how the model reached us.
     if (name in WRITE_KIND_PERMS) {
@@ -1650,10 +1662,10 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         }
 
         // Replay the underlying write tool.
-        const writeResult = await executeTool(kind, payload);
+        const writeResult = await executeTool(kind, payload, { confirmed: true });
         let parsed: Record<string, unknown> = {};
         try { parsed = JSON.parse(writeResult); } catch { /* ignore */ }
-        const succeeded = !parsed.error;
+        const succeeded = !parsed.error && !parsed.blocked && parsed.success !== false;
 
         // Activity log row (best-effort).
         try {
@@ -2617,19 +2629,21 @@ function buildSystemPrompt(sheetSummary: string, mode: string = "auto", scope: s
     : "";
 
 
-  return `You are the LMP Copilot — an AI-powered agentic operations intelligence system for the Last Mile Prep (LMP) placement operations platform.
+  return `You are the LMP Copilot — a conversational, agentic operations assistant for the Last Mile Prep (LMP) placement operations platform.
 ${modeInstructions}${scopeInstructions}${contextInstructions}
 
 
-You are NOT a chatbot. You are a dynamic UI generation engine. You think in interfaces, not paragraphs.
+Speak in simple, natural English like a capable teammate. Use rich UI blocks when they make results clearer or actionable.
 
 ## Your Capabilities
 - **Search & Query**: Find LMP processes, students, mentors across all data sources
 - **Status Management**: Change process statuses (Ongoing, Dormant, On Hold, Converted, Not Converted, Offer Received, Closed)
 - **POC Management**: Assign/reassign Prep POCs and Outreach POCs
 - **Record Management**: Add new LMP records, update fields, soft-delete records
+- **Execution Updates**: Update daily progress, remarks, prep progress, checklist fields, and prep document links with confirmation
 - **Bulk Operations**: Update multiple records at once
 - **Analytics**: Compute conversion rates, POC workload, domain distribution, age tracking, pipeline summaries
+- **Reports & Summaries**: Create concise, actionable summaries for processes, POCs, domains, students, mentors, and selected candidates
 - **Data Access**: Query LMP processes and the student database directly (DB-backed, real-time)
 - **Student Lookup**: Search students by name, domain, scores, risk flags, mentors
 
@@ -2766,9 +2780,10 @@ Still call tools for: specific record lookups, updates, detailed filtering, or w
 - **POD sheets**: Domain-specific prep tracking sheets
 - **SLA** = Service Level Agreement (time limits)
 
-## CRITICAL: YOU ARE AN AI-NATIVE OPERATIONAL WORKSPACE
+## CRITICAL: YOU ARE AN AI-NATIVE OPERATIONAL ASSISTANT
 
-You are NOT a chatbot. You NEVER return text paragraphs. You are a **dynamic UI generation engine** and **workflow execution layer**.
+Answer conversationally and concisely. Use UI blocks for metrics, tables, previews, permissions, and actions.
+Never mention internal tool names, function names, implementation details, snapshots, data-fetching mechanics, or promises to fetch later.
 
 For EVERY user message, you MUST think: "What operational interface should I render?" NOT "What text should I write?"
 
@@ -2784,7 +2799,7 @@ You MUST return your responses as a JSON array of UI blocks wrapped in a \`:::bl
 - Put a newline immediately after \`:::blocks\` and immediately before the closing \`:::\`.
 - Emit cheap/summary blocks FIRST (executive-summary, then kpi-row) so the user sees something useful within ~1s. Heavy blocks (tables with many rows, kanban, timeline) come LAST.
 - Keep tables to ≤10 rows when possible; add a follow-up like "Show all" instead of dumping everything.
-- Any plain prose goes AFTER the closing \`:::\`.
+- Plain prose is optional. Keep it short, natural, and never expose internal tool names.
 
 **TOOL EXECUTION RULES (CRITICAL):**
 - NEVER reply with only an executive-summary that says "I will search…", "Let me look…", "Searching now…", or any other promise of future work. If the user's request requires data, you MUST call the relevant tool (search_lmp_records, get_analytics, smart_search, etc.) IN THE SAME TURN and then return the final answer with the data already retrieved.
@@ -3260,6 +3275,52 @@ Deno.serve(async (req: Request) => {
     log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
   }
 
+  if (isConversionCountQuery(lastUserMessage)) {
+    const fastSb = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data, error } = await fastSb.from("lmp_processes").select("status,domain_raw").limit(3000);
+    if (!error) {
+      const all = data || [];
+      const convertedRows = all.filter((r) => /^converted$/i.test(r.status || ""));
+      const converted = convertedRows.length;
+      const offers = all.filter((r) => /offer received/i.test(r.status || "")).length;
+      const ongoing = all.filter((r) => /ongoing/i.test(r.status || "")).length;
+      const rate = all.length ? Math.round((converted / all.length) * 1000) / 10 : 0;
+      const byDomain = new Map<string, number>();
+      for (const row of convertedRows) {
+        const domain = row.domain_raw || "Unspecified";
+        byDomain.set(domain, (byDomain.get(domain) || 0) + 1);
+      }
+      const text = [
+        converted === 0
+          ? "There are no converted processes right now."
+          : `There ${converted === 1 ? "is" : "are"} ${converted} converted process${converted === 1 ? "" : "es"} right now.`,
+        "",
+        ":::blocks",
+        JSON.stringify([
+          { type: "executive-summary", content: converted === 0 ? "No LMP processes are currently marked **Converted**." : `**${converted}** LMP processes are currently marked Converted.` },
+          { type: "kpi-row", items: [
+            { label: "Converted", value: converted, color: "green" },
+            { label: "Offer received", value: offers, color: "blue" },
+            { label: "Ongoing", value: ongoing, color: "orange" },
+            { label: "Conversion rate", value: `${rate}%` },
+          ] },
+          ...(byDomain.size ? [{ type: "bar-chart", title: "Converted by domain", data: [...byDomain].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value) }] : []),
+          { type: "follow-ups", suggestions: ["Show converted processes", "Break down conversion by POC", "Show conversion by domain"] },
+        ]),
+        ":::",
+      ].join("\n");
+      telemetry.intent = "conversion_count_fast_path";
+      void logTurn({ status: "ok", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
+      });
+    }
+    log.warn("conversion_count_fast_path_failed", { error: error.message });
+  }
+
   const ACTION_MODES = new Set(["update", "assign"]);
   const cacheable =
     body.cache !== false &&
@@ -3430,7 +3491,10 @@ Deno.serve(async (req: Request) => {
               signal: AbortSignal.timeout(15_000),
               body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
             });
-            if (aiResponse.ok) break;
+            if (aiResponse.ok) {
+              telemetry.model = fallbackModel;
+              break;
+            }
             lastErrStatus = aiResponse.status;
             lastErrBody = await aiResponse.text().catch(() => "");
             console.warn(`[tool-loop] ${toolProvider}/${fallbackModel} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 export const OPENROUTER_REQUEST_QUOTA = 200;
 export const OPENROUTER_TOKEN_QUOTA = 500_000;
+export const SHARED_USER_COUNT = 15;
 export const DEFAULT_REQUEST_QUOTA = 100;
 export const DEFAULT_TOKEN_QUOTA = 300_000;
 export const VOICE_REQUEST_QUOTA = 960;
@@ -21,6 +22,8 @@ export interface CopilotQuota {
   requestPercent: number;
   tokenPercent: number;
   percentUsed: number;
+  percentRemaining: number;
+  resetIn: string;
   severity: QuotaSeverity;
   isNearLimit: boolean;
   isAtLimit: boolean;
@@ -60,7 +63,11 @@ function computeResetLabels() {
   } catch {
     local = next.toLocaleTimeString();
   }
-  return { resetLocal: local, resetUtc: "00:00 UTC (midnight UTC)" };
+  const remainingMs = Math.max(0, next.getTime() - Date.now());
+  const hours = Math.floor(remainingMs / 3_600_000);
+  const minutes = Math.floor((remainingMs % 3_600_000) / 60_000);
+  const resetIn = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return { resetLocal: local, resetUtc: "00:00 UTC (midnight UTC)", resetIn };
 }
 
 export function useCopilotQuota(): CopilotQuota {
@@ -97,21 +104,22 @@ export function useCopilotQuota(): CopilotQuota {
   const tokensUsed = data?.tokens ?? 0;
   const model = data?.model || "qwen/qwen3-coder:free";
   const provider = providerForModel(model);
-  const requestLimit = provider === "OpenRouter" ? OPENROUTER_REQUEST_QUOTA : DEFAULT_REQUEST_QUOTA;
-  const tokenLimit = provider === "OpenRouter" ? OPENROUTER_TOKEN_QUOTA : DEFAULT_TOKEN_QUOTA;
+  const requestLimit = Math.max(1, Math.floor((provider === "OpenRouter" ? OPENROUTER_REQUEST_QUOTA : DEFAULT_REQUEST_QUOTA) / SHARED_USER_COUNT));
+  const tokenLimit = Math.max(1, Math.floor((provider === "OpenRouter" ? OPENROUTER_TOKEN_QUOTA : DEFAULT_TOKEN_QUOTA) / SHARED_USER_COUNT));
   const requestsRemaining = Math.max(0, requestLimit - requestsUsed);
   const tokensRemaining = Math.max(0, tokenLimit - tokensUsed);
 
   const requestPercent = Math.min(100, (requestsUsed / requestLimit) * 100);
   const tokenPercent = Math.min(100, (tokensUsed / tokenLimit) * 100);
   const percentUsed = Math.max(requestPercent, tokenPercent);
+  const percentRemaining = Math.max(0, Math.round(100 - percentUsed));
 
   const severity: QuotaSeverity =
     percentUsed >= 100 ? "limit" :
     percentUsed >= 90 ? "critical" :
     percentUsed >= 70 ? "warn" : "normal";
 
-  const { resetLocal, resetUtc } = computeResetLabels();
+  const { resetLocal, resetUtc, resetIn } = computeResetLabels();
 
   return {
     requestsUsed,
@@ -125,11 +133,13 @@ export function useCopilotQuota(): CopilotQuota {
     requestPercent,
     tokenPercent,
     percentUsed,
+    percentRemaining,
     severity,
     isNearLimit: severity === "warn" || severity === "critical",
     isAtLimit: severity === "limit",
     resetLocal,
     resetUtc,
+    resetIn,
     resetTime: `Resets at ${resetLocal}`,
     isLoading,
   };
