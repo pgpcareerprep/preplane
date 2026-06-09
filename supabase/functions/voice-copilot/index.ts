@@ -5,6 +5,8 @@
 // - All writes go through prepare -> verbal confirm -> execute
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
+import { isMentorCoverageQuery } from "../_shared/copilotFastPaths.ts";
+import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
 
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
@@ -17,9 +19,7 @@ const corsHeaders: Record<string, string> = {
 };
 
 const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-// Voice path uses Gemini 2.0 Flash via the OpenAI-compat endpoint — fast and already configured.
-const MODEL = "gemini-2.0-flash";
-const MAX_ROUNDS = 8;
+const MAX_ROUNDS = 4;
 
 // Request-scoped view-as flag. Set per-request before runTool runs.
 // View-as is always read-only — runTool will refuse prepare_write while true.
@@ -141,6 +141,7 @@ const tools = [
           role: { type: "string" },
           domain: { type: "string" },
           status: { type: "string" },
+          mentor_aligned: { type: "boolean" },
           poc: { type: "string" },
           limit: { type: "number" },
         },
@@ -321,11 +322,13 @@ async function resolvePocId(name: string): Promise<string | null> {
 
 async function execSearchLmp(a: any) {
   const c = sb();
-  let q = c.from("lmp_processes").select("id,company,role,status,domain_raw,prep_poc,outreach_poc,type").limit(a.limit ?? 10);
+  let q = c.from("lmp_processes").select("id,company,role,status,domain_raw,prep_poc,outreach_poc,type,mentor_aligned").limit(a.limit ?? 10);
   if (a.company) q = q.ilike("company", `%${a.company}%`);
   if (a.role) q = q.ilike("role", `%${a.role}%`);
   if (a.domain) q = q.ilike("domain_raw", `%${a.domain}%`);
   if (a.status) q = q.ilike("status", `%${a.status}%`);
+  if (a.mentor_aligned === false) q = q.or("mentor_aligned.is.null,mentor_aligned.eq.false");
+  else if (a.mentor_aligned === true) q = q.eq("mentor_aligned", true);
   if (a.poc) {
     // Use the structured link table when we can resolve the POC; falls back to
     // freeform ilike so unmapped aliases still return something.
@@ -588,24 +591,34 @@ async function callModel(messages: any[], forceTool = false) {
   if (!key) throw new Error("GEMINI_API_KEY not configured");
   const t0 = Date.now();
   const promptText = messages.map((m: any) => typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "")).join("\n");
-  let resp: Response;
-  try {
-    resp = await fetch(AI_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(25_000),
-      body: JSON.stringify({
-        model: MODEL,
-        messages,
-        tools,
-        tool_choice: forceTool ? "required" : "auto",
-        temperature: 0.3,
-        max_tokens: 600,
-      }),
-    });
-  } catch (e) {
+  let resp: Response | null = null;
+  let usedModel = GEMINI_TOOL_FALLBACK_MODELS[0];
+  let lastError: Error | null = null;
+  for (const model of GEMINI_TOOL_FALLBACK_MODELS) {
+    usedModel = model;
+    try {
+      resp = await fetch(AI_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify({
+          model,
+          messages,
+          tools,
+          tool_choice: forceTool ? "required" : "auto",
+          temperature: 0.3,
+          max_tokens: 600,
+        }),
+      });
+      if (resp.ok || resp.status === 429) break;
+    } catch (e) {
+      lastError = e as Error;
+    }
+  }
+  if (!resp) {
+    const e = lastError || new Error("AI gateway unavailable");
     logAiUsage({
-      userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: MODEL,
+      userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: usedModel,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0, status: "error",
       errorMessage: (e as Error).message,
@@ -619,7 +632,7 @@ async function callModel(messages: any[], forceTool = false) {
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
     logAiUsage({
-      userId: CURRENT_VOICE_USER_ID, feature: "voice", model: MODEL,
+      userId: CURRENT_VOICE_USER_ID, feature: "voice", model: usedModel,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0,
       status: resp.status === 429 ? "rate_limited" : "error",
@@ -633,7 +646,7 @@ async function callModel(messages: any[], forceTool = false) {
   const pt = Number(usage.prompt_tokens) || estimateTokens(promptText);
   const rt = Number(usage.completion_tokens) || estimateTokens(JSON.stringify(data?.choices?.[0]?.message ?? ""));
   logAiUsage({
-    userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: MODEL,
+    userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: usedModel,
     promptTokens: pt, responseTokens: rt,
     totalTokens: Number(usage.total_tokens) || (pt + rt),
     latencyMs: Date.now() - t0, status: "ok",
@@ -781,6 +794,15 @@ Deno.serve(async (req) => {
     const responseBlocks: any[] = [];
 
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+    if (isMentorCoverageQuery(lastUser)) {
+      const result = await execSearchLmp({ status: "Ongoing", mentor_aligned: false, limit: 50 });
+      const count = result.total;
+      const spoken = `${count} ongoing LMP process${count === 1 ? "" : "es"} ${count === 1 ? "needs" : "need"} a mentor aligned.`;
+      return new Response(JSON.stringify({
+        spoken,
+        blocks: count > 0 ? [{ type: "lmp_list", rows: result.rows, total: count }] : [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const FORCE = /\b(how many|count|list|show|all|total|create|add|assign|update|change|set|delete|remove|status|conversion|workload|domain|ongoing|tell me|find|who|what|recommend|progress|performance|how is|how's|how are|update on|status of|doing|load|active|working on|kriti|kirti|my|me|mine|today)\b/i;
     let forceFirst = FORCE.test(lastUser);
     userLog.event("turn_start", {

@@ -16,6 +16,7 @@ import {
   GROK_SYNTHESIS_MODELS,
 } from "./modelConfig.ts";
 import { checkPermission } from "../_shared/rbac.ts";
+import { isMentorCoverageQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
 // This module-level object is mutated in-place so all existing response sites keep working.
@@ -375,6 +376,7 @@ const TOOLS = [
           role: { type: "string", description: "Filter by role title (partial match)" },
           domain: { type: "string", description: "Filter by domain (e.g. Finance, PM, Data, Marketing, Sales, Consulting, FOCOS, HR, Supply Chain)" },
           status: { type: "string", description: "Filter by status: Ongoing, Dormant, On Hold, Converted, Not Converted, Offer Received, Closed" },
+          mentor_aligned: { type: "boolean", description: "Filter by whether a mentor is aligned. Use false for ongoing processes missing mentor alignment." },
           poc: { type: "string", description: "Filter by POC name (Prep POC or Outreach POC, partial match)" },
           type: { type: "string", description: "Filter by type: Full Time, Internship, Live Project, Case Competition" },
           updated_within_days: { type: "number", description: "Only include records whose Last Updated timestamp is within the last N days (e.g. 7 for 'last week', 1 for 'today', 30 for 'last month')." },
@@ -1032,6 +1034,7 @@ function dbLmpRowToRecord(r: Record<string, unknown>): Record<string, string> {
     "Prep POC": v(r.prep_poc),
     "Support POC": v(r.support_poc),
     "Outreach POC": v(r.outreach_poc),
+    "Mentor Aligned": v(r.mentor_aligned),
     "Daily Progress": v(r.daily_progress),
     "Prep Progress": v(r.prep_progress),
     "Placement Progress": v(r.placement_progress),
@@ -1085,7 +1088,7 @@ async function fetchLmpFromSupabase(): Promise<LmpFetch> {
   const { data, error } = await sb
     .from("lmp_processes")
     .select(
-      "id,company,role,domain_raw,status,type,date,prep_poc,support_poc,outreach_poc,lmp_code,daily_progress,final_convert,updated_at,closing_date,jd_url,jd_label,allocation_path",
+      "id,company,role,domain_raw,status,type,date,prep_poc,support_poc,outreach_poc,lmp_code,daily_progress,final_convert,mentor_aligned,updated_at,closing_date,jd_url,jd_label,allocation_path",
     )
     .limit(2000);
   if (error) throw new Error(`DB read (lmp_processes) failed: ${error.message}`);
@@ -1772,6 +1775,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         if (args.role) filtered = filtered.filter(r => matchesFilter(r["Role"] || "", args.role as string));
         if (args.domain) filtered = filtered.filter(r => matchesFilter(r["Domain"] || "", args.domain as string));
         if (args.status) filtered = filtered.filter(r => matchesFilter(r["Status"] || "", args.status as string));
+        if (typeof args.mentor_aligned === "boolean") {
+          filtered = filtered.filter(r => /^(true|yes|1)$/i.test(r["Mentor Aligned"] || "") === args.mentor_aligned);
+        }
         if (args.poc) filtered = filtered.filter(r =>
           matchesPocFilter(r["Prep POC"] || "", args.poc as string) ||
           matchesPocFilter(r["Outreach POC"] || "", args.poc as string) ||
@@ -3154,6 +3160,43 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  if (isMentorCoverageQuery(lastUserMessage)) {
+    const fastSb = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data, error } = await fastSb
+      .from("lmp_processes")
+      .select("id,company,role,domain_raw,status,prep_poc,mentor_aligned,lmp_code")
+      .ilike("status", "%ongoing%")
+      .or("mentor_aligned.is.null,mentor_aligned.eq.false")
+      .order("company")
+      .limit(200);
+    if (!error) {
+      const rows = (data || []).map((r) => [
+        r.company || "—", r.role || "—", r.domain_raw || "—", r.prep_poc || "Unassigned", r.status || "Ongoing",
+      ]);
+      const count = rows.length;
+      const text = [
+        `${count} ongoing LMP process${count === 1 ? "" : "es"} ${count === 1 ? "does" : "do"} not have a mentor aligned yet.`,
+        "",
+        ":::blocks",
+        JSON.stringify([
+          { type: "executive-summary", content: `${count} ongoing processes need mentor alignment.` },
+          { type: "kpi-row", items: [{ label: "Missing mentor", value: count }] },
+          { type: "table", title: "Ongoing processes without mentors", headers: ["Company", "Role", "Domain", "Prep POC", "Status"], rows },
+        ]),
+        ":::",
+      ].join("\n");
+      telemetry.intent = "mentor_coverage_fast_path";
+      void logTurn({ status: "ok", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    }
+    log.warn("mentor_coverage_fast_path_failed", { error: error.message });
+  }
+
   // Track whether the tool loop invoked any write tool. If so, skip cache write.
   let usedWriteTool = false;
 
@@ -3246,19 +3289,20 @@ Deno.serve(async (req: Request) => {
 
     // ── Step 2: AI call with tool-calling loop ──
     const baseSystemPrompt = buildSystemPrompt(sheetSummary, requestedMode, requestedScope, requestedActiveContext);
-    const ragSb = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    const ragContext = await retrieveRAGContext(lastUserMessage, ragSb);
+    const ragContext = shouldPrefetchRag(lastUserMessage)
+      ? await retrieveRAGContext(lastUserMessage, createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      ))
+      : "";
     const systemPrompt = baseSystemPrompt + ragContext;
     let aiMessages: { role: string; content?: string; tool_calls?: any[]; tool_call_id?: string; name?: string }[] = [
       { role: "system", content: systemPrompt },
       ...messages,
     ];
 
-    const MAX_TOOL_ROUNDS = 14;
-    const SOFT_WARN_AT = 12;
+    const MAX_TOOL_ROUNDS = 5;
+    const SOFT_WARN_AT = 4;
     let round = 0;
     let softWarned = false;
     // Per-turn tool-result memo so identical (name,args) calls don't repeat work
@@ -3290,7 +3334,7 @@ Deno.serve(async (req: Request) => {
             "Content-Type": "application/json",
             ...chatExtraHeaders,
           },
-          signal: AbortSignal.timeout(90_000),
+          signal: AbortSignal.timeout(30_000),
           body: JSON.stringify({
             model: TOOL_MODEL,
             messages: aiMessages,
@@ -3330,7 +3374,7 @@ Deno.serve(async (req: Request) => {
             aiResponse = await fetch(AI_GATEWAY_URL, {
               method: "POST",
               headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
-              signal: AbortSignal.timeout(90_000),
+              signal: AbortSignal.timeout(30_000),
               body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
             });
             if (aiResponse.ok) break;

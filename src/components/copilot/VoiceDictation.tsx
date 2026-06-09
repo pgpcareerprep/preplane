@@ -567,6 +567,7 @@ export function VoiceConversationOverlay({
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    const timeout = window.setTimeout(() => ctrl.abort(), 35_000);
 
     // Confirmation branch: if we have a pending action and user agrees, execute it
     const pending = pendingActionRef.current;
@@ -591,6 +592,7 @@ export function VoiceConversationOverlay({
           if ((err as any)?.name !== "AbortError") console.error(err);
           setThinking(false);
         }
+        window.clearTimeout(timeout);
         return;
       }
       if (NEGATE.test(userText)) {
@@ -599,6 +601,7 @@ export function VoiceConversationOverlay({
         messagesRef.current.push({ role: "assistant", content: spoken });
         setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
         await speak(spoken);
+        window.clearTimeout(timeout);
         return;
       }
       pendingActionRef.current = null;
@@ -632,6 +635,8 @@ export function VoiceConversationOverlay({
       } else {
         setThinking(false);
       }
+    } finally {
+      window.clearTimeout(timeout);
     }
   }, [identityPayload, speak, stripForVoice]);
 

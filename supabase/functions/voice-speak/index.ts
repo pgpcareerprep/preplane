@@ -60,8 +60,7 @@ Deno.serve(async (req) => {
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
     if (geminiKey) {
       const t0 = Date.now();
-      // Try stable model name first, then preview fallback
-      for (const model of ["gemini-2.5-flash-preview-tts", "gemini-2.0-flash-exp"]) {
+      for (const model of ["gemini-2.5-flash-preview-tts"]) {
         try {
           const resp = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
