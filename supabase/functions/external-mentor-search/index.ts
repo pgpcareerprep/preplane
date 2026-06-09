@@ -556,34 +556,46 @@ IMPORTANT: Only include real people you can verify. Return valid JSON array only
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("origin") ?? req.headers.get("Origin") ?? "";
   corsHeaders["Access-Control-Allow-Origin"] = buildCorsHeaders(req)["Access-Control-Allow-Origin"];
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;
 
-  // Read FIRECRAWL_API_KEY: prefer the edge-function env var (set via Supabase
-  // Settings > Edge Functions > Secrets), then fall back to reading from the
-  // Supabase Vault (Integrations > Vault) which stores it as an encrypted DB secret.
-  let FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? null;
+  // Read FIRECRAWL_API_KEY from EF secret first, then fall back to Supabase Vault.
+  // Vault is accessed via the vault schema using Accept-Profile header.
+  let FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY")?.trim() ?? null;
   if (!FIRECRAWL_API_KEY) {
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
       if (supabaseUrl && serviceKey) {
         const vaultRes = await fetch(
-          `${supabaseUrl}/rest/v1/vault_decrypted_secrets?name=eq.FIRECRAWL_API_KEY&select=decrypted_secret&limit=1`,
-          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+          `${supabaseUrl}/rest/v1/decrypted_secrets?name=eq.FIRECRAWL_API_KEY&select=decrypted_secret&limit=1`,
+          {
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              "Accept-Profile": "vault",
+            },
+          },
         );
         if (vaultRes.ok) {
           const rows = await vaultRes.json();
-          FIRECRAWL_API_KEY = rows?.[0]?.decrypted_secret ?? null;
+          const val = rows?.[0]?.decrypted_secret;
+          FIRECRAWL_API_KEY = (typeof val === "string" && val.trim()) ? val.trim() : null;
+        } else {
+          console.warn(`[external-mentor-search] vault query failed: ${vaultRes.status}`);
         }
       }
-    } catch {
-      // Vault unavailable — proceed with Gemini fallback below
+    } catch (vaultErr) {
+      console.warn("[external-mentor-search] vault load skipped:", (vaultErr as Error).message);
     }
   }
-  const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? null;
+
+  const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
 
   let body: Body = {};
   try { body = await req.json(); } catch { body = {}; }
@@ -599,27 +611,39 @@ Deno.serve(async (req) => {
     : ALL_PLATFORMS;
   const activePlatforms = requestedPlatforms.length ? requestedPlatforms : ALL_PLATFORMS;
 
+  console.log("[external-mentor-search] request", {
+    origin,
+    role: role || "(none)",
+    company: company || "(none)",
+    platforms: activePlatforms,
+    hasFirecrawl: Boolean(FIRECRAWL_API_KEY),
+    hasGemini: Boolean(LOVABLE_API_KEY),
+  });
+
   if (!role && skills.length === 0) {
     return new Response(JSON.stringify({ mentors: [], error: "role or skills required" }), {
-      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   // Gemini-native fallback: use Google Search grounding when Firecrawl is unavailable.
   if (!FIRECRAWL_API_KEY) {
     if (!LOVABLE_API_KEY) {
+      console.warn("[external-mentor-search] no API keys configured");
       return new Response(
-        JSON.stringify({ mentors: [], error: "Neither Firecrawl nor Gemini API key is configured." }),
+        JSON.stringify({ mentors: [], error: "External mentor search requires FIRECRAWL_API_KEY or GEMINI_API_KEY. Neither is configured." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
     try {
+      console.log("[external-mentor-search] no Firecrawl — using Gemini search fallback");
       const geminiMentors = await discoverViаGeminiSearch(
         LOVABLE_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
       );
+      console.log(`[external-mentor-search] Gemini search returned ${geminiMentors.length} mentors`);
       if (!geminiMentors.length) {
         return new Response(
-          JSON.stringify({ mentors: [], error: "Gemini search returned no results. External mentor discovery requires a Firecrawl API key for full coverage." }),
+          JSON.stringify({ mentors: [], error: "Gemini search returned no results. Add a FIRECRAWL_API_KEY for full external mentor discovery." }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -628,12 +652,15 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (e) {
+      const msg = (e as Error).message ?? String(e);
+      console.warn("[external-mentor-search] Gemini fallback failed:", msg);
       return new Response(
-        JSON.stringify({ mentors: [], error: `External search unavailable: ${(e as Error).message}` }),
+        JSON.stringify({ mentors: [], error: `Gemini search failed: ${msg}` }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
   }
+  console.log("[external-mentor-search] using Firecrawl pipeline");
   const effectiveRole = role || skills[0] || "";
   const region = typeof body.region === "string" ? body.region.toLowerCase() : "global";
   const regionLabel = region !== "global" ? (REGION_LABEL[region] || "") : "";
@@ -827,8 +854,18 @@ Deno.serve(async (req) => {
     if (deduped.length >= limit) break;
   }
 
+  console.log(`[external-mentor-search] done — returning ${deduped.length} mentors`);
   return new Response(JSON.stringify({ mentors: deduped }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+  } catch (topErr) {
+    const msg = (topErr as Error).message ?? String(topErr);
+    console.error("[external-mentor-search] unhandled error:", msg);
+    return new Response(
+      JSON.stringify({ mentors: [], error: `External search failed: ${msg}` }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 });

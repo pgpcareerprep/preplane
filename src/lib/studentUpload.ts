@@ -9,9 +9,10 @@ export const STUDENT_DB_FIELDS = [
   { key: "name", label: "Student Name" },
   { key: "email", label: "Student Email ID" },
   { key: "primary_domain", label: "Primary Domain" },
-  { key: "other_domains", label: "Secondary Domain" },
+  { key: "secondary_domain", label: "Secondary Domain" },
+  { key: "other_domains", label: "Other Domains" },
   { key: "placement_status", label: "Placement Status" },
-  { key: "cohort", label: "Program Name" },
+  { key: "cohort", label: "Program / Cohort" },
   { key: "phone", label: "Phone" },
 ] as const;
 
@@ -45,7 +46,7 @@ const AUTO_MAP_STUDENTS: Record<string, string> = {
   domain: "primary_domain",
   actual_domain: "primary_domain",
   other_domains: "other_domains",
-  secondary_domain: "other_domains",
+  secondary_domain: "secondary_domain",
   other_domain: "other_domains",
   placement_status: "placement_status",
   status: "placement_status",

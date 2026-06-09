@@ -10,13 +10,19 @@ import { DEFAULT_ROUNDS } from "@/lib/lmpProcessMutations";
 type Tab = "select" | "upload";
 type ProgramFilter = "all" | "TBM" | "YLC";
 
-function deriveProgram(rollNo: string): "TBM" | "YLC" | "" {
-  if (rollNo?.startsWith("YLC")) return "YLC";
-  if (rollNo?.startsWith("PGP")) return "TBM";
+function deriveProgram(rollNo: string, cohort?: string | null): "TBM" | "YLC" | "" {
+  const src = cohort || rollNo || "";
+  if (/YLC/i.test(src)) return "YLC";
+  if (/PGP|TBM/i.test(src)) return "TBM";
   return "";
 }
 
-function deriveCohortYear(rollNo: string): string {
+function deriveCohortYear(rollNo: string, cohort?: string | null): string {
+  if (cohort) {
+    const m = cohort.match(/(\d{4})/);
+    if (m) return m[1];
+    if (/^\d{2}$/.test(cohort.trim())) return `20${cohort.trim()}`;
+  }
   const m = rollNo?.match(/^(?:PGP|YLC)(\d{4})/);
   return m ? m[1] : "";
 }
@@ -78,7 +84,7 @@ export function AddCandidatesModal({
     return (students as any[])
       .filter((s) => {
         if (taken.has(s.id)) return false;
-        const prog = deriveProgram(s.roll_no || "");
+        const prog = deriveProgram(s.roll_no || "", s.cohort);
         if (program !== "all" && prog !== program) return false;
         if (tokens.length === 0) return true;
         return tokens.some((t) => matchToken(s, t));
@@ -139,8 +145,8 @@ export function AddCandidatesModal({
     const fromDb: Candidate[] = (students as any[])
       .filter((s) => picked.has(s.id) && !taken.has(s.id))
       .map((s) => {
-        const prog = deriveProgram(s.roll_no || "");
-        const year = deriveCohortYear(s.roll_no || "");
+        const prog = deriveProgram(s.roll_no || "", s.cohort);
+        const year = deriveCohortYear(s.roll_no || "", s.cohort);
         const initials = (s.name || "")
           .split(/\s+/)
           .slice(0, 2)
@@ -313,11 +319,11 @@ export function AddCandidatesModal({
                   {filtered.map((s: any) => {
                     const isTaken = taken.has(s.id);
                     const isPicked = picked.has(s.id);
-                    const prog = deriveProgram(s.roll_no || "");
-                    const year = deriveCohortYear(s.roll_no || "");
+                    const prog = deriveProgram(s.roll_no || "", s.cohort);
+                    const year = deriveCohortYear(s.roll_no || "", s.cohort);
                     const initials = (s.name || "").split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("");
                     const primaryDomain = (s.primary_domain || "").trim();
-                    const secondaryDomain = (s.secondary_domain || "").trim();
+                    const secondaryDomain = (s.secondary_domain || s.other_domains || "").trim();
                     return (
                       <li key={s.id}>
                         <button
