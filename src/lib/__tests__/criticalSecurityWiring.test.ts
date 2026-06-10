@@ -47,4 +47,27 @@ describe("critical security wiring", () => {
     expect(voice).not.toContain("CURRENT_VIEW_AS");
     expect(voice).not.toContain("CURRENT_VOICE_USER_ID");
   });
+
+  it("enforces one server-side daily AI budget across Copilot and voice", () => {
+    const usage = read("supabase/functions/_shared/ai-usage.ts");
+    const copilot = read("supabase/functions/copilot-ai/index.ts");
+    const voice = read("supabase/functions/voice-copilot/index.ts");
+    const quota = read("src/lib/hooks/useCopilotQuota.ts");
+    expect(usage).toContain('rpc("reserve_ai_request"');
+    expect(usage).toContain('rpc("record_ai_tokens"');
+    expect(copilot).toContain("await reserveAiRequest(authedUser.id");
+    expect(voice).toContain("await reserveAiRequest(auth.user.id");
+    expect(quota).toContain('.from("ai_daily_budgets")');
+    expect(quota).not.toContain("SHARED_USER_COUNT");
+  });
+
+  it("resolves public feedback links through hashed tokens and rate limits them", () => {
+    const validate = read("supabase/functions/validate-feedback-token/index.ts");
+    const submit = read("supabase/functions/submit-student-feedback/index.ts");
+    for (const source of [validate, submit]) {
+      expect(source).toContain("resolveFeedbackSession");
+      expect(source).toContain("enforceFeedbackRateLimit");
+      expect(source).not.toContain('.eq("student_feedback_token"');
+    }
+  });
 });

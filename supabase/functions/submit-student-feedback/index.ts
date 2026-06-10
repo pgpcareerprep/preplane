@@ -3,7 +3,8 @@
 // session_student_feedbacks (one row per student per session).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { pickAllowedOrigin } from "../_shared/cors.ts";
+import { enforceFeedbackRateLimit, rejectOversizedRequest, resolveFeedbackSession } from "../_shared/feedback-security.ts";
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -14,6 +15,8 @@ Deno.serve(async (req) => {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
+    const oversized = rejectOversizedRequest(req);
+    if (oversized) return oversized;
     const body = (await req.json().catch(() => ({}))) as {
       token?: string;
       studentId?: string;
@@ -22,19 +25,30 @@ Deno.serve(async (req) => {
     };
     const token = (body.token || "").trim();
     const studentId = (body.studentId || "").trim();
-    if (!token || !studentId || !body.feedback || typeof body.feedback !== "object") {
+    if (!token || token.length < 16 || token.length > 512 || !studentId || !body.feedback || typeof body.feedback !== "object" || Array.isArray(body.feedback)) {
       return json({ ok: false, error: "missing_fields" }, 400);
+    }
+    if (body.rating != null && (!Number.isFinite(body.rating) || body.rating < 1 || body.rating > 5)) {
+      return json({ ok: false, error: "invalid_rating" }, 400);
+    }
+    if (JSON.stringify(body.feedback).length > 20_000) {
+      return json({ ok: false, error: "feedback_too_large" }, 413);
     }
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    if (!await enforceFeedbackRateLimit(admin, req, token, "submit")) {
+      return json({ ok: false, error: "rate_limited" }, 429);
+    }
+    const resolved = await resolveFeedbackSession(admin, token);
+    if (!resolved) return json({ ok: false, error: "not_found" }, 404);
 
     const { data: session, error: sErr } = await admin
       .from("sessions")
       .select("id, candidate_ids, student_id")
-      .eq("student_feedback_token", token)
+      .eq("id", resolved.id)
       .maybeSingle();
     if (sErr) throw sErr;
     if (!session?.id) return json({ ok: false, error: "not_found" }, 404);

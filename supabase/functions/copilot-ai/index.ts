@@ -3062,6 +3062,18 @@ async function handleRequest(req: Request) {
     scope_missing_count: 0,
     scope_broadened_count: 0,
   };
+  const { reserveAiRequest } = await import("../_shared/ai-usage.ts");
+  const budget = await reserveAiRequest(authedUser.id, TOOL_MODEL);
+  if (!budget.allowed) {
+    return new Response(JSON.stringify({
+      error: "Your daily AI budget is exhausted. It resets at midnight UTC.",
+      code: "AI_DAILY_BUDGET_EXHAUSTED",
+      budget,
+    }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   const logTurn = async (params: {
     status: string;
     response_chars?: number;

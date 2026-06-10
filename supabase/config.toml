@@ -4,3 +4,9 @@ verify_jwt = false
 
 [functions.external-mentor-search]
 verify_jwt = false
+
+[functions.validate-feedback-token]
+verify_jwt = false
+
+[functions.submit-student-feedback]
+verify_jwt = false

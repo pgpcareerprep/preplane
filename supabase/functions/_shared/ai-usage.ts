@@ -32,6 +32,28 @@ export interface LogAiUsageInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface AiBudgetReservation {
+  allowed: boolean;
+  reason?: string;
+  requests_used?: number;
+  request_limit?: number;
+  tokens_used?: number;
+  token_limit?: number;
+  reset_at?: string;
+}
+
+export async function reserveAiRequest(
+  userId: string,
+  model?: string | null,
+): Promise<AiBudgetReservation> {
+  const { data, error } = await getClient().rpc("reserve_ai_request", {
+    p_user_id: userId,
+    p_model: model ?? null,
+  });
+  if (error) throw new Error(`AI budget reservation failed: ${error.message}`);
+  return data as AiBudgetReservation;
+}
+
 /**
  * Crude token estimate when the upstream API doesn't return one.
  * Rule of thumb: ~4 characters per token for English text.
@@ -66,6 +88,16 @@ export async function logAiUsage(input: LogAiUsageInput): Promise<void> {
     const { error } = await getClient().from("ai_usage_events").insert(row);
     if (error) {
       console.warn("[ai-usage] insert failed:", error.message);
+    }
+    if (input.userId && total > 0) {
+      const { error: budgetError } = await getClient().rpc("record_ai_tokens", {
+        p_user_id: input.userId,
+        p_tokens: total,
+        p_model: input.model ?? null,
+      });
+      if (budgetError) {
+        console.warn("[ai-usage] budget token update failed:", budgetError.message);
+      }
     }
   } catch (e) {
     console.warn("[ai-usage] log threw:", (e as Error).message);

@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCopilotQuota, SHARED_USER_COUNT, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
+import { useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
 import { cn } from "@/lib/utils";
 
 function toneClasses(sev: QuotaSeverity) {
@@ -58,7 +58,7 @@ export function CopilotUsageStrip({ className, active = false }: CopilotUsageStr
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">
-            Refreshes in {q.resetIn} ({q.resetLocal}). Per-user share across {SHARED_USER_COUNT} users: {q.requestLimit} requests and {q.tokenLimit.toLocaleString()} tokens.
+            Refreshes in {q.resetIn} ({q.resetLocal}). Daily allowance: {q.requestLimit} requests or {q.tokenLimit.toLocaleString()} tokens.
           </TooltipContent>
         </Tooltip>
       </div>

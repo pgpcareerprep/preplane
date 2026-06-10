@@ -5,7 +5,7 @@
 // - All writes go through prepare -> verbal confirm -> execute
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
+import { logAiUsage, estimateTokens, reserveAiRequest } from "../_shared/ai-usage.ts";
 import { isMentorCoverageQuery, isPocWorkloadQuery } from "../_shared/copilotFastPaths.ts";
 import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
 
@@ -735,6 +735,17 @@ async function handleVoiceRequest(req: Request) {
   const userLog = log.child({ user_id: auth.user.id, role: auth.user.role });
   voiceRequestState().userId = auth.user.id;
   try {
+    const budget = await reserveAiRequest(auth.user.id, GEMINI_TOOL_FALLBACK_MODELS[0]);
+    if (!budget.allowed) {
+      return new Response(JSON.stringify({
+        spoken: "Your daily AI budget is exhausted. It resets at midnight UTC.",
+        error: "AI_DAILY_BUDGET_EXHAUSTED",
+        budget,
+      }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const body = await req.json();
     const {
       messages = [],
