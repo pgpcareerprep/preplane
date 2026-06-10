@@ -80,7 +80,7 @@ export const DB_TO_SHEET: Record<string, string> = {
 };
 
 /**
- * Sheet-header keyed patch → DB-column keyed patch.
+ * App-originated sheet-header keyed patch → DB-column keyed patch.
  *
  * Used by app-originated writes that first round-trip through `toSheetPatch`
  * (so the input keys are guaranteed to be canonical sheet headers from
@@ -121,7 +121,7 @@ export const DB_STATUS_TO_SHEET: Record<string, string> = {
   "converted-na":   "Not Converted",
 };
 
-export function sheetPatchToDbPatch(
+export function appPatchToDbPatch(
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -137,3 +137,17 @@ export function sheetPatchToDbPatch(
   return out;
 }
 
+/**
+ * External Sheet → DB conversion. Only explicitly whitelisted bidirectional
+ * fields are accepted; arbitrary Sheet columns can never overwrite the DB.
+ */
+export function sheetPatchToDbPatch(
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [header, value] of Object.entries(patch)) {
+    const col = SHEET_TO_DB[header];
+    if (col) out[col] = value;
+  }
+  return out;
+}

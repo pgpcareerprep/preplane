@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import {
   classifyIntent,
@@ -785,8 +786,8 @@ const TOOLS = [
           pending_action_id: { type: "string", description: "UUID returned by prepare_write (used only for activity-log correlation)." },
           kind: { type: "string", description: "Same `kind` returned by prepare_write." },
           payload: { type: "object", description: "Same `payload` returned by prepare_write — replayed verbatim." },
-          current_snapshot: { type: "object", description: "Optional: `current` snapshot from prepare_write for activity log." },
-          proposed_snapshot: { type: "object", description: "Optional: `proposed` snapshot from prepare_write for activity log." },
+          current_snapshot: { type: "object", description: "Optional: `current` snapshot from prepare_write for the activity log." },
+          proposed_snapshot: { type: "object", description: "Optional: `proposed` snapshot from prepare_write for the activity log." },
         },
         required: ["pending_action_id", "kind", "payload"],
         additionalProperties: false,
@@ -914,17 +915,6 @@ type ReqCache = {
   lmp?: Promise<LmpFetch>;
   master?: Promise<Record<string, string>[]>;
 };
-let _reqCache: ReqCache = {};
-
-function resetRequestCache() {
-  _reqCache = {};
-  CURRENT_REQUEST.role = "poc";
-  CURRENT_REQUEST.userId = null;
-  CURRENT_REQUEST.actorName = null;
-  CURRENT_REQUEST.plan = null;
-  CURRENT_REQUEST.isImpersonating = false;
-  CURRENT_REQUEST.viewAsName = null;
-}
 
 // Request-scoped context shared with executeTool (role for RBAC, etc.)
 type PlanStepInternal = {
@@ -933,7 +923,7 @@ type PlanStepInternal = {
   result_summary?: string;
 };
 type PlanInternal = { plan_id: string; goal: string; steps: PlanStepInternal[]; started_at: string };
-const CURRENT_REQUEST: {
+type RequestContext = {
   role: string;
   userId: string | null;
   actorName: string | null;
@@ -941,10 +931,36 @@ const CURRENT_REQUEST: {
   pocId: string | null;
   isImpersonating: boolean;
   viewAsName: string | null;
-} = {
-  role: "poc", userId: null, actorName: null, plan: null, pocId: null,
-  isImpersonating: false, viewAsName: null,
 };
+
+type CopilotRequestState = {
+  cache: ReqCache;
+  context: RequestContext;
+  log: Logger;
+};
+
+const requestStateStorage = new AsyncLocalStorage<CopilotRequestState>();
+
+function createRequestState(req: Request): CopilotRequestState {
+  return {
+    cache: {},
+    context: {
+      role: "poc", userId: null, actorName: null, plan: null, pocId: null,
+      isImpersonating: false, viewAsName: null,
+    },
+    log: createLogger("copilot-ai", req),
+  };
+}
+
+function requestState(): CopilotRequestState {
+  const state = requestStateStorage.getStore();
+  if (!state) throw new Error("Copilot request context is unavailable");
+  return state;
+}
+
+function resetRequestCache() {
+  requestState().cache = {};
+}
 
 // Per-LMP ownership check. The signed-in user must be a POC on the LMP
 // (via lmp_poc_links, or as fallback an exact-token match on the denormalized
@@ -956,19 +972,19 @@ async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok:
   if (!company || !role) return { ok: false, reason: "Missing company/role to verify LMP ownership." };
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    // Resolve POC id from authed user (cache on CURRENT_REQUEST).
-    let pocId = CURRENT_REQUEST.pocId;
-    let pocName = CURRENT_REQUEST.actorName || "";
+    // Resolve POC id from authed user (cache on requestState().context).
+    let pocId = requestState().context.pocId;
+    let pocName = requestState().context.actorName || "";
     let pocAliases: string[] = [];
-    if (CURRENT_REQUEST.userId) {
+    if (requestState().context.userId) {
       const { data: prof } = await sb
         .from("poc_profiles")
         .select("id,name,aliases")
-        .eq("approved_user_id", CURRENT_REQUEST.userId)
+        .eq("approved_user_id", requestState().context.userId)
         .maybeSingle();
       if (prof?.id) {
         pocId = prof.id as string;
-        CURRENT_REQUEST.pocId = pocId;
+        requestState().context.pocId = pocId;
         if (prof.name) pocName = prof.name as string;
         if (Array.isArray(prof.aliases)) pocAliases = prof.aliases as string[];
       }
@@ -1109,15 +1125,15 @@ async function fetchMastersheetFromSupabase(): Promise<Record<string, string>[]>
 
 // DB-only reads. The sheet is no longer consulted by Co-Pilot.
 async function getLmpRecords(): Promise<LmpFetch> {
-  if (_reqCache.lmp) return _reqCache.lmp;
-  _reqCache.lmp = fetchLmpFromSupabase();
-  return _reqCache.lmp;
+  if (requestState().cache.lmp) return requestState().cache.lmp;
+  requestState().cache.lmp = fetchLmpFromSupabase();
+  return requestState().cache.lmp;
 }
 
 async function getMastersheetRecords(): Promise<Record<string, string>[]> {
-  if (_reqCache.master) return _reqCache.master;
-  _reqCache.master = fetchMastersheetFromSupabase();
-  return _reqCache.master;
+  if (requestState().cache.master) return requestState().cache.master;
+  requestState().cache.master = fetchMastersheetFromSupabase();
+  return requestState().cache.master;
 }
 
 function matchesFilter(val: string, filter: string): boolean {
@@ -1254,18 +1270,18 @@ async function enforceWriteGuard(
   args: Record<string, unknown>,
 ): Promise<{ ok: true } | { blocked: true; reason: string }> {
   // 1. Impersonation read-only.
-  if (CURRENT_REQUEST.isImpersonating) {
+  if (requestState().context.isImpersonating) {
     return {
       blocked: true,
-      reason: `Read-only while viewing as ${CURRENT_REQUEST.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
+      reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
     };
   }
   // 2. Role gate.
   const perm = WRITE_KIND_PERMS[kind];
   if (!perm) return { blocked: true, reason: `Unknown write kind: ${kind}` };
-  const permResult = checkPermission(CURRENT_REQUEST.role, perm);
+  const permResult = checkPermission(requestState().context.role, perm);
   if (!permResult.allowed) {
-    return { blocked: true, reason: permResult.reason || `Your role (${CURRENT_REQUEST.role}) cannot perform ${perm}.` };
+    return { blocked: true, reason: permResult.reason || `Your role (${requestState().context.role}) cannot perform ${perm}.` };
   }
   // 3. Per-LMP ownership.
   if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
@@ -1281,7 +1297,7 @@ async function enforceWriteGuard(
     }
   }
   // 4. POC field whitelist.
-  if (CURRENT_REQUEST.role === "poc" && kind === "update_lmp_field") {
+  if (requestState().context.role === "poc" && kind === "update_lmp_field") {
     const fields = (args.fields as Record<string, unknown>) || {};
     const offenders = Object.keys(fields).filter((f) => {
       const norm = f.trim();
@@ -1388,7 +1404,7 @@ async function executeTool(
           steps,
           started_at: new Date().toISOString(),
         };
-        CURRENT_REQUEST.plan = plan;
+        requestState().context.plan = plan;
         return JSON.stringify({
           plan_id: plan.plan_id,
           goal: plan.goal,
@@ -1398,7 +1414,7 @@ async function executeTool(
         });
       }
       case "update_plan_step": {
-        const plan = CURRENT_REQUEST.plan;
+        const plan = requestState().context.plan;
         if (!plan) return JSON.stringify({ error: "No active plan. Call make_plan first." });
         const planId = String(args.plan_id || "");
         if (planId !== plan.plan_id) return JSON.stringify({ error: `Unknown plan_id ${planId}` });
@@ -1416,16 +1432,16 @@ async function executeTool(
       case "check_permission": {
         const action = String(args.action || "");
         const targetSummary = typeof args.target_summary === "string" ? args.target_summary : undefined;
-        if (CURRENT_REQUEST.isImpersonating) {
+        if (requestState().context.isImpersonating) {
           return JSON.stringify({
             allowed: false, blocked: true,
-            role: CURRENT_REQUEST.role, action,
-            reason: `Read-only while viewing as ${CURRENT_REQUEST.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
+            role: requestState().context.role, action,
+            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
             safe_alternative: "Summarise instead, or switch back to your own view.",
             target_summary: targetSummary,
           });
         }
-        const result = checkPermission(CURRENT_REQUEST.role, action);
+        const result = checkPermission(requestState().context.role, action);
         return JSON.stringify({ ...result, target_summary: targetSummary });
       }
       case "prepare_write": {
@@ -1445,10 +1461,10 @@ async function executeTool(
           : (SYNC_IMPACT_BY_KIND[String(args.kind || "")] ?? "Updates LMP Tracker (sheet) and writes an activity-log entry.");
 
         // Hard block: view-as is always read-only.
-        if (CURRENT_REQUEST.isImpersonating) {
+        if (requestState().context.isImpersonating) {
           return JSON.stringify({
             blocked: true, allowed: false,
-            reason: `Read-only while viewing as ${CURRENT_REQUEST.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
+            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
             target_summary: targetSummary,
           });
         }
@@ -1464,7 +1480,7 @@ async function executeTool(
         };
         const perm = PERM_MAP[kind];
         if (!perm) return JSON.stringify({ error: `Unknown write kind: ${kind}` });
-        const permResult = checkPermission(CURRENT_REQUEST.role, perm);
+        const permResult = checkPermission(requestState().context.role, perm);
         if (!permResult.allowed) {
           return JSON.stringify({ blocked: true, ...permResult, target_summary: targetSummary });
         }
@@ -1508,7 +1524,7 @@ async function executeTool(
           "Mentor Aligned","Prep Doc Shared","Assignment Review","One-to-one Mock",
           "Status","R1 Shortlisted","R2 Shortlisted","R3 Shortlisted",
         ]);
-        if (CURRENT_REQUEST.role === "poc" && kind === "update_lmp_field") {
+        if (requestState().context.role === "poc" && kind === "update_lmp_field") {
           const fields = (payload.fields as Record<string, unknown>) || {};
           const offenders = Object.keys(fields).filter((f) => {
             const norm = f.trim();
@@ -1586,7 +1602,7 @@ async function executeTool(
           current: currentSnapshot,
           proposed: proposedSnapshot,
           sync_impact: syncImpact,
-          role: CURRENT_REQUEST.role,
+          role: requestState().context.role,
           permission: perm,
         });
       }
@@ -1599,10 +1615,10 @@ async function executeTool(
         const proposedSnapshot = (args.proposed_snapshot as Record<string, unknown>) || {};
 
         // Hard block: view-as is always read-only at execute time too.
-        if (CURRENT_REQUEST.isImpersonating) {
+        if (requestState().context.isImpersonating) {
           return JSON.stringify({
             blocked: true, allowed: false,
-            reason: `Read-only while viewing as ${CURRENT_REQUEST.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
+            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
           });
         }
 
@@ -1612,12 +1628,12 @@ async function executeTool(
           assign_poc: "assign_poc", add_lmp_record: "create_lmp",
           delete_lmp_record: "delete_lmp", bulk_update: "bulk_update",
         };
-        const permResult = checkPermission(CURRENT_REQUEST.role, PERM_MAP[kind] || "edit_lmp");
+        const permResult = checkPermission(requestState().context.role, PERM_MAP[kind] || "edit_lmp");
         if (!permResult.allowed) {
           return JSON.stringify({ blocked: true, ...permResult });
         }
         // BUG-P4: re-check field-level RBAC at execute time.
-        if (CURRENT_REQUEST.role === "poc" && kind === "update_lmp_field") {
+        if (requestState().context.role === "poc" && kind === "update_lmp_field") {
           const POC_ALLOWED_FIELDS = new Set<string>([
             "daily_progress","prep_progress","placement_progress",
             "next_progress_date","next_progress_status","next_progress_type",
@@ -1672,14 +1688,14 @@ async function executeTool(
           const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
           const entityKey = `${payload.company || ""} · ${payload.role || ""}`;
           await sb.from("activity_log").insert({
-            actor_name: CURRENT_REQUEST.actorName || "Copilot user",
-            poc_role_type: CURRENT_REQUEST.role === "admin" ? "admin" : (CURRENT_REQUEST.role === "allocator" ? "system" : "primary"),
+            actor_name: requestState().context.actorName || "Copilot user",
+            poc_role_type: requestState().context.role === "admin" ? "admin" : (requestState().context.role === "allocator" ? "system" : "primary"),
             entity_type: kind === "bulk_update" ? "lmp_bulk" : "lmp",
             entity_id: entityKey.trim() || null,
             action: `copilot:${kind}`,
             previous_value: JSON.stringify(currentSnapshot),
             new_value: JSON.stringify(proposedSnapshot),
-            metadata: { pending_action_id: id, payload, result: parsed, viewed_as: CURRENT_REQUEST.viewAsName ?? null },
+            metadata: { pending_action_id: id, payload, result: parsed, viewed_as: requestState().context.viewAsName ?? null },
             source: "copilot",
           });
         } catch (logErr) {
@@ -2941,24 +2957,20 @@ You MUST return your responses as a JSON array of UI blocks wrapped in a \`:::bl
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { createLogger, type Logger } from "../_shared/logger.ts";
 
-// Per-request logger; bound at the top of each handler invocation.
-let log: Logger = createLogger("copilot-ai");
-
-Deno.serve(async (req: Request) => {
+async function handleRequest(req: Request) {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  log = createLogger("copilot-ai", req);
   const tStart = performance.now();
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) {
-    log.warn("auth_failed", { ms: Math.round(performance.now() - tStart) });
+    requestState().log.warn("auth_failed", { ms: Math.round(performance.now() - tStart) });
     return auth.error;
   }
   const authedUser = auth.user;
-  log = log.child({ user_id: authedUser.id, role: authedUser.role });
+  requestState().log = requestState().log.child({ user_id: authedUser.id, role: authedUser.role });
 
   // Load Vault secrets once per cold start; getEnv() checks Deno.env first then Vault.
   await ensureVaultLoaded();
@@ -3059,12 +3071,12 @@ Deno.serve(async (req: Request) => {
       const sb = getCacheClient();
       const lastUser = [...(messages || [])].reverse().find((m) => m.role === "user")?.content || "";
       await sb.from("copilot_turns").insert({
-        user_id: CURRENT_REQUEST.userId,
+        user_id: requestState().context.userId,
         thread_id: threadId,
         started_at: new Date(turnStartedAt).toISOString(),
         finished_at: new Date().toISOString(),
         latency_ms: Date.now() - turnStartedAt,
-        role: CURRENT_REQUEST.role,
+        role: requestState().context.role,
         mode: requestedMode,
         scope: requestedScope,
         model: telemetry.model,
@@ -3091,7 +3103,7 @@ Deno.serve(async (req: Request) => {
         const pt = estimateTokens(lastUser);
         const rt = estimateTokens(String(params.response_chars ? "x".repeat(params.response_chars) : ""));
         await logAiUsage({
-          userId: CURRENT_REQUEST.userId,
+          userId: requestState().context.userId,
           feature: "copilot",
           model: telemetry.model,
           promptTokens: pt,
@@ -3123,21 +3135,21 @@ Deno.serve(async (req: Request) => {
   const requestedActiveContext = ((body as Record<string, unknown>).activeContext ?? null) as ActiveContextHint;
   const requestedRole = (body.role as string) || "poc";
   // SECURITY: derive role/userId from validated JWT, ignore client-supplied values
-  CURRENT_REQUEST.role = authedUser.role;
-  CURRENT_REQUEST.userId = authedUser.id;
-  CURRENT_REQUEST.actorName = (typeof (body as Record<string, unknown>).userName === "string" ? (body as Record<string, unknown>).userName : null) as string | null;
+  requestState().context.role = authedUser.role;
+  requestState().context.userId = authedUser.id;
+  requestState().context.actorName = (typeof (body as Record<string, unknown>).userName === "string" ? (body as Record<string, unknown>).userName : null) as string | null;
   // View-As: server-side hard read-only when the client signals impersonation.
   // The real JWT user remains the actor; we never elevate to the viewed user.
   const _viewAsName = ((body as Record<string, unknown>).viewAsUserName as string | null | undefined)?.toString().trim() || null;
-  const _realName = (CURRENT_REQUEST.actorName || "").trim().toLowerCase();
-  CURRENT_REQUEST.viewAsName = _viewAsName;
-  CURRENT_REQUEST.isImpersonating = !!_viewAsName && _viewAsName.toLowerCase() !== _realName;
+  const _realName = (requestState().context.actorName || "").trim().toLowerCase();
+  requestState().context.viewAsName = _viewAsName;
+  requestState().context.isImpersonating = !!_viewAsName && _viewAsName.toLowerCase() !== _realName;
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    log.warn("missing_messages");
+    requestState().log.warn("missing_messages");
     return jsonError("Missing 'messages' array", 400);
   }
 
-  log.event("turn_start", {
+  requestState().log.event("turn_start", {
     thread_id: threadId,
     mode: requestedMode,
     scope: requestedScope,
@@ -3213,7 +3225,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
       });
     }
-    log.warn("mentor_coverage_fast_path_failed", { error: error.message });
+    requestState().log.warn("mentor_coverage_fast_path_failed", { error: error.message });
   }
 
   if (isPocWorkloadQuery(lastUserMessage)) {
@@ -3272,7 +3284,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
       });
     }
-    log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
+    requestState().log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
   }
 
   if (isConversionCountQuery(lastUserMessage)) {
@@ -3318,7 +3330,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
       });
     }
-    log.warn("conversion_count_fast_path_failed", { error: error.message });
+    requestState().log.warn("conversion_count_fast_path_failed", { error: error.message });
   }
 
   const ACTION_MODES = new Set(["update", "assign"]);
@@ -3521,11 +3533,11 @@ Deno.serve(async (req: Request) => {
             });
           }
           if (lastErrStatus === 401) {
-            log.error("ai_gateway_auth", null, { provider: toolProvider2, status: 401, body: lastErrBody.slice(0, 300) });
+            requestState().log.error("ai_gateway_auth", null, { provider: toolProvider2, status: 401, body: lastErrBody.slice(0, 300) });
             void logTurn({ status: "ai_gateway_error", error_message: `401 auth: ${lastErrBody.slice(0, 100)}` });
             return jsonError(`AI gateway auth failed: ${toolProvider2} 401 — check OPENROUTER_API_KEY / GROK_API_KEY / GEMINI_API_KEY in Edge Function secrets`, 500);
           }
-          log.error("ai_gateway_error", null, { provider: toolProvider2, status: lastErrStatus, body: lastErrBody.slice(0, 300) });
+          requestState().log.error("ai_gateway_error", null, { provider: toolProvider2, status: lastErrStatus, body: lastErrBody.slice(0, 300) });
           console.error(`[tool-loop] ${toolProvider2} ${lastErrStatus}: ${lastErrBody}`);
           void logTurn({ status: "ai_gateway_error", error_message: `${lastErrStatus}: ${lastErrBody.slice(0, 200)}` });
           return jsonError("AI gateway is temporarily unavailable after trying all configured models. Please retry in a moment.", 503);
@@ -3550,7 +3562,7 @@ Deno.serve(async (req: Request) => {
       const noToolCalls = !msg.tool_calls || msg.tool_calls.length === 0;
       const content = typeof msg.content === "string" ? msg.content : "";
       if (noToolCalls && STALL_RE.test(content) && !(aiMessages[aiMessages.length - 1] as { __stall_nudged?: boolean }).__stall_nudged) {
-        log.event("stall_guard_fired", { round, sample: content.slice(0, 160) });
+        requestState().log.event("stall_guard_fired", { round, sample: content.slice(0, 160) });
         console.warn("stall_guard_fired:", content.slice(0, 160));
         const nudge = {
           role: "system" as const,
@@ -3637,7 +3649,7 @@ Deno.serve(async (req: Request) => {
           else if (scopeMatch === "missing") telemetry.scope_missing_count++;
           else if (scopeMatch === "broadened") telemetry.scope_broadened_count++;
 
-          log.event("tool_exec", { round, tool: fnName, args: fnArgs, scope_match: scopeMatch });
+          requestState().log.event("tool_exec", { round, tool: fnName, args: fnArgs, scope_match: scopeMatch });
           console.log(`Executing tool: ${fnName}`, JSON.stringify(fnArgs));
           console.log(JSON.stringify({
             tag: "scope_apply",
@@ -3671,7 +3683,7 @@ Deno.serve(async (req: Request) => {
           const result = typeof rawResult === "string" && rawResult.length > 0
             ? rawResult
             : JSON.stringify({ error: `Tool ${fnName} returned no result` });
-          log.event("tool_done", { round, tool: fnName, ok: !result.startsWith('{"error"'), result_chars: result.length });
+          requestState().log.event("tool_done", { round, tool: fnName, ok: !result.startsWith('{"error"'), result_chars: result.length });
           console.log(`Tool result (${fnName}): ${result.slice(0, 200)}...`);
           telemetry.scope_summary.push(scopeEntry);
 
@@ -3776,12 +3788,16 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (err) {
-    log.error("turn_failed", err, { ms: Math.round(performance.now() - tStart) });
+    requestState().log.error("turn_failed", err, { ms: Math.round(performance.now() - tStart) });
     console.error("copilot-ai error:", err);
     void logTurn({ status: "error", error_message: err instanceof Error ? err.message : "Unknown error" });
     return jsonError(err instanceof Error ? err.message : "Unknown error", 500);
   }
-});
+}
+
+Deno.serve((req: Request) =>
+  requestStateStorage.run(createRequestState(req), () => handleRequest(req))
+);
 
 function jsonError(message: string, status: number) {
   return new Response(JSON.stringify({ error: message }), {

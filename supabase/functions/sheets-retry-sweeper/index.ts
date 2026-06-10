@@ -7,6 +7,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { requireInternalSecret } from "../_shared/requireAuth.ts";
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -26,6 +27,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  const auth = await requireInternalSecret(req, corsHeaders);
+  if ("error" in auth) return auth.error;
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

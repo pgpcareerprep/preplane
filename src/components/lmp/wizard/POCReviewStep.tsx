@@ -4,7 +4,7 @@ import { Sparkles, Check, Loader2, AlertTriangle, Search, X, ChevronDown } from 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ConfirmedPocSelection } from "@/lib/createLmpProcess";
 import { cn } from "@/lib/utils";
-import { allocatePoc, getDomainTier, setDomainAliasResolver, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type HistoricalProcess } from "@/lib/pocAllocation";
+import { allocatePoc, getDomainTier, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type DomainAliasResolver, type HistoricalProcess } from "@/lib/pocAllocation";
 import { usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
 import type { PocCapability } from "@/lib/pocCapability";
 import { useDomains, usePocLiveLoads } from "@/lib/hooks/useDbData";
@@ -81,9 +81,9 @@ export function POCReviewStep({
   const outreachLoad = useMemo(() => liveLoads?.outreachLoad ?? {}, [liveLoads?.outreachLoad]);
   const { data: domainsList = [] } = useDomains();
 
-  // Install an alias-aware resolver so engine matches e.g. "Founder's Office/
-  // Chief of Staff" against POC tags like "FO/COS". Keyed by domains.aliases.
-  useEffect(() => {
+  // Request-local alias resolver so concurrent wizard instances cannot change
+  // one another's domain matching behavior.
+  const domainAliasResolver = useMemo<DomainAliasResolver>(() => {
     const aliasIndex = new Map<string, string>();
     for (const d of (domainsList as Array<{ name: string; slug: string; aliases?: string[] | null }>)) {
       const slug = (d.slug || d.name || "").toLowerCase();
@@ -91,10 +91,10 @@ export function POCReviewStep({
       aliasIndex.set(slug, slug);
       for (const a of d.aliases ?? []) aliasIndex.set((a || "").toLowerCase(), slug);
     }
-    setDomainAliasResolver((raw) => {
+    return (raw) => {
       const k = (raw || "").trim().toLowerCase();
       return aliasIndex.get(k) ?? k;
-    });
+    };
   }, [domainsList]);
 
   // Historical processes for this exact company + role — feeds POC history bonus.
@@ -184,12 +184,12 @@ export function POCReviewStep({
         processId: "new-process",
         historicalProcesses: historicalProcesses ?? [],
         existingProcesses: existingProcesses ?? [],
-      }, pocPool);
+      }, pocPool, undefined, domainAliasResolver);
       return { result, error: null };
     } catch (e) {
       return { result: null, error: (e as Error)?.message ?? "UNKNOWN" };
     }
-  }, [reqDomain, pocPool, companyName, roleTitle, jdText, parsedSkills, historicalProcesses, existingProcesses]);
+  }, [reqDomain, pocPool, companyName, roleTitle, jdText, parsedSkills, historicalProcesses, existingProcesses, domainAliasResolver]);
 
   // Synthesize an allocation when the engine refused (NO_DOMAIN_POCS) but the
   // allocator has manually picked a Prep POC from the empty state.
@@ -245,11 +245,11 @@ export function POCReviewStep({
     const p = find(initial.prepName);
     const s = find(initial.supportName);
     const o = find(initial.outreachName);
-    if (p) setPrepOverride(toAssignedFromPool(p, reqDomain));
-    if (s) setSupportOverride(toAssignedFromPool(s, reqDomain));
-    if (o) setOutreachPoc(toAssignedFromPool(o, reqDomain));
+    if (p) setPrepOverride(toAssignedFromPool(p, reqDomain, domainAliasResolver));
+    if (s) setSupportOverride(toAssignedFromPool(s, reqDomain, domainAliasResolver));
+    if (o) setOutreachPoc(toAssignedFromPool(o, reqDomain, domainAliasResolver));
     hydratedRef.current = true;
-  }, [initial, pocPool, reqDomain]);
+  }, [initial, pocPool, reqDomain, domainAliasResolver]);
 
   const handleSaveDraft = async () => {
     if (!onSaveDraft) return;
@@ -337,7 +337,7 @@ export function POCReviewStep({
                 <PocSwitcher
                   pocs={manualPool}
                   domain={reqDomain}
-                  onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain))}
+                  onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain, domainAliasResolver))}
                   onClose={() => setShowPrepSwitcher(false)}
                   label="Manually assign Prep POC"
                 />
@@ -445,7 +445,7 @@ export function POCReviewStep({
                 currentName={activePrep?.name}
                 excludeName={activeSupport?.name}
                 domain={reqDomain}
-                onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain))}
+                onSelect={(p) => selectAsPrep(toAssignedFromPool(p, reqDomain, domainAliasResolver))}
                 onClose={() => setShowPrepSwitcher(false)}
                 label="Select Assigned Prep POC"
               />
@@ -502,7 +502,7 @@ export function POCReviewStep({
                 currentName={activeSupport?.name}
                 excludeName={activePrep?.name}
                 domain={reqDomain}
-                onSelect={(p) => selectAsSupport(toAssignedFromPool(p, reqDomain))}
+                onSelect={(p) => selectAsSupport(toAssignedFromPool(p, reqDomain, domainAliasResolver))}
                 onClose={() => setShowSupportSwitcher(false)}
                 label="Select Support POC"
               />
@@ -543,7 +543,7 @@ export function POCReviewStep({
                 pocs={pocPool.filter(p => p.pocType === "outreach")}
                 currentName={outreachPoc?.name}
                 domain={reqDomain}
-                onSelect={(p) => { setOutreachPoc(toAssignedFromPool(p, reqDomain)); setShowOutreachSelector(false); }}
+                onSelect={(p) => { setOutreachPoc(toAssignedFromPool(p, reqDomain, domainAliasResolver)); setShowOutreachSelector(false); }}
                 onClose={() => setShowOutreachSelector(false)}
                 label="Select Outreach POC"
               />
@@ -702,11 +702,15 @@ function ConfirmChip({
 
 // ─── Sub-components ──────────────────────────────────────────────────────
 
-function toAssignedFromPool(p: PocCapability, processDomain?: string): AssignedPoc {
+function toAssignedFromPool(
+  p: PocCapability,
+  processDomain?: string,
+  resolver?: DomainAliasResolver,
+): AssignedPoc {
   // Use the allocation engine's getDomainTier so alias resolution is applied —
   // otherwise raw lowercase compare misses domain aliases (e.g. "PM" ≡ "Product Management").
   const domainTier: AssignedPoc["domainTier"] = processDomain?.trim()
-    ? getDomainTier(p, processDomain)
+    ? getDomainTier(p, processDomain, resolver)
     : "cross";
   return {
     name: p.name,

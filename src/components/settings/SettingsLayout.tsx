@@ -7,24 +7,23 @@ import {
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/rolesContext";
 
-type Item = { label: string; to: string; icon: LucideIcon; adminOnly?: boolean };
+type Item = { label: string; to: string; icon: LucideIcon; roles?: Array<"admin" | "allocator" | "poc"> };
 
 const ITEMS: Item[] = [
   { label: "General",          to: "/settings",             icon: Settings },
-  { label: "Scoring Weights",  to: "/settings/scoring",     icon: Scale },
-  { label: "POC Domain Config",to: "/settings/poc-domains", icon: Users },
-  { label: "Feedback Forms",   to: "/settings/feedback",    icon: ClipboardList },
-  { label: "User Management",  to: "/settings/users",       icon: UserCog, adminOnly: true },
-  { label: "AI Knowledge Base",to: "/settings/knowledge",   icon: Brain, adminOnly: true },
-  { label: "LMP Guide",        to: "/settings/lmp-guide",   icon: BookOpen },
-
-  { label: "Notifications",   to: "/settings/notifications",icon: Bell },
+  { label: "Scoring Weights",  to: "/settings/scoring",     icon: Scale, roles: ["admin", "allocator"] },
+  { label: "POC Domain Config",to: "/settings/poc-domains", icon: Users, roles: ["admin", "allocator"] },
+  { label: "Feedback Forms",   to: "/settings/feedback",    icon: ClipboardList, roles: ["admin", "allocator"] },
+  { label: "User Management",  to: "/settings/users",       icon: UserCog, roles: ["admin"] },
+  { label: "AI Knowledge Base",to: "/settings/knowledge",   icon: Brain, roles: ["admin"] },
+  { label: "LMP Guide",        to: "/settings/lmp-guide",   icon: BookOpen, roles: ["admin", "allocator"] },
+  { label: "Notifications",    to: "/settings/notifications",icon: Bell, roles: ["admin", "allocator"] },
 ];
 
 export function SettingsLayout() {
   const { pathname } = useLocation();
-  const { viewAsRole } = useRole();
-  const items = ITEMS.filter(i => !i.adminOnly || viewAsRole === "admin");
+  const { role } = useRole();
+  const items = ITEMS.filter(i => !i.roles || i.roles.includes(role));
   return (
     <div className="space-y-8">
       <motion.div

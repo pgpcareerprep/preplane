@@ -18,7 +18,7 @@ import { saveDraft, deleteDraft, type LmpDraft } from "@/lib/lmpDrafts";
 import { saveJd, type JdData } from "@/lib/jdStore";
 
 export default function CreateLmpPage() {
-  const { viewAsRole: role, user } = useRole();
+  const { role, viewAsRole, viewAsUser, user } = useRole();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(1);
@@ -30,13 +30,15 @@ export default function CreateLmpPage() {
   // Force re-mount of JD step when resuming a draft
   const [wizardKey, setWizardKey] = useState(0);
 
-  if (role !== "allocator" && role !== "admin") {
+  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
+
+  if ((role !== "allocator" && role !== "admin") || isViewingAsOther) {
     return (
       <PlaceholderView
         eyebrow="Restricted"
         title="Create a"
         tagline="process"
-        description="Switch to an Admin or Allocator role to access this wizard."
+        description={isViewingAsOther ? "Switch back to your own view to create a process." : "Switch to an Admin or Allocator role to access this wizard."}
         icon={PlusCircle}
         scopedTo={["admin", "allocator"]}
       />
@@ -143,7 +145,8 @@ export default function CreateLmpPage() {
         role: jd.role,
         domain: jd.domain,
         type: (jd as any)?.processType === "internship" ? "Internship" : "Full Time",
-        createdBy: role,
+        createdById: user.id,
+        createdByName: user.name,
         selection,
         jd: jdPayload,
       });

@@ -28,13 +28,14 @@ type LmpOwnership = {
  * Hook for checking action-level permissions based on current role.
  */
 export function useActionPermission() {
-  const { viewAsRole } = useRole();
+  const { role, viewAsRole, viewAsUser } = useRole();
+  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
   return useMemo(
     () => ({
-      can: (action: Action) => canPerform(viewAsRole, action),
-      role: viewAsRole,
+      can: (action: Action) => !isViewingAsOther && canPerform(role, action),
+      role,
     }),
-    [viewAsRole]
+    [isViewingAsOther, role]
   );
 }
 
@@ -43,26 +44,27 @@ export function useActionPermission() {
  * Pass the LMP ownership data to get context-aware permissions.
  */
 export function useLmpPermission(lmp?: LmpOwnership | null) {
-  const { viewAsRole, user } = useRole();
+  const { role, viewAsRole, viewAsUser, user } = useRole();
+  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
 
   return useMemo(() => {
     const ownership: LmpOwnership = lmp ?? {};
-    const accessLevel = getLmpAccessLevel(viewAsRole, user.name, ownership);
-    const isReadOnly = accessLevel === "summary";
+    const accessLevel = getLmpAccessLevel(role, user.name, ownership);
+    const isReadOnly = isViewingAsOther || accessLevel === "summary";
 
     return {
       accessLevel,
       isReadOnly,
       canEditField: (field: LmpField) =>
-        !isReadOnly && canEditFieldFinal(viewAsRole, field, user.name, ownership),
-      canChangeStatus: !isReadOnly && canPerform(viewAsRole, "change_status"),
-      canAssignPoc: canPerform(viewAsRole, "assign_poc"),
-      canChangeDomain: canPerform(viewAsRole, "change_domain"),
-      canDelete: canPerform(viewAsRole, "delete_lmp"),
+        !isReadOnly && canEditFieldFinal(role, field, user.name, ownership),
+      canChangeStatus: !isReadOnly && canPerform(role, "change_status"),
+      canAssignPoc: !isReadOnly && canPerform(role, "assign_poc"),
+      canChangeDomain: !isReadOnly && canPerform(role, "change_domain"),
+      canDelete: !isReadOnly && canPerform(role, "delete_lmp"),
       canRollback: (auditActorName: string) =>
-        canRollback(viewAsRole, user.name, auditActorName, ownership),
+        !isReadOnly && canRollback(role, user.name, auditActorName, ownership),
     };
-  }, [viewAsRole, user.name, lmp]);
+  }, [isViewingAsOther, role, user.name, lmp]);
 }
 
 /**

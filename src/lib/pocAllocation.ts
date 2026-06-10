@@ -55,6 +55,7 @@ export type HistoricalProcess = {
 };
 
 export type DomainTier = "primary" | "secondary" | "cross";
+export type DomainAliasResolver = (raw: string) => string;
 
 export type ScoreBreakdown = {
   domain?: number;
@@ -88,8 +89,8 @@ export type AllocationInput = {
   historicalProcesses?: HistoricalProcess[];
   /** Existing LMP processes for this company. Step 0 short-circuits scoring:
    *  first tries company+role match, then falls back to company-only match
-   *  (most recent record wins); the original Prep POC is re-assigned
-   *  regardless of current load. */
+   *  (most recent record wins); the original Prep POC is re-used only when
+   *  available and below its configured load threshold. */
   existingProcesses?: Array<{
     company: string;
     role: string;
@@ -142,10 +143,9 @@ export type AllocationResult = {
 
 export function detectPath(
   jdText?: string | null,
-  _domainMappings?: AllocationMapping[],
+  domainMappings?: AllocationMapping[],
 ): AllocationPath {
-  // Path C (admin-mapped) was removed: derived live-mappings always fired and
-  // killed JD scoring. JD-aware Path B now runs whenever JD text is present.
+  if (domainMappings?.some((mapping) => mapping.is_active)) return "C";
   if (typeof jdText === "string" && jdText.trim().length > 0) return "B";
   return "A";
 }
@@ -209,33 +209,29 @@ function expertiseScore(p: PocCapability, skills: ParsedJdSkills): number {
   return Math.round((weighted / totalWeight) * 100);
 }
 
-/**
- * Optional alias resolver: maps a raw domain string ("Founder's Office/Chief of
- * Staff", "Supply Chain", etc.) to its canonical slug. Configured by the wizard
- * via setDomainAliasResolver(). Default = identity (lowercased).
- */
-let _aliasResolver: (raw: string) => string = (s) => (s || "").trim().toLowerCase();
-export function setDomainAliasResolver(fn: (raw: string) => string): void {
-  _aliasResolver = (s) => fn(s || "");
-}
-
-function canon(s: string): string {
-  return _aliasResolver(s || "");
+function canon(s: string, resolver?: DomainAliasResolver): string {
+  return resolver
+    ? resolver(s || "")
+    : (s || "").trim().toLowerCase();
 }
 
 /** Tier detection: primary > secondary > cross. Exported so UI can reuse alias-aware matching. */
-export function getDomainTier(p: PocCapability, processDomain: string): DomainTier {
-  const target = canon(processDomain);
+export function getDomainTier(
+  p: PocCapability,
+  processDomain: string,
+  resolver?: DomainAliasResolver,
+): DomainTier {
+  const target = canon(processDomain, resolver);
   const primary = p.primaryDomains ?? p.domains;
   const secondary = p.secondaryDomains ?? [];
-  if (primary.some(d => canon(d) === target)) return "primary";
-  if (secondary.some(d => canon(d) === target)) return "secondary";
+  if (primary.some(d => canon(d, resolver) === target)) return "primary";
+  if (secondary.some(d => canon(d, resolver) === target)) return "secondary";
   return "cross";
 }
 
 /** Domain score: primary 100, secondary 70, cross 0. */
-function domainScore(p: PocCapability, processDomain: string): number {
-  const tier = getDomainTier(p, processDomain);
+function domainScore(p: PocCapability, processDomain: string, resolver?: DomainAliasResolver): number {
+  const tier = getDomainTier(p, processDomain, resolver);
   if (tier === "primary") return 100;
   if (tier === "secondary") return 70;
   return 0;
@@ -336,8 +332,9 @@ function scorePoc(
   pool: PocCapability[],
   path: AllocationPath,
   input: AllocationInput,
+  resolver?: DomainAliasResolver,
 ): { breakdown: ScoreBreakdown } {
-  const tier = getDomainTier(p, processDomain);
+  const tier = getDomainTier(p, processDomain, resolver);
   const isInDomain = tier !== "cross";
   const ls = loadScore(p);
   const fs = fairnessScore(p, pool);
@@ -345,7 +342,7 @@ function scorePoc(
   const { bonus } = resolveHistoryBonus(p, input);
 
   if (path === "B") {
-    const ds = domainScore(p, processDomain);
+    const ds = domainScore(p, processDomain, resolver);
     const es = expertiseScore(p, skills);
     const base = isInDomain
       ? Math.round(ds * 0.4 + es * 0.25 + ls * 0.3 + fs * 0.05)
@@ -383,6 +380,7 @@ function selectFromMappings(
   allPocs: PocCapability[],
   processDomain: string,
   input: AllocationInput,
+  resolver?: DomainAliasResolver,
 ): {
   poc: PocCapability;
   matchType: AllocationTag;
@@ -404,11 +402,11 @@ function selectFromMappings(
       (mapping.poc_id && prepPocs.find(p => p.id === mapping.poc_id)) ||
       prepPocs.find(p => p.name === mapping.poc_name);
     if (poc && poc.currentLoad < poc.maxThreshold) {
-      const { breakdown } = scorePoc(poc, processDomain, noSkills, prepPocs, "C", input);
+      const { breakdown } = scorePoc(poc, processDomain, noSkills, prepPocs, "C", input, resolver);
       const allScored = prepPocs.map(p => ({
         poc: p,
-        breakdown: scorePoc(p, processDomain, noSkills, prepPocs, "C", input).breakdown,
-        isInDomain: getDomainTier(p, processDomain) !== "cross",
+        breakdown: scorePoc(p, processDomain, noSkills, prepPocs, "C", input, resolver).breakdown,
+        isInDomain: getDomainTier(p, processDomain, resolver) !== "cross",
       }));
       return { poc, matchType: "Admin Mapped", breakdown, allScored };
     }
@@ -423,6 +421,7 @@ function selectPrepPoc(
   path: AllocationPath,
   allPocs: PocCapability[],
   domainMappings?: AllocationMapping[],
+  resolver?: DomainAliasResolver,
 ): {
   poc: PocCapability;
   matchType: AllocationTag;
@@ -435,7 +434,7 @@ function selectPrepPoc(
 
   // Path C attempt
   if (path === "C" && domainMappings && domainMappings.length > 0) {
-    const mapped = selectFromMappings(domainMappings, allPocs, processDomain, input);
+    const mapped = selectFromMappings(domainMappings, allPocs, processDomain, input, resolver);
     if (mapped) {
       return { ...mapped, effectivePath: "C" };
     }
@@ -445,27 +444,26 @@ function selectPrepPoc(
   const prepPocs = activePocs(getPrepPocs(allPocs));
   const eligiblePocs = eligible(prepPocs);
 
-  // Strict in-domain only. Never widen to cross-domain — if no POC has opted
-  // into this domain (primary or secondary), refuse to allocate. The wizard
-  // surfaces a manual-picker empty state in that case.
-  const inDomainEligible = eligiblePocs.filter(p => getDomainTier(p, processDomain) !== "cross");
-  const inDomainAll = prepPocs.filter(p => getDomainTier(p, processDomain) !== "cross");
-  const pool = inDomainEligible.length > 0 ? inDomainEligible : inDomainAll;
+  // Prefer eligible in-domain POCs. If none are eligible, widen to other
+  // eligible POCs as the documented cross-domain fallback. Never bypass load
+  // thresholds during automatic allocation.
+  const inDomainEligible = eligiblePocs.filter(p => getDomainTier(p, processDomain, resolver) !== "cross");
+  const pool = inDomainEligible.length > 0 ? inDomainEligible : eligiblePocs;
 
-  if (pool.length === 0) throw new Error("NO_DOMAIN_POCS");
+  if (pool.length === 0) throw new Error("NO_AVAILABLE_POCS");
 
   const effectivePath = path === "C" ? "A" : path; // C fallback → A
 
   const allScored = pool.map(p => {
-    const isInDomain = getDomainTier(p, processDomain) !== "cross";
-    const { breakdown } = scorePoc(p, processDomain, skills, pool, effectivePath, input);
+    const isInDomain = getDomainTier(p, processDomain, resolver) !== "cross";
+    const { breakdown } = scorePoc(p, processDomain, skills, pool, effectivePath, input, resolver);
     return { poc: p, breakdown, isInDomain };
   });
 
   // Sort: primary > secondary, then by score
   allScored.sort((a, b) => {
-    const ta = getDomainTier(a.poc, processDomain);
-    const tb = getDomainTier(b.poc, processDomain);
+    const ta = getDomainTier(a.poc, processDomain, resolver);
+    const tb = getDomainTier(b.poc, processDomain, resolver);
     const tierRank = (t: DomainTier) => (t === "primary" ? 0 : t === "secondary" ? 1 : 2);
     const tr = tierRank(ta) - tierRank(tb);
     if (tr !== 0) return tr;
@@ -473,11 +471,11 @@ function selectPrepPoc(
   });
 
   const top = allScored[0];
-  const topTier = getDomainTier(top.poc, processDomain);
+  const topTier = getDomainTier(top.poc, processDomain, resolver);
   const matchType: AllocationTag =
     topTier === "primary" ? "In-Domain"
     : topTier === "secondary" ? "Secondary Domain"
-    : "High Load Override";
+    : "Cross-Domain";
 
   return { poc: top.poc, matchType, breakdown: top.breakdown, allScored, effectivePath };
 }
@@ -489,9 +487,10 @@ function suggestSupportPocs(
   path: AllocationPath,
   prepPoc: PocCapability,
   allPocs: PocCapability[],
+  resolver?: DomainAliasResolver,
 ): Array<{ poc: PocCapability; breakdown: ScoreBreakdown }> {
   const prepPocs = activePocs(getPrepPocs(allPocs)).filter(p => p.name !== prepPoc.name);
-  const inDomain = prepPocs.filter(p => getDomainTier(p, input.processDomain) !== "cross");
+  const inDomain = prepPocs.filter(p => getDomainTier(p, input.processDomain, resolver) !== "cross");
   const eligiblePocs = eligible(inDomain);
   const pool = eligiblePocs.length > 0 ? eligiblePocs : inDomain;
 
@@ -499,7 +498,7 @@ function suggestSupportPocs(
 
   const skills = resolveJdSkills(input);
   const scored = pool.map(p => {
-    const { breakdown } = scorePoc(p, input.processDomain, skills, pool, path === "C" ? "A" : path, input);
+    const { breakdown } = scorePoc(p, input.processDomain, skills, pool, path === "C" ? "A" : path, input, resolver);
     return { poc: p, breakdown };
   });
 
@@ -513,6 +512,7 @@ export function allocatePoc(
   input: AllocationInput,
   pocPool?: PocCapability[],
   domainMappings?: AllocationMapping[],
+  resolver?: DomainAliasResolver,
 ): AllocationResult {
   if (!input.processDomain) throw new Error("MISSING_DOMAIN");
 
@@ -528,17 +528,22 @@ export function allocatePoc(
     const cmp = normalizeNameStr(input.companyName);
     const rl = normalizeNameStr(input.roleTitle);
 
-    const resolvePoc = (e: { prepPocId?: string; prepPoc?: string }) =>
-      (e.prepPocId && allPocs.find((p) => p.id === e.prepPocId)) ||
-      allPocs.find((p) => pocNameMatches(p.name, e.prepPoc ?? "")) ||
-      null;
+    const resolvePoc = (e: { prepPocId?: string; prepPoc?: string }) => {
+      if (e.prepPocId) return allPocs.find((p) => p.id === e.prepPocId) ?? null;
+      const matches = allPocs.filter((p) => pocNameMatches(p.name, e.prepPoc ?? ""));
+      return matches.length === 1 ? matches[0] : null;
+    };
+
+    const canReuse = (poc: PocCapability) =>
+      poc.availability === "available" &&
+      poc.currentLoad < poc.maxThreshold;
 
     const buildResult = (
       matchedPoc: PocCapability,
       subTag: "Existing Process · Same Role" | "Existing Process · Same Company",
       reason: string,
     ): AllocationResult => {
-      const tier = getDomainTier(matchedPoc, input.processDomain);
+      const tier = getDomainTier(matchedPoc, input.processDomain, resolver);
       const prep: AssignedPoc = {
         pocId: matchedPoc.id,
         name: matchedPoc.name,
@@ -571,11 +576,11 @@ export function allocatePoc(
     );
     for (const m of sameRoleMatches) {
       const poc = resolvePoc(m);
-      if (poc) {
+      if (poc && canReuse(poc)) {
         return buildResult(
           poc,
           "Existing Process · Same Role",
-          `Same company & role previously handled — ${poc.name} previously handled ${input.companyName} / ${input.roleTitle}. Re-assigned regardless of load.`,
+          `Same company & role previously handled — ${poc.name} previously handled ${input.companyName} / ${input.roleTitle} and remains within capacity.`,
         );
       }
     }
@@ -592,20 +597,20 @@ export function allocatePoc(
     );
     for (const m of sameCompanyMatches) {
       const poc = resolvePoc(m);
-      if (!poc) continue;
-      if (getDomainTier(poc, input.processDomain) === "cross") continue;
+      if (!poc || !canReuse(poc)) continue;
+      if (getDomainTier(poc, input.processDomain, resolver) === "cross") continue;
       const prevRole = m.role?.trim() || "—";
       return buildResult(
         poc,
         "Existing Process · Same Company",
-        `Same company previously handled — ${poc.name} previously handled ${input.companyName} (prior role: ${prevRole}). Re-assigned regardless of load.`,
+        `Same company previously handled — ${poc.name} previously handled ${input.companyName} (prior role: ${prevRole}) and remains within capacity.`,
       );
     }
   }
 
   const path = detectPath(input.jdText, domainMappings);
-  const prepResult = selectPrepPoc(input, path, allPocs, domainMappings);
-  const supportResults = suggestSupportPocs(input, prepResult.effectivePath, prepResult.poc, allPocs);
+  const prepResult = selectPrepPoc(input, path, allPocs, domainMappings, resolver);
+  const supportResults = suggestSupportPocs(input, prepResult.effectivePath, prepResult.poc, allPocs, resolver);
 
   const tags: AllocationTag[] = [];
   tags.push(prepResult.matchType);
@@ -615,11 +620,11 @@ export function allocatePoc(
 
   const hadJd = typeof input.jdText === "string" && input.jdText.trim().length > 0;
 
-  const prepTier = getDomainTier(prepResult.poc, input.processDomain);
+  const prepTier = getDomainTier(prepResult.poc, input.processDomain, resolver);
   const prepHistTag = resolveHistoryBonus(prepResult.poc, input).tag;
   const prepPoc = toAssigned(prepResult.poc, prepResult.matchType, prepResult.breakdown, prepTier, hadJd, prepHistTag);
   const supportSuggestionsList = supportResults.map(s => {
-    const tier = getDomainTier(s.poc, input.processDomain);
+    const tier = getDomainTier(s.poc, input.processDomain, resolver);
     const histTag = resolveHistoryBonus(s.poc, input).tag;
     return toAssigned(s.poc, "Support POC Suggested", s.breakdown, tier, hadJd, histTag);
   });
@@ -631,7 +636,7 @@ export function allocatePoc(
   const winnerUnder = isUnderutilized(prepResult.poc);
   const closeRival = prepResult.allScored.some(s =>
     s.poc.name !== prepResult.poc.name &&
-    getDomainTier(s.poc, input.processDomain) === winnerTier &&
+    getDomainTier(s.poc, input.processDomain, resolver) === winnerTier &&
     !isUnderutilized(s.poc) &&
     Math.abs(s.breakdown.final - prepResult.breakdown.final) <= 10,
   );
@@ -643,7 +648,7 @@ export function allocatePoc(
     .filter(s => !chosenNames.has(s.poc.name))
     .slice(0, 5)
     .map(s => {
-      const tier = getDomainTier(s.poc, input.processDomain);
+      const tier = getDomainTier(s.poc, input.processDomain, resolver);
       const altTag: AllocationTag =
         tier === "primary" ? "In-Domain"
         : tier === "secondary" ? "Secondary Domain"
@@ -705,8 +710,9 @@ function toAssigned(
 export function buildManualAssignment(
   p: PocCapability,
   processDomain: string,
+  resolver?: DomainAliasResolver,
 ): AssignedPoc {
-  const tier = getDomainTier(p, processDomain);
+  const tier = getDomainTier(p, processDomain, resolver);
   return {
     pocId: p.id,
     name: p.name,
@@ -753,5 +759,5 @@ export const PATH_DESCRIPTIONS: Record<AllocationPath, string> = {
   A: "Load × 0.70 + Fairness × 0.30 (no JD signal)",
   B: "In-domain: Domain×0.40 + Expertise×0.25 + Load×0.30 + Fairness×0.05 · Cross: Expertise×0.45 + Load×0.45 + Fairness×0.10",
   C: "Hard filter to admin-mapped POCs, picked by priority then load",
-  E: "Same company+role previously handled — re-assign original Prep POC regardless of load",
+  E: "Same company+role previously handled — re-use original Prep POC when available and within capacity",
 };

@@ -1240,6 +1240,7 @@ export type Database = {
           company: string
           convert_names: string | null
           created_at: string
+          created_by: string | null
           daily_progress: string | null
           date: string | null
           domain_id: string | null
@@ -1306,6 +1307,7 @@ export type Database = {
           company: string
           convert_names?: string | null
           created_at?: string
+          created_by?: string | null
           daily_progress?: string | null
           date?: string | null
           domain_id?: string | null
@@ -1372,6 +1374,7 @@ export type Database = {
           company?: string
           convert_names?: string | null
           created_at?: string
+          created_by?: string | null
           daily_progress?: string | null
           date?: string | null
           domain_id?: string | null

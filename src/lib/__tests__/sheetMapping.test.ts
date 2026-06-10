@@ -3,7 +3,7 @@
  * Verifies that DB_TO_SHEET and sheetPatchToDbPatch work correctly.
  */
 import { describe, it, expect } from "vitest";
-import { DB_TO_SHEET, DB_STATUS_TO_SHEET, sheetPatchToDbPatch } from "@/lib/sheets/fieldMap";
+import { appPatchToDbPatch, DB_TO_SHEET, DB_STATUS_TO_SHEET, sheetPatchToDbPatch } from "@/lib/sheets/fieldMap";
 
 describe("DB_TO_SHEET field map", () => {
   it("is a non-empty object", () => {
@@ -60,12 +60,8 @@ describe("sheetPatchToDbPatch (sheet header → DB column translation)", () => {
     expect(result["comments"]).toBe("My note");
   });
 
-  it("translates Status sheet header with status normalization", () => {
-    // The function normalizes sheet status values to DB status slugs
-    const result = sheetPatchToDbPatch({ Status: "Prep Ongoing" });
-    expect(result["status"]).toBeDefined();
-    // Should not be the raw sheet value — should be a DB slug
-    expect(typeof result["status"]).toBe("string");
+  it("rejects non-whitelisted Sheet fields", () => {
+    expect(sheetPatchToDbPatch({ Status: "Prep Ongoing" })).toEqual({});
   });
 
   it("drops unknown sheet headers", () => {
@@ -79,12 +75,24 @@ describe("sheetPatchToDbPatch (sheet header → DB column translation)", () => {
     expect(Object.keys(result)).toHaveLength(0);
   });
 
-  it("translates multiple known fields in one call", () => {
+  it("keeps only whitelisted fields in mixed Sheet patches", () => {
     const result = sheetPatchToDbPatch({
       Comment: "Note",
       "Prep Doc": "https://docs.example.com",
     });
     expect(result["comments"]).toBe("Note");
-    expect(result["prep_doc"]).toBe("https://docs.example.com");
+    expect(result["prep_doc"]).toBeUndefined();
+  });
+});
+
+describe("appPatchToDbPatch", () => {
+  it("translates trusted app patches and normalizes status", () => {
+    expect(appPatchToDbPatch({
+      Status: "Prep Ongoing",
+      "Prep Doc": "https://docs.example.com",
+    })).toEqual({
+      status: "prep-ongoing",
+      prep_doc: "https://docs.example.com",
+    });
   });
 });

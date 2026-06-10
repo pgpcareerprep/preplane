@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
@@ -21,6 +22,8 @@ async function resolveEmailForName(supabase: any, name?: string | null): Promise
 Deno.serve(async (req) => {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const auth = await requireAuth(req, corsHeaders);
+  if ("error" in auth) return auth.error;
 
   try {
     const body = await req.json();
@@ -42,9 +45,9 @@ Deno.serve(async (req) => {
 
     // Build recipient list
     let recipients: string[] = [];
-    if (Array.isArray(to_emails) && to_emails.length > 0) {
+    if (auth.user.role === "admin" && Array.isArray(to_emails) && to_emails.length > 0) {
       recipients = to_emails.filter(Boolean).map((e: string) => String(e).trim());
-    } else if (to_email) {
+    } else if (auth.user.role === "admin" && to_email) {
       recipients = [String(to_email).trim()];
     } else {
       const prepEmail = await resolveEmailForName(supabase, (lmp as any)?.prep_poc);

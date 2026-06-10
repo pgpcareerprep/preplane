@@ -1,4 +1,3 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
@@ -14,31 +13,12 @@ Deno.serve(async (req) => {
 
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;
-
-
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userData?.user) {
-      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const userEmail = userData.user.email;
-
     const body = await req.json().catch(() => ({}));
-    const to = (body?.to as string) || userEmail;
+    const requestedTo = String(body?.to || "").trim();
+    const to = auth.user.role === "admin" && requestedTo
+      ? requestedTo
+      : auth.user.email;
     if (!to) {
       return new Response(JSON.stringify({ ok: false, error: "No recipient" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

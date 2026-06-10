@@ -13,7 +13,7 @@ import { useRole } from "@/lib/rolesContext";
 
 // Canonical sheet ↔ DB column map. Edits go in src/lib/sheets/fieldMap.ts
 // (and the Deno mirror at supabase/functions/_shared/fieldMap.ts).
-import { SHEET_TO_DB as SHEET_COL_TO_DB, sheetPatchToDbPatch } from "./fieldMap";
+import { SHEET_TO_DB as SHEET_COL_TO_DB, appPatchToDbPatch } from "./fieldMap";
 import { derivePrepDocLink } from "@/lib/lmp/prepDocLink";
 import type { DocumentLink } from "@/components/lmp/bento/DocumentsCard";
 export { SHEET_COL_TO_DB };
@@ -664,7 +664,7 @@ export function useLmpMutation() {
     mutationFn: async (row: Record<string, unknown>) => {
       // DB-first: write to lmp_processes, then best-effort mirror to sheet.
       const sheetPatch = toSheetPatch(row);
-      const dbPatch = sheetPatchToDbPatch(sheetPatch);
+      const dbPatch = appPatchToDbPatch(sheetPatch);
       // Required columns
       if (!dbPatch.company) dbPatch.company = (row as any).company ?? "";
       if (!dbPatch.role) dbPatch.role = (row as any).role ?? "";
@@ -713,7 +713,7 @@ export function useLmpMutation() {
         }
       }
       const sheetPatch = toSheetPatch(patch);
-      const dbPatch = sheetPatchToDbPatch(sheetPatch);
+      const dbPatch = appPatchToDbPatch(sheetPatch);
 
       // "Prep Doc" sheet column ↔ lmp_processes.prep_doc DB column is not in
       // SHEET_HEADER_TO_DB (only Prep Doc Shared / Prep Doc Link are). When the
@@ -748,7 +748,7 @@ export function useLmpMutation() {
       // Route through toSheetPatch first so camelCase record keys
       // (mentorAligned, nextExpectedProgress, …) map to DB columns.
       // Without this, the optimistic patch was a no-op for every field.
-      const dbPatch = sheetPatchToDbPatch(toSheetPatch(patch));
+      const dbPatch = appPatchToDbPatch(toSheetPatch(patch));
       await qc.cancelQueries({ queryKey: ["db-lmp-processes"] });
       await qc.cancelQueries({ queryKey: ["db-lmp-process", id] });
       const snapshots = qc.getQueriesData<any[]>({ queryKey: ["db-lmp-processes"] });

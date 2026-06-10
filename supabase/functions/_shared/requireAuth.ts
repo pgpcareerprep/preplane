@@ -65,3 +65,47 @@ export async function requireAuth(
     user: { id: data.user.id, email: data.user.email ?? null, role },
   };
 }
+
+export async function requireRole(
+  req: Request,
+  cors: Record<string, string>,
+  roles: Array<AuthedUser["role"]>,
+): Promise<{ user: AuthedUser } | { error: Response }> {
+  return requireAuth(req, cors, { requireRoles: roles });
+}
+
+export async function isInternalRequest(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  if (SERVICE_ROLE && bearer === SERVICE_ROLE) return true;
+
+  const supplied = req.headers.get("x-internal-secret")?.trim() || "";
+  if (!supplied) return false;
+
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await admin
+    .from("_internal_cron_auth")
+    .select("token")
+    .limit(1)
+    .maybeSingle();
+
+  return !error && !!data?.token && supplied === data.token;
+}
+
+export async function requireInternalSecret(
+  req: Request,
+  cors: Record<string, string>,
+): Promise<{ internal: true } | { error: Response }> {
+  if (await isInternalRequest(req)) return { internal: true };
+  return { error: jsonError(401, "Invalid internal authorization", cors) };
+}
+
+export async function requireAdminOrInternal(
+  req: Request,
+  cors: Record<string, string>,
+): Promise<{ internal: true } | { user: AuthedUser } | { error: Response }> {
+  if (await isInternalRequest(req)) return { internal: true };
+  return requireRole(req, cors, ["admin"]);
+}

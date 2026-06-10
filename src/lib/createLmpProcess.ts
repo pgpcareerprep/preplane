@@ -31,7 +31,8 @@ export type CreateLmpPayload = {
   role: string;
   domain: string;
   type?: string;
-  createdBy?: string;
+  createdById?: string;
+  createdByName?: string;
   selection: ConfirmedPocSelection;
   jd?: CreateLmpJdPayload;
 };
@@ -156,7 +157,7 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
         jd_seniority: jd.seniority ?? null,
         jd_source: jd.source,
         jd_uploaded_at: new Date().toISOString(),
-        jd_uploaded_by: jd.uploadedBy ?? payload.createdBy ?? null,
+        jd_uploaded_by: jd.uploadedBy ?? payload.createdByName ?? null,
       }
     : {};
 
@@ -173,7 +174,8 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
       prep_poc: prepName,
       support_poc: supportName,
       outreach_poc: outreachName,
-      allocator: payload.createdBy ?? null,
+      allocator: payload.createdByName ?? null,
+      created_by: payload.createdById ?? null,
       allocation_path: allocation.path,
       allocation_reason: allocationReason,
       match_tag: allocation.tags.join(", "),

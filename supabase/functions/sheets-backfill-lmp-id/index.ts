@@ -9,6 +9,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { requireAdminOrInternal } from "../_shared/requireAuth.ts";
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -20,6 +21,8 @@ const TAB = "LMP Tracker";
 Deno.serve(async (req: Request) => {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const auth = await requireAdminOrInternal(req, corsHeaders);
+  if ("error" in auth) return auth.error;
 
   const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
   let SPREADSHEET_ID = Deno.env.get("LMP_SPREADSHEET_ID") ?? "";

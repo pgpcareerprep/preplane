@@ -122,7 +122,7 @@ const AppRoutes = () => (
 
     {/* Admin-only routes */}
     <Route path="/data-sources" element={
-      <RouteRoleGate allowed={["admin", "allocator", "poc"]}>
+      <RouteRoleGate allowed={["admin"]}>
         <DataSourcesPage />
       </RouteRoleGate>
     } />
@@ -151,22 +151,22 @@ const AppRoutes = () => (
       </RouteRoleGate>
     }>
       <Route index element={<GeneralPage />} />
-      <Route path="scoring" element={<ScoringWeightsPage />} />
-      <Route path="poc-domains" element={<PocDomainsPage />} />
-      <Route path="feedback" element={<FeedbackFormsPage />} />
+      <Route path="scoring" element={<RouteRoleGate allowed={["admin", "allocator"]}><ScoringWeightsPage /></RouteRoleGate>} />
+      <Route path="poc-domains" element={<RouteRoleGate allowed={["admin", "allocator"]}><PocDomainsPage /></RouteRoleGate>} />
+      <Route path="feedback" element={<RouteRoleGate allowed={["admin", "allocator"]}><FeedbackFormsPage /></RouteRoleGate>} />
       <Route path="users" element={
         <RouteRoleGate allowed={["admin"]}>
           <UserManagementPage />
         </RouteRoleGate>
       } />
       
-      <Route path="notifications" element={<NotificationsPage />} />
+      <Route path="notifications" element={<RouteRoleGate allowed={["admin", "allocator"]}><NotificationsPage /></RouteRoleGate>} />
       <Route path="knowledge" element={
         <RouteRoleGate allowed={["admin"]}>
           <KnowledgeBasePage />
         </RouteRoleGate>
       } />
-      <Route path="lmp-guide" element={<LmpGuidePage />} />
+      <Route path="lmp-guide" element={<RouteRoleGate allowed={["admin", "allocator"]}><LmpGuidePage /></RouteRoleGate>} />
     </Route>
 
     <Route path="*" element={<NotFound />} />

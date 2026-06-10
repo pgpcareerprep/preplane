@@ -63,7 +63,7 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin", "allocator", "poc"],
+  delete_lmp: ["admin"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
   change_domain: ["admin", "allocator"],
@@ -139,12 +139,12 @@ type FieldPermission = {
 };
 
 const FIELD_PERMISSIONS: Record<LmpField, FieldPermission> = {
-  company: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  role: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  company: { editable: ["admin", "allocator"], requiresOwnership: true },
+  role: { editable: ["admin", "allocator"], requiresOwnership: true },
   domain: { editable: ["admin", "allocator"], requiresOwnership: true },
   status: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  type: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  date: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  type: { editable: ["admin", "allocator"], requiresOwnership: true },
+  date: { editable: ["admin", "allocator"], requiresOwnership: true },
   closing_date: { editable: ["admin", "allocator"], requiresOwnership: true },
   admin_owner: { editable: ["admin"], requiresOwnership: true },
   allocator: { editable: ["admin"], requiresOwnership: true },

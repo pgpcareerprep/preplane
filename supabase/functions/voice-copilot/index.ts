@@ -4,6 +4,7 @@
 // - Reads + staged writes against the same Supabase tables the chat copilot uses
 // - All writes go through prepare -> verbal confirm -> execute
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 import { isMentorCoverageQuery, isPocWorkloadQuery } from "../_shared/copilotFastPaths.ts";
 import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
@@ -21,10 +22,18 @@ const corsHeaders: Record<string, string> = {
 const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const MAX_ROUNDS = 4;
 
-// Request-scoped view-as flag. Set per-request before runTool runs.
-// View-as is always read-only — runTool will refuse prepare_write while true.
-let CURRENT_VIEW_AS: { impersonating: boolean; name: string | null } = { impersonating: false, name: null };
-let CURRENT_VOICE_USER_ID: string | null = null;
+type VoiceRequestState = {
+  viewAs: { impersonating: boolean; name: string | null };
+  userId: string | null;
+};
+
+const voiceRequestStateStorage = new AsyncLocalStorage<VoiceRequestState>();
+
+function voiceRequestState(): VoiceRequestState {
+  const state = voiceRequestStateStorage.getStore();
+  if (!state) throw new Error("Voice request context is unavailable");
+  return state;
+}
 
 const SYSTEM_PROMPT = `You are a CONVERSATIONAL VOICE assistant for the LMP placement platform. Your replies are spoken aloud.
 
@@ -623,7 +632,7 @@ async function callModel(messages: any[], forceTool = false) {
   if (!resp) {
     const e = lastError || new Error("AI gateway unavailable");
     logAiUsage({
-      userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: usedModel,
+      userId: voiceRequestState().userId, feature: "voice-gemini", model: usedModel,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0, status: "error",
       errorMessage: (e as Error).message,
@@ -637,7 +646,7 @@ async function callModel(messages: any[], forceTool = false) {
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
     logAiUsage({
-      userId: CURRENT_VOICE_USER_ID, feature: "voice", model: usedModel,
+      userId: voiceRequestState().userId, feature: "voice", model: usedModel,
       promptTokens: estimateTokens(promptText),
       latencyMs: Date.now() - t0,
       status: resp.status === 429 ? "rate_limited" : "error",
@@ -651,7 +660,7 @@ async function callModel(messages: any[], forceTool = false) {
   const pt = Number(usage.prompt_tokens) || estimateTokens(promptText);
   const rt = Number(usage.completion_tokens) || estimateTokens(JSON.stringify(data?.choices?.[0]?.message ?? ""));
   logAiUsage({
-    userId: CURRENT_VOICE_USER_ID, feature: "voice-gemini", model: usedModel,
+    userId: voiceRequestState().userId, feature: "voice-gemini", model: usedModel,
     promptTokens: pt, responseTokens: rt,
     totalTokens: Number(usage.total_tokens) || (pt + rt),
     latencyMs: Date.now() - t0, status: "ok",
@@ -684,12 +693,12 @@ async function runTool(name: string, args: any): Promise<{ result: any; pending?
     }
     case "prepare_write": {
       const pending = args as PendingAction;
-      if (CURRENT_VIEW_AS.impersonating) {
+      if (voiceRequestState().viewAs.impersonating) {
         return {
           result: {
             staged: false,
             blocked: true,
-            summary: `Read-only while viewing as ${CURRENT_VIEW_AS.name ?? "another user"}. Switch back to your own view to make changes.`,
+            summary: `Read-only while viewing as ${voiceRequestState().viewAs.name ?? "another user"}. Switch back to your own view to make changes.`,
           },
         };
       }
@@ -713,7 +722,7 @@ async function runTool(name: string, args: any): Promise<{ result: any; pending?
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { createLogger } from "../_shared/logger.ts";
 
-Deno.serve(async (req) => {
+async function handleVoiceRequest(req: Request) {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const log = createLogger("voice-copilot", req);
@@ -724,7 +733,7 @@ Deno.serve(async (req) => {
     return auth.error;
   }
   const userLog = log.child({ user_id: auth.user.id, role: auth.user.role });
-  CURRENT_VOICE_USER_ID = auth.user.id;
+  voiceRequestState().userId = auth.user.id;
   try {
     const body = await req.json();
     const {
@@ -751,7 +760,7 @@ Deno.serve(async (req) => {
     const viewAsName = (bodyViewAsUserName || "").trim();
     const viewAsRole = (bodyViewAsRole || bodyRole || realRole).trim();
     const isImpersonating = !!viewAsName && viewAsName.toLowerCase() !== realName.toLowerCase();
-    CURRENT_VIEW_AS = { impersonating: isImpersonating, name: isImpersonating ? viewAsName : null };
+    voiceRequestState().viewAs = { impersonating: isImpersonating, name: isImpersonating ? viewAsName : null };
     // Effective identity = who the model should answer "as".
     const effectiveName = isImpersonating ? viewAsName : realName;
     const effectiveRole = isImpersonating ? viewAsRole : realRole;
@@ -916,4 +925,11 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-});
+}
+
+Deno.serve((req: Request) =>
+  voiceRequestStateStorage.run(
+    { viewAs: { impersonating: false, name: null }, userId: null },
+    () => handleVoiceRequest(req),
+  )
+);
