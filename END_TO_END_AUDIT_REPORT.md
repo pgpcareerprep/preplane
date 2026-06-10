@@ -40,11 +40,21 @@ the authoritative post-remediation result after phased production releases.
 
 ## Executive Summary
 
-PrepLane has a broad functional surface and a substantial amount of implemented product logic, but it is not yet safe to treat as a fully wired, reliable agentic operations platform. The largest risks are not cosmetic. They are inconsistent authorization rules, request state shared between concurrent Copilot users, privileged Edge Functions without function-level authorization, conflicting sheet-sync implementations, and business-critical allocation/matching logic without direct tests.
+PrepLane's original critical security and data-integrity findings have been
+remediated and deployed through phased releases. Request isolation, privileged
+function authorization, assignment-scoped RLS, view-as mutation safety, the
+Sheet outbox, creator attribution, allocation ambiguity handling, server AI
+budgets, feedback-token security, operational configuration, dependency
+security, and release gates now have direct implementation and verification
+evidence.
 
-The application builds and its current unit tests pass, but those tests cover a small fraction of the highest-risk behavior. The production public routes tested behaved correctly, while authenticated end-to-end workflows could not be exercised without a test account.
+The principal remaining risk is verification depth rather than a known open
+critical defect: the seeded authenticated browser suite cannot execute until
+staging role credentials/storage states are configured. The original findings
+and evidence below are retained as historical audit context; the remediation
+status table above is authoritative.
 
-### Overall Risk
+### Original Overall Risk
 
 | Area | Risk | Summary |
 |---|---|---|
