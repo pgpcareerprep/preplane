@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || 'https://sgqwnjajvgjcwqergnsr.supabase.co' }}
+  VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || 'ci-public-placeholder' }}
+  SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://sgqwnjajvgjcwqergnsr.supabase.co' }}
+
 jobs:
   verify:
     runs-on: ubuntu-latest
