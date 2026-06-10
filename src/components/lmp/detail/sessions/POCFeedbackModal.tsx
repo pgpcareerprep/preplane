@@ -6,7 +6,8 @@ import { Check, Copy, Loader2, MessageCircle, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { generateToken, type Session } from "@/lib/session";
+import type { Session } from "@/lib/session";
+import { issueSessionFeedbackToken } from "@/lib/feedbackTokens";
 import { DynamicFeedbackForm } from "@/components/feedback/DynamicFeedbackForm";
 import { useFeedbackTemplate } from "@/lib/hooks/useFeedbackTemplates";
 import { initialValues, validateValues } from "@/lib/feedbackForm";
@@ -77,8 +78,6 @@ export function POCFeedbackModal({
 
   const submit = async () => {
     if (!requiredMet) { setShowErrors(true); return; }
-    const t = generateToken();
-
     // Derive numeric mentor_rating from rating / rating_group fields.
     const ratings: number[] = [];
     for (const f of tpl?.fields ?? []) {
@@ -99,11 +98,18 @@ export function POCFeedbackModal({
     if (dbSessionId) {
       const { error } = await supabase
         .from("sessions")
-        .update({ poc_feedback: JSON.stringify(values), student_feedback_token: t, mentor_rating })
+        .update({ poc_feedback: JSON.stringify(values), mentor_rating })
         .eq("id", dbSessionId);
       if (error) { toast.error(`Failed to save: ${error.message}`); return; }
     }
 
+    let t = "";
+    try {
+      t = dbSessionId ? await issueSessionFeedbackToken(dbSessionId) : "";
+    } catch (error) {
+      toast.error(`Feedback saved, but link issuance failed: ${(error as Error).message}`);
+      return;
+    }
     setSubmitted(t);
     onComplete(t);
   };

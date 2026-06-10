@@ -69,6 +69,12 @@ describe("critical security wiring", () => {
       expect(source).toContain("enforceFeedbackRateLimit");
       expect(source).not.toContain('.eq("student_feedback_token"');
     }
+    const issuer = read("supabase/migrations/20260610190000_server_feedback_token_issuance.sql");
+    const email = read("supabase/functions/send-student-feedback-email/index.ts");
+    expect(issuer).toContain("issue_session_feedback_token");
+    expect(issuer).toContain("student_feedback_token = NULL");
+    expect(email).toContain("await userClient.rpc(");
+    expect(email).not.toContain("body?.origin");
   });
 
   it("routes Sheet writes through one authenticated outbox worker", () => {
@@ -81,6 +87,9 @@ describe("critical security wiring", () => {
     expect(worker).toContain('"x-sheet-sweeper": "1"');
     expect(migration).not.toContain("net.http_post");
     expect(migration).toContain("sheet_write_queue_pending_idempotency_key");
+    expect(read("src/lib/sheets/fieldMap.ts")).toContain(
+      'from "../../../supabase/functions/_shared/fieldMap"',
+    );
   });
 
   it("uses one permission contract and transactional mentor assignment", () => {

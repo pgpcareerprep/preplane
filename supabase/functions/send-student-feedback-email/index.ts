@@ -25,22 +25,28 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const sessionId = body?.sessionId as string | undefined;
-    const origin = (body?.origin as string | undefined) || "https://preplane.pages.dev";
+    const origin = pickAllowedOrigin(req);
     if (!sessionId) return json({ ok: false, error: "Missing sessionId" }, 400);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    const { data: issuedToken, error: tokenError } = await userClient.rpc(
+      "issue_session_feedback_token",
+      { p_session_id: sessionId },
+    );
+    if (tokenError || typeof issuedToken !== "string") {
+      return json({ ok: false, error: tokenError?.message || "Could not issue feedback token" }, 400);
+    }
 
     const { data: session, error: sErr } = await admin
       .from("sessions")
-      .select("id, student_feedback_token, student_feedback, candidate_ids, student_id, session_type, scheduled_at, mentors:mentor_id(name), lmp:lmp_id(company, role)")
+      .select("id, student_feedback, candidate_ids, student_id, session_type, scheduled_at, mentors:mentor_id(name), lmp:lmp_id(company, role)")
       .eq("id", sessionId)
       .maybeSingle();
     if (sErr) throw sErr;
     if (!session) return json({ ok: false, error: "Session not found" }, 404);
-    if (!session.student_feedback_token) return json({ ok: false, error: "No feedback token on session" }, 400);
     if (session.student_feedback && Object.keys(session.student_feedback as object).length > 0) {
       return json({ ok: false, error: "Feedback already submitted" }, 400);
     }
@@ -70,7 +76,7 @@ Deno.serve(async (req) => {
     const scheduledLabel = scheduledAt
       ? new Date(scheduledAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })
       : null;
-    const link = `${origin.replace(/\/$/, "")}/feedback/${session.student_feedback_token}`;
+    const link = `${origin.replace(/\/$/, "")}/feedback/${issuedToken}`;
 
 
     const results: Array<{ to: string; ok: boolean; messageId?: string; error?: string }> = [];

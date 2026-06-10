@@ -186,10 +186,10 @@ export function UploadCsvModal({
     setStep("map");
   };
 
-  const handleFile = (f: File) => {
+  const handleFile = async (f: File) => {
     setFile(f);
     const isCsv = /\.csv$/i.test(f.name);
-    const isXlsx = /\.xlsx?$/i.test(f.name);
+    const isXlsx = /\.xlsx$/i.test(f.name);
     if (isCsv) {
       Papa.parse<MentorCsvRow>(f, {
         header: true, skipEmptyLines: true,
@@ -197,29 +197,20 @@ export function UploadCsvModal({
         error: () => toast.error("Failed to parse CSV"),
       });
     } else if (isXlsx) {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const XLSX = await import("xlsx");
-          const buf = e.target?.result as ArrayBuffer;
-          const wb = XLSX.read(buf, { type: "array" });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          if (!ws) { toast.error("Workbook has no sheets"); return; }
-          const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "", raw: false });
-          const data = raw.map(r => {
-            const out: Record<string, string> = {};
-            for (const k of Object.keys(r)) out[k] = r[k] == null ? "" : String(r[k]);
-            return out;
-          }) as MentorCsvRow[];
-          const fieldSet = new Set<string>();
-          data.forEach(r => Object.keys(r).forEach(k => fieldSet.add(k)));
-          applyParsed(Array.from(fieldSet), data);
-        } catch {
-          toast.error("Failed to parse Excel file");
-        }
-      };
-      reader.onerror = () => toast.error("Failed to read file");
-      reader.readAsArrayBuffer(f);
+      try {
+        const { default: readXlsxFile } = await import("read-excel-file/browser");
+        const [headerRow = [], ...bodyRows] = await readXlsxFile(f);
+        const fields = headerRow.map((value) => String(value ?? "").trim()).filter(Boolean);
+        const data = bodyRows
+          .filter((row) => row.some((value) => value != null && String(value).trim() !== ""))
+          .map((row) => Object.fromEntries(fields.map((field, index) => [
+            field,
+            row[index] == null ? "" : String(row[index]),
+          ]))) as MentorCsvRow[];
+        await applyParsed(fields, data);
+      } catch {
+        toast.error("Failed to parse XLSX file");
+      }
     } else {
       toast.error("Unsupported file type. Use CSV or Excel.");
     }
@@ -407,7 +398,7 @@ export function UploadCsvModal({
                   </button>
                 </p>
                 <p className="text-[11px] text-n500 mt-1">CSV or Excel · max 20 MB</p>
-                <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+                <input ref={inputRef} type="file" accept=".csv,.xlsx" className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
               </div>
 

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { Session as MockSession } from "@/lib/session";
+import { issueSessionFeedbackToken } from "@/lib/feedbackTokens";
 
 const STATUS_CLS: Record<string, string> = {
   scheduled: "bg-sky-50 text-sky-700 border-sky-200",
@@ -156,23 +157,23 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
   };
 
   const handleMarkComplete = (g: GroupedSession) => {
-    // Auto-generate a student feedback token if the session doesn't have one.
-    // This enables the copy-link feature in the Feedback tab immediately.
-    const feedbackToken = g.primary.student_feedback_token
-      ?? crypto.randomUUID().replace(/-/g, "");
     updateStatus.mutate(
       {
         ids: g.sessionIds,
         patch: {
           status: "completed",
           completed_at: new Date().toISOString(),
-          student_feedback_token: feedbackToken,
         },
       },
       {
-        onSuccess: () => {
-          toast.success("Session marked complete — fill POC feedback");
-          setFeedbackRow({ row: { ...g.primary, status: "completed", student_feedback_token: feedbackToken }, candidates: g.candidates });
+        onSuccess: async () => {
+          try {
+            const feedbackToken = await issueSessionFeedbackToken(g.primary.id);
+            toast.success("Session marked complete — fill POC feedback");
+            setFeedbackRow({ row: { ...g.primary, status: "completed", student_feedback_token: feedbackToken }, candidates: g.candidates });
+          } catch (error) {
+            toast.error(`Session completed, but link issuance failed: ${(error as Error).message}`);
+          }
         },
       },
     );
@@ -332,7 +333,14 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
                     <ActBtn variant="primary" onClick={() => setFeedbackRow({ row: s, candidates: g.candidates })}>Fill POC feedback →</ActBtn>
                   )}
                   {s.status === "completed" && hasPocFeedback && !hasStudentFeedback && !isGroup && (
-                    <ActBtn variant="secondary" onClick={() => setShareRow(s)}>Share student link</ActBtn>
+                    <ActBtn variant="secondary" onClick={async () => {
+                      try {
+                        const token = await issueSessionFeedbackToken(s.id);
+                        setShareRow({ ...s, student_feedback_token: token });
+                      } catch (error) {
+                        toast.error(`Failed: ${(error as Error).message}`);
+                      }
+                    }}>Share student link</ActBtn>
                   )}
                   {s.status === "completed" && hasStudentFeedback && (
                     <span className="text-[12px] text-sage-600">✓ All feedback collected</span>

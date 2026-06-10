@@ -35,10 +35,3 @@ export const STATUS_META: Record<SessionStatus, { label: string; chip: string; p
   "feedback-pending":  { label: "Feedback Pending", chip: "bg-orange-50 text-orange-600 border-orange-200", pulse: true },
   "closed":            { label: "Closed",           chip: "bg-n100 text-n500 border-n200" },
 };
-
-export function generateToken() {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let out = "fb_";
-  for (let i = 0; i < 16; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}

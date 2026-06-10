@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { StudentFeedbackDrawer } from "./feedback/StudentFeedbackDrawer";
+import { copySessionFeedbackLink, issueSessionFeedbackToken } from "@/lib/feedbackTokens";
 
 type Row = {
   id: string;
@@ -293,20 +294,24 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
     });
   }, [collapsedSessions, mentorName]);
 
-  const copyLink = (token: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/feedback/${token}`);
-    toast.success("Student feedback link copied");
+  const copyLink = async (sessionId: string) => {
+    try {
+      await copySessionFeedbackLink(sessionId);
+      toast.success("Fresh student feedback link copied");
+    } catch (error) {
+      toast.error(`Failed: ${(error as Error).message}`);
+    }
   };
 
   const regenerate = async () => {
     if (!regenId) return;
-    const newToken = crypto.randomUUID().replace(/-/g, "");
-    const { error } = await supabase
-      .from("sessions")
-      .update({ student_feedback_token: newToken })
-      .eq("id", regenId);
-    if (error) { toast.error(`Failed: ${error.message}`); return; }
-    toast.success("Token regenerated");
+    try {
+      await issueSessionFeedbackToken(regenId);
+      toast.success("Feedback link rotated");
+    } catch (error) {
+      toast.error(`Failed: ${(error as Error).message}`);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["lmp-sessions", lmpId] });
     setRegenId(null);
   };
@@ -457,26 +462,24 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
                               </span>
                             )}
                           </span>
-                        ) : s.student_feedback_token ? (
+                        ) : !readOnly ? (
                           <span className="inline-flex items-center gap-2 text-n500">
                             ⏳ Waiting
                             <button
-                              onClick={() => copyLink(s.student_feedback_token!)}
+                              onClick={() => copyLink(s.id)}
                               className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-medium"
                             >
                               <Copy className="h-3 w-3" /> Copy link
                             </button>
-                            {!readOnly && (
-                              <button
-                                onClick={() => setRegenId(s.id)}
-                                className="inline-flex items-center gap-1 text-coral-600 hover:text-coral-700 font-medium"
-                              >
-                                <RefreshCcw className="h-3 w-3" /> Regenerate
-                              </button>
-                            )}
+                            <button
+                              onClick={() => setRegenId(s.id)}
+                              className="inline-flex items-center gap-1 text-coral-600 hover:text-coral-700 font-medium"
+                            >
+                              <RefreshCcw className="h-3 w-3" /> Rotate
+                            </button>
                           </span>
                         ) : (
-                          <span className="text-n400">— Awaiting POC</span>
+                          <span className="text-n400">— Link available to assigned POC</span>
                         )}
                       </Td>
                       <Td>

@@ -59,7 +59,7 @@ export function LmpCommentsDrawer() {
         aria-label="LMP comments"
         className={cn(
           "fixed right-0 top-0 z-50 h-screen w-full sm:w-[440px] bg-card border-l border-n200 shadow-2xl flex flex-col",
-          "transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)]",
+          "transition-transform duration-250 ease-standard",
           open ? "translate-x-0" : "translate-x-full",
         )}
       >

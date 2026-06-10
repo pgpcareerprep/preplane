@@ -1,9 +1,7 @@
 /**
  * Canonical sheet column ↔ lmp_processes column map.
  *
- * SINGLE SOURCE OF TRUTH for the Deno edge functions (sheets-lmp).
- * The frontend mirror lives at `src/lib/sheets/fieldMap.ts` and MUST be kept
- * byte-identical (modulo import path). If you change one, change the other.
+ * SINGLE SOURCE OF TRUTH consumed by Deno Edge Functions and the frontend.
  *
  * ⚠️ LMP Tracker sync is **DB → Sheet** for every field EXCEPT the Comment
  * column (col Z), which is bidirectional. Edits made directly in the sheet
@@ -69,6 +67,20 @@ export const DB_STATUS_TO_SHEET: Record<string, string> = {
   "closed":         "Not Converted",
   "offer-received": "Converted",
   "converted-na":   "Not Converted",
+};
+
+/** Exact sheet dropdown label → canonical DB slug. */
+export const SHEET_STATUS_TO_DB: Record<string, string> = {
+  "Not Started": "not-started",
+  "Prep Ongoing": "prep-ongoing",
+  "Prep Done": "prep-done",
+  "Hold": "hold",
+  "On hold": "hold",
+  "On Hold": "hold",
+  "Converted": "converted",
+  "Not Converted": "not-converted",
+  "Other Reasons": "other-reasons",
+  "Other reasons": "other-reasons",
 };
 
 /** Normalize any stored status form to the canonical sheet dropdown label. */
