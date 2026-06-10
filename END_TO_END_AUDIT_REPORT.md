@@ -1,8 +1,42 @@
 # PrepLane End-to-End Product and Engineering Audit
 
-Date: 2026-06-10  
-Repository: `pgpcareerprep/preplane`  
-Audited branch: `main` at `1fdaa91`  
+Date: 2026-06-11
+Repository: `pgpcareerprep/preplane`
+Audited branch: `main` at `f799533`
+
+## Remediation Release Status
+
+The findings below preserve the original audit evidence. This status table is
+the authoritative post-remediation result after phased production releases.
+
+| Finding | Verified status | Production evidence |
+|---|---|---|
+| C-1 Copilot/voice shared request state | Fixed, deployed, verified | Async-local request contexts; isolation wiring tests; `copilot-ai` and `voice-copilot` deployed |
+| C-2 Privileged function authorization | Fixed, deployed, verified | Shared admin/internal authorization; anonymous production checks return `401` |
+| H-1 RBAC/view-as contradictions | Fixed for mutation boundaries | Canonical permission contract; assignment RLS; migration `20260611010000` rejects view-as mutations at DB/RPC boundaries |
+| H-2 Sheet field-map divergence | Fixed and tested | Frontend consumes canonical Edge field map; drift tests pass |
+| H-3 Multiple Sheet-sync paths | Fixed for active application paths | DB outbox is authoritative; browser worker invocations removed; admin resync queues through RPC |
+| H-4 Incorrect process creator attribution | Fixed and deployed | Stable creator UUID/name writes plus unique-match historical backfill/review view |
+| H-5 POC allocation contradictions | Fixed and directly tested | Stable/unique history matching, load behavior, ambiguity and fallback tests |
+| H-6 Mentor/session duplicated logic | Core identity and assignment fixed; UI decomposition remains maintainability work | Transactional resolution/assignment RPCs and DB uniqueness; DB-backed tier/scoring settings |
+| H-7 Synthetic Copilot quota | Fixed and deployed | Atomic server budget shared by chat/voice; UI reads `ai_daily_budgets` |
+| M-1 Settings/routes wiring | Fixed for known stubs and access gates | Dead Privacy/Role Ontology routes removed; administrative routes tightened |
+| M-2 Feedback-token abuse controls | Fixed and deployed | Hashed tokens, expiry, payload/rating validation, rate limiting, abuse telemetry |
+| M-3 Hardcoded URLs/branding | Fixed in active Edge code | Shared app/runtime configuration; active functions no longer embed production origin or Lovable gateway |
+| M-4 Operational configuration in localStorage | Fixed for business configuration | Thresholds, scoring, discovery, and mentor tiers are versioned in `system_settings`; remaining localStorage is UI/cache state |
+| M-5 Performance/bundle warnings | Release gates added and passing | Lazy loading, bundle budget CI, CSS ordering fix; budget passes |
+| Dependency vulnerabilities | Fixed | `npm audit --audit-level=high`: zero vulnerabilities |
+
+### Current Verification Evidence
+
+- Unit/security tests: **109 passed**.
+- Production build and bundle budgets: passed.
+- Linked database lint: no schema errors.
+- Migrations aligned through `20260611010000`.
+- Public Playwright smoke tests: **2 passed**.
+- Cloudflare production and Supabase Edge deployments are active on the latest phased releases.
+- Lint: zero errors, **609 warnings** remain as maintainability debt.
+- Seeded authenticated browser workflows for every role remain unexecuted because no CI/staging role credentials are configured. The Playwright role suite and CI hook exist, but this is still a verification gap.
 
 ## Executive Summary
 
@@ -424,4 +458,3 @@ The 86 passing tests are useful but do not directly cover:
 - Process creation, allocation, mentor assignment, session lifecycle, feedback, and sync pass browser E2E tests.
 - Sheet sync has one documented source of truth and recoverable failure path.
 - CI blocks regressions, dependency critical/high vulnerabilities are resolved or explicitly accepted, and linked DB policy lint passes.
-

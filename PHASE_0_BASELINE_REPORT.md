@@ -5,6 +5,45 @@ Repository: `/Users/viditvishal/preplane`
 Branch: `main`  
 Commit: `1fdaa91` (`Refine Copilot UI and agent responses`)
 
+## Post-Baseline Remediation Update — 2026-06-11
+
+Phase 0 is retained below as historical baseline evidence. The remediation
+work has since shipped through production commit `f799533`.
+
+Completed and verified:
+
+- Removed shared mutable Copilot/voice request identity.
+- Hardened and deployed privileged Edge Function authorization.
+- Unified permission contracts and assignment-scoped RLS.
+- Added a database/RPC view-as read-only mutation guard.
+- Consolidated active DB-to-Sheet writes through `sheet_write_queue` and the authenticated worker.
+- Removed browser-triggered Sheet worker executions.
+- Corrected creator attribution and added safe identity review/backfill paths.
+- Centralized mentor identity/assignment and moved operational settings into `system_settings`.
+- Added atomic shared chat/voice AI budgets.
+- Added hashed public-feedback tokens, expiry, abuse controls, and compatibility handling.
+- Centralized active Edge origins, branding, and AI gateway configuration.
+- Replaced vulnerable spreadsheet parsing dependency and reduced dependency audit findings to zero.
+- Added CI, bundle budgets, public E2E smoke tests, and security wiring tests.
+
+Latest verification:
+
+- **109** unit/security tests passed.
+- Production build and bundle budgets passed.
+- `npm audit --audit-level=high` reported zero vulnerabilities.
+- Linked DB lint reported no schema errors.
+- Migrations aligned through `20260611010000`.
+- Public Playwright smoke tests passed 2/2.
+- Lint completes with zero errors and 609 warnings.
+
+Remaining verification limitation:
+
+- The seeded authenticated Playwright role/workflow suite cannot run until
+  staging role storage states or credentials are configured in CI. This does
+  not invalidate the deployed code/RLS fixes, but full browser-level proof for
+  every admin, allocator, assigned POC, unassigned POC, and view-as workflow
+  remains open.
+
 ## Safety Status
 
 No application code, production data, database schema, environment variables, Supabase secrets, or Google Sheet data were changed during Phase 0.
@@ -261,4 +300,3 @@ The current site builds and existing unit tests pass, but Phase 1 critical secur
 3. Add shared internal/admin authorization helpers and tests.
 4. Apply authorization checks to the five listed privileged functions.
 5. Re-run tests, build, lint, Supabase schema lint, and targeted authorization/concurrency tests.
-
