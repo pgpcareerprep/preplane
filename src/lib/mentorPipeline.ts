@@ -15,6 +15,7 @@ import { TOTAL_LIMIT } from "@/lib/config/thresholds";
 import { type ALUMentor } from "@/lib/alumniStore";
 import { type ExternalMentor, type ExternalPlatform } from "@/lib/externalMentors";
 import { type ScoringWeights } from "@/lib/scoringWeights";
+import { getMentorCompanyTiers } from "@/lib/mentorCompanyTiers";
 
 export type MatchMode = "balanced" | "industry" | "role" | "company";
 
@@ -208,29 +209,13 @@ export function deduplicateCandidates(candidates: ScoringCandidate[]): ScoringCa
 
 // ─── Scoring (0–45 spec) ───
 
-const TIER1_COMPANIES = [
-  "google", "alphabet", "apple", "meta", "facebook", "amazon", "microsoft",
-  "netflix", "openai", "nvidia", "tesla", "mckinsey", "bcg", "boston consulting",
-  "bain", "goldman", "goldman sachs", "morgan stanley", "jpmorgan", "jp morgan",
-  "deloitte consulting", "blackrock",
-];
-const TIER2_COMPANIES = [
-  "swiggy", "zomato", "flipkart", "razorpay", "paytm", "uber", "lyft", "stripe",
-  "atlassian", "adobe", "salesforce", "oracle", "ibm", "linkedin", "snowflake",
-  "airbnb", "spotify", "shopify", "twilio", "datadog", "vercel", "cloudflare",
-  "intel", "qualcomm", "samsung", "tcs", "infosys", "wipro", "accenture",
-  "cred", "phonepe", "ola", "zerodha", "myntra", "dream11", "byju", "unacademy",
-  "freshworks", "zoho", "postman",
-];
-
-const STARTUPISH = ["labs", "ai", "tech", "studio", "ventures"];
-
 function companyTierScore(company: string): { pts: number; tierLabel: "Tier 1" | "Tier 2" | "Tier 3" | "Startup" | "Unknown" } {
   if (!company) return { pts: 1, tierLabel: "Unknown" };
   const c = company.toLowerCase();
-  if (TIER1_COMPANIES.some(t => c.includes(t))) return { pts: 5, tierLabel: "Tier 1" };
-  if (TIER2_COMPANIES.some(t => c.includes(t))) return { pts: 4, tierLabel: "Tier 2" };
-  if (STARTUPISH.some(t => c.includes(t))) return { pts: 2, tierLabel: "Startup" };
+  const tiers = getMentorCompanyTiers();
+  if (tiers.tier1.some(t => c.includes(t))) return { pts: 5, tierLabel: "Tier 1" };
+  if (tiers.tier2.some(t => c.includes(t))) return { pts: 4, tierLabel: "Tier 2" };
+  if (tiers.startup_markers.some(t => c.includes(t))) return { pts: 2, tierLabel: "Startup" };
   return { pts: 3, tierLabel: "Tier 3" };
 }
 

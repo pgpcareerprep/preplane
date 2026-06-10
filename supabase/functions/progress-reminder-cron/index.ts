@@ -2,16 +2,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAdminOrInternal } from "../_shared/requireAuth.ts";
+import { DEFAULT_APP_ORIGIN, getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const APP_BASE_URL = "https://preplane.pages.dev/lmp";
-
 function buildAppUrl(lmpId?: string | null) {
-  return lmpId ? `${APP_BASE_URL}/${encodeURIComponent(lmpId)}?tab=Overview` : APP_BASE_URL;
+  return getLmpAppUrl(lmpId);
 }
 
 function buildEmail(opts: {
@@ -26,6 +25,7 @@ function buildEmail(opts: {
   appUrl: string;
 }) {
   const overduePrefix = opts.overdue ? "Overdue: " : "Reminder: ";
+  const brand = getBrandName();
   const subject = `${overduePrefix}${opts.company} – ${opts.role} progress update due`;
   const greeting = opts.pocName ? `Hi ${opts.pocName},` : "Hi,";
   const overdueLine = opts.overdue
@@ -43,15 +43,15 @@ function buildEmail(opts: {
         <tr><td style="padding:4px 16px 4px 0; color:#6b7280;">Current Status</td><td style="padding:4px 0;">${opts.status}</td></tr>
         <tr><td style="padding:4px 16px 4px 0; color:#6b7280;">Next Progress Date</td><td style="padding:4px 0;">${opts.nextDate}</td></tr>
       </table>
-      <p>Please log today's update in LMP Magic so the process remains updated and visible to the team.</p>
-      <p style="margin:20px 0;"><a href="${opts.appUrl}" style="display:inline-block; background:#f97316; color:#fff; padding:10px 20px; border-radius:6px; text-decoration:none; font-weight:500;">Open LMP Magic</a></p>
-      <p style="margin-top:24px;">Regards,<br/>LMP Magic</p>
+      <p>Please log today's update in ${brand} so the process remains updated and visible to the team.</p>
+      <p style="margin:20px 0;"><a href="${opts.appUrl}" style="display:inline-block; background:#f97316; color:#fff; padding:10px 20px; border-radius:6px; text-decoration:none; font-weight:500;">Open ${brand}</a></p>
+      <p style="margin-top:24px;">Regards,<br/>${brand}</p>
     </div>
   `;
   const overdueText = opts.overdue
     ? `The next expected progress date ${opts.nextDate} has passed and no update has been logged yet.\n\n`
     : "";
-  const text = `${greeting}\n\n${overdueText}This is a gentle reminder to update the progress for your assigned LMP process:\n\nCompany: ${opts.company}\nRole: ${opts.role}\nDomain: ${opts.domain}\nCurrent Status: ${opts.status}\nNext Progress Date: ${opts.nextDate}\n\nPlease log today's update in LMP Magic so the process remains updated and visible to the team.\n\nOpen LMP Magic: ${opts.appUrl}\n\nRegards,\nLMP Magic`;
+  const text = `${greeting}\n\n${overdueText}This is a gentle reminder to update the progress for your assigned LMP process:\n\nCompany: ${opts.company}\nRole: ${opts.role}\nDomain: ${opts.domain}\nCurrent Status: ${opts.status}\nNext Progress Date: ${opts.nextDate}\n\nPlease log today's update in ${brand} so the process remains updated and visible to the team.\n\nOpen ${brand}: ${opts.appUrl}\n\nRegards,\n${brand}`;
   return { subject, html, text };
 }
 

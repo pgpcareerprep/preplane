@@ -19,11 +19,12 @@ import {
 import { checkPermission } from "../_shared/rbac.ts";
 import { POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts";
 import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { DEFAULT_APP_ORIGIN, getAppOrigin } from "../_shared/appConfig.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
 // This module-level object is mutated in-place so all existing response sites keep working.
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -2984,7 +2985,7 @@ async function handleRequest(req: Request) {
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...OPENROUTER_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {
-      "HTTP-Referer": "https://preplane.pages.dev",
+      "HTTP-Referer": getAppOrigin(),
       "X-Title": "Preplane LMP Copilot",
     };
   } else if (GROK_API_KEY) {

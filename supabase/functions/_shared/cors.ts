@@ -1,10 +1,10 @@
+import { DEFAULT_APP_ORIGIN } from "./appConfig.ts";
+
 const ALLOWED_ORIGINS = new Set<string>([
   "https://preplane.netlify.app",
   "https://heroic-nougat-e7d667.netlify.app",
-  "https://preplane.pages.dev",
+  DEFAULT_APP_ORIGIN,
 ]);
-
-const DEFAULT_ORIGIN = "https://preplane.pages.dev";
 
 export const BASE_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers":
@@ -15,13 +15,13 @@ export const BASE_CORS_HEADERS: Record<string, string> = {
 
 export function pickAllowedOrigin(req: Request): string {
   const origin = req.headers.get("origin") ?? req.headers.get("Origin") ?? "";
-  if (!origin) return DEFAULT_ORIGIN;
+  if (!origin) return DEFAULT_APP_ORIGIN;
   if (ALLOWED_ORIGINS.has(origin)) return origin;
   try {
     const host = new URL(origin).hostname;
     if (host === "localhost" || host === "127.0.0.1") return origin;
   } catch { /* fall through */ }
-  return DEFAULT_ORIGIN;
+  return DEFAULT_APP_ORIGIN;
 }
 
 export function buildCorsHeaders(req: Request): Record<string, string> {

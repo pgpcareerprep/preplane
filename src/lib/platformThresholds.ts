@@ -24,8 +24,8 @@ export const DEFAULT_THRESHOLDS: PlatformThresholds = {
 };
 
 const SETTINGS_KEY = "platform_thresholds";
-const CACHE_KEY = "lmp_platform_thresholds_cache_v1";
 const EVENT = "lmp_platform_thresholds_changed";
+let currentThresholds = { ...DEFAULT_THRESHOLDS };
 
 function normalize(raw: unknown): PlatformThresholds {
   const p = (raw ?? {}) as Partial<PlatformThresholds>;
@@ -38,13 +38,7 @@ function normalize(raw: unknown): PlatformThresholds {
 }
 
 export function getPlatformThresholds(): PlatformThresholds {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return { ...DEFAULT_THRESHOLDS };
-    return normalize(JSON.parse(raw));
-  } catch {
-    return { ...DEFAULT_THRESHOLDS };
-  }
+  return { ...currentThresholds };
 }
 
 export async function fetchPlatformThresholds(): Promise<PlatformThresholds> {
@@ -55,10 +49,8 @@ export async function fetchPlatformThresholds(): Promise<PlatformThresholds> {
     .maybeSingle();
   if (error) throw error;
   const v = normalize(data?.value);
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(v));
-    window.dispatchEvent(new CustomEvent(EVENT, { detail: v }));
-  } catch { /* ignore */ }
+  currentThresholds = v;
+  window.dispatchEvent(new CustomEvent(EVENT, { detail: v }));
   return v;
 }
 
@@ -70,10 +62,8 @@ export async function savePlatformThresholds(v: PlatformThresholds): Promise<voi
       { onConflict: "key" },
     );
   if (error) throw error;
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(v));
-    window.dispatchEvent(new CustomEvent(EVENT, { detail: v }));
-  } catch { /* ignore */ }
+  currentThresholds = normalize(v);
+  window.dispatchEvent(new CustomEvent(EVENT, { detail: currentThresholds }));
 }
 
 export function usePlatformThresholds(): PlatformThresholds {
@@ -85,11 +75,9 @@ export function usePlatformThresholds(): PlatformThresholds {
       .catch(() => { /* keep cache/defaults */ });
     const handler = () => setV(getPlatformThresholds());
     window.addEventListener(EVENT, handler);
-    window.addEventListener("storage", handler);
     return () => {
       mounted = false;
       window.removeEventListener(EVENT, handler);
-      window.removeEventListener("storage", handler);
     };
   }, []);
   return v;

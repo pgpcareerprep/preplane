@@ -18,8 +18,8 @@ export const DEFAULT_WEIGHTS: ScoringWeights = {
 };
 
 const SETTINGS_KEY = "scoring_weights";
-const CACHE_KEY = "lmp_scoring_weights_cache_v2";
 const EVENT = "lmp_scoring_weights_changed";
+let currentWeights = { ...DEFAULT_WEIGHTS };
 
 function normalize(raw: unknown): ScoringWeights {
   const p = (raw ?? {}) as Partial<ScoringWeights>;
@@ -34,13 +34,7 @@ function normalize(raw: unknown): ScoringWeights {
 
 /** Synchronous read — returns cached value if available, else defaults. */
 export function getScoringWeights(): ScoringWeights {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return { ...DEFAULT_WEIGHTS };
-    return normalize(JSON.parse(raw));
-  } catch {
-    return { ...DEFAULT_WEIGHTS };
-  }
+  return { ...currentWeights };
 }
 
 /** Authoritative read from system_settings (refreshes cache). */
@@ -52,12 +46,8 @@ export async function fetchScoringWeights(): Promise<ScoringWeights> {
     .maybeSingle();
   if (error) throw error;
   const w = normalize(data?.value);
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(w));
-    window.dispatchEvent(new CustomEvent(EVENT, { detail: w }));
-  } catch {
-    // ignore
-  }
+  currentWeights = w;
+  window.dispatchEvent(new CustomEvent(EVENT, { detail: w }));
   return w;
 }
 
@@ -69,12 +59,8 @@ export async function saveScoringWeights(w: ScoringWeights): Promise<void> {
       { onConflict: "key" },
     );
   if (error) throw error;
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(w));
-    window.dispatchEvent(new CustomEvent(EVENT, { detail: w }));
-  } catch {
-    // ignore
-  }
+  currentWeights = normalize(w);
+  window.dispatchEvent(new CustomEvent(EVENT, { detail: currentWeights }));
 }
 
 export function useScoringWeights(): ScoringWeights {
@@ -90,11 +76,9 @@ export function useScoringWeights(): ScoringWeights {
       });
     const handler = () => setW(getScoringWeights());
     window.addEventListener(EVENT, handler);
-    window.addEventListener("storage", handler);
     return () => {
       mounted = false;
       window.removeEventListener(EVENT, handler);
-      window.removeEventListener("storage", handler);
     };
   }, []);
   return w;

@@ -23,6 +23,7 @@ import {
   type ScoringCandidate, type MatchMode,
 } from "@/lib/mentorPipeline";
 import type { ALUMentor } from "@/lib/alumniStore";
+import { fetchMentorCompanyTiers } from "@/lib/mentorCompanyTiers";
 
 export type RunMentorInput = {
   jdText?: string;
@@ -51,6 +52,7 @@ export async function runMentorMatch(
     onError?: (msg: string) => void;
   },
 ): Promise<RunMentorResult> {
+  await fetchMentorCompanyTiers().catch(() => { /* use versioned defaults */ });
   const cfg = getExternalDiscoveryConfig();
   const wantMU = input.sources.includes("MU");
   const wantALU = input.sources.includes("ALU");

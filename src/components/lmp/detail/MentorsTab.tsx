@@ -46,6 +46,7 @@ import {
   runPipeline,
   type ScoringCandidate, type JdInfo,
 } from "@/lib/mentorPipeline";
+import { fetchMentorCompanyTiers } from "@/lib/mentorCompanyTiers";
 
 const SUB_TABS: { id: "suggested" | "shortlisted" | "assigned"; label: string; icon: typeof Sparkles }[] = [
   { id: "suggested",  label: "Suggested",   icon: Sparkles },
@@ -111,6 +112,9 @@ function MentorsTabImpl({
 
   const { data: allMentors = [] } = useAllMentors();
   const { mentors: alumniMentors } = useAlumniMentors();
+  useEffect(() => {
+    fetchMentorCompanyTiers().catch(() => { /* use versioned defaults */ });
+  }, []);
 
   // Hydrate shortlisted from DB so the empty state ("Run AI Matching") never
   // shows when this LMP already has assigned/aligned mentors in lmp_mentors —

@@ -104,4 +104,20 @@ describe("critical security wiring", () => {
     expect(migration).toContain("CREATE OR REPLACE FUNCTION public.resolve_or_create_mentor");
     expect(migration).toContain("MENTOR_ASSIGNMENT_FORBIDDEN");
   });
+
+  it("keeps operational configuration server-backed and centralizes app branding", () => {
+    for (const path of [
+      "src/lib/platformThresholds.ts",
+      "src/lib/scoringWeights.ts",
+      "src/lib/externalDiscoveryConfig.ts",
+    ]) {
+      expect(read(path)).not.toContain("localStorage");
+    }
+    const reminder = read("supabase/functions/progress-reminder-cron/index.ts");
+    const confirmation = read("supabase/functions/send-progress-confirmation-email/index.ts");
+    expect(reminder).toContain('from "../_shared/appConfig.ts"');
+    expect(confirmation).toContain('from "../_shared/appConfig.ts"');
+    expect(reminder).not.toContain("LMP Magic");
+    expect(confirmation).not.toContain("LMP Magic");
+  });
 });

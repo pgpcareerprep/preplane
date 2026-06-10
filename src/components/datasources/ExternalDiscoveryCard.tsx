@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { cn } from "@/lib/utils";
 import {
   getExternalDiscoveryConfig,
+  fetchExternalDiscoveryConfig,
   setExternalDiscoveryConfig,
   EXTERNAL_REGION_OPTIONS,
   type ExternalDiscoveryConfig,
@@ -62,9 +63,19 @@ function ExternalDiscoveryCardInner({ index = 3 }: { index?: number }) {
   const updateTtl = (k: keyof ExternalDiscoveryConfig["ttl"], v: number) =>
     setCfg((c) => ({ ...c, ttl: { ...c.ttl, [k]: Math.max(1, v) } }));
 
-  const onSave = () => {
-    setExternalDiscoveryConfig(cfg);
-    toast.success("External discovery settings saved");
+  useEffect(() => {
+    fetchExternalDiscoveryConfig()
+      .then(setCfg)
+      .catch(() => { /* retain defaults */ });
+  }, []);
+
+  const onSave = async () => {
+    try {
+      await setExternalDiscoveryConfig(cfg);
+      toast.success("External discovery settings saved");
+    } catch (error) {
+      toast.error(`Failed to save: ${(error as Error).message}`);
+    }
   };
 
   const onTest = async () => {

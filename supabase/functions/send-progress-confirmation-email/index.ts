@@ -2,13 +2,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
+import { DEFAULT_APP_ORIGIN, getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const APP_URL = "https://preplane.pages.dev/lmp";
 
 async function resolveEmailForName(supabase: any, name?: string | null): Promise<string | null> {
   const n = (name || "").trim();
@@ -78,6 +77,8 @@ Deno.serve(async (req) => {
     const supportName = (lmp as any)?.support_poc;
 
     const subject = `Progress check scheduled: ${company} – ${role} on ${next_date}`;
+    const appUrl = getLmpAppUrl();
+    const brand = getBrandName();
 
     const sent: string[] = [];
     const failed: { email: string; error: string }[] = [];
@@ -104,11 +105,11 @@ Deno.serve(async (req) => {
             <tr><td style="padding:4px 12px 4px 0; color:#6b7280;">Role</td><td>${role}</td></tr>
             <tr><td style="padding:4px 12px 4px 0; color:#6b7280;">Domain</td><td>${domain}</td></tr>
           </table>
-          <p><a href="${APP_URL}" style="display:inline-block; background:#f97316; color:#fff; padding:8px 16px; border-radius:6px; text-decoration:none;">Open LMP Magic</a></p>
-          <p style="color:#9ca3af; font-size:12px; margin-top:24px;">Confirmation from LMP Magic.</p>
+          <p><a href="${appUrl}" style="display:inline-block; background:#f97316; color:#fff; padding:8px 16px; border-radius:6px; text-decoration:none;">Open ${brand}</a></p>
+          <p style="color:#9ca3af; font-size:12px; margin-top:24px;">Confirmation from ${brand}.</p>
         </div>
       `;
-      const text = `${greeting}\nProgress check scheduled on ${next_date} for ${company} – ${role}. Open ${APP_URL}`;
+      const text = `${greeting}\nProgress check scheduled on ${next_date} for ${company} – ${role}. Open ${appUrl}`;
 
       try {
         await sendGmail({ to: recipient, subject, html, text });
