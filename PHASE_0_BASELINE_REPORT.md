@@ -8,7 +8,7 @@ Commit: `1fdaa91` (`Refine Copilot UI and agent responses`)
 ## Post-Baseline Remediation Update — 2026-06-11
 
 Phase 0 is retained below as historical baseline evidence. The remediation
-work has since shipped through production commit `f799533`.
+work has since shipped through production commit `37d727e`.
 
 Completed and verified:
 
