@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
 import { STATUS_META } from "@/lib/lmpTypes";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { TAG_STYLES } from "@/lib/pocAllocation";
 import { useJd, type JdData } from "@/lib/jdStore";
 import { JdUploadModal } from "@/components/lmp/JdUploadModal";
@@ -31,15 +31,16 @@ const STATUS_PILL: Record<string, string> = {
 export function StickyHeader({
   lmp, candidateCount, onConfigureRounds, readOnly, onChangeStatus,
 }: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; readOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
-  const { viewAsRole: role, user } = useRole();
+  const { role, user } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
   const domain = lmp.prepPoc || lmp.domainPrepPoc;
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
 
   // Only the assigned Primary/Support POC can delete an LMP.
   // Admin and allocator can reassign POCs but must NOT delete.
-  const canDelete = !readOnly;
-  const canReassignPoc = role === "allocator" || role === "admin";
+  const canDelete = !isViewingAsOther && !readOnly;
+  const canReassignPoc = !isViewingAsOther && (role === "allocator" || role === "admin");
   const isPocActor = role === "poc";
   const [jdData, setJdData] = useJd(lmp.id);
   const hasJd = !!jdData;
@@ -51,7 +52,7 @@ export function StickyHeader({
 
   const { open: openChat } = useLmpChatDrawer();
   const commentCount = useLmpTotalCommentCount(lmp.id);
-  const canEditStatus = !!onChangeStatus && !readOnly;
+  const canEditStatus = !isViewingAsOther && !!onChangeStatus && !readOnly;
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);

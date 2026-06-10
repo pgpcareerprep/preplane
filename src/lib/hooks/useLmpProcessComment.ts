@@ -16,8 +16,6 @@ export function useLmpProcessComment(lmpId: string | null) {
     queryKey,
     enabled: !!lmpId,
     queryFn: async () => {
-      // Fire-and-forget pull from sheet so Column Z edits show up promptly.
-      supabase.functions.invoke("sheets-pull-comments").catch(() => {});
       const { data, error } = await supabase
         .from("lmp_processes")
         .select("comments")
@@ -40,21 +38,6 @@ export function useLmpProcessComment(lmpId: string | null) {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [lmpId, qc, instanceId, queryKey]);
-
-  // Re-pull col Z when the tab regains focus, throttled to once per 10s,
-  // so switching back into the app picks up new sheet edits fast.
-  useEffect(() => {
-    if (!lmpId) return;
-    let last = 0;
-    const onFocus = () => {
-      const now = Date.now();
-      if (now - last < 10_000) return;
-      last = now;
-      supabase.functions.invoke("sheets-pull-comments").catch(() => {});
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [lmpId]);
 
   return query;
 }

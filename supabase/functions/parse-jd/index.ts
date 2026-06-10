@@ -5,13 +5,14 @@ import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { DEFAULT_APP_ORIGIN, getAiGatewayUrl } from "../_shared/appConfig.ts";
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
 
-const AI_GATEWAY_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const AI_GATEWAY_URL = getAiGatewayUrl();
 const MODEL = "gemini-2.5-flash";
 const MAX_TEXT_BYTES = 120_000;          // ~120KB raw text upper bound
 const MAX_URL_FETCH_BYTES = 5 * 1024 * 1024; // 5MB ceiling on fetched URL bodies

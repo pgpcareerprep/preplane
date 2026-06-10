@@ -81,10 +81,6 @@ export function usePostLmpComment() {
       });
       if (error) throw error;
 
-      // Kick the sheet-write sweeper so column Z updates immediately
-      // instead of waiting for the next cron tick.
-      supabase.functions.invoke("sheets-retry-sweeper").catch(() => {});
-
       return { ok: true };
     },
     onSuccess: (_d, vars) => {
@@ -97,4 +93,3 @@ export function usePostLmpComment() {
     },
   });
 }
-

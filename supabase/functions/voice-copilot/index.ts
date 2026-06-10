@@ -11,10 +11,11 @@ import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
 
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 // Inline CORS headers — the npm:@supabase/supabase-js@2/cors subpath
 // does not exist in the published package and throws at runtime.
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };

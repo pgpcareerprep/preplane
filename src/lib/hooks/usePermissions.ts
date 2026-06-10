@@ -71,13 +71,16 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
  * Hook for Copilot permission checks.
  */
 export function useCopilotPermission() {
-  const { viewAsRole, user } = useRole();
+  const { role, viewAsRole, viewAsUser, user } = useRole();
+  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
 
   return useMemo(
     () => ({
       check: (action: CopilotAction, targetLmpOwnership?: LmpOwnership) =>
-        canCopilotAction(viewAsRole, action, user.name, targetLmpOwnership),
+        isViewingAsOther && (action === "draft_update" || action === "execute_update")
+          ? { allowed: false, reason: "Switch back to your own view to perform actions." }
+          : canCopilotAction(role, action, user.name, targetLmpOwnership),
     }),
-    [viewAsRole, user.name]
+    [isViewingAsOther, role, user.name]
   );
 }

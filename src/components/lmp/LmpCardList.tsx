@@ -31,7 +31,7 @@ import { useLmpProcessComment } from "@/lib/hooks/useLmpProcessComment";
 import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { useAvatarUrl } from "@/lib/hooks/useAvatarUrls";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 import {
   Tooltip,
@@ -199,15 +199,16 @@ function LmpStripCard({
   const { open: openChat } = useLmpChatDrawer();
   const mode = useLmpMode(rec);
   const commentCount = dbComments.length + (sheetComment.trim() ? 1 : 0);
-  const { viewAsRole } = useRole();
+  const { role } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
   // Delete is role-gated (poc only) AND requires ownership (mode === "action" means
   // the current user is the assigned prep/support POC for this specific record).
-  const canDelete = canPerform(viewAsRole, "delete_lmp") && mode === "action";
+  const canDelete = !isViewingAsOther && canPerform(role, "delete_lmp") && mode === "action";
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const canReassignAll = canPerform(viewAsRole, "reassign_poc");
+  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
 
   const handleCardClick = (e: React.MouseEvent) => {

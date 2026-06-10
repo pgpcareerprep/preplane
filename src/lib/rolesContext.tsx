@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { VIEW_AS_READ_ONLY_STORAGE_KEY } from "@/integrations/supabase/client";
 import type { Session } from "@supabase/supabase-js";
 
 export type Role = "allocator" | "poc" | "admin";
@@ -58,6 +59,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [approvedUsers, setApprovedUsers] = useState<ApprovedUser[]>([]);
   const [user, setUser] = useState<User>(GUEST);
   const currentUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const readOnly = role === "admin" && (viewAsRole !== role || !!viewAsUser);
+    if (readOnly) localStorage.setItem(VIEW_AS_READ_ONLY_STORAGE_KEY, "true");
+    else localStorage.removeItem(VIEW_AS_READ_ONLY_STORAGE_KEY);
+    return () => localStorage.removeItem(VIEW_AS_READ_ONLY_STORAGE_KEY);
+  }, [role, viewAsRole, viewAsUser]);
 
   useEffect(() => {
     const applySession = (s: Session | null) => {

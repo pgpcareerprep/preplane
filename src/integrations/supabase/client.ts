@@ -3,6 +3,7 @@ import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+export const VIEW_AS_READ_ONLY_STORAGE_KEY = "preplane_view_as_read_only";
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   throw new Error(
@@ -12,7 +13,16 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   );
 }
 
+const guardedFetch: typeof fetch = (input, init = {}) => {
+  const headers = new Headers(init.headers);
+  if (localStorage.getItem(VIEW_AS_READ_ONLY_STORAGE_KEY) === "true") {
+    headers.set("x-preplane-view-as-read-only", "true");
+  }
+  return fetch(input, { ...init, headers });
+};
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  global: { fetch: guardedFetch },
   auth: {
     storage: localStorage,
     persistSession: true,

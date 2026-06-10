@@ -2,7 +2,7 @@ import { UserPlus, ExternalLink, Eye, Play, Settings2, Megaphone, UserCog } from
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
 import { canPerform } from "@/lib/permissions";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -50,8 +50,9 @@ export function ExpandedLmpView({
   const [roundsOpen, setRoundsOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const { viewAsRole } = useRole();
-  const canReassignAll = canPerform(viewAsRole, "reassign_poc");
+  const { role } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
+  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
   // rounds resolved after dbLmpId below
   const { update: updateMutation } = useLmpMutation();

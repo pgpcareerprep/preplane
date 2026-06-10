@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { LayoutGrid, LayoutList, Loader2, DatabaseZap, UserX, FilterX, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 import { type LmpStatus } from "@/types/lmp";
 import { useLmpRows, useLmpMutation } from "@/lib/sheets/hooks";
@@ -21,8 +21,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import type { ViewingTarget } from "@/lib/lmpViewingContext";
 
 export default function LmpBoardPage() {
-  const { viewAsRole, user } = useRole();
-  const canEdit = canPerform(viewAsRole, "edit_lmp");
+  const { role } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
+  const canEdit = !isViewingAsOther && canPerform(role, "edit_lmp");
   const { filterFor, target } = useLmpViewing();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialView = searchParams.get("view") === "kanban" ? "kanban" : "cards";

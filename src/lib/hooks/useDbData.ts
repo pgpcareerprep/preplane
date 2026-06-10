@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { rowToALUMentor, _setAlumniCache, type ALUMentor } from "@/lib/alumniStore";
-import { TABS } from "@/lib/sheets/schema";
 import { syncLmpCountsToSheet } from "@/lib/sheets/syncLmpCounts";
 import { ACTIVE_LMP_STATUSES, normalizeLmpStatus } from "@/lib/config/lmpStatus";
 
@@ -561,62 +560,14 @@ export function useSyncIngest() {
 export function useSmartLmpSync() {
   return useMutation({
     mutationFn: async () => {
-      const { data: rows, error } = await supabase
-        .from("lmp_processes")
-        .select("company, role, lmp_code, date, domain_raw, status, type, daily_progress, prep_doc_shared, mentor_aligned, assignment_review, one_to_one_mock, next_progress_date, next_progress_type, final_convert, convert_names, prep_doc, prep_poc, support_poc, outreach_poc, closing_date, jd_url, jd_label, allocator, admin_owner, behavioral_status, match_tag, allocation_path, mentor_selected")
-        .order("created_at", { ascending: false })
-        .limit(25);
+      const { data, error } = await (supabase as any).rpc("enqueue_all_lmp_sheet_mirrors");
       if (error) throw error;
-
-      let pushed = 0;
-      let pushFailed = 0;
-      for (const row of rows ?? []) {
-        if (!row.company || !row.role || !row.lmp_code) continue;
-        const dbPatch = { ...row };
-        const { data, error: invokeError } = await supabase.functions.invoke("sheets-lmp", {
-          body: {
-            op: "sync-db-to-sheet",
-            tab: TABS.LMP_TRACKER,
-            headerRow: 15,
-            company: row.company,
-            role: row.role,
-            lmp_code: row.lmp_code,
-            dbPatch,
-          },
-        });
-        if (invokeError || (data as { skipped?: boolean } | null)?.skipped) pushFailed += 1;
-        else pushed += 1;
-      }
-
-      // Pull Comments (sheet col Z) → lmp_processes.comments
-      let commentsUpdated = 0;
-      let commentsErrors = 0;
-      try {
-        const { data: pullData, error: pullErr } = await supabase.functions.invoke(
-          "sheets-pull-comments",
-          { body: {} },
-        );
-        if (pullErr) {
-          commentsErrors = 1;
-        } else {
-          const d = pullData as { updated?: number; errors?: number } | null;
-          commentsUpdated = d?.updated ?? 0;
-          commentsErrors = d?.errors ?? 0;
-        }
-      } catch {
-        commentsErrors = 1;
-      }
-
-      return { pushed, pushFailed, pushSkipped: 0, overflow: 0, pullData: null, commentsUpdated, commentsErrors };
+      return { queued: Number(data ?? 0) };
     },
-    onSuccess: ({ pushed, pushFailed, commentsUpdated, commentsErrors }) => {
-      const failed = pushFailed + commentsErrors;
+    onSuccess: ({ queued }) => {
       toast({
-        title: failed ? "Sheet sync completed with errors" : "Sheet synced",
-        description: failed
-          ? `${pushed} LMPs pushed, ${commentsUpdated} comments pulled, ${failed} failed.`
-          : `${pushed} LMPs pushed · ${commentsUpdated} comments pulled from sheet.`,
-        variant: failed ? "destructive" : undefined,
+        title: "Sheet mirror queued",
+        description: `${queued} LMP records queued for the authenticated Sheet worker.`,
       });
     },
   });

@@ -20,9 +20,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
+import { getAiGatewayUrl } from "../_shared/appConfig.ts";
 
 const FIRECRAWL = "https://api.firecrawl.dev/v2";
-const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const AI_GATEWAY = getAiGatewayUrl();
 const AI_MODEL = "google/gemini-3-flash-preview";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 

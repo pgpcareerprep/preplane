@@ -90,6 +90,14 @@ describe("critical security wiring", () => {
     expect(read("src/lib/sheets/fieldMap.ts")).toContain(
       'from "../../../supabase/functions/_shared/fieldMap"',
     );
+    for (const path of [
+      "src/lib/hooks/useDbData.ts",
+      "src/lib/hooks/useLmpComments.ts",
+      "src/lib/hooks/useLmpProcessComment.ts",
+    ]) {
+      expect(read(path)).not.toMatch(/functions\.invoke\("(sheets-lmp|sheets-retry-sweeper|sheets-pull-comments)"/);
+    }
+    expect(read("src/lib/hooks/useDbData.ts")).toContain('rpc("enqueue_all_lmp_sheet_mirrors")');
   });
 
   it("uses one permission contract and transactional mentor assignment", () => {
@@ -119,5 +127,35 @@ describe("critical security wiring", () => {
     expect(confirmation).toContain('from "../_shared/appConfig.ts"');
     expect(reminder).not.toContain("LMP Magic");
     expect(confirmation).not.toContain("LMP Magic");
+    for (const path of [
+      "supabase/functions/entity-search/index.ts",
+      "supabase/functions/sheets-retry-sweeper/index.ts",
+      "supabase/functions/submit-student-feedback/index.ts",
+      "supabase/functions/validate-feedback-token/index.ts",
+      "supabase/functions/sheets-backfill-lmp-id/index.ts",
+      "supabase/functions/sync-ingest/index.ts",
+      "supabase/functions/voice-copilot/index.ts",
+      "supabase/functions/sheets-lmp/index.ts",
+      "supabase/functions/parse-jd/index.ts",
+      "supabase/functions/invite-user/index.ts",
+      "supabase/functions/send-student-feedback-email/index.ts",
+    ]) {
+      expect(read(path)).not.toContain('"https://preplane.pages.dev"');
+    }
+    expect(read("supabase/functions/mentor-profile-enrich/index.ts")).not.toContain(
+      '"https://ai.gateway.lovable.dev',
+    );
+  });
+
+  it("enforces view-as read-only in both browser requests and the database", () => {
+    const client = read("src/integrations/supabase/client.ts");
+    const roles = read("src/lib/rolesContext.tsx");
+    const migration = read("supabase/migrations/20260611010000_view_as_guard_and_sheet_queue_rpc.sql");
+    expect(client).toContain('"x-preplane-view-as-read-only"');
+    expect(roles).toContain("VIEW_AS_READ_ONLY_STORAGE_KEY");
+    expect(migration).toContain("request_is_view_as_read_only");
+    expect(migration).toContain("reject_view_as_mutation");
+    expect(migration).toContain("VIEW_AS_READ_ONLY");
+    expect(migration).toContain("enqueue_all_lmp_sheet_mirrors");
   });
 });

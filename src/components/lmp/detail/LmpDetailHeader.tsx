@@ -8,7 +8,7 @@ import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpTotalCommentCount } from "@/lib/hooks/useLmpTotalCommentCount";
 import { useLmpCandidatesLive } from "@/lib/hooks/useLmpCandidatesLive";
 import { ReassignPocModal } from "@/components/lmp/ReassignPocModal";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 
 export function LmpDetailHeader({
@@ -27,8 +27,9 @@ export function LmpDetailHeader({
   const commentCount = useLmpTotalCommentCount(rec.id);
   const { data: liveCandidates = [] } = useLmpCandidatesLive(rec.id);
   const candidateCount = liveCandidates.length || rec.candidates;
-  const { viewAsRole } = useRole();
-  const canReassignAll = canPerform(viewAsRole, "reassign_poc");
+  const { role } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
+  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
 
   return (

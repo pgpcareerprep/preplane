@@ -8,8 +8,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireInternalSecret } from "../_shared/requireAuth.ts";
+import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

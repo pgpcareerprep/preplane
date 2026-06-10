@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useRole } from "@/lib/rolesContext";
+import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import type { Remark } from "@/lib/lmpDetail";
 import { useMotionPreset } from "@/lib/useMotionPreset";
 
@@ -13,8 +13,9 @@ const ROLE_PILL: Record<Remark["role"], string> = {
 };
 
 export function LmpRemarks() {
-  const { viewAsRole: role, user } = useRole();
-  const canPost = role === "allocator" || role === "admin" || role === "poc";
+  const { role, user } = useRole();
+  const isViewingAsOther = useIsViewingAsOther();
+  const canPost = !isViewingAsOther;
   const [items, setItems] = useState<Remark[]>([]);
   const [draft, setDraft] = useState("");
   const m = useMotionPreset();
