@@ -590,189 +590,27 @@ function MentorsTabImpl({
     const isGroup = draft.mode === "group" && picked.length > 1;
     const groupId = isGroup ? `G-${Date.now()}` : undefined;
 
-    // Persist sessions to DB — resolve mentor to a real public.mentors row first.
-    // Mentor IDs from MU come from public.mentors directly; ALU/EXT IDs are NOT
-    // foreign-key valid (they belong to alumni_records or are synthetic UUIDs),
-    // so we must always resolve to a real mentors.id before inserting sessions.
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const normEmail = (mentor.email || "").trim().toLowerCase();
-    const normLinkedin = (mentor.linkedin || "").trim();
-
-    let mentorIdForDb: string | null = null;
-
-    // 1) Trust the ID only if it actually exists in public.mentors (MU rows).
-    if (UUID_RE.test(mentor.id)) {
-      const { data: byId } = await supabase
-        .from("mentors").select("id").eq("id", mentor.id).maybeSingle();
-      if (byId?.id) mentorIdForDb = byId.id;
-    }
-
-    // 2) Match by email (case-insensitive) — covers ALU mirror + previously inserted EXT.
-    if (!mentorIdForDb && normEmail) {
-      const { data: byEmail } = await supabase
-        .from("mentors").select("id").ilike("email", normEmail).limit(1).maybeSingle();
-      if (byEmail?.id) mentorIdForDb = byEmail.id;
-    }
-
-    // 3) Match by LinkedIn URL — covers ALU/EXT without email.
-    if (!mentorIdForDb && normLinkedin) {
-      const { data: byLi } = await supabase
-        .from("mentors").select("id").eq("linkedin", normLinkedin).limit(1).maybeSingle();
-      if (byLi?.id) mentorIdForDb = byLi.id;
-    }
-
-    // 4) Last resort: name + company match (avoids creating duplicates for ALU rows
-    //    where the alumni mirror trigger already produced a row without email).
-    if (!mentorIdForDb && mentor.name) {
-      let q = supabase.from("mentors").select("id").ilike("name", mentor.name);
-      if (mentor.company) q = q.ilike("company", mentor.company);
-      const { data: byName } = await q.limit(1).maybeSingle();
-      if (byName?.id) mentorIdForDb = byName.id;
-    }
-
-    // 5) Still nothing → register a fresh mentor row.
-    if (!mentorIdForDb) {
-      const payload: any = {
-        name: mentor.name,
-        email: normEmail || null,
-        role: mentor.role || null,
-        company: mentor.company || null,
-        linkedin: normLinkedin || null,
-        designation: mentor.role || null,
-        source: (mentor.source as string) || "EXT",
-        sync_source: "app_align",
-        availability: "available",
-      };
-      // Use upsert on email when present so a concurrent/prior insert with the
-      // same email (partial unique index) doesn't blow up the assignment flow.
-      const insertQuery = normEmail
-        ? supabase.from("mentors").upsert(payload, { onConflict: "email" }).select("id").maybeSingle()
-        : supabase.from("mentors").insert(payload).select("id").maybeSingle();
-      const { data: ins, error: insMentorErr } = await insertQuery;
-      if (insMentorErr) {
-        toast.error(`Failed to register mentor: ${insMentorErr.message}`);
-        return;
-      }
-      mentorIdForDb = ins?.id ?? null;
-
-      // Re-fetch by email if upsert silently returned null due to RLS visibility.
-      if (!mentorIdForDb && normEmail) {
-        const { data: confirm } = await supabase
-          .from("mentors").select("id").ilike("email", normEmail).limit(1).maybeSingle();
-        mentorIdForDb = confirm?.id ?? null;
-      }
-    }
-
-    if (!mentorIdForDb) {
-      toast.error("Could not resolve mentor record. Session not created.");
-      return;
-    }
-
-    // Final safety net: confirm the mentor row exists before we attempt the
-    // session insert — this prevents the sessions_mentor_id_fkey violation.
-    {
-      const { data: verify } = await supabase
-        .from("mentors").select("id").eq("id", mentorIdForDb).maybeSingle();
-      if (!verify?.id) {
-        toast.error("Mentor record missing in database. Please retry.");
-        return;
-      }
-    }
-
-    // student_id (FK to students.id) — used for the feedback token flow. May be null.
     const candidateStudentIds = picked
       .map((c) => (UUID_RE.test(c.studentId ?? "") ? c.studentId! : null))
       .filter((x): x is string => !!x);
-    // candidate_ids stores lmp_candidates.id values (always available). This is the
-    // canonical identifier used by useMentorPerformance and the feedback tracker to
-    // resolve student_name from lmp_candidates, even when student_id FK is null.
     const candidateLmpIds = picked.map((c) => c.id).filter((id): id is string => !!id);
-
-    // Always record the mentor assignment first — decoupled from session scheduling.
-    const { error: lmpMentorErr } = await supabase
-      .from("lmp_mentors")
-      .upsert(
-        { lmp_id: reqId, mentor_id: mentorIdForDb, mentor_name: mentor.name, mentor_source: mentor.source, match_score: mentor.score ?? null, status: "assigned", sync_source: "app", assigned_at: new Date().toISOString() } as any,
-        { onConflict: "lmp_id,mentor_id" },
-      );
-    if (lmpMentorErr) {
-      toast.error(`Failed to assign mentor: ${lmpMentorErr.message}`);
+    const notes = isGroup
+      ? `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`
+      : `${round.name} · ${role} · ${picked[0]?.name ?? ""}`;
+    const { error: assignmentError } = await (supabase as any).rpc("assign_mentor_session", {
+      p_lmp_id: reqId,
+      p_mentor: mentor,
+      p_candidate_ids: candidateLmpIds,
+      p_student_ids: candidateStudentIds,
+      p_scheduled_at: sessionDateObj.toISOString(),
+      p_notes: notes,
+      p_match_score: mentor.score ?? null,
+    });
+    if (assignmentError) {
+      toast.error(`Failed to assign mentor: ${assignmentError.message}`);
       return;
     }
-
-    // Build and insert sessions so they appear immediately in the Sessions tab.
-    // Group mode → one session row with all candidate IDs in candidate_ids[].
-    // 1:1 mode  → one session row for the single selected candidate.
-    const sessionBase: any = {
-      lmp_id: reqId,
-      mentor_id: mentorIdForDb,
-      scheduled_at: sessionDateObj.toISOString(),
-      session_type: "mock",
-      status: "scheduled",
-      sync_source: "app",
-    };
-
-    const sessionRow: any = isGroup
-      ? {
-          ...sessionBase,
-          student_id: candidateStudentIds[0] ?? null,
-          candidate_ids: candidateLmpIds,
-          notes: `${round.name} · ${role} · group ${groupId} · ${picked.map((c) => c.name).join(", ")}`,
-        }
-      : {
-          ...sessionBase,
-          student_id: candidateStudentIds[0] ?? null,
-          candidate_ids: candidateLmpIds,
-          notes: `${round.name} · ${role} · ${picked[0]?.name ?? ""}`,
-        };
-
-    // Partial unique index on sessions(lmp_id, mentor_id, scheduled_at) cannot be
-    // used by Supabase upsert's ON CONFLICT — use find-then-update-or-insert instead.
-    const { data: existingSessions } = await supabase
-      .from("sessions")
-      .select("id, candidate_ids")
-      .eq("lmp_id", reqId)
-      .eq("mentor_id", mentorIdForDb)
-      .eq("scheduled_at", sessionDateObj.toISOString())
-      .limit(1);
-
-    const existingSession = existingSessions?.[0];
-    if (existingSession) {
-      const merged = Array.from(new Set([...(existingSession.candidate_ids ?? []), ...candidateLmpIds]));
-      const { error: updErr } = await supabase
-        .from("sessions")
-        .update({ candidate_ids: merged, student_id: candidateStudentIds[0] ?? null, notes: sessionRow.notes })
-        .eq("id", existingSession.id);
-      if (updErr) console.warn("[MentorsTab] session update error:", updErr);
-    } else {
-      const { error: insErr } = await supabase.from("sessions").insert(sessionRow);
-      if (insErr) {
-        console.warn("[MentorsTab] session insert error:", insErr);
-        toast.warning(`${mentor.name} assigned. Session auto-creation failed (${insErr.message}) — use "+ Schedule session" in the Sessions tab.`);
-      }
-    }
-
-    // Back-reference: stamp mentor_id on each lmp_candidates row so per-candidate
-    // mentor displays (candidate list, drawers) reflect the assignment without
-    // joining through lmp_mentors.
-    const pickedCandidateRowIds = picked.map((c) => c.id).filter(Boolean);
-    if (pickedCandidateRowIds.length > 0) {
-      const { error: candUpdErr } = await supabase
-        .from("lmp_candidates")
-        .update({ mentor_id: mentorIdForDb } as any)
-        .in("id", pickedCandidateRowIds);
-      if (candUpdErr) {
-        console.warn("[MentorsTab] failed to stamp mentor_id on candidates:", candUpdErr);
-      }
-    }
-
-    // Mirror the most recently assigned mentor's display name onto lmp_processes
-    // so cards/tabs/list views can show the active mentor without an extra join.
-    await supabase
-      .from("lmp_processes")
-      .update({ mentor_selected: mentor.name } as any)
-      .eq("id", reqId);
-    void pushMentorSelectedToSheet(reqId, mentor.name);
     queryClient.invalidateQueries({ queryKey: ["create-session-mentors", reqId] });
     queryClient.invalidateQueries({ queryKey: ["lmp-sessions", reqId] });
     queryClient.invalidateQueries({ queryKey: ["lmp-mentors", reqId] });
@@ -857,91 +695,17 @@ function MentorsTabImpl({
   // Direct align (manual mentor pick) — upserts to lmp_mentors and pushes into shortlisted
   // so the empty state cannot re-appear after refresh.
   const alignMentorDirect = async (mentor: Mentor) => {
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const normEmail = (mentor.email || "").trim().toLowerCase();
-    const normLinkedin = (mentor.linkedin || "").trim();
-
-    let mentorIdForDb: string | null = null;
-
-    if (UUID_RE.test(mentor.id)) {
-      const { data } = await supabase.from("mentors").select("id").eq("id", mentor.id).maybeSingle();
-      if (data?.id) mentorIdForDb = data.id;
-    }
-    if (!mentorIdForDb && normEmail) {
-      const { data } = await supabase.from("mentors").select("id").ilike("email", normEmail).limit(1).maybeSingle();
-      if (data?.id) mentorIdForDb = data.id;
-    }
-    if (!mentorIdForDb && normLinkedin) {
-      const { data } = await supabase.from("mentors").select("id").eq("linkedin", normLinkedin).limit(1).maybeSingle();
-      if (data?.id) mentorIdForDb = data.id;
-    }
-    if (!mentorIdForDb && mentor.name) {
-      let q = supabase.from("mentors").select("id").ilike("name", mentor.name);
-      if (mentor.company) q = q.ilike("company", mentor.company);
-      const { data } = await q.limit(1).maybeSingle();
-      if (data?.id) mentorIdForDb = data.id;
-    }
-    if (!mentorIdForDb) {
-      const payload: any = {
-        name: mentor.name,
-        email: normEmail || null,
-        role: mentor.role || null,
-        company: mentor.company || null,
-        linkedin: normLinkedin || null,
-        designation: mentor.role || null,
-        source: (mentor.source as string) || "MU",
-        sync_source: "app_align",
-        availability: "available",
-      };
-      const insertQuery = normEmail
-        ? supabase.from("mentors").upsert(payload, { onConflict: "email" }).select("id").maybeSingle()
-        : supabase.from("mentors").insert(payload).select("id").maybeSingle();
-      const { data: ins, error } = await insertQuery;
-      if (error) {
-        toast.error(`Failed to register mentor: ${error.message}`);
-        return;
-      }
-      mentorIdForDb = ins?.id ?? null;
-    }
-    if (!mentorIdForDb) {
-      toast.error("Could not resolve mentor record.");
-      return;
-    }
-
-    // Use upsert with merge (no ignoreDuplicates) so we can detect conflicts
-    // explicitly and confirm the row was actually written.
-    const { data: upserted, error: upErr } = await supabase
-      .from("lmp_mentors")
-      .upsert(
-        { lmp_id: reqId, mentor_id: mentorIdForDb, mentor_name: mentor.name, mentor_source: mentor.source, match_score: mentor.score ?? null, status: "assigned", sync_source: "app", assigned_at: new Date().toISOString() } as any,
-        { onConflict: "lmp_id,mentor_id" },
-      )
-      .select("id")
-      .maybeSingle();
+    const { data, error: upErr } = await (supabase as any).rpc("align_mentor_to_lmp", {
+      p_lmp_id: reqId,
+      p_mentor: mentor,
+      p_match_score: mentor.score ?? null,
+    });
     if (upErr) {
       toast.error(`Couldn't align mentor: ${upErr.message}`);
       return;
     }
-    if (!upserted?.id) {
-      // Confirm via read — surfaces silent RLS strips.
-      const { data: check } = await supabase
-        .from("lmp_mentors")
-        .select("id")
-        .eq("lmp_id", reqId)
-        .eq("mentor_id", mentorIdForDb)
-        .maybeSingle();
-      if (!check?.id) {
-        toast.error("Mentor align didn't persist — check permissions.");
-        return;
-      }
-    }
-    await supabase
-      .from("lmp_processes")
-      .update({ mentor_selected: mentor.name } as any)
-      .eq("id", reqId);
-    void pushMentorSelectedToSheet(reqId, mentor.name);
-
-
+    const mentorIdForDb = (data as { mentor_id?: string } | null)?.mentor_id;
+    if (!mentorIdForDb) return;
     // Push into local state synchronously so the empty state can't re-appear.
     setState((prev) => ({
       shortlisted: prev.shortlisted.some((s) => s.mentor.id === mentor.id)

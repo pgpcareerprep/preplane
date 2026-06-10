@@ -270,6 +270,7 @@ function pocNameMatches(pocName: string, historyName: string): boolean {
 function resolveHistoryBonus(
   poc: PocCapability,
   input: AllocationInput,
+  pool: PocCapability[],
 ): { bonus: number; tag: "Converted Expert" | "Previously Assigned" | null } {
   const history = input.historicalProcesses ?? [];
   const company = normalizeNameStr(input.companyName);
@@ -284,7 +285,8 @@ function resolveHistoryBonus(
       normalizeNameStr(h.role ?? "") === role;
     if (!sameCompanyRole) return false;
     if (h.prepPocId && poc.id) return h.prepPocId === poc.id;
-    return pocNameMatches(poc.name, h.prepPoc ?? "");
+    const nameMatches = pool.filter((candidate) => pocNameMatches(candidate.name, h.prepPoc ?? ""));
+    return nameMatches.length === 1 && nameMatches[0].id === poc.id;
   });
 
   if (matches.length === 0) return { bonus: 0, tag: null };
@@ -339,7 +341,7 @@ function scorePoc(
   const ls = loadScore(p);
   const fs = fairnessScore(p, pool);
   const boost = isUnderutilized(p) ? 15 : 0;
-  const { bonus } = resolveHistoryBonus(p, input);
+  const { bonus } = resolveHistoryBonus(p, input, pool);
 
   if (path === "B") {
     const ds = domainScore(p, processDomain, resolver);
@@ -615,17 +617,17 @@ export function allocatePoc(
   const tags: AllocationTag[] = [];
   tags.push(prepResult.matchType);
   if (supportResults.length > 0) tags.push("Support POC Suggested");
-  const { tag: historyTag } = resolveHistoryBonus(prepResult.poc, input);
+  const { tag: historyTag } = resolveHistoryBonus(prepResult.poc, input, allPocs);
   if (historyTag) tags.push(historyTag);
 
   const hadJd = typeof input.jdText === "string" && input.jdText.trim().length > 0;
 
   const prepTier = getDomainTier(prepResult.poc, input.processDomain, resolver);
-  const prepHistTag = resolveHistoryBonus(prepResult.poc, input).tag;
+  const prepHistTag = resolveHistoryBonus(prepResult.poc, input, allPocs).tag;
   const prepPoc = toAssigned(prepResult.poc, prepResult.matchType, prepResult.breakdown, prepTier, hadJd, prepHistTag);
   const supportSuggestionsList = supportResults.map(s => {
     const tier = getDomainTier(s.poc, input.processDomain, resolver);
-    const histTag = resolveHistoryBonus(s.poc, input).tag;
+    const histTag = resolveHistoryBonus(s.poc, input, allPocs).tag;
     return toAssigned(s.poc, "Support POC Suggested", s.breakdown, tier, hadJd, histTag);
   });
 
@@ -653,7 +655,7 @@ export function allocatePoc(
         tier === "primary" ? "In-Domain"
         : tier === "secondary" ? "Secondary Domain"
         : "Cross-Domain";
-      const histTag = resolveHistoryBonus(s.poc, input).tag;
+      const histTag = resolveHistoryBonus(s.poc, input, allPocs).tag;
       return {
         poc: toAssigned(s.poc, altTag, s.breakdown, tier, hadJd, histTag),
         isInDomain: s.isInDomain,

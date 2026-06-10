@@ -82,4 +82,17 @@ describe("critical security wiring", () => {
     expect(migration).not.toContain("net.http_post");
     expect(migration).toContain("sheet_write_queue_pending_idempotency_key");
   });
+
+  it("uses one permission contract and transactional mentor assignment", () => {
+    const frontend = read("src/lib/permissions.ts");
+    const edgeRbac = read("supabase/functions/_shared/rbac.ts");
+    const copilot = read("supabase/functions/copilot-ai/index.ts");
+    const migration = read("supabase/migrations/20260610180000_transactional_mentor_assignment.sql");
+    expect(frontend).toContain('from "../../supabase/functions/_shared/permissionContract"');
+    expect(edgeRbac).toContain('from "./permissionContract.ts"');
+    expect(copilot).toContain('POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts"');
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.assign_mentor_session");
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.resolve_or_create_mentor");
+    expect(migration).toContain("MENTOR_ASSIGNMENT_FORBIDDEN");
+  });
 });

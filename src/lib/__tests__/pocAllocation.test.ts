@@ -99,6 +99,19 @@ describe("allocatePoc safety rules", () => {
       poc({ name: "Alex Two", domains: ["Finance"], primaryDomains: ["Finance"], currentLoad: 0 }),
     ]);
     expect(result.path).not.toBe("E");
+    expect(result.prep.historicalTag).toBeNull();
+  });
+
+  it("applies a historical bonus only when a legacy name resolves uniquely", () => {
+    const result = allocatePoc({
+      ...input,
+      historicalProcesses: [{ company: "Acme", role: "Analyst", prepPoc: "Unique", status: "Converted" }],
+    }, [
+      poc({ name: "Unique Person", domains: ["Finance"], primaryDomains: ["Finance"], currentLoad: 1 }),
+      poc({ name: "Other Person", domains: ["Finance"], primaryDomains: ["Finance"], currentLoad: 1 }),
+    ]);
+    expect(result.prep.name).toBe("Unique Person");
+    expect(result.prep.historicalTag).toBe("Converted Expert");
   });
 
   it("fails when no POC is within capacity", () => {

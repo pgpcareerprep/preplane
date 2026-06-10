@@ -17,6 +17,7 @@ import {
   GROK_SYNTHESIS_MODELS,
 } from "./modelConfig.ts";
 import { checkPermission } from "../_shared/rbac.ts";
+import { POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts";
 import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
@@ -1485,9 +1486,11 @@ async function executeTool(
           return JSON.stringify({ blocked: true, ...permResult, target_summary: targetSummary });
         }
 
-        // Per-LMP POC ownership — enforced for EVERY role (admin/mod included).
-        if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
-            kind === "assign_poc" || kind === "delete_lmp_record") {
+        // POCs may only mutate LMPs they are assigned to. Privileged role
+        // scope is enforced by the canonical permission contract.
+        if (requestState().context.role === "poc" &&
+            (kind === "update_lmp_status" || kind === "update_lmp_field" ||
+            kind === "assign_poc" || kind === "delete_lmp_record")) {
           const own = await assertPocOwnsLmp(payload);
           if (!own.ok) {
             return JSON.stringify({
@@ -1497,7 +1500,7 @@ async function executeTool(
             });
           }
         }
-        if (kind === "bulk_update") {
+        if (requestState().context.role === "poc" && kind === "bulk_update") {
           const updates = Array.isArray(payload.updates) ? payload.updates as Record<string, unknown>[] : [];
           for (const u of updates) {
             const own = await assertPocOwnsLmp(u);
@@ -1510,15 +1513,9 @@ async function executeTool(
             }
           }
         }
-        // BUG-P4: field-level RBAC for POC. Whitelist mirrors
-        // POC_WRITABLE_LMP_COLUMNS in src/lib/permissions.ts.
+        // Field-level RBAC for POCs uses the canonical shared contract.
         const POC_ALLOWED_FIELDS = new Set<string>([
-          "daily_progress","prep_progress","placement_progress",
-          "next_progress_date","next_progress_status","next_progress_type",
-          "next_progress_reminder_type","last_progress_updated_at",
-          "remarks","mentor_aligned","prep_doc_shared","assignment_review",
-          "one_to_one_mock","behavioral_status","status",
-          "r1_shortlisted","r2_shortlisted","r3_shortlisted","convert_names","prep_doc",
+          ...POC_WRITABLE_LMP_COLUMNS,
           // sheet-column aliases (case-insensitive match below)
           "Daily Progress","Prep Progress","Placement Progress","Remarks",
           "Mentor Aligned","Prep Doc Shared","Assignment Review","One-to-one Mock",
