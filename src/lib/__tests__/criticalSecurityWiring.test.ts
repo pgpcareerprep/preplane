@@ -98,6 +98,10 @@ describe("critical security wiring", () => {
       expect(read(path)).not.toMatch(/functions\.invoke\("(sheets-lmp|sheets-retry-sweeper|sheets-pull-comments)"/);
     }
     expect(read("src/lib/hooks/useDbData.ts")).toContain('rpc("enqueue_all_lmp_sheet_mirrors")');
+    const retiredIngest = read("supabase/functions/sync-ingest/index.ts");
+    expect(retiredIngest).toContain("sheet_to_db_retired");
+    expect(retiredIngest).not.toContain("_legacyHandler");
+    expect(retiredIngest).not.toContain("sheet_write_queue");
   });
 
   it("uses one permission contract and transactional mentor assignment", () => {
