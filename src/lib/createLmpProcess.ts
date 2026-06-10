@@ -1,12 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { AssignedPoc, AllocationResult } from "@/lib/pocAllocation";
-import { TABS, getHeaderRow } from "@/lib/sheets/schema";
-import { runInBackground } from "@/lib/utils";
-import { toast } from "sonner";
-
-// New LMP processes must be visible on the sheet immediately. Creation writes
-// to the database first to get the generated LMP ID, then directly awaits the
-// sheet writer instead of waiting for any background queue.
 
 export type ConfirmedPocSelection = {
   prepPoc: AssignedPoc;
@@ -36,66 +29,6 @@ export type CreateLmpPayload = {
   selection: ConfirmedPocSelection;
   jd?: CreateLmpJdPayload;
 };
-
-async function mirrorCreatedLmpToSheet(lmp: Record<string, unknown>) {
-  const company = String(lmp.company ?? "").trim();
-  const role = String(lmp.role ?? "").trim();
-  const lmpCode = String(lmp.lmp_code ?? "").trim();
-
-  if (!company || !role || !lmpCode) {
-    throw new Error("LMP process was saved, but the sheet mirror is missing Company, Role, or LMP ID.");
-  }
-
-  const dbPatch = {
-    date: lmp.date ?? null,
-    company,
-    role,
-    domain_raw: lmp.domain_raw ?? null,
-    status: lmp.status ?? null,
-    type: lmp.type ?? null,
-    daily_progress: lmp.daily_progress ?? null,
-    prep_doc_shared: lmp.prep_doc_shared ?? null,
-    mentor_aligned: lmp.mentor_aligned ?? null,
-    assignment_review: lmp.assignment_review ?? null,
-    one_to_one_mock: lmp.one_to_one_mock ?? null,
-    next_progress_date: lmp.next_progress_date ?? null,
-    next_progress_type: lmp.next_progress_type ?? null,
-    final_convert: lmp.final_convert ?? null,
-    convert_names: lmp.convert_names ?? null,
-    prep_doc: lmp.prep_doc ?? null,
-    prep_poc: lmp.prep_poc ?? null,
-    support_poc: lmp.support_poc ?? null,
-    outreach_poc: lmp.outreach_poc ?? null,
-    closing_date: lmp.closing_date ?? null,
-    jd_url: lmp.jd_url ?? null,
-    jd_label: lmp.jd_label ?? null,
-    allocator: lmp.allocator ?? null,
-    admin_owner: lmp.admin_owner ?? null,
-    behavioral_status: lmp.behavioral_status ?? null,
-    match_tag: lmp.match_tag ?? null,
-    allocation_path: lmp.allocation_path ?? null,
-    mentor_selected: lmp.mentor_selected ?? null,
-    lmp_code: lmpCode,
-  };
-
-  const { data, error } = await supabase.functions.invoke("sheets-lmp", {
-    headers: { "x-sheet-sweeper": "1" },
-    body: {
-      op: "sync-db-to-sheet",
-      tab: TABS.LMP_TRACKER,
-      headerRow: getHeaderRow(TABS.LMP_TRACKER),
-      company,
-      role,
-      lmp_code: lmpCode,
-      dbPatch,
-    },
-  });
-
-  if (error) throw error;
-  if ((data as { skipped?: boolean } | null)?.skipped) {
-    throw new Error(`Sheet mirror skipped: ${(data as { reason?: string }).reason ?? "unknown reason"}`);
-  }
-}
 
 export async function createLmpProcess(payload: CreateLmpPayload) {
   const now = new Date().toISOString();
@@ -190,22 +123,8 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
 
   if (lmpError) throw lmpError;
 
-  // Mirror to Google Sheet in the background — the user does NOT wait for
-  // Google's API. If it fails, surface a retry toast instead of deleting the row.
-  runInBackground(
-    () => mirrorCreatedLmpToSheet(lmp as Record<string, unknown>),
-    {
-      label: "sheet-mirror",
-      onError: (err) => {
-        const message = err instanceof Error ? err.message : "Unknown sheet sync error";
-        toast.error("Sheet sync failed", {
-          description: `${message} — the LMP was created but isn't on the sheet yet.`,
-        });
-      },
-    },
-  );
-
-  // 2. lmp_poc_links is automatically populated by the trg_lmp_links_after_change
+  // The DB trigger enqueues the authoritative Sheet mirror job.
+  // lmp_poc_links is automatically populated by trg_lmp_links_after_change.
   //    trigger on lmp_processes.
 
   return lmp;

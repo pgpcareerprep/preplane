@@ -564,24 +564,23 @@ const _legacyHandler = async (req: Request) => {
                 .maybeSingle();
               const newCode = (refreshed as { lmp_code?: string } | null)?.lmp_code;
               if (newCode) {
-                // Push asynchronously via the existing sheets-lmp update path.
-                fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sheets-lmp`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                    "apikey": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-                    "x-sheet-sweeper": "1",
-                  },
-                  body: JSON.stringify({
+                await serviceClient.from("sheet_write_queue").insert({
+                  tab_name: "LMP Tracker",
+                  operation: "update",
+                  status: "pending",
+                  next_retry_at: new Date().toISOString(),
+                  enqueued_by: "sync-ingest",
+                  idempotency_key: `lmp:${lmpId}:code-writeback`,
+                  entity_id: lmpId,
+                  payload: {
                     op: "update",
                     tab: "LMP Tracker",
                     headerRow: 15,
                     id: lmpId,
                     findBy: { Company: company, Role: role },
                     patch: { "LMP ID": newCode },
-                  }),
-                }).catch((e) => console.warn("[sync-ingest] LMP ID writeback failed:", e));
+                  },
+                });
               }
             } catch (e) {
               console.warn("[sync-ingest] failed to read lmp_code for writeback:", e);

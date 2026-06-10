@@ -70,4 +70,16 @@ describe("critical security wiring", () => {
       expect(source).not.toContain('.eq("student_feedback_token"');
     }
   });
+
+  it("routes Sheet writes through one authenticated outbox worker", () => {
+    const sheets = read("supabase/functions/sheets-lmp/index.ts");
+    const worker = read("supabase/functions/sheets-retry-sweeper/index.ts");
+    const migration = read("supabase/migrations/20260610170000_unify_assignment_rbac_and_sheet_outbox.sql");
+    expect(sheets).toContain('await enqueueWrite("queued_for_worker")');
+    expect(sheets).toContain("await isInternalRequest(req)");
+    expect(worker).toContain("requireInternalSecret");
+    expect(worker).toContain('"x-sheet-sweeper": "1"');
+    expect(migration).not.toContain("net.http_post");
+    expect(migration).toContain("sheet_write_queue_pending_idempotency_key");
+  });
 });

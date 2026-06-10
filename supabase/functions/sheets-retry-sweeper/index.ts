@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
 
     // Mark processing.
     await sb.from("sheet_write_queue")
-      .update({ status: "processing", attempts: row.attempts + 1 })
+      .update({ status: "processing", attempts: row.attempts + 1, attempt_count: (row.attempt_count ?? 0) + 1 })
       .eq("id", row.id);
 
     try {
@@ -113,7 +113,7 @@ Deno.serve(async (req: Request) => {
         const reason = benignSkip ? (body?.reason || "skipped_no_op")
           : rowAlreadyGone ? "row_already_gone" : null;
         await sb.from("sheet_write_queue")
-          .update({ status: "done", last_error: reason, updated_at: new Date().toISOString() })
+          .update({ status: "done", last_error: reason, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq("id", row.id);
         results.push({ id: row.id, status: reason ?? "done" });
       } else {

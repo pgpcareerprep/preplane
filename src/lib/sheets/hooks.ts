@@ -400,25 +400,9 @@ export function useLmpById(id: string) {
   };
 }
 
-// DB→Sheet mirror flag. Default OFF (Google Sheets integration on hold, 2026-05).
-// `sheets.*` calls are no-ops anyway, but flipping the default to false stops
-// the mirror code path from running and avoids any side effects (toasts,
-// sync_source events) even if the localStorage flag was previously set to true.
-const MIRROR_FLAG_KEY = "sheets_mirror_enabled";
-function isSheetMirrorEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const v = window.localStorage.getItem(MIRROR_FLAG_KEY);
-    return v == null ? false : v === "true";
-  } catch {
-    return false;
-  }
-}
-
 export function useLmpMutation() {
   const qc = useQueryClient();
   const key = ["sheets", TABS.LMP_TRACKER];
-  const hRow = getHeaderRow(TABS.LMP_TRACKER);
 
   // Checklist columns in the sheet expect human-readable "Yes"/blank,
   // not raw boolean literals. Anything else (dates, text) is passed through.
@@ -542,103 +526,6 @@ export function useLmpMutation() {
     }
   };
 
-  // Build findBy from the original record, never by splitting the slug id.
-  const recordForUpdate = (id: string, allRecords?: LmpRecord[]): LmpRecord | undefined => {
-    const normalizedId = id.toLowerCase();
-    return allRecords?.find((r) => r.id === id || r.id.toLowerCase() === normalizedId);
-  };
-
-  // Best-effort fire-and-forget mirror push to the sheet. On failure we log
-  // and persist a pending event in `sheet_sync_events` so retry can pick it
-  // up — no more silent drift.
-  const mirrorToSheet = async (op: "insert" | "update", sheetPatch: Record<string, unknown>, rec?: LmpRecord, dbRecordId?: string) => {
-    if (!isSheetMirrorEnabled()) return;
-    const fieldList = Object.keys(sheetPatch);
-    try {
-      if (op === "insert") {
-        // Ensure the immutable LMP ID is written into column AA on every new row.
-        if (!sheetPatch["LMP ID"] && dbRecordId) {
-          try {
-            const { data: r } = await supabase
-              .from("lmp_processes")
-              .select("lmp_code")
-              .eq("id", dbRecordId)
-              .maybeSingle();
-            if (r?.lmp_code) sheetPatch["LMP ID"] = r.lmp_code;
-          } catch { /* best-effort */ }
-        }
-        const result = await sheets.insert(TABS.LMP_TRACKER, sheetPatch, hRow);
-        // Persist the sheet row number on the DB row so future updates target
-        // the exact sheet row (avoids hitting older duplicate Company+Role rows).
-        const newRow = (result as { sheetRowNumber?: number })?.sheetRowNumber;
-        if (dbRecordId && Number.isFinite(newRow) && newRow! > 0) {
-          try {
-            await supabase
-              .from("lmp_processes")
-              .update({ sheet_row_id: String(newRow) })
-              .eq("id", dbRecordId);
-          } catch (e) {
-            console.warn("[mirrorToSheet] failed to persist sheet_row_id:", e);
-          }
-        }
-      } else if (rec) {
-        // Primary sync key: LMP ID (column AA). Never match by Company+Role
-        // here — duplicate Company+Role rows would route updates to the wrong
-        // process. If lmpCode is missing, surface a clear pending event.
-        if (!rec.lmpCode) {
-          const message = "LMP_ID_MISSING: cannot mirror update without lmp_code";
-          console.warn(`[mirrorToSheet] ${message} for ${rec.company}/${rec.role} (id=${rec.id})`);
-          try {
-            await supabase.from("sheet_sync_events").insert({
-              tab_name: TABS.LMP_TRACKER,
-              operation: op,
-              direction: "app_to_sheet",
-              record_id: rec.id,
-              status: "pending",
-              fields_synced: fieldList,
-              field_count: fieldList.length,
-              error_message: message,
-            });
-          } catch { /* event log best-effort */ }
-          toast({
-            title: "LMP ID missing",
-            description: "Please sync this process before updating. The change was saved to the database but not to the sheet.",
-            variant: "destructive",
-          });
-          return;
-        }
-        await sheets.update(
-          TABS.LMP_TRACKER,
-          rec.id,
-          sheetPatch,
-          hRow,
-          { "LMP ID": rec.lmpCode },
-          rec.sourceSheetRow,
-        );
-      } else {
-        return;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[mirrorToSheet] ${op} failed for ${rec?.company ?? "?"}/${rec?.role ?? "?"} (lmp_code=${rec?.lmpCode ?? "?"}):`, message);
-      // Persist a pending event so retryPendingSheetWrites can replay later.
-      try {
-        await supabase.from("sheet_sync_events").insert({
-          tab_name: TABS.LMP_TRACKER,
-          operation: op,
-          direction: "app_to_sheet",
-          record_id: rec?.id ?? dbRecordId ?? null,
-          status: "pending",
-          fields_synced: fieldList,
-          field_count: fieldList.length,
-          error_message: message,
-        });
-      } catch {
-        /* event log is best-effort; don't loop on its own failure */
-      }
-    }
-  };
-
   // Cross-cutting invalidation: any sheet write must also refresh the DB-side
   // queries (LMP table, mentors, alumni, analytics) so dashboards never display
   // stale numbers after a write.
@@ -680,8 +567,6 @@ export function useLmpMutation() {
         .select()
         .single();
       if (error) throw new Error(error.message);
-      // Fire-and-forget mirror
-      void mirrorToSheet("insert", sheetPatch, undefined, (data as { id?: string } | null)?.id);
       return data;
     },
     onSuccess: () => { invalidateAll(); toast({ title: "LMP record created" }); },
@@ -690,28 +575,6 @@ export function useLmpMutation() {
 
   const update = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown> }) => {
-      const currentRecords = qc.getQueriesData<Record<string, any>[]>({ queryKey: ["db-lmp-processes"] })
-        .flatMap(([, rows]) => (rows ?? []).map(dbLmpToRecord));
-      let rec = recordForUpdate(id, currentRecords);
-      // Fallback: when the LMP was just created and the react-query cache
-      // hasn't picked it up yet, fetch identity from DB so the sheet mirror
-      // can still target the correct row instead of silently no-op'ing.
-      if (!rec) {
-        const { data } = await supabase
-          .from("lmp_processes")
-          .select("id, company, role, lmp_code, sheet_row_id")
-          .eq("id", id)
-          .maybeSingle();
-        if (data) {
-          rec = {
-            id: (data as any).id,
-            company: (data as any).company,
-            role: (data as any).role,
-            lmpCode: (data as any).lmp_code,
-            sourceSheetRow: Number((data as any).sheet_row_id) || undefined,
-          } as LmpRecord;
-        }
-      }
       const sheetPatch = toSheetPatch(patch);
       const dbPatch = appPatchToDbPatch(sheetPatch);
 
@@ -740,8 +603,6 @@ export function useLmpMutation() {
         if (error) throw new Error(error.message);
       }
 
-      // Fire-and-forget mirror push to keep sheet in sync.
-      void mirrorToSheet("update", sheetPatch, rec);
       return { db_updated: true } as any;
     },
     onMutate: async ({ id, patch }) => {
@@ -775,60 +636,8 @@ export function useLmpMutation() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      // Capture sheet-targeting context BEFORE the DB row is gone.
-      let rowNumber: number | undefined;
-      let lmpCode = "";
-      let company = "";
-      let role = "";
-      try {
-        const { data: row } = await supabase
-          .from("lmp_processes")
-          .select("company, role, sheet_row_id, lmp_code")
-          .eq("id", id)
-          .maybeSingle();
-        if (row) {
-          company = (row as any).company ?? "";
-          role = (row as any).role ?? "";
-          lmpCode = (row as any).lmp_code ?? "";
-          const n = Number((row as any).sheet_row_id);
-          if (Number.isFinite(n) && n > 0) rowNumber = n;
-        }
-      } catch {
-        /* best-effort context */
-      }
-
       const { error } = await supabase.from("lmp_processes").delete().eq("id", id);
       if (error) throw new Error(error.message);
-
-      if (isSheetMirrorEnabled() && (rowNumber || lmpCode)) {
-        try {
-          await sheets.delete(TABS.LMP_TRACKER, id, hRow, {
-            rowNumber,
-            // Primary sync key: LMP ID. Never fall back to Company+Role —
-            // duplicates would delete the wrong row.
-            findBy: lmpCode ? { "LMP ID": lmpCode } : undefined,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.warn(`[del] sheet delete failed for ${company}/${role} (lmp_code=${lmpCode}):`, message);
-          try {
-            await supabase.from("sheet_sync_events").insert({
-              tab_name: TABS.LMP_TRACKER,
-              operation: "delete",
-              direction: "app_to_sheet",
-              record_id: id,
-              status: "pending",
-              fields_synced: [`LMP ID:${lmpCode || "?"}`, rowNumber ? `Row:${rowNumber}` : "Row:?"],
-              field_count: 0,
-              error_message: message,
-            });
-          } catch { /* event log best-effort */ }
-          toast({
-            title: "Sheet sync pending",
-            description: "Record removed from app — will retry sheet delete on next sync.",
-          });
-        }
-      }
       return { deleted: true };
     },
     onSuccess: () => { invalidateAll(); toast({ title: "Record deleted" }); },

@@ -541,8 +541,8 @@ export function useUnmappedItems() {
 
 // ─── Sync stubs (DB is now the source of truth) ───
 //
-// Sheets → DB ingest and Smart Sync are retired. LMP creation now awaits a
-// direct DB → Sheet write; edits are mirrored by the database trigger.
+// Sheets → DB ingest and Smart Sync are retired. DB changes are mirrored by
+// the authoritative sheet_write_queue worker.
 
 export function useSyncIngest() {
   return useMutation({
@@ -574,7 +574,6 @@ export function useSmartLmpSync() {
         if (!row.company || !row.role || !row.lmp_code) continue;
         const dbPatch = { ...row };
         const { data, error: invokeError } = await supabase.functions.invoke("sheets-lmp", {
-          headers: { "x-sheet-sweeper": "1" },
           body: {
             op: "sync-db-to-sheet",
             tab: TABS.LMP_TRACKER,

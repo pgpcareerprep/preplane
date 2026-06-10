@@ -3,6 +3,7 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 import { findLmpSheetRow } from "../_shared/lmpSheetIdentity.ts";
+import { isInternalRequest } from "../_shared/requireAuth.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "https://preplane.pages.dev",
@@ -145,7 +146,7 @@ Deno.serve(async (req: Request) => {
   const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
   const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet"]);
-  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1";
+  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1" && await isInternalRequest(req);
 
   // Enqueue a write op into the retry queue (used on 429 or active cooldown).
   async function enqueueWrite(reason: string) {
@@ -159,14 +160,22 @@ Deno.serve(async (req: Request) => {
         next_retry_at: new Date(Date.now() + delaySec * 1000).toISOString(),
         last_error: reason,
         enqueued_by: userId || "system",
+        idempotency_key: `sheet:${tab}:${op}:${String(body.lmp_code || body.id || `${body.company || ""}:${body.role || ""}`)}`,
       });
     } catch (e) {
       console.warn("enqueueWrite failed:", e);
     }
   }
 
-  // Cooldown gate: if this tab is rate_limited_until in the future, queue instead of pushing.
+  // Only the authenticated worker may write to Google Sheets. All other
+  // callers enqueue a durable job and return immediately.
   if (WRITE_OPS.has(op) && !fromSweeper) {
+    await enqueueWrite("queued_for_worker");
+    return jsonOk({ queued: true, tab, operation: op });
+  }
+
+  // Cooldown gate for the authenticated worker.
+  if (WRITE_OPS.has(op) && fromSweeper) {
     try {
       const { data: log } = await serviceClient
         .from("sheets_sync_log")
