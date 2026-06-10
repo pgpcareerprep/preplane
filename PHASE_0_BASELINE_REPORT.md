@@ -8,7 +8,7 @@ Commit: `1fdaa91` (`Refine Copilot UI and agent responses`)
 ## Post-Baseline Remediation Update — 2026-06-11
 
 Phase 0 is retained below as historical baseline evidence. The remediation
-work has since shipped through production commit `37d727e`.
+work has since shipped through production commit `4e14cfe`.
 
 Completed and verified:
 
@@ -34,6 +34,7 @@ Latest verification:
 - Linked DB lint reported no schema errors.
 - Migrations aligned through `20260611010000`.
 - Public Playwright smoke tests passed 2/2.
+- GitHub `Quality` run `27300808348` passed verify, public E2E, and production authorization smoke jobs.
 - Lint completes with zero errors and 609 warnings.
 
 Remaining verification limitation:
