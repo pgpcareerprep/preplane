@@ -44,6 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Copilot rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' '${{ secrets.SUPABASE_URL }}/functions/v1/copilot-ai')" = "401"
+        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/copilot-ai")" = "401"
       - name: Voice rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' '${{ secrets.SUPABASE_URL }}/functions/v1/voice-copilot')" = "401"
+        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/voice-copilot")" = "401"
+      - name: Privileged jobs reject anonymous requests
+        run: |
+          test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/progress-reminder-cron")" = "401"
+          test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/sheets-retry-sweeper")" = "401"
+          test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/sync-ingest")" = "401"
