@@ -1,6 +1,5 @@
 export type LmpSheetRowLookup = {
   rowIndex: number;
-  ambiguousCompanyRoleMatches: number;
 };
 
 function normalized(value: unknown): string {
@@ -23,33 +22,11 @@ export function findLmpSheetRow(
     if (lmpIdCol !== -1) {
       for (let i = 1; i < rows.length; i++) {
         if (normalized(rows[i]?.[lmpIdCol]) === lmpCode) {
-          return { rowIndex: i, ambiguousCompanyRoleMatches: 0 };
+          return { rowIndex: i };
         }
       }
     }
-    return { rowIndex: -1, ambiguousCompanyRoleMatches: 0 };
+    return { rowIndex: -1 };
   }
-
-  const companyCol = headers.indexOf("Company");
-  const roleCol = headers.indexOf("Role");
-  if (companyCol === -1 || roleCol === -1) {
-    return { rowIndex: -1, ambiguousCompanyRoleMatches: 0 };
-  }
-
-  const company = normalized(identity.company);
-  const role = normalized(identity.role);
-  const matches: number[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    if (
-      normalized(rows[i]?.[companyCol]) === company &&
-      normalized(rows[i]?.[roleCol]) === role
-    ) {
-      matches.push(i);
-    }
-  }
-
-  return {
-    rowIndex: matches.length === 1 ? matches[0] : -1,
-    ambiguousCompanyRoleMatches: matches.length > 1 ? matches.length : 0,
-  };
+  return { rowIndex: -1 };
 }

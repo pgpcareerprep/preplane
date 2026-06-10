@@ -82,9 +82,18 @@ describe("critical security wiring", () => {
     const worker = read("supabase/functions/sheets-retry-sweeper/index.ts");
     const migration = read("supabase/migrations/20260610170000_unify_assignment_rbac_and_sheet_outbox.sql");
     expect(sheets).toContain('await enqueueWrite("queued_for_worker")');
-    expect(sheets).toContain("await isInternalRequest(req)");
+    expect(sheets).toContain("await hasValidInternalSecret(req)");
     expect(worker).toContain("requireInternalSecret");
     expect(worker).toContain('"x-sheet-sweeper": "1"');
+    expect(worker).toContain('"x-internal-secret": internalSyncSecret');
+    expect(worker).toContain("Authorization: `Bearer ${SERVICE_ROLE}`");
+    expect(sheets).toContain("const internalRequest = await hasValidInternalSecret(req)");
+    expect(sheets).toContain("if (!internalRequest)");
+    expect(sheets).toContain("await requireAuth(req, corsHeaders)");
+    expect(sheets).not.toContain("dbRow.company");
+    expect(sheets).not.toContain("dbRow.role");
+    expect(read("supabase/config.toml")).toContain("[functions.sheets-lmp]\nverify_jwt = false");
+    expect(read("supabase/config.toml")).toContain("[functions.sheets-retry-sweeper]\nverify_jwt = false");
     expect(migration).not.toContain("net.http_post");
     expect(migration).toContain("sheet_write_queue_pending_idempotency_key");
     expect(read("src/lib/sheets/fieldMap.ts")).toContain(

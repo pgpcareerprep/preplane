@@ -31,7 +31,7 @@ describe("findLmpSheetRow", () => {
     }).rowIndex).toBe(2);
   });
 
-  it("uses a unique company/role match only for legacy rows without an LMP ID", () => {
+  it("never uses Company+Role matching when the immutable LMP ID is missing", () => {
     const rows = [
       headers,
       ["", "Microsoft", "Growth Manager", ""],
@@ -40,6 +40,6 @@ describe("findLmpSheetRow", () => {
     expect(findLmpSheetRow(headers, rows, {
       company: " microsoft ",
       role: "growth manager",
-    }).rowIndex).toBe(1);
+    }).rowIndex).toBe(-1);
   });
 });

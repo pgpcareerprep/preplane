@@ -45,6 +45,7 @@ export const DB_TO_SHEET: Record<string, string> = {
   comments: "Comment",
   lmp_code: "LMP ID",
   jd_url: "JD",
+  jd_label: "JD Label",
 };
 
 /**

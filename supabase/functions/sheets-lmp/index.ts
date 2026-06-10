@@ -3,13 +3,13 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 import { findLmpSheetRow } from "../_shared/lmpSheetIdentity.ts";
-import { isInternalRequest } from "../_shared/requireAuth.ts";
+import { hasValidInternalSecret, requireAuth } from "../_shared/requireAuth.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const METADATA_CACHE_MS = 10 * 60 * 1000;
@@ -87,22 +87,18 @@ Deno.serve(async (req: Request) => {
     SPREADSHEET_ID = SPREADSHEET_ID.split("/")[0].split("?")[0];
   }
 
-  // Auth + Supabase client (service role for logging)
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
+  // Service-role client is used only after application-level authorization.
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  const internalRequest = await hasValidInternalSecret(req);
   let userId: string | null = null;
-  if (authHeader.startsWith("Bearer ")) {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (!error && user) userId = user.id;
+  if (!internalRequest) {
+    const auth = await requireAuth(req, corsHeaders);
+    if ("error" in auth) return auth.error;
+    userId = auth.user.id;
   }
 
   let body: Record<string, unknown>;
@@ -147,7 +143,7 @@ Deno.serve(async (req: Request) => {
   const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
   const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet"]);
-  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1" && await isInternalRequest(req);
+  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1" && internalRequest;
 
   // Enqueue a write op into the retry queue (used on 429 or active cooldown).
   async function enqueueWrite(reason: string) {
@@ -626,7 +622,7 @@ Deno.serve(async (req: Request) => {
           const matchesSlug = candidate && companyCol !== -1 && roleCol !== -1 && lmpSlug(candidate[companyCol], candidate[roleCol]) === idBase;
           if (candidateIndex > 0 && candidateIndex < allRows.length && (matchesFindBy || matchesSlug)) rowIndex = candidateIndex;
         }
-        if (rowIndex === -1 && findBy && !lmpIdFromFindBy) {
+        if (rowIndex === -1 && tab !== "LMP Tracker" && findBy && !lmpIdFromFindBy) {
           // Legacy lookup (Company+Role etc). Only used when caller did NOT
           // pass an LMP ID — i.e. non-LMP-Tracker tabs.
           for (let i = 1; i < allRows.length; i++) {
@@ -637,7 +633,7 @@ Deno.serve(async (req: Request) => {
             if (match) { rowIndex = i; break; }
           }
         }
-        if (rowIndex === -1 && id) {
+        if (rowIndex === -1 && tab !== "LMP Tracker" && id) {
           const idCol = headers.indexOf("id");
           const companyCol = headers.indexOf("Company");
           const roleCol = headers.indexOf("Role");
@@ -647,62 +643,6 @@ Deno.serve(async (req: Request) => {
             if (rowId === id || slugId === id.toLowerCase()) { rowIndex = i; break; }
           }
         }
-        // ── Self-healing fallback: if LMP Tracker + we have an lmp_code but
-        //    didn't find it in column AA (sheet drift / un-backfilled row),
-        //    look up the DB row to recover sheet_row_id and/or Company+Role,
-        //    then re-stamp column AA so future updates are O(1).
-        if (rowIndex === -1 && tab === "LMP Tracker" && lmpIdFromFindBy) {
-          const { data: dbRow } = await serviceClient
-            .from("lmp_processes")
-            .select("sheet_row_id, company, role")
-            .eq("lmp_code", lmpIdFromFindBy)
-            .maybeSingle();
-
-          if (dbRow) {
-            // 1) Try sheet_row_id (absolute sheet row number)
-            const srid = Number(dbRow.sheet_row_id);
-            if (Number.isInteger(srid) && srid > headerRow) {
-              const candidateIndex = srid - headerRow;
-              if (candidateIndex > 0 && candidateIndex < allRows.length) {
-                rowIndex = candidateIndex;
-              }
-            }
-            // 2) Fall back to Company+Role match (single unambiguous hit only)
-            if (rowIndex === -1 && dbRow.company && dbRow.role) {
-              const companyCol = headers.indexOf("Company");
-              const roleCol = headers.indexOf("Role");
-              if (companyCol !== -1 && roleCol !== -1) {
-                const matches: number[] = [];
-                const c = String(dbRow.company).trim().toLowerCase();
-                const r = String(dbRow.role).trim().toLowerCase();
-                for (let i = 1; i < allRows.length; i++) {
-                  if (
-                    (allRows[i][companyCol] ?? "").toString().trim().toLowerCase() === c &&
-                    (allRows[i][roleCol] ?? "").toString().trim().toLowerCase() === r
-                  ) {
-                    matches.push(i);
-                  }
-                }
-                if (matches.length === 1) rowIndex = matches[0];
-              }
-            }
-            // 3) Re-stamp column AA with the lmp_code so we self-heal
-            if (rowIndex !== -1 && lmpIdCol !== -1) {
-              const stampRow = headerRow + rowIndex;
-              const colLetter = colIndexToLetter(lmpIdCol);
-              try {
-                await sheetsClient.rawFetch(
-                  `${baseUrl}/values/'${tab}'!${colLetter}${stampRow}?valueInputOption=USER_ENTERED`,
-                  {
-                    method: "PUT",
-                    body: JSON.stringify({ values: [[lmpIdFromFindBy]] }),
-                  },
-                );
-              } catch (_e) { /* non-fatal */ }
-            }
-          }
-        }
-
         if (rowIndex === -1) {
           // Sheet row missing — for LMP Tracker, still try to write the patch
           // to lmp_processes so the UI stays consistent. Target by lmp_code
@@ -1065,10 +1005,6 @@ Deno.serve(async (req: Request) => {
         const headers = allRows[0];
         const lookup = findLmpSheetRow(headers, allRows, { lmpCode, company, role });
         const rowIndex = lookup.rowIndex;
-        if (lookup.ambiguousCompanyRoleMatches > 0) {
-          console.warn(`[sync-db-to-sheet] AMBIGUOUS ${lookup.ambiguousCompanyRoleMatches} sheet rows for ${company}/${role} on "${tab}" and no lmp_code provided — refusing write to avoid clobber.`);
-          return jsonOk({ skipped: true, reason: "ambiguous_company_role", tab, company, role, matches: lookup.ambiguousCompanyRoleMatches });
-        }
 
         // A supplied lmp_code is authoritative. If that exact ID is absent,
         // append a distinct row even when company/role matches an older LMP.
@@ -1125,9 +1061,8 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: calc } = await serviceClient
             .from("lmp_full_view")
-            .select("r1_count, r2_count, r3_count, mentor_feedback_avg")
-            .eq("company", company)
-            .eq("role", role)
+            .select("r1_count, r2_count, r3_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
+            .eq("lmp_code", lmpCode)
             .maybeSingle();
           if (calc) {
             // Prefer the explicit DB column value (lmp_processes.rN_shortlisted)
@@ -1149,12 +1084,23 @@ Deno.serve(async (req: Request) => {
               "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
                 ? Number(calc.mentor_feedback_avg).toFixed(1)
                 : "",
+              "Mentor Selected": calc.mentor_name ?? dbPatch.mentor_selected ?? "",
+              "Prep POC": calc.prep_poc_names ?? dbPatch.prep_poc ?? "",
+              "Support POC": calc.support_poc_names ?? dbPatch.support_poc ?? "",
+              "Outreach POC": calc.outreach_poc_names ?? dbPatch.outreach_poc ?? "",
             };
             for (const [h, v] of Object.entries(calcMap)) {
               const actual = resolveHeader(h);
               if (actual) sheetPatch[actual] = v;
             }
           }
+          const { data: overview } = await serviceClient
+            .from("lmp_processes_overview")
+            .select("candidate_count")
+            .eq("lmp_code", lmpCode)
+            .maybeSingle();
+          const candidateCountHeader = resolveHeader("Candidate Count");
+          if (candidateCountHeader) sheetPatch[candidateCountHeader] = overview?.candidate_count ?? 0;
         } catch (e) {
           console.warn("Failed to compute calculated columns:", e);
         }
@@ -1197,7 +1143,14 @@ Deno.serve(async (req: Request) => {
             record_id: lmpCode ?? `${company}-${role}`,
             fields_synced: Object.keys(sheetPatch), status: "success",
           });
-          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, fieldsUpdated: Object.keys(sheetPatch) });
+          console.log("[sheets-lmp] DB to Sheet insert", {
+            operation: op,
+            lmp_code: lmpCode,
+            sheet_row_found: false,
+            sheet_row: insertedRowNumber,
+            columns_updated: Object.keys(sheetPatch),
+          });
+          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, sheetRowFound: false, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch) });
         }
 
         const existingRow = allRows[rowIndex];
@@ -1240,7 +1193,17 @@ Deno.serve(async (req: Request) => {
           fields_synced: updates.map((u) => u.range), status: "success",
         });
 
-        return jsonOk({ synced: true, company, role, fieldsUpdated: updates.map((u) => u.range) });
+        const columnsUpdated = Object.keys(sheetPatch).filter((header) =>
+          updates.some((update) => update.range.includes(`${colIndexToLetter(headers.indexOf(header))}${actualSheetRow}`))
+        );
+        console.log("[sheets-lmp] DB to Sheet update", {
+          operation: op,
+          lmp_code: lmpCode,
+          sheet_row_found: true,
+          sheet_row: actualSheetRow,
+          columns_updated: columnsUpdated,
+        });
+        return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range) });
       }
 
 

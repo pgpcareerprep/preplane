@@ -79,8 +79,14 @@ export async function isInternalRequest(req: Request): Promise<boolean> {
   const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
   if (SERVICE_ROLE && bearer === SERVICE_ROLE) return true;
 
+  return hasValidInternalSecret(req);
+}
+
+export async function hasValidInternalSecret(req: Request): Promise<boolean> {
   const supplied = req.headers.get("x-internal-secret")?.trim() || "";
   if (!supplied) return false;
+  const configured = Deno.env.get("INTERNAL_SYNC_SECRET")?.trim() || "";
+  if (configured && supplied === configured) return true;
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },

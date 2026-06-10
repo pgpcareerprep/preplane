@@ -36,6 +36,10 @@ Latest verification:
 - Public Playwright smoke tests passed 2/2.
 - GitHub `Quality` run `27300808348` passed verify, public E2E, and production authorization smoke jobs.
 - Lint completes with zero errors and 609 warnings.
+- DB-to-Sheet queue authentication was repaired and production-verified:
+  immediate dispatch targets the newly enqueued queue ID, cron remains the
+  backlog fallback, and a production smoke row reached `done` with no
+  `Invalid JWT` error.
 
 Remaining verification limitation:
 

@@ -21,6 +21,9 @@ describe("DB_TO_SHEET field map", () => {
     expect(DB_TO_SHEET["role"]).toBeDefined();
     expect(DB_TO_SHEET["domain_raw"]).toBeDefined();
     expect(DB_TO_SHEET["comments"]).toBeDefined();
+    expect(DB_TO_SHEET["jd_url"]).toBe("JD");
+    expect(DB_TO_SHEET["jd_label"]).toBe("JD Label");
+    expect(DB_TO_SHEET["lmp_code"]).toBe("LMP ID");
   });
 
   it("all sheet header values are non-empty strings", () => {

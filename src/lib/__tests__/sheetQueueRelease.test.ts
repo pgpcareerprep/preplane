@@ -1,0 +1,83 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const root = resolve(__dirname, "../../..");
+const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+
+describe("Sheet queue Invalid JWT release", () => {
+  const worker = read("supabase/functions/sheets-retry-sweeper/index.ts");
+  const sheets = read("supabase/functions/sheets-lmp/index.ts");
+  const auth = read("supabase/functions/_shared/requireAuth.ts");
+  const migration = read("supabase/migrations/20260611020000_fix_sheet_queue_internal_auth_and_immediate_dispatch.sql");
+
+  it("sends both service-role bearer auth and the internal worker secret", () => {
+    expect(worker).toContain("Authorization: `Bearer ${SERVICE_ROLE}`");
+    expect(worker).toContain('"x-internal-secret": internalSyncSecret');
+    expect(worker).toContain('Deno.env.get("INTERNAL_SYNC_SECRET")');
+    expect(worker).toContain('.from("_internal_cron_auth")');
+    expect(worker).toContain("apikey: SERVICE_ROLE");
+  });
+
+  it("accepts a valid internal-secret worker without requiring a user JWT", () => {
+    const config = read("supabase/config.toml");
+    expect(config).toContain("[functions.sheets-lmp]\nverify_jwt = false");
+    expect(config).toContain("[functions.sheets-retry-sweeper]\nverify_jwt = false");
+    expect(sheets).toContain("const internalRequest = await hasValidInternalSecret(req)");
+    expect(sheets).toContain("if (!internalRequest)");
+    expect(sheets).toContain("await requireAuth(req, corsHeaders)");
+    expect(auth).toContain('Deno.env.get("INTERNAL_SYNC_SECRET")');
+  });
+
+  it("rejects missing or invalid internal secrets and preserves normal user auth", () => {
+    expect(auth).toContain("if (!supplied) return false");
+    expect(auth).toContain("supplied === configured");
+    expect(sheets).toContain("if (\"error\" in auth) return auth.error");
+  });
+
+  it("immediately dispatches durable queue work and safely retries Invalid JWT failures", () => {
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.dispatch_sheet_retry_sweeper()");
+    expect(migration).toContain("PERFORM public.dispatch_sheet_retry_sweeper()");
+    expect(migration).toContain("last_error ILIKE '%Invalid JWT%'");
+    expect(migration).toContain("attempts = 0");
+    expect(migration).toContain("last_error = NULL");
+    expect(worker).toContain('requestBody?.queue_id');
+    expect(worker).toContain('queueQuery.eq("id", requestedQueueId)');
+  });
+
+  it("routes LMP Tracker writes by immutable LMP ID and logs queue diagnostics", () => {
+    expect(sheets).toContain('.eq("lmp_code", lmpCode)');
+    expect(sheets).not.toContain("dbRow.company");
+    expect(sheets).not.toContain("dbRow.role");
+    expect(sheets).toContain('tab !== "LMP Tracker" && findBy && !lmpIdFromFindBy');
+    expect(sheets).toContain('tab !== "LMP Tracker" && id');
+    expect(worker).toContain("queue_id:");
+    expect(worker).toContain("columns_updated:");
+    expect(worker).toContain("failure_reason:");
+  });
+
+  it("maps requested LMP columns and calculated candidate/POC/mentor values", () => {
+    const fieldMap = read("supabase/functions/_shared/fieldMap.ts");
+    for (const mapping of [
+      'date: "Date"',
+      'company: "Company"',
+      'role: "Role"',
+      'domain_raw: "Domain"',
+      'status: "Status"',
+      'type: "Type"',
+      'daily_progress: "Daily Progress"',
+      'next_progress_date: "Next Progress Date"',
+      'next_progress_type: "Next Progress Type"',
+      'jd_url: "JD"',
+      'jd_label: "JD Label"',
+      'mentor_selected: "Mentor Selected"',
+      'prep_poc: "Prep POC"',
+      'support_poc: "Support POC"',
+      'outreach_poc: "Outreach POC"',
+      'lmp_code: "LMP ID"',
+    ]) expect(fieldMap).toContain(mapping);
+    expect(sheets).toContain('.from("lmp_processes_overview")');
+    expect(sheets).toContain('"Candidate Count"');
+    expect(sheets).toContain('"Mentor Selected"');
+  });
+});

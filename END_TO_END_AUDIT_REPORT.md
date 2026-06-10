@@ -38,6 +38,10 @@ the authoritative post-remediation result after phased production releases.
 - Cloudflare production and Supabase Edge deployments are active on the latest phased releases.
 - Lint: zero errors, **609 warnings** remain as maintainability debt.
 - Seeded authenticated browser workflows for every role remain unexecuted because no CI/staging role credentials are configured. The Playwright role suite and CI hook exist, but this is still a verification gap.
+- Sheet queue Invalid JWT incident resolved on 2026-06-11: `sheets-lmp` v19 and
+  `sheets-retry-sweeper` v17 use application-level internal-secret validation;
+  migration guards confirmed a targeted immutable-LMP-ID sync reached `done`
+  with `last_error = NULL` and `invalid_jwt = 0`.
 
 ## Executive Summary
 

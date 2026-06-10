@@ -10,3 +10,11 @@ verify_jwt = false
 
 [functions.submit-student-feedback]
 verify_jwt = false
+
+# Internal queue workers authenticate inside the function with
+# x-internal-secret. Manual calls still require a validated user session.
+[functions.sheets-lmp]
+verify_jwt = false
+
+[functions.sheets-retry-sweeper]
+verify_jwt = false
