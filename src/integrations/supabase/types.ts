@@ -1248,6 +1248,7 @@ export type Database = {
           final_convert: string | null
           historical_tag: string | null
           id: string
+          is_archived: boolean | null
           jd_file_name: string | null
           jd_label: string | null
           jd_seniority: string | null
@@ -1314,6 +1315,7 @@ export type Database = {
           domain_raw?: string | null
           final_convert?: string | null
           historical_tag?: string | null
+          is_archived?: boolean | null
           id?: string
           jd_file_name?: string | null
           jd_label?: string | null
@@ -1381,6 +1383,7 @@ export type Database = {
           domain_raw?: string | null
           final_convert?: string | null
           historical_tag?: string | null
+          is_archived?: boolean | null
           id?: string
           jd_file_name?: string | null
           jd_label?: string | null

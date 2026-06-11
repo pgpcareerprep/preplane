@@ -1362,11 +1362,13 @@ Deno.serve(async (req: Request) => {
 
         const reconcileRange = `'${tab}'!A${headerRow}:ZZ10000`;
 
-        // ── 0. Fetch all active DB LMPs (base fields + created_at for sort) ──
+        // ── 0. Fetch all non-archived DB LMPs, sorted by LMP date then insert time ──
         const { data: rawDbLmps, error: dbErr } = await serviceClient
           .from("lmp_processes")
           .select("*")
           .not("lmp_code", "is", null)
+          .or("is_archived.is.null,is_archived.eq.false")
+          .order("date", { ascending: false })
           .order("created_at", { ascending: false });
         if (dbErr) return jsonError(`DB read failed: ${dbErr.message}`, 500);
         const dbLmps: any[] = rawDbLmps ?? [];
@@ -1564,7 +1566,7 @@ Deno.serve(async (req: Request) => {
         };
 
         // ── 6. Overwrite rows 15..14+N with sorted DB data ────────────────────
-        // dbLmps is already ordered by created_at desc (newest first = row 15)
+        // dbLmps is already ordered by date desc, created_at desc (newest first = row 15)
         const sortedBatch: { range: string; values: unknown[][] }[] = [];
         for (let i = 0; i < dbLmps.length; i++) {
           const targetRow = headerRow + 1 + i;  // row 15 = i=0, row 16 = i=1, ...
