@@ -1,9 +1,11 @@
-import { Settings2, FileText, MessageSquare, MoreVertical, Trash2, UserPlus, UserCog } from "lucide-react";
+import { Settings2, FileText, MessageSquare, MoreVertical, Trash2, UserPlus, UserCog, Pencil } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
 import { STATUS_META } from "@/lib/lmpTypes";
 import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { EditLmpModal } from "@/components/lmp/EditLmpModal";
 import { TAG_STYLES } from "@/lib/pocAllocation";
 import { useJd, type JdData } from "@/lib/jdStore";
 import { JdUploadModal } from "@/components/lmp/JdUploadModal";
@@ -37,9 +39,13 @@ export function StickyHeader({
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
 
-  // Only the assigned Primary/Support POC can delete an LMP.
-  // Admin and allocator can reassign POCs but must NOT delete.
-  const canDelete = !isViewingAsOther && !readOnly;
+  const { canDelete: canDeleteLmp } = useLmpPermission({
+    prep_poc: lmp.prepPoc?.name,
+    support_poc: lmp.supportPoc?.name,
+    outreach_poc: lmp.outreachPoc?.name,
+    allocator: lmp.allocator,
+  });
+  const canDelete = !isViewingAsOther && !readOnly && canDeleteLmp;
   const canReassignPoc = !isViewingAsOther && (role === "allocator" || role === "admin");
   const isPocActor = role === "poc";
   const [jdData, setJdData] = useJd(lmp.id);
@@ -57,6 +63,7 @@ export function StickyHeader({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const deleteMutation = useDeleteLmpProcess();
 
   return (
@@ -135,6 +142,9 @@ export function StickyHeader({
                 {canDelete && (
                   <>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                      <Pencil className="h-3.5 w-3.5 mr-2" /> Edit LMP
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setDeleteOpen(true)}
                       className="text-coral-600 focus:text-coral-700 focus:bg-coral-50"
@@ -245,6 +255,8 @@ export function StickyHeader({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <EditLmpModal open={editOpen} onOpenChange={setEditOpen} rec={lmp} />
     </section>
   );
 }

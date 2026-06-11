@@ -76,7 +76,7 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin"],
+  delete_lmp: ["admin", "allocator", "poc"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
   change_domain: ["admin", "allocator"],
@@ -273,12 +273,10 @@ export function getLmpAccessLevel(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): "full" | "summary" | "none" {
-  // If the user is assigned as primary prep/support POC, they always get full access
-  if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
-  // Admin/allocator without ownership get summary (can view but not edit operational fields)
-  if (role === "admin") return "summary";
-  if (role === "allocator") return "summary";
-  // POC not assigned to this LMP
+  // admin/allocator always get full edit access regardless of ownership
+  if (role === "admin" || role === "allocator") return "full";
+  // POC: full only if assigned
+  if (isLmpPrepPoc(userName, lmp, pocId) || isLmpOutreachPoc(userName, lmp, pocId)) return "full";
   return "summary";
 }
 
@@ -401,19 +399,16 @@ export function canEditFieldFinal(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): boolean {
-  const isOwner = isLmpPrepPoc(userName, lmp, pocId);
-  if (role === "admin") {
-    if (!isOwner) return false;
-    return canEditField(role, field, true);
-  }
-  if (role === "allocator") {
-    if (!isOwner) return false;
-    return canEditField(role, field, true);
-  }
+  const perm = FIELD_PERMISSIONS[field];
+  if (!perm) return false;
+  if (!perm.editable.includes(role)) return false;
+  // admin/allocator: no ownership gate — they can edit any LMP
+  if (role === "admin" || role === "allocator") return true;
+  // POC: must be assigned to this LMP
   const subRole = getPocSubRole(userName, lmp, pocId);
   if (subRole === "none") return false;
   if (subRole === "outreach_poc") return canOutreachPocEditField(field);
-  return canEditField(role, field, true);
+  return true;
 }
 
 /**
@@ -422,6 +417,7 @@ export function canEditFieldFinal(
  * RLS policy does not need to enforce per-column rules.
  */
 export const POC_WRITABLE_LMP_COLUMNS: ReadonlyArray<string> = [
+  "company", "role",
   "daily_progress", "prep_progress", "placement_progress",
   "next_progress_date", "next_progress_status", "next_progress_type",
   "next_progress_reminder_type", "last_progress_updated_at",

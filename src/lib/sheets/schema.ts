@@ -86,14 +86,14 @@ export const LMP_TRACKER_HEADERS = [
   /* P */ "R3 Shortlisted",
   /* Q */ "Offer",
   /* R */ "Converted Name(s)",
-  /* S */ "Prep Doc",
+  /* S */ "Prep Doc Link",
   /* T */ "Prep POC",
   /* U */ "Support POC",
   /* V */ "Outreach POC",
   /* W */ "Closing Date",
   /* X */ "Mentor Selected",
   /* Y */ "Mentor Rating",
-  /* Z */ "JD",
+  /* Z */ "Comments",
   /* AA */ "LMP ID",
 ] as const;
 

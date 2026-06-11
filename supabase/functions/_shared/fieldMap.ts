@@ -32,7 +32,10 @@ export const DB_TO_SHEET: Record<string, string> = {
   r3_shortlisted: "R3 Shortlisted",
   final_convert: "Offer",
   convert_names: "Converted Name(s)",
-  prep_doc: "Prep Doc",
+  // prep_doc: "Prep Doc" — REMOVED: "Prep Doc" column no longer exists in the
+  // canonical sheet layout (col S is now "Prep Doc Link"). The prep_doc JSON
+  // array is stored in the DB only; prep_doc_link mirrors the human-readable
+  // URLs into the live sheet column S.
   prep_poc: "Prep POC",
   support_poc: "Support POC",
   outreach_poc: "Outreach POC",

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MoreVertical, UserCog, Eye, Users, RefreshCw, MessageSquare, CalendarClock, Trash2 } from "lucide-react";
+import { MoreVertical, UserCog, Eye, Users, RefreshCw, MessageSquare, CalendarClock, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { type LmpRecord, STATUS_META, ageLabel } from "@/lib/lmpTypes";
@@ -10,6 +10,9 @@ import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpComments } from "@/lib/hooks/useLmpComments";
 import { useLmpProcessComment } from "@/lib/hooks/useLmpProcessComment";
 import { useDeleteLmpProcess, useLmpCandidateCounts } from "@/lib/hooks/useDbData";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { useRole } from "@/lib/rolesContext";
+import { EditLmpModal } from "@/components/lmp/EditLmpModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +42,14 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
   const liveCandidateCount = (candidateCounts as Record<string, number>)[rec.id];
   const candidateCount = typeof liveCandidateCount === "number" ? liveCandidateCount : (rec.candidates ?? 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const { role } = useRole();
+  const { canDelete } = useLmpPermission({
+    prep_poc: rec.prepPoc?.name,
+    support_poc: rec.supportPoc?.name,
+    outreach_poc: rec.outreachPoc?.name,
+    allocator: rec.allocator,
+  });
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (dragging) return;
@@ -99,12 +110,19 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
                 <RefreshCw className="h-4 w-4" /> Change status
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 className="h-4 w-4" /> Delete LMP
-              </DropdownMenuItem>
+              {canDelete && (
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-4 w-4" /> Edit LMP
+                </DropdownMenuItem>
+              )}
+              {canDelete && (
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="h-4 w-4" /> Delete LMP
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -252,6 +270,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <EditLmpModal open={editOpen} onOpenChange={setEditOpen} rec={rec} />
     </>
   );
 }

@@ -23,9 +23,9 @@ describe("DB_TO_SHEET field map", () => {
     expect(DB_TO_SHEET["domain_raw"]).toBeDefined();
     expect(DB_TO_SHEET["jd_url"]).toBe("JD");
     expect(DB_TO_SHEET["lmp_code"]).toBe("LMP ID");
-    expect(DB_TO_SHEET["comments"]).toBeUndefined();
+    expect(DB_TO_SHEET["comments"]).toBe("Comments");
     expect(DB_TO_SHEET["jd_label"]).toBeUndefined();
-    expect(DB_TO_SHEET["prep_doc_link"]).toBeUndefined();
+    expect(DB_TO_SHEET["prep_doc_link"]).toBe("Prep Doc Link");
   });
 
   it("all sheet header values are non-empty strings", () => {
@@ -47,7 +47,7 @@ describe("canonical LMP Tracker layout", () => {
   it("uses row 14 headers and the exact A:AA contract", () => {
     expect(getHeaderRow(TABS.LMP_TRACKER)).toBe(14);
     expect(LMP_TRACKER_HEADERS).toHaveLength(27);
-    expect(LMP_TRACKER_HEADERS[25]).toBe("JD");
+    expect(LMP_TRACKER_HEADERS[25]).toBe("Comments");
     expect(LMP_TRACKER_HEADERS[26]).toBe("LMP ID");
   });
 });
@@ -97,16 +97,34 @@ describe("sheetPatchToDbPatch (sheet header → DB column translation)", () => {
     expect(result["comments"]).toBe("Note");
     expect(result["prep_doc"]).toBeUndefined();
   });
+
+  it("translates Comments (plural) sheet header to comments DB column", () => {
+    const result = sheetPatchToDbPatch({ Comments: "My note" });
+    expect(result["comments"]).toBe("My note");
+  });
+});
+
+describe("Comments and Prep Doc Link mappings", () => {
+  it("maps Comments DB column to sheet header", () => {
+    expect(DB_TO_SHEET["comments"]).toBe("Comments");
+    expect(DB_TO_SHEET["prep_doc_link"]).toBe("Prep Doc Link");
+  });
 });
 
 describe("appPatchToDbPatch", () => {
   it("translates trusted app patches and normalizes status", () => {
     expect(appPatchToDbPatch({
       Status: "Prep Ongoing",
-      "Prep Doc": "https://docs.example.com",
     })).toEqual({
       status: "prep-ongoing",
-      prep_doc: "https://docs.example.com",
+    });
+  });
+
+  it("maps Prep Doc Link sheet header to prep_doc_link DB column", () => {
+    expect(appPatchToDbPatch({
+      "Prep Doc Link": "https://docs.example.com",
+    })).toEqual({
+      prep_doc_link: "https://docs.example.com",
     });
   });
 });

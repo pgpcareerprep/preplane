@@ -1,5 +1,5 @@
 // Versioned permission contract consumed by both the frontend and Edge Functions.
-export const PERMISSION_CONTRACT_VERSION = "2026-06-11.1";
+export const PERMISSION_CONTRACT_VERSION = "2026-06-11.2";
 export const VIEW_AS_READ_ONLY = true;
 
 export type ContractRole = "admin" | "allocator" | "poc";
@@ -10,7 +10,7 @@ export const ACTION_MATRIX = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin"],
+  delete_lmp: ["admin", "allocator", "poc"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
   assign_mentor: ["admin", "allocator", "poc"],
@@ -90,6 +90,7 @@ export const FIELD_PERMISSIONS = {
 } as const;
 
 export const POC_WRITABLE_LMP_COLUMNS = [
+  "company", "role",
   "daily_progress", "prep_progress", "placement_progress",
   "next_progress_date", "next_progress_status", "next_progress_type",
   "next_progress_reminder_type", "last_progress_updated_at",

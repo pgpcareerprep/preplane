@@ -17,9 +17,9 @@ export const CANONICAL_LMP_TRACKER_HEADERS = [
   "Date", "Company", "Role", "Domain", "Status", "Type", "Daily Progress",
   "Prep Doc Shared", "Mentor Aligned", "Assignment Review", "1:1 mock completed",
   "Next Progress Date", "Next Progress Type", "R1 Shortlisted", "R2 Shortlisted",
-  "R3 Shortlisted", "Offer", "Converted Name(s)", "Prep Doc", "Prep POC",
+  "R3 Shortlisted", "Offer", "Converted Name(s)", "Prep Doc Link", "Prep POC",
   "Support POC", "Outreach POC", "Closing Date", "Mentor Selected",
-  "Mentor Rating", "JD", "LMP ID",
+  "Mentor Rating", "Comments", "LMP ID",
 ] as const;
 
 function normalized(value: unknown): string {

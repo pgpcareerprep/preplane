@@ -17,11 +17,14 @@ import {
 } from "@/lib/permissions";
 
 type LmpOwnership = {
-  prep_poc?: string;
-  support_poc?: string;
-  outreach_poc?: string;
-  allocator?: string;
-  admin_owner?: string;
+  prep_poc?: string | null;
+  support_poc?: string | null;
+  outreach_poc?: string | null;
+  allocator?: string | null;
+  admin_owner?: string | null;
+  prep_poc_id?: string | null;
+  support_poc_id?: string | null;
+  outreach_poc_ids?: string[] | null;
 };
 
 /**
@@ -60,7 +63,7 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
       canChangeStatus: !isReadOnly && canPerform(role, "change_status"),
       canAssignPoc: !isReadOnly && canPerform(role, "assign_poc"),
       canChangeDomain: !isReadOnly && canPerform(role, "change_domain"),
-      canDelete: !isReadOnly && canPerform(role, "delete_lmp"),
+      canDelete: !isViewingAsOther && accessLevel === "full" && canPerform(role, "delete_lmp"),
       canRollback: (auditActorName: string) =>
         !isReadOnly && canRollback(role, user.name, auditActorName, ownership),
     };

@@ -4,25 +4,20 @@ import type { DocumentLink } from "@/components/lmp/bento/DocumentsCard";
 export const PREP_DOC_CHECKLIST_ID = "ck-prepdoc";
 
 /**
- * Resolve which URL should mirror into `lmp_processes.prep_doc_link`
- * (sheet column S — "Prep Doc Link"). Picks the most recently touched
- * execution_checklist entry attached to the Prep doc shared item.
- * Returns null when no such link exists, which clears col S.
+ * Serialize ALL document links into `lmp_processes.prep_doc_link`
+ * (sheet column S — "Prep Doc Link"). Returns all links formatted as
+ * "Label: URL" per line (or just URL if label is missing/default), joined
+ * by newline. Returns null when no links with URLs exist.
  */
 export function derivePrepDocLink(docs: DocumentLink[]): string | null {
-  const prep = docs.filter(
-    (d) =>
-      d.source_type === "execution_checklist" &&
-      d.checklist_item_id === PREP_DOC_CHECKLIST_ID &&
-      d.url,
-  );
-  if (prep.length === 0) return null;
-  const sorted = [...prep].sort((a, b) => {
-    const ta = a.updated_at ?? a.created_at ?? "";
-    const tb = b.updated_at ?? b.created_at ?? "";
-    return tb.localeCompare(ta);
-  });
-  return sorted[0].url || null;
+  const links = docs.filter((d) => d.url);
+  if (links.length === 0) return null;
+  return links
+    .map((d) => {
+      const label = d.label && d.label !== "Document" ? d.label.trim() : "";
+      return label ? `${label}: ${d.url}` : d.url;
+    })
+    .join("\n");
 }
 
 /** True when a DocumentLink belongs to the Prep doc shared checklist scope. */
