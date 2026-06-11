@@ -84,6 +84,7 @@ describe("Sheet queue Invalid JWT release", () => {
     const schema = read("src/lib/sheets/schema.ts");
     const identity = read("supabase/functions/_shared/lmpSheetIdentity.ts");
     const migration = read("supabase/migrations/20260611033000_fix_lmp_tracker_identity_and_header_row.sql");
+    const allMirrorMigration = read("supabase/migrations/20260611101500_fix_all_lmp_mirror_header_row.sql");
     expect(schema).toContain("[TABS.LMP_TRACKER]: 14");
     expect(identity).toContain("LMP_ID_COLUMN_INDEX = 26");
     expect(sheets).toContain("? LMP_TRACKER_HEADER_ROW");
@@ -91,8 +92,16 @@ describe("Sheet queue Invalid JWT release", () => {
     expect(sheets).not.toContain('"JD Upload"');
     expect(migration).toContain("'headerRow', 14");
     expect(migration).toContain("jsonb_set(payload, '{headerRow}', '14'::jsonb, true)");
+    expect(allMirrorMigration).toContain("CREATE OR REPLACE FUNCTION public.enqueue_all_lmp_sheet_mirrors()");
+    expect(allMirrorMigration).toContain("'headerRow', 14");
+    expect(allMirrorMigration).not.toContain("'headerRow', 15");
+    expect(allMirrorMigration).not.toContain("attempts");
+    expect(allMirrorMigration).not.toContain("status = 'pending',");
     expect(worker).toContain("unsafeSheetIdentity");
     expect(worker).toContain("MISALIGNED_LMP_TRACKER_HEADERS");
+    expect(sheets).toContain("const safePayload = isLmpTracker");
+    expect(sheets).toContain("payload: safePayload");
+    expect(sheets).toContain("if (duplicateLookup.error) return jsonError(duplicateLookup.error, 409)");
   });
 
   it("provides an admin-only non-destructive integrity report", () => {

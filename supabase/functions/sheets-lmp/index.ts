@@ -159,10 +159,13 @@ Deno.serve(async (req: Request) => {
   async function enqueueWrite(reason: string) {
     try {
       const delaySec = reason === "rate_limited" ? 60 : 5;
+      const safePayload = isLmpTracker
+        ? { ...body, headerRow: LMP_TRACKER_HEADER_ROW }
+        : body;
       await serviceClient.from("sheet_write_queue").insert({
         tab_name: tab,
         operation: op,
-        payload: body,
+        payload: safePayload,
         status: "pending",
         next_retry_at: new Date(Date.now() + delaySec * 1000).toISOString(),
         last_error: reason,
@@ -516,6 +519,7 @@ Deno.serve(async (req: Request) => {
           const allResult = await batchGet([allRange]);
           const allRows = Object.values(allResult)[0] || [];
           const duplicateLookup = findLmpSheetRow(sheetHeaders, allRows, { lmpCode, company: "", role: "" });
+          if (duplicateLookup.error) return jsonError(duplicateLookup.error, 409);
           if (duplicateLookup.rowIndex !== -1) {
             return jsonError(`LMP_ID_ALREADY_EXISTS: ${lmpCode}`, 409);
           }
