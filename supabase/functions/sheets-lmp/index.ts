@@ -7,6 +7,7 @@ import {
   findCompactableLmpBlankRows,
   findLmpSheetRow,
   findLmpSheetRowIndexes,
+  LMP_ID_COLUMN_INDEX,
   LMP_TRACKER_HEADER_ROW,
   validateLmpTrackerHeaders,
 } from "../_shared/lmpSheetIdentity.ts";
@@ -1342,6 +1343,278 @@ Deno.serve(async (req: Request) => {
         return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range) });
       }
 
+
+      case "lmp-reconcile": {
+        // Full DB↔Sheet reconciliation for LMP Tracker:
+        //   1. Dedup sheet rows by LMP ID (column AA) — keep richest
+        //   2. Delete orphan sheet rows not present in DB
+        //   3. Delete blank rows between LMP rows
+        //   4. Insert missing DB LMPs as blank rows at top
+        //   5. Sort all rows newest-first by writing sorted values
+        //   6. Update lmp_processes.sheet_row_id with actual positions
+
+        if (!internalRequest && userRole !== "admin") {
+          return jsonError("ADMIN_REQUIRED: lmp-reconcile is admin-only", 403);
+        }
+        if (tab !== "LMP Tracker") {
+          return jsonError("lmp-reconcile only works on LMP Tracker", 400);
+        }
+
+        const reconcileRange = `'${tab}'!A${headerRow}:ZZ10000`;
+
+        // ── 0. Fetch all active DB LMPs (base fields + created_at for sort) ──
+        const { data: rawDbLmps, error: dbErr } = await serviceClient
+          .from("lmp_processes")
+          .select("*")
+          .not("lmp_code", "is", null)
+          .order("created_at", { ascending: false });
+        if (dbErr) return jsonError(`DB read failed: ${dbErr.message}`, 500);
+        const dbLmps: any[] = rawDbLmps ?? [];
+        if (dbLmps.length === 0) return jsonOk({ reconciled: true, message: "No active LMPs in DB" });
+
+        // Fetch calculated POC / mentor / shortlist counts from lmp_full_view
+        const { data: calcRows } = await serviceClient
+          .from("lmp_full_view")
+          .select("lmp_code,r1_count,r2_count,r3_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
+          .not("lmp_code", "is", null);
+        const calcByCode = new Map<string, any>(
+          (calcRows ?? []).map((c: any) => [String(c.lmp_code).toLowerCase(), c])
+        );
+
+        const dbCodeSet = new Set(dbLmps.map((l: any) => String(l.lmp_code).trim().toLowerCase()));
+
+        // ── 1. Read sheet ──────────────────────────────────────────────────────
+        rangeCache.clear();
+        const sheetResult = await batchGet([reconcileRange]);
+        const sheetRows = Object.values(sheetResult)[0] as unknown[][] || [];
+        if (sheetRows.length < 1) return jsonError("Sheet has no header row", 404);
+        const sheetHeaders = sheetRows[0] as string[];
+        const headerValidation = validateLmpTrackerHeaders(sheetHeaders);
+        if (headerValidation.error && headerValidation.error !== "MISALIGNED_LMP_TRACKER_HEADERS") {
+          return jsonError(headerValidation.error, 409);
+        }
+        const lmpIdColIdx = headerValidation.lmpIdColumn !== -1
+          ? headerValidation.lmpIdColumn
+          : LMP_ID_COLUMN_INDEX;
+
+        // Build: sheetCode → [rowIndexes in sheetRows (1-based index, sheetRows[1]=row15)]
+        const sheetCodeToIndexes = new Map<string, number[]>();
+        for (let i = 1; i < sheetRows.length; i++) {
+          const cellVal = String(sheetRows[i]?.[lmpIdColIdx] ?? "").trim();
+          if (!cellVal) continue;
+          const key = cellVal.toLowerCase();
+          const existing = sheetCodeToIndexes.get(key) ?? [];
+          existing.push(i);
+          sheetCodeToIndexes.set(key, existing);
+        }
+
+        const report: Record<string, any> = {
+          db_count: dbLmps.length,
+          sheet_lmp_count_before: sheetCodeToIndexes.size,
+          duplicates: [] as string[],
+          orphans: [] as string[],
+          missing: [] as string[],
+        };
+
+        // ── 2. Mark rows to delete (dupes + orphans) ──────────────────────────
+        const rowsToDelete: number[] = [];
+        const scoreRow = (row: unknown[]) =>
+          (row ?? []).filter((c) => {
+            const v = String(c ?? "").trim();
+            return v !== "" && v.toLowerCase() !== "false";
+          }).length;
+
+        for (const [code, indexes] of sheetCodeToIndexes) {
+          if (indexes.length > 1) {
+            report.duplicates.push(code);
+            const best = indexes.reduce((a, b) =>
+              scoreRow(sheetRows[a] ?? []) >= scoreRow(sheetRows[b] ?? []) ? a : b
+            );
+            for (const idx of indexes) {
+              if (idx !== best) rowsToDelete.push(headerRow + idx);
+            }
+            sheetCodeToIndexes.set(code, [best]);
+          }
+          if (!dbCodeSet.has(code)) {
+            report.orphans.push(code);
+            for (const idx of (sheetCodeToIndexes.get(code) ?? [])) {
+              rowsToDelete.push(headerRow + idx);
+            }
+          }
+        }
+
+        if (rowsToDelete.length > 0) {
+          await deleteSheetRows(tab, [...new Set(rowsToDelete)]);
+          console.log(`[lmp-reconcile] deleted ${rowsToDelete.length} dupe/orphan rows`);
+        }
+        await compactLmpTrackerBlankRows(tab);
+
+        // ── 3. Re-read to count rows after cleanup ────────────────────────────
+        rangeCache.clear();
+        const cleanResult = await batchGet([reconcileRange]);
+        const cleanRows = Object.values(cleanResult)[0] as unknown[][] || [];
+        const cleanHeaders = cleanRows[0] as string[];
+
+        const presentCodes = new Set<string>();
+        let lastLmpRowIdx = 0; // 1-based index in cleanRows
+        for (let i = 1; i < cleanRows.length; i++) {
+          const cellVal = String(cleanRows[i]?.[lmpIdColIdx] ?? "").trim();
+          if (cellVal) {
+            presentCodes.add(cellVal.toLowerCase());
+            lastLmpRowIdx = i;
+          }
+        }
+        const currentLmpCount = presentCodes.size;
+        const targetCount = dbLmps.length;
+        const missingCount = targetCount - currentLmpCount;
+        report.missing = dbLmps
+          .filter((l: any) => !presentCodes.has(String(l.lmp_code).toLowerCase()))
+          .map((l: any) => l.lmp_code);
+
+        // ── 4. Insert blank rows for missing LMPs ─────────────────────────────
+        if (missingCount > 0) {
+          const sheetIdNum = await getSheetIdByTitle(tab);
+          const insertBody = {
+            requests: [{
+              insertDimension: {
+                range: {
+                  sheetId: sheetIdNum,
+                  dimension: "ROWS",
+                  startIndex: headerRow,          // 0-based → inserts before 1-based row 15
+                  endIndex: headerRow + missingCount,
+                },
+                inheritFromBefore: false,
+              },
+            }],
+          };
+          const insRes = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
+            method: "POST",
+            body: JSON.stringify(insertBody),
+          });
+          if (!insRes.ok) {
+            const txt = await insRes.text();
+            throw new Error(`batch insertDimension [${insRes.status}]: ${txt.slice(0, 300)}`);
+          }
+          rangeCache.clear();
+          console.log(`[lmp-reconcile] inserted ${missingCount} blank row(s) for missing LMPs`);
+        }
+
+        // ── 5. Re-read after insertions; build resolveHeader ──────────────────
+        rangeCache.clear();
+        const preWriteResult = await batchGet([reconcileRange]);
+        const preWriteRows = Object.values(preWriteResult)[0] as unknown[][] || [];
+        const finalHeaders = preWriteRows[0] as string[];
+
+        const normH = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+        const hLookup: Record<string, string> = {};
+        for (const h of finalHeaders) {
+          if (typeof h === "string" && h) hLookup[normH(h)] = h;
+        }
+        const resolveHeader = (col: string): string | null => {
+          if (finalHeaders.indexOf(col) !== -1) return col;
+          return hLookup[normH(col)] ?? null;
+        };
+
+        // Build reverseFieldMap once
+        const rfm: Record<string, string> = {
+          ...DB_TO_SHEET,
+          prep_progress: "Prep Progress",
+          placement_progress: "Placement Progress",
+        };
+
+        // Build row values for one LMP
+        const buildRow = (lmp: any): unknown[] => {
+          const calc = calcByCode.get(String(lmp.lmp_code ?? "").toLowerCase()) ?? {};
+          const patch: Record<string, unknown> = {};
+          for (const [dbCol, sheetCol] of Object.entries(rfm)) {
+            const actual = resolveHeader(sheetCol);
+            if (!actual) continue;
+            const val = lmp[dbCol];
+            if (val === undefined || val === null || val === "") continue;
+            patch[actual] = dbCol === "status" ? normalizeStatusForSheet(val) : val;
+          }
+          // Calculated / aggregated columns
+          const calcOverrides: Record<string, unknown> = {
+            "R1 Shortlisted": lmp.r1_shortlisted ?? calc.r1_count ?? 0,
+            "R1\nShortlisted": lmp.r1_shortlisted ?? calc.r1_count ?? 0,
+            "R2 Shortlisted": lmp.r2_shortlisted ?? calc.r2_count ?? 0,
+            "R2\nShortlisted": lmp.r2_shortlisted ?? calc.r2_count ?? 0,
+            "R3 Shortlisted": lmp.r3_shortlisted ?? calc.r3_count ?? 0,
+            "R3\nShortlisted": lmp.r3_shortlisted ?? calc.r3_count ?? 0,
+            "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
+              ? Number(calc.mentor_feedback_avg).toFixed(1) : (lmp.mentor_rating ?? ""),
+            "Mentor Selected": calc.mentor_name ?? lmp.mentor_selected ?? "",
+            "Prep POC": calc.prep_poc_names ?? lmp.prep_poc ?? "",
+            "Support POC": calc.support_poc_names ?? lmp.support_poc ?? "",
+            "Outreach POC": calc.outreach_poc_names ?? lmp.outreach_poc ?? "",
+          };
+          for (const [h, v] of Object.entries(calcOverrides)) {
+            const actual = resolveHeader(h);
+            if (actual) patch[actual] = v;
+          }
+          // Always set identity columns
+          const lmpIdH = resolveHeader("LMP ID");
+          if (lmpIdH) patch[lmpIdH] = lmp.lmp_code;
+          const companyH = resolveHeader("Company");
+          if (companyH) patch[companyH] = lmp.company ?? "";
+          const roleH = resolveHeader("Role");
+          if (roleH) patch[roleH] = lmp.role ?? "";
+
+          return finalHeaders.map((h: string) => patch[h] ?? "");
+        };
+
+        // ── 6. Overwrite rows 15..14+N with sorted DB data ────────────────────
+        // dbLmps is already ordered by created_at desc (newest first = row 15)
+        const sortedBatch: { range: string; values: unknown[][] }[] = [];
+        for (let i = 0; i < dbLmps.length; i++) {
+          const targetRow = headerRow + 1 + i;  // row 15 = i=0, row 16 = i=1, ...
+          sortedBatch.push({
+            range: `'${tab}'!A${targetRow}`,
+            values: [buildRow(dbLmps[i])],
+          });
+        }
+
+        // batchUpdate in chunks of 20 to stay well within API limits
+        const CHUNK = 20;
+        for (let i = 0; i < sortedBatch.length; i += CHUNK) {
+          await batchUpdate(sortedBatch.slice(i, i + CHUNK));
+        }
+        console.log(`[lmp-reconcile] wrote ${sortedBatch.length} sorted LMP rows`);
+
+        // ── 7. Re-read and update sheet_row_id in DB ──────────────────────────
+        rangeCache.clear();
+        const finalResult = await batchGet([reconcileRange]);
+        const finalRows = Object.values(finalResult)[0] as unknown[][] || [];
+
+        const rowIdUpdates: Promise<any>[] = [];
+        for (let i = 1; i < finalRows.length; i++) {
+          const cellVal = String(finalRows[i]?.[lmpIdColIdx] ?? "").trim();
+          if (!cellVal) continue;
+          const actualRow = headerRow + i;
+          rowIdUpdates.push(
+            serviceClient
+              .from("lmp_processes")
+              .update({ sheet_row_id: String(actualRow), sync_source: "trigger_mirror" })
+              .eq("lmp_code", cellVal)
+              .then(() => {})
+              .catch((e: unknown) =>
+                console.warn(`[lmp-reconcile] sheet_row_id update failed for ${cellVal}:`, e)
+              )
+          );
+        }
+        await Promise.all(rowIdUpdates);
+
+        report.sheet_lmp_count_after = dbLmps.length;
+        report.rows_deleted = rowsToDelete.length;
+        report.rows_inserted = missingCount;
+
+        logSyncEvent({
+          tab_name: tab, direction: "app_to_sheet", operation: "lmp-reconcile",
+          record_id: "all", fields_synced: [], status: "success",
+        });
+        console.log("[lmp-reconcile] completed", report);
+        return jsonOk({ reconciled: true, report });
+      }
 
       default:
         return jsonError(`Unknown op '${op}'`, 400);

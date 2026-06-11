@@ -166,7 +166,9 @@ Deno.serve(async (req: Request) => {
       } else {
         const attempts = row.attempts + 1;
         const errMsg = body?.error || body?.message || body?.reason || `HTTP ${res.status}`;
-        const unsafeSheetIdentity = /^(MISSING_LMP_ID_HEADER|DUPLICATE_LMP_ID_HEADERS|MISALIGNED_LMP_ID_HEADER|MISALIGNED_LMP_TRACKER_HEADERS|DUPLICATE_LMP_ID_ROWS|LMP_ID_REQUIRED)/.test(String(errMsg));
+        // DUPLICATE_LMP_ID_ROWS is retryable — the edge function's auto-dedup
+        // handles it on retry. Only structural header errors are truly fatal.
+        const unsafeSheetIdentity = /^(MISSING_LMP_ID_HEADER|DUPLICATE_LMP_ID_HEADERS|MISALIGNED_LMP_ID_HEADER|MISALIGNED_LMP_TRACKER_HEADERS|LMP_ID_REQUIRED)/.test(String(errMsg));
         const giveUp = unsafeSheetIdentity || attempts >= MAX_ATTEMPTS;
         await sb.from("sheet_write_queue").update({
           status: giveUp ? "failed" : "pending",
