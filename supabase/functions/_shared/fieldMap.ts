@@ -7,8 +7,10 @@
  * are not created or moved automatically.
  */
 export const SHEET_TO_DB: Record<string, string> = {
-  // Compatibility-only: accepted when an existing sheet explicitly has it.
-  Comment: "comments",
+  // Both spellings accepted — live sheet uses "Comments" (plural); kept
+  // "Comment" (singular) for sheets that haven't been renamed yet.
+  Comment:  "comments",
+  Comments: "comments",
 };
 
 export const DB_TO_SHEET: Record<string, string> = {
@@ -39,6 +41,10 @@ export const DB_TO_SHEET: Record<string, string> = {
   mentor_rating: "Mentor Rating",
   lmp_code: "LMP ID",
   jd_url: "JD",
+  // Columns added after initial sheet layout — resolved dynamically so they
+  // write only when the actual header exists in the live sheet.
+  prep_doc_link: "Prep Doc Link",
+  comments: "Comments",
 };
 
 /**

@@ -1270,7 +1270,8 @@ Deno.serve(async (req: Request) => {
         // parsing and risk clobbering manual edits/formatting in unrelated
         // columns. This keeps the sheet's existing formatting intact.
         const updates: { range: string; values: unknown[][] }[] = [];
-        const commentHeaderActual = resolveHeader("Comment");
+        // Live sheet uses "Comments" (plural); fall back to "Comment" for older sheets.
+        const commentHeaderActual = resolveHeader("Comments") ?? resolveHeader("Comment");
         for (const h of Object.keys(sheetPatch)) {
           const colIdx = headers.indexOf(h);
           if (colIdx === -1) continue;
