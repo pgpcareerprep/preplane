@@ -2,12 +2,21 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
-import { findCompactableLmpBlankRows } from "../_shared/lmpSheetIdentity.ts";
+import {
+  buildLmpSheetIntegrityReport,
+  findCompactableLmpBlankRows,
+  findLmpSheetRow,
+  findLmpSheetRowIndexes,
+  LMP_TRACKER_HEADER_ROW,
+  validateLmpTrackerHeaders,
+} from "../_shared/lmpSheetIdentity.ts";
+import { hasValidInternalSecret, requireAuth } from "../_shared/requireAuth.ts";
+import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "https://preplane.pages.dev",
+  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const METADATA_CACHE_MS = 10 * 60 * 1000;
@@ -85,22 +94,20 @@ Deno.serve(async (req: Request) => {
     SPREADSHEET_ID = SPREADSHEET_ID.split("/")[0].split("?")[0];
   }
 
-  // Auth + Supabase client (service role for logging)
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
+  // Service-role client is used only after application-level authorization.
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  const internalRequest = await hasValidInternalSecret(req);
   let userId: string | null = null;
-  if (authHeader.startsWith("Bearer ")) {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (!error && user) userId = user.id;
+  let userRole: "admin" | "allocator" | "poc" | null = null;
+  if (!internalRequest) {
+    const auth = await requireAuth(req, corsHeaders);
+    if ("error" in auth) return auth.error;
+    userId = auth.user.id;
+    userRole = auth.user.role;
   }
 
   let body: Record<string, unknown>;
@@ -115,11 +122,11 @@ Deno.serve(async (req: Request) => {
   const requestedHeaderRow = Number(body.headerRow);
   const hasValidHeaderRow = Number.isInteger(requestedHeaderRow) && requestedHeaderRow > 0;
   const isLmpTracker = tab.toLowerCase() === "lmp tracker";
-  // LMP Tracker has decorative rows 1-14; row 1 is the title, not headers.
-  // Treat missing/legacy row-1 requests as row 15 so old callers and queued
-  // payloads cannot accidentally parse the title as the header row.
-  const headerRow = isLmpTracker && (!hasValidHeaderRow || requestedHeaderRow === 1)
-    ? 15
+  // The tracker contract is fixed: row 14 is headers and row 15 is the first
+  // data row. Ignore legacy queued values rather than parsing a data row as
+  // headers and inserting duplicates.
+  const headerRow = isLmpTracker
+    ? LMP_TRACKER_HEADER_ROW
     : hasValidHeaderRow
       ? requestedHeaderRow
       : 1;
@@ -141,32 +148,46 @@ Deno.serve(async (req: Request) => {
 
   if (!op) return jsonError("Missing 'op'", 400);
   if (!tab && op !== "metadata") return jsonError("Missing 'tab'", 400);
+  if (["lmp-integrity-report", "lmp-compact"].includes(op) && !internalRequest && userRole !== "admin") {
+    return jsonError("ADMIN_REQUIRED: LMP maintenance operations are admin-only", 403);
+  }
 
   const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
   const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet"]);
-  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1";
+  const fromSweeper = req.headers.get("x-sheet-sweeper") === "1" && internalRequest;
 
   // Enqueue a write op into the retry queue (used on 429 or active cooldown).
   async function enqueueWrite(reason: string) {
     try {
       const delaySec = reason === "rate_limited" ? 60 : 5;
+      const safePayload = isLmpTracker
+        ? { ...body, headerRow: LMP_TRACKER_HEADER_ROW }
+        : body;
       await serviceClient.from("sheet_write_queue").insert({
         tab_name: tab,
         operation: op,
-        payload: body,
+        payload: safePayload,
         status: "pending",
         next_retry_at: new Date(Date.now() + delaySec * 1000).toISOString(),
         last_error: reason,
         enqueued_by: userId || "system",
+        idempotency_key: `sheet:${tab}:${op}:${String(body.lmp_code || body.id || `${body.company || ""}:${body.role || ""}`)}`,
       });
     } catch (e) {
       console.warn("enqueueWrite failed:", e);
     }
   }
 
-  // Cooldown gate: if this tab is rate_limited_until in the future, queue instead of pushing.
+  // Only the authenticated worker may write to Google Sheets. All other
+  // callers enqueue a durable job and return immediately.
   if (WRITE_OPS.has(op) && !fromSweeper) {
+    await enqueueWrite("queued_for_worker");
+    return jsonOk({ queued: true, tab, operation: op });
+  }
+
+  // Cooldown gate for the authenticated worker.
+  if (WRITE_OPS.has(op) && fromSweeper) {
     try {
       const { data: log } = await serviceClient
         .from("sheets_sync_log")
@@ -360,49 +381,43 @@ Deno.serve(async (req: Request) => {
     return targetRow;
   }
 
-  // Helper: find and delete all blank/template rows that sit between the header
-  // and the last data row. Runs after every insert to keep the sheet compact.
-  // Deletes from the bottom up to preserve row indices during iteration.
-  async function compactLmpTrackerBlankRows(tabName: string): Promise<number[]> {
-    try {
-      const range = `'${tabName}'!A${headerRow}:ZZ10000`;
-      const result = await batchGet([range]);
-      const allRows = Object.values(result)[0] || [];
-      if (allRows.length < 2) return [];
-
-      const headers = allRows[0];
-      const blankSheetRows = findCompactableLmpBlankRows(headers, allRows);
-      if (blankSheetRows.length === 0) return [];
-
-      const sheetIdNum = await getSheetIdByTitle(tabName);
-      const sortedRows = [...blankSheetRows].sort((a, b) => b - a); // bottom-up
-
-      for (const sheetRow of sortedRows) {
-        const reqBody = {
-          requests: [{
-            deleteDimension: {
-              range: {
-                sheetId: sheetIdNum,
-                dimension: "ROWS",
-                startIndex: sheetRow - 1, // 0-indexed, inclusive
-                endIndex: sheetRow,       // exclusive
-              },
+  async function deleteSheetRows(tab: string, sheetRows: number[]) {
+    const uniqueRows = [...new Set(sheetRows)]
+      .filter((row) => Number.isInteger(row) && row > headerRow)
+      .sort((a, b) => b - a);
+    if (uniqueRows.length === 0) return [];
+    const sheetIdNum = await getSheetIdByTitle(tab);
+    const res = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
+      method: "POST",
+      body: JSON.stringify({
+        requests: uniqueRows.map((sheetRow) => ({
+          deleteDimension: {
+            range: {
+              sheetId: sheetIdNum,
+              dimension: "ROWS",
+              startIndex: sheetRow - 1,
+              endIndex: sheetRow,
             },
-          }],
-        };
-        await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
-          method: "POST",
-          body: JSON.stringify(reqBody),
-        });
-      }
-
-      rangeCache.clear();
-      console.log(`[compactLmpTrackerBlankRows] removed ${blankSheetRows.length} blank rows: ${JSON.stringify(blankSheetRows)}`);
-      return blankSheetRows;
-    } catch (e) {
-      console.warn("[compactLmpTrackerBlankRows] error (non-fatal):", e);
-      return [];
+          },
+        })),
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`deleteDimension [${res.status}]: ${text.slice(0, 300)}`);
     }
+    rangeCache.clear();
+    return uniqueRows;
+  }
+
+  async function compactLmpTrackerBlankRows(tab: string) {
+    if (tab !== "LMP Tracker") return [];
+    const range = `'${tab}'!A${headerRow}:ZZ10000`;
+    const result = await batchGet([range]);
+    const rows = Object.values(result)[0] || [];
+    if (rows.length < 2) return [];
+    const blankRows = findCompactableLmpBlankRows(rows[0], rows);
+    return deleteSheetRows(tab, blankRows);
   }
 
   try {
@@ -429,6 +444,38 @@ Deno.serve(async (req: Request) => {
         return jsonOk(payload);
       }
 
+      case "lmp-integrity-report": {
+        if (tab !== "LMP Tracker") return jsonError("LMP_TRACKER_REQUIRED", 400);
+        const range = `'${tab}'!A${headerRow}:ZZ10000`;
+        const result = await batchGet([range]);
+        const allRows = Object.values(result)[0] || [];
+        if (allRows.length < 1) return jsonError("Sheet has no header row", 404);
+        return jsonOk({
+          dryRun: true,
+          tab,
+          headerRow,
+          firstDataRow: headerRow + 1,
+          ...buildLmpSheetIntegrityReport(allRows[0], allRows),
+          cleanupPlan: [
+            "Repair the single canonical LMP ID header at AA without moving data.",
+            "Review duplicate LMP IDs and choose the authoritative row manually.",
+            "Backfill missing LMP IDs only from a stable DB identity.",
+            "Retry failed queue rows only after the header report is safe.",
+          ],
+        });
+      }
+
+      case "lmp-compact": {
+        if (tab !== "LMP Tracker") return jsonError("LMP_TRACKER_REQUIRED", 400);
+        const compactedRows = await compactLmpTrackerBlankRows(tab);
+        return jsonOk({
+          compacted: true,
+          tab,
+          removedBlankRows: compactedRows,
+          removedCount: compactedRows.length,
+        });
+      }
+
       case "list": {
         const dataStartRow = headerRow;
         const range = `'${tab}'!A${dataStartRow}:ZZ10000`;
@@ -439,7 +486,7 @@ Deno.serve(async (req: Request) => {
         const headers = allRows[0];
 
         // Guard against the hardcoded header-row drifting. The LMP Tracker
-        // header row is configured at row 15; if that row no longer contains
+        // header row is configured at row 14; if that row no longer contains
         // recognizable column names, fail loudly so callers don't silently
         // ingest garbage. We probe for two columns we know must be present.
         if (tab === "LMP Tracker") {
@@ -449,7 +496,7 @@ Deno.serve(async (req: Request) => {
             return jsonError(
               `LMP Tracker headers not found at row ${headerRow}. ` +
               `Got: ${JSON.stringify(headers.slice(0, 8))}. ` +
-              `Either the sheet was restructured (move the header row back to row 15) ` +
+              `Either the sheet was restructured (move the header row back to row 14) ` +
               `or pass an explicit headerRow in the request body.`,
               409,
             );
@@ -515,34 +562,18 @@ Deno.serve(async (req: Request) => {
         let sheetHeaders = (Object.values(hResult)[0] || [[]])[0] as string[];
         if (!sheetHeaders.length) return jsonError("No headers in sheet", 400);
 
-        // Header bootstrap: for LMP Tracker, ensure the extended columns
-        // exist at known positions. Pad with blanks if narrower. Keeps
-        // X=Mentor Selected, Y=Mentor Rating, Z=Closing Date, AA=JD Upload,
-        // AB=LMP ID so writes always hit the same cell.
         if (tab === "LMP Tracker") {
-          const REQUIRED: Array<[number, string]> = [
-            [23, "Mentor Selected"], // X
-            [24, "Mentor Rating"],   // Y
-            [25, "Closing Date"],    // Z
-            [26, "JD Upload"],       // AA
-            [27, "LMP ID"],          // AB
-          ];
-          let mutated = false;
-          for (const [idx, name] of REQUIRED) {
-            while (sheetHeaders.length <= idx) { sheetHeaders.push(""); mutated = true; }
-            if (sheetHeaders[idx] !== name) {
-              // If a different non-empty header occupies the slot, append at end.
-              if (sheetHeaders[idx]) {
-                if (!sheetHeaders.includes(name)) { sheetHeaders.push(name); mutated = true; }
-              } else {
-                sheetHeaders[idx] = name; mutated = true;
-              }
-            }
-          }
-          if (mutated) {
-            const writeRange = `'${tab}'!A${headerRow}`;
-            await batchUpdate([{ range: writeRange, values: [sheetHeaders] }]);
-            rangeCache.clear();
+          const validation = validateLmpTrackerHeaders(sheetHeaders);
+          if (validation.error) return jsonError(validation.error, 409);
+          const lmpCode = String(row["LMP ID"] ?? "").trim();
+          if (!lmpCode) return jsonError("LMP_ID_REQUIRED", 400);
+          const allRange = `'${tab}'!A${headerRow}:ZZ10000`;
+          const allResult = await batchGet([allRange]);
+          const allRows = Object.values(allResult)[0] || [];
+          const duplicateLookup = findLmpSheetRow(sheetHeaders, allRows, { lmpCode, company: "", role: "" });
+          if (duplicateLookup.error) return jsonError(duplicateLookup.error, 409);
+          if (duplicateLookup.rowIndex !== -1) {
+            return jsonError(`LMP_ID_ALREADY_EXISTS: ${lmpCode}`, 409);
           }
         }
 
@@ -555,45 +586,9 @@ Deno.serve(async (req: Request) => {
           return row[h] ?? "";
         });
 
-        // Duplicate guard: for LMP Tracker, refuse to insert when a row with
-        // the same LMP ID already exists. This prevents race-condition doubles
-        // where two concurrent sync calls both find no row and both insert.
-        if (tab === "LMP Tracker") {
-          const lmpIdColCheck = sheetHeaders.indexOf("LMP ID");
-          const companyColCheck = sheetHeaders.indexOf("Company");
-          const roleColCheck = sheetHeaders.indexOf("Role");
-          const newLmpId  = lmpIdColCheck  >= 0 ? String(values[lmpIdColCheck]  ?? "").trim() : "";
-          const newCompany = companyColCheck >= 0 ? String(values[companyColCheck] ?? "").trim() : "";
-          const newRole   = roleColCheck   >= 0 ? String(values[roleColCheck]   ?? "").trim() : "";
-
-          const dupRange = `'${tab}'!A${headerRow}:ZZ10000`;
-          const dupResult = await batchGet([dupRange]);
-          const dupRows = Object.values(dupResult)[0] || [];
-          for (let i = 1; i < dupRows.length; i++) {
-            const existLmpId  = lmpIdColCheck  >= 0 ? String(dupRows[i][lmpIdColCheck]  ?? "").trim() : "";
-            const existCompany = companyColCheck >= 0 ? String(dupRows[i][companyColCheck] ?? "").trim() : "";
-            const existRole   = roleColCheck   >= 0 ? String(dupRows[i][roleColCheck]   ?? "").trim() : "";
-            if (newLmpId && existLmpId && newLmpId === existLmpId) {
-              console.warn(`[insert] duplicate LMP ID "${newLmpId}" found at sheet row ${headerRow + i}, skipping insert.`);
-              return jsonOk({ duplicate: true, skipped: true, reason: "lmp_id_exists", sheetRow: headerRow + i, tab });
-            }
-            // Fallback: if no LMP ID on either side, refuse identical Company+Role to prevent blanket duplicates
-            if (!newLmpId && !existLmpId && newCompany && newRole &&
-                existCompany.toLowerCase() === newCompany.toLowerCase() &&
-                existRole.toLowerCase() === newRole.toLowerCase()) {
-              console.warn(`[insert] duplicate Company+Role "${newCompany}/${newRole}" at sheet row ${headerRow + i} (no LMP ID), skipping insert.`);
-              return jsonOk({ duplicate: true, skipped: true, reason: "company_role_exists", sheetRow: headerRow + i, tab });
-            }
-          }
-        }
-
         const insertedRowNumber = tab === "LMP Tracker"
           ? await insertRowAtTop(tab, values)
           : await appendRow(tab, values);
-
-        const postInsertCompactedRows = tab === "LMP Tracker"
-          ? await compactLmpTrackerBlankRows(tab)
-          : [];
 
         const inserted: Record<string, unknown> = {};
         sheetHeaders.forEach((h, i) => { inserted[h] = values[i]; });
@@ -610,7 +605,7 @@ Deno.serve(async (req: Request) => {
           status: "success",
         });
 
-        return jsonOk({ row: inserted, tab, sheetRowNumber: insertedRowNumber, postInsertCompactedRows });
+        return jsonOk({ row: inserted, tab, sheetRowNumber: insertedRowNumber });
       }
 
       case "update": {
@@ -627,44 +622,10 @@ Deno.serve(async (req: Request) => {
         const allRows = Object.values(result)[0] || [];
         if (allRows.length < 2) return jsonError("No data", 404);
 
-        let headers = allRows[0] as string[];
-
-        // Header bootstrap (same as insert): guarantee the extended columns
-        // exist before we try to PATCH them. Without this, an update for
-        // "Mentor Selected" / "Mentor Rating" / "Next Progress Date" silently
-        // disappears because the column isn't present in the live sheet.
+        const headers = allRows[0] as string[];
         if (tab === "LMP Tracker") {
-          // Header bootstrap is intentionally narrow: only force the trailing
-          // extended columns. Never inject "Prep Doc Link" at index 19 —
-          // that slot is column T (= "Prep POC") in the canonical layout and
-          // would clobber Prep POC. The "Prep Doc Link" header lives in the
-          // orphan AB–AE range; sync-db-to-sheet resolves it via header-name
-          // lookup, so we don't need to force its index here.
-          const REQUIRED: Array<[number, string]> = [
-            [11, "Next Progress Date"], // L
-            [12, "Next Progress Type"], // M
-            [23, "Mentor Selected"],    // X
-            [24, "Mentor Rating"],      // Y
-            [25, "Closing Date"],       // Z
-            [26, "JD Upload"],          // AA
-            [27, "LMP ID"],             // AB
-          ];
-          let mutated = false;
-          for (const [idx, name] of REQUIRED) {
-            while (headers.length <= idx) { headers.push(""); mutated = true; }
-            if (headers[idx] !== name && !headers[idx]) {
-              headers[idx] = name; mutated = true;
-            } else if (headers[idx] !== name && !headers.includes(name)) {
-              // Don't clobber an existing header — append at end instead.
-              headers.push(name); mutated = true;
-            }
-          }
-          if (mutated) {
-            await batchUpdate([{ range: `'${tab}'!A${headerRow}`, values: [headers] }]);
-            rangeCache.clear();
-            // Mirror into allRows[0] so downstream code uses the new headers.
-            allRows[0] = headers;
-          }
+          const validation = validateLmpTrackerHeaders(headers);
+          if (validation.error) return jsonError(validation.error, 409);
         }
 
         let rowIndex = -1;
@@ -697,7 +658,7 @@ Deno.serve(async (req: Request) => {
           const matchesSlug = candidate && companyCol !== -1 && roleCol !== -1 && lmpSlug(candidate[companyCol], candidate[roleCol]) === idBase;
           if (candidateIndex > 0 && candidateIndex < allRows.length && (matchesFindBy || matchesSlug)) rowIndex = candidateIndex;
         }
-        if (rowIndex === -1 && findBy && !lmpIdFromFindBy) {
+        if (rowIndex === -1 && tab !== "LMP Tracker" && findBy && !lmpIdFromFindBy) {
           // Legacy lookup (Company+Role etc). Only used when caller did NOT
           // pass an LMP ID — i.e. non-LMP-Tracker tabs.
           for (let i = 1; i < allRows.length; i++) {
@@ -708,7 +669,7 @@ Deno.serve(async (req: Request) => {
             if (match) { rowIndex = i; break; }
           }
         }
-        if (rowIndex === -1 && id) {
+        if (rowIndex === -1 && tab !== "LMP Tracker" && id) {
           const idCol = headers.indexOf("id");
           const companyCol = headers.indexOf("Company");
           const roleCol = headers.indexOf("Role");
@@ -718,62 +679,6 @@ Deno.serve(async (req: Request) => {
             if (rowId === id || slugId === id.toLowerCase()) { rowIndex = i; break; }
           }
         }
-        // ── Self-healing fallback: if LMP Tracker + we have an lmp_code but
-        //    didn't find it in column AA (sheet drift / un-backfilled row),
-        //    look up the DB row to recover sheet_row_id and/or Company+Role,
-        //    then re-stamp column AA so future updates are O(1).
-        if (rowIndex === -1 && tab === "LMP Tracker" && lmpIdFromFindBy) {
-          const { data: dbRow } = await serviceClient
-            .from("lmp_processes")
-            .select("sheet_row_id, company, role")
-            .eq("lmp_code", lmpIdFromFindBy)
-            .maybeSingle();
-
-          if (dbRow) {
-            // 1) Try sheet_row_id (absolute sheet row number)
-            const srid = Number(dbRow.sheet_row_id);
-            if (Number.isInteger(srid) && srid > headerRow) {
-              const candidateIndex = srid - headerRow;
-              if (candidateIndex > 0 && candidateIndex < allRows.length) {
-                rowIndex = candidateIndex;
-              }
-            }
-            // 2) Fall back to Company+Role match (single unambiguous hit only)
-            if (rowIndex === -1 && dbRow.company && dbRow.role) {
-              const companyCol = headers.indexOf("Company");
-              const roleCol = headers.indexOf("Role");
-              if (companyCol !== -1 && roleCol !== -1) {
-                const matches: number[] = [];
-                const c = String(dbRow.company).trim().toLowerCase();
-                const r = String(dbRow.role).trim().toLowerCase();
-                for (let i = 1; i < allRows.length; i++) {
-                  if (
-                    (allRows[i][companyCol] ?? "").toString().trim().toLowerCase() === c &&
-                    (allRows[i][roleCol] ?? "").toString().trim().toLowerCase() === r
-                  ) {
-                    matches.push(i);
-                  }
-                }
-                if (matches.length === 1) rowIndex = matches[0];
-              }
-            }
-            // 3) Re-stamp column AA with the lmp_code so we self-heal
-            if (rowIndex !== -1 && lmpIdCol !== -1) {
-              const stampRow = headerRow + rowIndex;
-              const colLetter = colIndexToLetter(lmpIdCol);
-              try {
-                await sheetsClient.rawFetch(
-                  `${baseUrl}/values/'${tab}'!${colLetter}${stampRow}?valueInputOption=USER_ENTERED`,
-                  {
-                    method: "PUT",
-                    body: JSON.stringify({ values: [[lmpIdFromFindBy]] }),
-                  },
-                );
-              } catch (_e) { /* non-fatal */ }
-            }
-          }
-        }
-
         if (rowIndex === -1) {
           // Sheet row missing — for LMP Tracker, still try to write the patch
           // to lmp_processes so the UI stays consistent. Target by lmp_code
@@ -802,6 +707,21 @@ Deno.serve(async (req: Request) => {
           return jsonError(`Row not found`, 404);
         }
 
+        // Auto-stamp Closing Date when Status is set to a terminal value
+        // (Converted / Not Converted / Other reasons). Resolved via header
+        // lookup so it works regardless of which column "Closing Date" lives in.
+        {
+          const statusHeader = dbToActualHeader["status"]
+            ?? headerLookup[normalize("Status")];
+          const closingHeader = dbToActualHeader["closing_date"]
+            ?? headerLookup[normalize("Closing Date")];
+          if (statusHeader && closingHeader && statusHeader in normalizedPatch) {
+            if (isTerminalStatus(normalizedPatch[statusHeader])) {
+              normalizedPatch[closingHeader] = formatClosingDateForSheet();
+            }
+          }
+        }
+
         const existingRow = allRows[rowIndex];
 
         // Resolve patch keys to actual sheet headers tolerating whitespace
@@ -827,21 +747,6 @@ Deno.serve(async (req: Request) => {
             if (dbCol) actual = dbToActualHeader[dbCol];
           }
           normalizedPatch[actual || k] = v;
-        }
-
-        // Auto-stamp Closing Date when Status is set to a terminal value
-        // (Converted / Not Converted / Other reasons). Must come AFTER
-        // normalizedPatch / headerLookup / dbToActualHeader are defined above.
-        {
-          const statusHeader = dbToActualHeader["status"]
-            ?? headerLookup[normalize("Status")];
-          const closingHeader = dbToActualHeader["closing_date"]
-            ?? headerLookup[normalize("Closing Date")];
-          if (statusHeader && closingHeader && statusHeader in normalizedPatch) {
-            if (isTerminalStatus(normalizedPatch[statusHeader])) {
-              normalizedPatch[closingHeader] = formatClosingDateForSheet();
-            }
-          }
         }
 
         // Capture before values for audit
@@ -980,6 +885,7 @@ Deno.serve(async (req: Request) => {
         // AND findBy["LMP ID"], verify the row actually carries that LMP ID
         // before deleting; otherwise fall back to a findBy lookup.
         let actualSheetRow = -1;
+        let exactLmpRows: number[] = [];
         const hintedRow = Number.isFinite(explicitRowNumber) && explicitRowNumber > 0
           ? explicitRowNumber
           : -1;
@@ -994,6 +900,13 @@ Deno.serve(async (req: Request) => {
           allRows = Object.values(result)[0] || [];
           if (allRows.length < 1) return jsonError("No data", 404);
           headers = allRows[0];
+          if (tab === "LMP Tracker") {
+            const validation = validateLmpTrackerHeaders(headers);
+            if (validation.error) return jsonError(validation.error, 409);
+            if (!lmpIdHint) return jsonError("LMP_ID_REQUIRED", 400);
+            exactLmpRows = findLmpSheetRowIndexes(headers, allRows, lmpIdHint)
+              .map((index) => headerRow + index);
+          }
         }
 
         // 1) If we have a row hint, verify identity before trusting it.
@@ -1011,7 +924,7 @@ Deno.serve(async (req: Request) => {
                   `[delete] rowNumber=${hintedRow} carries LMP ID="${cellLmpId}" but caller expected "${lmpIdHint}". Ignoring stale row hint, falling back to findBy lookup.`,
                 );
               }
-            } else if (findBy) {
+            } else if (findBy && tab !== "LMP Tracker") {
               // No LMP ID to verify against — check all findBy columns match.
               let match = true;
               for (const [k, v] of Object.entries(findBy)) {
@@ -1034,6 +947,12 @@ Deno.serve(async (req: Request) => {
 
         // 2) Fallback: scan with findBy.
         if (actualSheetRow < 0 && findBy) {
+          if (tab === "LMP Tracker") {
+            if (exactLmpRows.length > 0) actualSheetRow = exactLmpRows[0];
+          }
+        }
+
+        if (actualSheetRow < 0 && findBy && tab !== "LMP Tracker") {
           const colIdx: Record<string, number> = {};
           for (const k of Object.keys(findBy)) colIdx[k] = headers.indexOf(k);
           let rowIndex = -1;
@@ -1064,6 +983,27 @@ Deno.serve(async (req: Request) => {
           return jsonOk({ deleted: true, notFound: true, id, tab, message: "No sheet row to delete" });
         }
 
+
+        if (tab === "LMP Tracker") {
+          const deletedRows = await deleteSheetRows(tab, exactLmpRows.length > 0 ? exactLmpRows : [actualSheetRow]);
+          const compactedRows = await compactLmpTrackerBlankRows(tab);
+          logSyncEvent({
+            tab_name: tab,
+            direction: "app_to_sheet",
+            operation: "delete",
+            record_id: lmpIdHint,
+            fields_synced: deletedRows.map((row) => `row:${row}`),
+            status: "success",
+          });
+          return jsonOk({
+            deleted: true,
+            id,
+            tab,
+            rowNumber: actualSheetRow,
+            deletedRows,
+            compactedRows,
+          });
+        }
 
         // Resolve the numeric sheetId (gid) for the tab.
         let sheetIdNum: number | null = null;
@@ -1134,41 +1074,47 @@ Deno.serve(async (req: Request) => {
         // allRows.length === 1 (headers only) is valid → falls through to append branch below.
 
         const headers = allRows[0];
-        const companyCol = headers.indexOf("Company");
-        const roleCol = headers.indexOf("Role");
-        const lmpIdCol = headers.indexOf("LMP ID");
+        let lookup = findLmpSheetRow(headers, allRows, { lmpCode, company, role });
 
-        let rowIndex = -1;
-
-        // 1) Prefer exact match on LMP ID (column AA) when we have one.
-        if (lmpCode && lmpIdCol !== -1) {
-          for (let i = 1; i < allRows.length; i++) {
-            if ((allRows[i][lmpIdCol] ?? "").toString().trim() === lmpCode.trim()) {
-              rowIndex = i;
-              break;
+        // Auto-deduplicate: when multiple rows share the same LMP ID, keep the
+        // richest row (most non-empty cells) and delete the rest before syncing.
+        if (lookup.error === "DUPLICATE_LMP_ID_ROWS" && lmpCode) {
+          const dupeIndexes = findLmpSheetRowIndexes(headers, allRows, lmpCode);
+          if (dupeIndexes.length > 1) {
+            const scoreRow = (row: unknown[]) =>
+              row.filter((c) => String(c ?? "").trim() !== "" && String(c ?? "").trim().toLowerCase() !== "false").length;
+            const best = dupeIndexes.reduce((a, b) =>
+              scoreRow(allRows[a] ?? []) >= scoreRow(allRows[b] ?? []) ? a : b
+            );
+            const toDelete = dupeIndexes.filter((i) => i !== best).map((i) => headerRow + i);
+            try {
+              await deleteSheetRows(tab, toDelete);
+              console.log(`[sync-db-to-sheet] auto-dedup deleted rows ${toDelete} for ${lmpCode}`);
+              // Re-read sheet after deletions so row indices are fresh.
+              rangeCache.clear();
+              const freshResult = await batchGet([range]);
+              const freshRows = Object.values(freshResult)[0] || [];
+              lookup = findLmpSheetRow(freshRows[0] ?? [], freshRows, { lmpCode, company, role });
+            } catch (e) {
+              console.warn(`[sync-db-to-sheet] auto-dedup failed for ${lmpCode}:`, e);
             }
           }
         }
 
-        // 2) Fallback to (company, role). Guard against ambiguity.
-        if (rowIndex === -1) {
-          const matches: number[] = [];
-          for (let i = 1; i < allRows.length; i++) {
-            if ((allRows[i][companyCol] ?? "").toString().trim() === company.trim() &&
-                (allRows[i][roleCol] ?? "").toString().trim() === role.trim()) {
-              matches.push(i);
-            }
-          }
-          if (matches.length > 1 && !lmpCode) {
-            console.warn(`[sync-db-to-sheet] AMBIGUOUS ${matches.length} sheet rows for ${company}/${role} on "${tab}" and no lmp_code provided — refusing write to avoid clobber.`);
-            return jsonOk({ skipped: true, reason: "ambiguous_company_role", tab, company, role, matches: matches.length });
-          }
-          if (matches.length >= 1) rowIndex = matches[0];
+        if (lookup.error) {
+          console.error("[sheets-lmp] unsafe LMP Tracker headers", {
+            operation: op,
+            lmp_code: lmpCode,
+            failure_reason: lookup.error,
+            lmp_id_header_columns: lookup.matches.map((index) => colIndexToLetter(index)),
+          });
+          return jsonError(lookup.error, 409);
         }
+        const rowIndex = lookup.rowIndex;
 
-        // If the row is missing but we have an lmp_code, treat this as an
-        // INSERT and append a new row. Without lmp_code we can't safely
-        // identify the record later, so we soft-skip to avoid duplicates.
+        // A supplied lmp_code is authoritative. If that exact ID is absent,
+        // append a distinct row even when company/role matches an older LMP.
+        // Without lmp_code we can't safely identify a missing record later.
         const isAppend = rowIndex === -1;
         if (isAppend && !lmpCode) {
           console.warn(`[sync-db-to-sheet] sheet row missing for ${company} / ${role} (no lmp_code) on tab "${tab}" — skipping append`);
@@ -1221,9 +1167,8 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: calc } = await serviceClient
             .from("lmp_full_view")
-            .select("r1_count, r2_count, r3_count, mentor_feedback_avg")
-            .eq("company", company)
-            .eq("role", role)
+            .select("r1_count, r2_count, r3_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
+            .eq("lmp_code", lmpCode)
             .maybeSingle();
           if (calc) {
             // Prefer the explicit DB column value (lmp_processes.rN_shortlisted)
@@ -1245,12 +1190,23 @@ Deno.serve(async (req: Request) => {
               "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
                 ? Number(calc.mentor_feedback_avg).toFixed(1)
                 : "",
+              "Mentor Selected": calc.mentor_name ?? dbPatch.mentor_selected ?? "",
+              "Prep POC": calc.prep_poc_names ?? dbPatch.prep_poc ?? "",
+              "Support POC": calc.support_poc_names ?? dbPatch.support_poc ?? "",
+              "Outreach POC": calc.outreach_poc_names ?? dbPatch.outreach_poc ?? "",
             };
             for (const [h, v] of Object.entries(calcMap)) {
               const actual = resolveHeader(h);
               if (actual) sheetPatch[actual] = v;
             }
           }
+          const { data: overview } = await serviceClient
+            .from("lmp_processes_overview")
+            .select("candidate_count")
+            .eq("lmp_code", lmpCode)
+            .maybeSingle();
+          const candidateCountHeader = resolveHeader("Candidate Count");
+          if (candidateCountHeader) sheetPatch[candidateCountHeader] = overview?.candidate_count ?? 0;
         } catch (e) {
           console.warn("Failed to compute calculated columns:", e);
         }
@@ -1267,22 +1223,9 @@ Deno.serve(async (req: Request) => {
         }
 
         if (isAppend) {
-          // Race-condition guard: re-read the sheet right before inserting.
-          // Two concurrent sync calls can both see rowIndex === -1 before either
-          // writes, causing two inserts for the same LMP. Re-reading here catches
-          // a row that was just written by the other call.
-          if (lmpCode && lmpIdCol !== -1) {
-            const recheckRange = `'${tab}'!A${headerRow}:ZZ10000`;
-            const recheckResult = await batchGet([recheckRange]);
-            const recheckRows = Object.values(recheckResult)[0] || [];
-            for (let i = 1; i < recheckRows.length; i++) {
-              if ((recheckRows[i][lmpIdCol] ?? "").toString().trim() === lmpCode.trim()) {
-                console.warn(`[sync-db-to-sheet] LMP ${lmpCode} was inserted by a concurrent call — skipping duplicate insert.`);
-                return jsonOk({ skipped: true, reason: "concurrent_insert_detected", tab, company, role, lmp_code: lmpCode });
-              }
-            }
-          }
-
+          const compactedRows = tab === "LMP Tracker"
+            ? await compactLmpTrackerBlankRows(tab)
+            : [];
           const newValues = headers.map((h: string) => {
             if (h === "updatedAt") return new Date().toISOString();
             if (h in sheetPatch) return sheetPatch[h] ?? "";
@@ -1291,11 +1234,6 @@ Deno.serve(async (req: Request) => {
           const insertedRowNumber = tab === "LMP Tracker"
             ? await insertRowAtTop(tab, newValues)
             : await appendRow(tab, newValues);
-
-          const postInsertCompactedRows = tab === "LMP Tracker"
-            ? await compactLmpTrackerBlankRows(tab)
-            : [];
-
           // Persist the new sheet row number on lmp_processes so future
           // sync-db-to-sheet calls can find the row by sheet_row_id even
           // before col AA (LMP ID) is populated.
@@ -1314,18 +1252,14 @@ Deno.serve(async (req: Request) => {
             record_id: lmpCode ?? `${company}-${role}`,
             fields_synced: Object.keys(sheetPatch), status: "success",
           });
-          return jsonOk({
-            inserted: true,
-            company,
-            role,
+          console.log("[sheets-lmp] DB to Sheet insert", {
+            operation: op,
             lmp_code: lmpCode,
-            rowNumber: insertedRowNumber,
-            compactedRows: [],
-            postInsertCompactedRows,
-            sheetRowFound: false,
-            columnsUpdated: Object.keys(sheetPatch),
-            fieldsUpdated: Object.keys(sheetPatch),
+            sheet_row_found: false,
+            sheet_row: insertedRowNumber,
+            columns_updated: Object.keys(sheetPatch),
           });
+          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, compactedRows, sheetRowFound: false, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch) });
         }
 
         const existingRow = allRows[rowIndex];
@@ -1368,7 +1302,17 @@ Deno.serve(async (req: Request) => {
           fields_synced: updates.map((u) => u.range), status: "success",
         });
 
-        return jsonOk({ synced: true, company, role, fieldsUpdated: updates.map((u) => u.range) });
+        const columnsUpdated = Object.keys(sheetPatch).filter((header) =>
+          updates.some((update) => update.range.includes(`${colIndexToLetter(headers.indexOf(header))}${actualSheetRow}`))
+        );
+        console.log("[sheets-lmp] DB to Sheet update", {
+          operation: op,
+          lmp_code: lmpCode,
+          sheet_row_found: true,
+          sheet_row: actualSheetRow,
+          columns_updated: columnsUpdated,
+        });
+        return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range) });
       }
 
 
