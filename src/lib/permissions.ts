@@ -9,23 +9,190 @@
  */
 
 import type { Role } from "@/lib/rolesContext";
-import {
-  ACTION_MATRIX,
-  FIELD_PERMISSIONS,
-} from "../../supabase/functions/_shared/permissionContract";
-export { POC_WRITABLE_LMP_COLUMNS } from "../../supabase/functions/_shared/permissionContract";
 
 // ─── Action Permissions ───
 
-export type Action = keyof typeof ACTION_MATRIX;
+export type Action =
+  | "view_all_lmps"
+  | "view_own_lmps"
+  | "view_other_poc_lmps_summary"
+  | "create_lmp"
+  | "edit_lmp"
+  | "delete_lmp"
+  | "assign_poc"
+  | "reassign_poc"
+  | "change_domain"
+  | "change_status"
+  | "edit_daily_progress"
+  | "edit_prep_status"
+  | "edit_mentor_status"
+  | "edit_mock_status"
+  | "edit_assignment_review"
+  | "edit_outreach_progress"
+  | "edit_remarks"
+  | "edit_checklist"
+  | "edit_next_progress"
+  // Candidate management
+  | "add_candidate"
+  | "remove_candidate"
+  | "update_candidate_stage"
+  // Mentor flow
+  | "run_mentor"
+  | "assign_mentor"
+  | "upload_jd"
+  // Session & feedback
+  | "update_session"
+  | "add_feedback"
+  | "add_activity_comment"
+  | "view_all_students"
+  | "view_own_students"
+  | "view_all_pocs"
+  | "view_poc_load"
+  | "manage_users"
+  | "manage_rbac"
+  | "view_audit_logs"
+  | "view_sync_logs"
+  | "view_field_mapping"
+  | "edit_field_mapping"
+  | "rollback_any"
+  | "rollback_own"
+  | "rollback_managed"
+  | "copilot_summarize"
+  | "copilot_search"
+  | "copilot_analyze"
+  | "copilot_draft_update"
+  | "copilot_execute_update"
+  | "view_domains"
+  | "edit_domains"
+  | "view_unmapped"
+  | "resolve_unmapped"
+  | "allocate_poc"
+  | "view_settings";
+
+const ACTION_MATRIX: Record<Action, Role[]> = {
+  // LMP
+  view_all_lmps: ["admin"],
+  view_own_lmps: ["admin", "allocator", "poc"],
+  view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
+  create_lmp: ["admin", "allocator"],
+  edit_lmp: ["admin", "allocator", "poc"],
+  delete_lmp: ["admin"],
+  assign_poc: ["admin", "allocator"],
+  reassign_poc: ["admin", "allocator"],
+  change_domain: ["admin", "allocator"],
+  change_status: ["admin", "allocator", "poc"],
+  edit_daily_progress: ["admin", "allocator", "poc"],
+  edit_prep_status: ["admin", "allocator", "poc"],
+  edit_mentor_status: ["admin", "allocator", "poc"],
+  edit_mock_status: ["admin", "allocator", "poc"],
+  edit_assignment_review: ["admin", "allocator", "poc"],
+  edit_outreach_progress: ["admin", "allocator", "poc"],
+  edit_remarks: ["admin", "allocator", "poc"],
+  edit_checklist: ["admin", "allocator", "poc"],
+  edit_next_progress: ["admin", "allocator", "poc"],
+  // Candidates
+  add_candidate: ["admin", "allocator", "poc"],
+  remove_candidate: ["admin", "allocator", "poc"],
+  update_candidate_stage: ["admin", "allocator", "poc"],
+  // Mentor
+  run_mentor: ["admin", "allocator", "poc"],
+  assign_mentor: ["admin", "allocator", "poc"],
+  upload_jd: ["admin", "allocator", "poc"],
+  // Session & feedback
+  update_session: ["admin", "allocator", "poc"],
+  add_feedback: ["admin", "allocator", "poc"],
+  add_activity_comment: ["admin", "allocator", "poc"],
+
+  // Students
+  view_all_students: ["admin", "allocator", "poc"],
+  view_own_students: ["admin", "allocator", "poc"],
+
+  // POCs
+  view_all_pocs: ["admin", "allocator"],
+  view_poc_load: ["admin", "allocator"],
+
+  // Admin
+  manage_users: ["admin"],
+  manage_rbac: ["admin"],
+  view_settings: ["admin"],
+
+  // Audit / logs
+  view_audit_logs: ["admin"],
+  view_sync_logs: ["admin"],
+  view_field_mapping: ["admin"],
+  edit_field_mapping: ["admin"],
+
+  // Rollback
+  rollback_any: ["admin"],
+  rollback_own: ["admin", "allocator", "poc"],
+  rollback_managed: ["admin", "allocator"],
+
+  // Copilot
+  copilot_summarize: ["admin", "allocator", "poc"],
+  copilot_search: ["admin", "allocator", "poc"],
+  copilot_analyze: ["admin", "allocator", "poc"],
+  copilot_draft_update: ["admin", "allocator", "poc"],
+  copilot_execute_update: ["admin", "allocator", "poc"],
+
+  // Domains
+  view_domains: ["admin", "allocator", "poc"],
+  edit_domains: ["admin", "allocator"],
+  view_unmapped: ["admin", "allocator", "poc"],
+  resolve_unmapped: ["admin"],
+
+  // Allocation
+  allocate_poc: ["admin", "allocator"],
+};
 
 export function canPerform(role: Role, action: Action): boolean {
-  return (ACTION_MATRIX[action] as readonly Role[] | undefined)?.includes(role) ?? false;
+  return ACTION_MATRIX[action]?.includes(role) ?? false;
 }
 
 // ─── Field-Level Permissions ───
 
-export type LmpField = keyof typeof FIELD_PERMISSIONS;
+export type LmpField =
+  | "company" | "role" | "domain" | "status" | "type" | "date" | "closing_date"
+  | "admin_owner" | "allocator" | "prep_poc" | "support_poc" | "outreach_poc"
+  | "daily_progress" | "prep_progress" | "placement_progress"
+  | "r1_shortlisted" | "r2_shortlisted" | "r3_shortlisted"
+  | "final_convert" | "convert_names" | "prep_doc"
+  | "remarks" | "mentor_aligned" | "assignment_review"
+  | "one_to_one_mock" | "behavioral_status";
+
+type FieldPermission = {
+  editable: Role[];
+  /** If true, POCs can only edit if they're assigned to the LMP */
+  requiresOwnership: boolean;
+};
+
+const FIELD_PERMISSIONS: Record<LmpField, FieldPermission> = {
+  company: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  role: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  domain: { editable: ["admin", "allocator"], requiresOwnership: true },
+  status: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  type: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  date: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  closing_date: { editable: ["admin", "allocator"], requiresOwnership: true },
+  admin_owner: { editable: ["admin"], requiresOwnership: true },
+  allocator: { editable: ["admin"], requiresOwnership: true },
+  prep_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
+  support_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
+  outreach_poc: { editable: ["admin", "allocator"], requiresOwnership: true },
+  daily_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  prep_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  placement_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r1_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r2_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r3_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  final_convert: { editable: ["admin", "allocator"], requiresOwnership: true },
+  convert_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  prep_doc: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  remarks: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  mentor_aligned: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  assignment_review: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  one_to_one_mock: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  behavioral_status: { editable: ["admin"], requiresOwnership: true },
+};
 
 export function canEditField(
   role: Role,
@@ -34,8 +201,8 @@ export function canEditField(
 ): boolean {
   const perm = FIELD_PERMISSIONS[field];
   if (!perm) return false;
-  if (!(perm.editable as readonly Role[]).includes(role)) return false;
-  if (role === "poc" && perm.requiresOwnership && !isOwner) return false;
+  if (!perm.editable.includes(role)) return false;
+  if (perm.requiresOwnership && !isOwner) return false;
   return true;
 }
 
@@ -108,7 +275,9 @@ export function getLmpAccessLevel(
 ): "full" | "summary" | "none" {
   // If the user is assigned as primary prep/support POC, they always get full access
   if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
-  if (role === "admin" || role === "allocator") return "full";
+  // Admin/allocator without ownership get summary (can view but not edit operational fields)
+  if (role === "admin") return "summary";
+  if (role === "allocator") return "summary";
   // POC not assigned to this LMP
   return "summary";
 }
@@ -157,9 +326,18 @@ export function canCopilotAction(
     return { allowed: true }; // Filtered server-side
   }
 
-  // Privileged roles may draft updates for any LMP; POCs remain assignment-scoped.
+  // Draft update: only allowed for owned LMPs
   if (action === "draft_update") {
-    if (role === "admin" || role === "allocator") return { allowed: true };
+    if (role === "admin" || role === "allocator") {
+      if (targetLmpOwnership && isLmpPrepPoc(userName, targetLmpOwnership)) {
+        return { allowed: true };
+      }
+      if (!targetLmpOwnership) return { allowed: true }; // no LMP context (global chat)
+      return {
+        allowed: false,
+        reason: "You can only draft updates for LMPs you are assigned to.",
+      };
+    }
     if (targetLmpOwnership && isLmpOwner(userName, targetLmpOwnership)) {
       return { allowed: true };
     }
@@ -224,9 +402,31 @@ export function canEditFieldFinal(
   pocId?: string | null,
 ): boolean {
   const isOwner = isLmpPrepPoc(userName, lmp, pocId);
-  if (role === "admin" || role === "allocator") return canEditField(role, field, true);
+  if (role === "admin") {
+    if (!isOwner) return false;
+    return canEditField(role, field, true);
+  }
+  if (role === "allocator") {
+    if (!isOwner) return false;
+    return canEditField(role, field, true);
+  }
   const subRole = getPocSubRole(userName, lmp, pocId);
   if (subRole === "none") return false;
   if (subRole === "outreach_poc") return canOutreachPocEditField(field);
   return canEditField(role, field, true);
 }
+
+/**
+ * Server-mirrored whitelist of LMP fields a POC may modify (any sub-role).
+ * Used to strip disallowed columns before sending updates to Postgres so the
+ * RLS policy does not need to enforce per-column rules.
+ */
+export const POC_WRITABLE_LMP_COLUMNS: ReadonlyArray<string> = [
+  "daily_progress", "prep_progress", "placement_progress",
+  "next_progress_date", "next_progress_status", "next_progress_type",
+  "next_progress_reminder_type", "last_progress_updated_at",
+  "remarks", "mentor_aligned", "prep_doc_shared", "assignment_review",
+  "one_to_one_mock", "behavioral_status", "status",
+  "r1_shortlisted", "r2_shortlisted", "r3_shortlisted", "convert_names",
+  "prep_doc",
+];

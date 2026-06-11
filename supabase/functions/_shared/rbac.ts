@@ -1,5 +1,8 @@
 // Centralized RBAC rules for copilot edge functions.
-import { ACTION_MATRIX } from "./permissionContract.ts";
+// Mirrors src/lib/permissions.ts ACTION_MATRIX (subset that matters server-side).
+//
+// IMPORTANT: When you add a new write action in the copilot, add it here AND in
+// src/lib/permissions.ts so client and server stay in lockstep.
 
 export type Role = "admin" | "allocator" | "poc";
 
@@ -18,9 +21,49 @@ export type CopilotPermissionAction =
   | "change_domain"
   | "edit_remarks"
   | "edit_daily_progress"
+  | "edit_checklist"
+  | "edit_next_progress"
   | "upload_jd"
+  | "run_mentor"
   | "assign_mentor"
+  | "add_candidate"
+  | "remove_candidate"
+  | "update_candidate_stage"
+  | "update_session"
+  | "add_feedback"
+  | "add_activity_comment"
   | "bulk_update";
+
+const MATRIX: Record<CopilotPermissionAction, Role[]> = {
+  copilot_summarize: ["admin", "allocator", "poc"],
+  copilot_search:    ["admin", "allocator", "poc"],
+  copilot_analyze:   ["admin", "allocator", "poc"],
+
+  create_lmp:        ["admin", "allocator"],
+  edit_lmp:          ["admin", "allocator", "poc"],
+  delete_lmp:        ["admin"],
+  assign_poc:        ["admin", "allocator"],
+  reassign_poc:      ["admin", "allocator"],
+  change_status:     ["admin", "allocator", "poc"],
+  change_domain:     ["admin", "allocator"],
+  edit_remarks:      ["admin", "allocator", "poc"],
+  edit_daily_progress: ["admin", "allocator", "poc"],
+  edit_checklist:    ["admin", "allocator", "poc"],
+  edit_next_progress: ["admin", "allocator", "poc"],
+  // POC can upload JD and run/assign mentor for their own LMPs
+  upload_jd:         ["admin", "allocator", "poc"],
+  run_mentor:        ["admin", "allocator", "poc"],
+  assign_mentor:     ["admin", "allocator", "poc"],
+  // Candidate management
+  add_candidate:     ["admin", "allocator", "poc"],
+  remove_candidate:  ["admin", "allocator", "poc"],
+  update_candidate_stage: ["admin", "allocator", "poc"],
+  // Session & feedback
+  update_session:    ["admin", "allocator", "poc"],
+  add_feedback:      ["admin", "allocator", "poc"],
+  add_activity_comment: ["admin", "allocator", "poc"],
+  bulk_update:       ["admin"],
+};
 
 const SAFE_ALTERNATIVES: Partial<Record<CopilotPermissionAction, string>> = {
   delete_lmp:    "Ask an admin to delete this LMP, or mark its status as 'Closed' instead.",
@@ -29,18 +72,33 @@ const SAFE_ALTERNATIVES: Partial<Record<CopilotPermissionAction, string>> = {
   assign_poc:    "Suggest the assignment to your allocator/admin — they can confirm it.",
   reassign_poc:  "Ask your allocator/admin to reassign the POC.",
   change_domain: "Flag the domain change to a allocator/admin for approval.",
-  upload_jd:     "Share the JD with your allocator/admin and they can attach it.",
-  assign_mentor: "Recommend the mentor to your allocator/admin for assignment.",
 };
 
 const HUMAN_LABEL: Record<CopilotPermissionAction, string> = {
-  copilot_summarize: "summarize", copilot_search: "search", copilot_analyze: "analyze",
-  create_lmp: "create an LMP process", edit_lmp: "edit this LMP", delete_lmp: "delete an LMP",
-  assign_poc: "assign a POC", reassign_poc: "reassign a POC",
-  change_status: "change status", change_domain: "change domain",
-  edit_remarks: "edit remarks", edit_daily_progress: "edit daily progress",
-  upload_jd: "upload a JD", assign_mentor: "assign a mentor",
-  bulk_update: "perform a bulk update",
+  copilot_summarize:    "summarize",
+  copilot_search:       "search",
+  copilot_analyze:      "analyze",
+  create_lmp:           "create an LMP process",
+  edit_lmp:             "edit this LMP",
+  delete_lmp:           "delete an LMP",
+  assign_poc:           "assign a POC",
+  reassign_poc:         "reassign a POC",
+  change_status:        "change status",
+  change_domain:        "change domain",
+  edit_remarks:         "edit remarks",
+  edit_daily_progress:  "edit daily progress",
+  edit_checklist:       "edit checklist",
+  edit_next_progress:   "edit next progress",
+  upload_jd:            "upload a JD",
+  run_mentor:           "run mentor discovery",
+  assign_mentor:        "assign a mentor",
+  add_candidate:        "add a candidate",
+  remove_candidate:     "remove a candidate",
+  update_candidate_stage: "update candidate stage",
+  update_session:       "update a session",
+  add_feedback:         "add feedback",
+  add_activity_comment: "add an activity comment",
+  bulk_update:          "perform a bulk update",
 };
 
 export type PermissionResult = {
@@ -55,7 +113,7 @@ export type PermissionResult = {
 export function checkPermission(role: string | undefined, action: string): PermissionResult {
   const r = (role as Role) || "poc";
   const a = action as CopilotPermissionAction;
-  const allowedRoles = ACTION_MATRIX[a] as readonly Role[] | undefined;
+  const allowedRoles = MATRIX[a];
   if (!allowedRoles) {
     return { allowed: false, role: r, action: a, reason: `Unknown action: ${action}`, human_action: action };
   }

@@ -1,5 +1,5 @@
 // Versioned permission contract consumed by both the frontend and Edge Functions.
-export const PERMISSION_CONTRACT_VERSION = "2026-06-10.1";
+export const PERMISSION_CONTRACT_VERSION = "2026-06-11.1";
 export const VIEW_AS_READ_ONLY = true;
 
 export type ContractRole = "admin" | "allocator" | "poc";
@@ -13,7 +13,8 @@ export const ACTION_MATRIX = {
   delete_lmp: ["admin"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
-  assign_mentor: ["admin", "allocator"],
+  assign_mentor: ["admin", "allocator", "poc"],
+  run_mentor: ["admin", "allocator", "poc"],
   change_domain: ["admin", "allocator"],
   change_status: ["admin", "allocator", "poc"],
   edit_daily_progress: ["admin", "allocator", "poc"],
@@ -23,7 +24,15 @@ export const ACTION_MATRIX = {
   edit_assignment_review: ["admin", "allocator", "poc"],
   edit_outreach_progress: ["admin", "allocator", "poc"],
   edit_remarks: ["admin", "allocator", "poc"],
-  upload_jd: ["admin", "allocator"],
+  edit_checklist: ["admin", "allocator", "poc"],
+  edit_next_progress: ["admin", "allocator", "poc"],
+  add_candidate: ["admin", "allocator", "poc"],
+  remove_candidate: ["admin", "allocator", "poc"],
+  update_candidate_stage: ["admin", "allocator", "poc"],
+  update_session: ["admin", "allocator", "poc"],
+  add_feedback: ["admin", "allocator", "poc"],
+  add_activity_comment: ["admin", "allocator", "poc"],
+  upload_jd: ["admin", "allocator", "poc"],
   bulk_update: ["admin"],
   view_all_students: ["admin", "allocator", "poc"],
   view_own_students: ["admin", "allocator", "poc"],
