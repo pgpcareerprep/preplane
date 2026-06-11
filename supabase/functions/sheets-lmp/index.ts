@@ -4,7 +4,9 @@ import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 import {
   buildLmpSheetIntegrityReport,
+  findCompactableLmpBlankRows,
   findLmpSheetRow,
+  findLmpSheetRowIndexes,
   LMP_TRACKER_HEADER_ROW,
   validateLmpTrackerHeaders,
 } from "../_shared/lmpSheetIdentity.ts";
@@ -146,8 +148,8 @@ Deno.serve(async (req: Request) => {
 
   if (!op) return jsonError("Missing 'op'", 400);
   if (!tab && op !== "metadata") return jsonError("Missing 'tab'", 400);
-  if (op === "lmp-integrity-report" && !internalRequest && userRole !== "admin") {
-    return jsonError("ADMIN_REQUIRED: LMP integrity reports are admin-only", 403);
+  if (["lmp-integrity-report", "lmp-compact"].includes(op) && !internalRequest && userRole !== "admin") {
+    return jsonError("ADMIN_REQUIRED: LMP maintenance operations are admin-only", 403);
   }
 
   const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
@@ -379,6 +381,45 @@ Deno.serve(async (req: Request) => {
     return targetRow;
   }
 
+  async function deleteSheetRows(tab: string, sheetRows: number[]) {
+    const uniqueRows = [...new Set(sheetRows)]
+      .filter((row) => Number.isInteger(row) && row > headerRow)
+      .sort((a, b) => b - a);
+    if (uniqueRows.length === 0) return [];
+    const sheetIdNum = await getSheetIdByTitle(tab);
+    const res = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
+      method: "POST",
+      body: JSON.stringify({
+        requests: uniqueRows.map((sheetRow) => ({
+          deleteDimension: {
+            range: {
+              sheetId: sheetIdNum,
+              dimension: "ROWS",
+              startIndex: sheetRow - 1,
+              endIndex: sheetRow,
+            },
+          },
+        })),
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`deleteDimension [${res.status}]: ${text.slice(0, 300)}`);
+    }
+    rangeCache.clear();
+    return uniqueRows;
+  }
+
+  async function compactLmpTrackerBlankRows(tab: string) {
+    if (tab !== "LMP Tracker") return [];
+    const range = `'${tab}'!A${headerRow}:ZZ10000`;
+    const result = await batchGet([range]);
+    const rows = Object.values(result)[0] || [];
+    if (rows.length < 2) return [];
+    const blankRows = findCompactableLmpBlankRows(rows[0], rows);
+    return deleteSheetRows(tab, blankRows);
+  }
+
   try {
     switch (op) {
       case "metadata": {
@@ -421,6 +462,17 @@ Deno.serve(async (req: Request) => {
             "Backfill missing LMP IDs only from a stable DB identity.",
             "Retry failed queue rows only after the header report is safe.",
           ],
+        });
+      }
+
+      case "lmp-compact": {
+        if (tab !== "LMP Tracker") return jsonError("LMP_TRACKER_REQUIRED", 400);
+        const compactedRows = await compactLmpTrackerBlankRows(tab);
+        return jsonOk({
+          compacted: true,
+          tab,
+          removedBlankRows: compactedRows,
+          removedCount: compactedRows.length,
         });
       }
 
@@ -833,6 +885,7 @@ Deno.serve(async (req: Request) => {
         // AND findBy["LMP ID"], verify the row actually carries that LMP ID
         // before deleting; otherwise fall back to a findBy lookup.
         let actualSheetRow = -1;
+        let exactLmpRows: number[] = [];
         const hintedRow = Number.isFinite(explicitRowNumber) && explicitRowNumber > 0
           ? explicitRowNumber
           : -1;
@@ -851,6 +904,8 @@ Deno.serve(async (req: Request) => {
             const validation = validateLmpTrackerHeaders(headers);
             if (validation.error) return jsonError(validation.error, 409);
             if (!lmpIdHint) return jsonError("LMP_ID_REQUIRED", 400);
+            exactLmpRows = findLmpSheetRowIndexes(headers, allRows, lmpIdHint)
+              .map((index) => headerRow + index);
           }
         }
 
@@ -893,13 +948,7 @@ Deno.serve(async (req: Request) => {
         // 2) Fallback: scan with findBy.
         if (actualSheetRow < 0 && findBy) {
           if (tab === "LMP Tracker") {
-            const lookup = findLmpSheetRow(headers, allRows, {
-              lmpCode: lmpIdHint,
-              company: "",
-              role: "",
-            });
-            if (lookup.error) return jsonError(lookup.error, 409);
-            if (lookup.rowIndex !== -1) actualSheetRow = headerRow + lookup.rowIndex;
+            if (exactLmpRows.length > 0) actualSheetRow = exactLmpRows[0];
           }
         }
 
@@ -934,6 +983,27 @@ Deno.serve(async (req: Request) => {
           return jsonOk({ deleted: true, notFound: true, id, tab, message: "No sheet row to delete" });
         }
 
+
+        if (tab === "LMP Tracker") {
+          const deletedRows = await deleteSheetRows(tab, exactLmpRows.length > 0 ? exactLmpRows : [actualSheetRow]);
+          const compactedRows = await compactLmpTrackerBlankRows(tab);
+          logSyncEvent({
+            tab_name: tab,
+            direction: "app_to_sheet",
+            operation: "delete",
+            record_id: lmpIdHint,
+            fields_synced: deletedRows.map((row) => `row:${row}`),
+            status: "success",
+          });
+          return jsonOk({
+            deleted: true,
+            id,
+            tab,
+            rowNumber: actualSheetRow,
+            deletedRows,
+            compactedRows,
+          });
+        }
 
         // Resolve the numeric sheetId (gid) for the tab.
         let sheetIdNum: number | null = null;
@@ -1127,6 +1197,9 @@ Deno.serve(async (req: Request) => {
         }
 
         if (isAppend) {
+          const compactedRows = tab === "LMP Tracker"
+            ? await compactLmpTrackerBlankRows(tab)
+            : [];
           const newValues = headers.map((h: string) => {
             if (h === "updatedAt") return new Date().toISOString();
             if (h in sheetPatch) return sheetPatch[h] ?? "";
@@ -1160,7 +1233,7 @@ Deno.serve(async (req: Request) => {
             sheet_row: insertedRowNumber,
             columns_updated: Object.keys(sheetPatch),
           });
-          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, sheetRowFound: false, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch) });
+          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, compactedRows, sheetRowFound: false, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch) });
         }
 
         const existingRow = allRows[rowIndex];

@@ -80,6 +80,38 @@ export function findLmpSheetRow(
   return { rowIndex: -1, ...validation };
 }
 
+export function findLmpSheetRowIndexes(headers: unknown[], rows: unknown[][], lmpCode: string): number[] {
+  const validation = validateLmpTrackerHeaders(headers);
+  if (validation.error) return [];
+  const target = normalized(lmpCode);
+  if (!target) return [];
+  return rows.flatMap((row, index) =>
+    index > 0 && normalized(row?.[validation.lmpIdColumn]) === target ? [index] : []
+  );
+}
+
+export function findCompactableLmpBlankRows(headers: unknown[], rows: unknown[][]): number[] {
+  const validation = validateLmpTrackerHeaders(headers);
+  if (validation.error) return [];
+
+  const isBlankTemplateRow = (row: unknown[]) => row.every((cell) => {
+    const value = normalized(cell);
+    return value === "" || value === "false";
+  });
+  let lastMeaningfulIndex = 0;
+  for (let index = 1; index < rows.length; index++) {
+    if (!isBlankTemplateRow(rows[index] ?? [])) lastMeaningfulIndex = index;
+  }
+
+  const blankSheetRows: number[] = [];
+  for (let index = 1; index < lastMeaningfulIndex; index++) {
+    if (isBlankTemplateRow(rows[index] ?? [])) {
+      blankSheetRows.push(LMP_TRACKER_HEADER_ROW + index);
+    }
+  }
+  return blankSheetRows;
+}
+
 export function buildLmpSheetIntegrityReport(headers: unknown[], rows: unknown[][]) {
   const validation = validateLmpTrackerHeaders(headers);
   const companyCol = headers.findIndex((h) => normalized(h) === "company");
@@ -114,5 +146,6 @@ export function buildLmpSheetIntegrityReport(headers: unknown[], rows: unknown[]
       .map(([lmpId, sheetRows]) => ({ lmpId, sheetRows })),
     missingLmpIdRows,
     companyRoleWithoutLmpId,
+    compactableBlankRows: findCompactableLmpBlankRows(headers, rows),
   };
 }

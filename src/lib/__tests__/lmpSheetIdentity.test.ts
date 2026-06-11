@@ -3,6 +3,8 @@ import {
   buildLmpSheetIntegrityReport,
   CANONICAL_LMP_TRACKER_HEADERS,
   findLmpSheetRow,
+  findCompactableLmpBlankRows,
+  findLmpSheetRowIndexes,
   getLmpTrackerHeaderDrift,
   validateLmpTrackerHeaders,
 } from "../../../supabase/functions/_shared/lmpSheetIdentity";
@@ -97,6 +99,32 @@ describe("findLmpSheetRow", () => {
       role: "Growth Manager",
       lmpCode: "LMP-1",
     }).error).toBe("DUPLICATE_LMP_ID_ROWS");
+  });
+
+  it("returns every exact LMP ID row for an explicit delete", () => {
+    const rows = [
+      headers,
+      row("Microsoft", "Growth Manager", "LMP-1"),
+      row("Microsoft", "Growth Manager", "LMP-1"),
+      row("Google", "Product Manager", "LMP-2"),
+    ];
+    expect(findLmpSheetRowIndexes(headers, rows, "lmp-1")).toEqual([1, 2]);
+  });
+
+  it("finds only blank template gaps before the final meaningful row", () => {
+    const blank = Array(headers.length).fill("");
+    blank[7] = false;
+    blank[8] = false;
+    const meaningfulWithoutId = [...blank];
+    meaningfulWithoutId[1] = "Historical company";
+    expect(findCompactableLmpBlankRows(headers, [
+      headers,
+      blank,
+      row("Microsoft", "Growth Manager", "LMP-1"),
+      blank,
+      meaningfulWithoutId,
+      blank,
+    ])).toEqual([15, 17]);
   });
 
   it("reports duplicate and missing LMP IDs without deleting data", () => {

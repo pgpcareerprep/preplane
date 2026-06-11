@@ -115,8 +115,16 @@ describe("Sheet queue Invalid JWT release", () => {
   });
 
   it("provides an admin-only non-destructive integrity report", () => {
-    expect(sheets).toContain('op === "lmp-integrity-report" && !internalRequest && userRole !== "admin"');
+    expect(sheets).toContain('["lmp-integrity-report", "lmp-compact"].includes(op)');
     expect(sheets).toContain("buildLmpSheetIntegrityReport");
     expect(sheets).toContain("dryRun: true");
+  });
+
+  it("keeps LMP create and delete rows compact without deleting populated rows", () => {
+    const sheets = read("supabase/functions/sheets-lmp/index.ts");
+    expect(sheets).toContain('case "lmp-compact"');
+    expect(sheets).toContain("compactLmpTrackerBlankRows(tab)");
+    expect(sheets).toContain("findLmpSheetRowIndexes(headers, allRows, lmpIdHint)");
+    expect(sheets).toContain("deleteSheetRows(tab, exactLmpRows.length > 0 ? exactLmpRows : [actualSheetRow])");
   });
 });
