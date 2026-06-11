@@ -9,6 +9,11 @@
  */
 
 import type { Role } from "@/lib/rolesContext";
+import {
+  ACTION_MATRIX as CONTRACT_ACTION_MATRIX,
+  FIELD_PERMISSIONS as CONTRACT_FIELD_PERMISSIONS,
+  POC_WRITABLE_LMP_COLUMNS as CONTRACT_POC_WRITABLE_LMP_COLUMNS,
+} from "../../supabase/functions/_shared/permissionContract";
 
 // ─── Action Permissions ───
 
@@ -145,7 +150,7 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
 };
 
 export function canPerform(role: Role, action: Action): boolean {
-  return ACTION_MATRIX[action]?.includes(role) ?? false;
+  return (CONTRACT_ACTION_MATRIX[action] as readonly Role[] | undefined)?.includes(role) ?? false;
 }
 
 // ─── Field-Level Permissions ───
@@ -199,9 +204,10 @@ export function canEditField(
   field: LmpField,
   isOwner: boolean
 ): boolean {
-  const perm = FIELD_PERMISSIONS[field];
+  const perm = CONTRACT_FIELD_PERMISSIONS[field];
   if (!perm) return false;
-  if (!perm.editable.includes(role)) return false;
+  if (!(perm.editable as readonly Role[]).includes(role)) return false;
+  if (role === "admin" || role === "allocator") return true;
   if (perm.requiresOwnership && !isOwner) return false;
   return true;
 }
@@ -399,9 +405,9 @@ export function canEditFieldFinal(
   lmp: LmpOwnership,
   pocId?: string | null,
 ): boolean {
-  const perm = FIELD_PERMISSIONS[field];
+  const perm = CONTRACT_FIELD_PERMISSIONS[field];
   if (!perm) return false;
-  if (!perm.editable.includes(role)) return false;
+  if (!(perm.editable as readonly Role[]).includes(role)) return false;
   // admin/allocator: no ownership gate — they can edit any LMP
   if (role === "admin" || role === "allocator") return true;
   // POC: must be assigned to this LMP
@@ -416,13 +422,4 @@ export function canEditFieldFinal(
  * Used to strip disallowed columns before sending updates to Postgres so the
  * RLS policy does not need to enforce per-column rules.
  */
-export const POC_WRITABLE_LMP_COLUMNS: ReadonlyArray<string> = [
-  "company", "role",
-  "daily_progress", "prep_progress", "placement_progress",
-  "next_progress_date", "next_progress_status", "next_progress_type",
-  "next_progress_reminder_type", "last_progress_updated_at",
-  "remarks", "mentor_aligned", "prep_doc_shared", "assignment_review",
-  "one_to_one_mock", "behavioral_status", "status",
-  "r1_shortlisted", "r2_shortlisted", "r3_shortlisted", "convert_names",
-  "prep_doc",
-];
+export const POC_WRITABLE_LMP_COLUMNS: ReadonlyArray<string> = CONTRACT_POC_WRITABLE_LMP_COLUMNS;

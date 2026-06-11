@@ -18,10 +18,10 @@ const assigned = {
 
 describe("canonical permission contract", () => {
   it("is versioned and drives frontend actions", () => {
-    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-10.1");
+    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-11.3");
     expect(canPerform("allocator", "view_all_lmps")).toBe(true);
-    expect(canPerform("poc", "delete_lmp")).toBe(false);
-    expect(ACTION_MATRIX.delete_lmp).toEqual(["admin"]);
+    expect(canPerform("poc", "delete_lmp")).toBe(true);
+    expect(ACTION_MATRIX.delete_lmp).toEqual(["admin", "allocator", "poc"]);
   });
 
   it("allows privileged roles to configure any LMP", () => {
@@ -32,9 +32,10 @@ describe("canonical permission contract", () => {
 
   it("limits POC writes to assigned operational fields", () => {
     expect(canEditFieldFinal("poc", "daily_progress", "Assigned POC", assigned)).toBe(true);
-    expect(canEditFieldFinal("poc", "company", "Assigned POC", assigned)).toBe(false);
+    expect(canEditFieldFinal("poc", "company", "Assigned POC", assigned)).toBe(true);
+    expect(canEditFieldFinal("poc", "domain", "Assigned POC", assigned)).toBe(false);
     expect(canEditFieldFinal("poc", "daily_progress", "Someone Else", assigned)).toBe(false);
     expect(POC_WRITABLE_LMP_COLUMNS).toContain("daily_progress");
-    expect(POC_WRITABLE_LMP_COLUMNS).not.toContain("company");
+    expect(POC_WRITABLE_LMP_COLUMNS).toContain("company");
   });
 });

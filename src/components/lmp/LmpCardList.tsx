@@ -14,6 +14,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Pencil,
 } from "lucide-react";
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
@@ -33,6 +34,8 @@ import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { useAvatarUrl } from "@/lib/hooks/useAvatarUrls";
 import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { EditLmpModal } from "./EditLmpModal";
 import {
   Tooltip,
   TooltipContent,
@@ -201,11 +204,15 @@ function LmpStripCard({
   const commentCount = dbComments.length + (sheetComment.trim() ? 1 : 0);
   const { role } = useRole();
   const isViewingAsOther = useIsViewingAsOther();
-  // Delete is role-gated (poc only) AND requires ownership (mode === "action" means
-  // the current user is the assigned prep/support POC for this specific record).
-  const canDelete = !isViewingAsOther && canPerform(role, "delete_lmp") && mode === "action";
+  const { canEdit: canEditLmp, canDelete: canDeleteLmp, canAssignPoc } = useLmpPermission({
+    prep_poc: rec.prepPoc?.name,
+    support_poc: rec.supportPoc?.name,
+    outreach_poc: rec.outreachPoc?.name,
+    allocator: rec.allocator,
+  });
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
@@ -323,17 +330,25 @@ function LmpStripCard({
               </DropdownMenuItem>
               
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
-                <UserPlus className="h-4 w-4 mr-2" />
-                {rec.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
-              </DropdownMenuItem>
+              {canEditLmp && (
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit LMP
+                </DropdownMenuItem>
+              )}
+              {canAssignPoc && (
+                <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  {rec.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
+                </DropdownMenuItem>
+              )}
               {canReassignAny && (
                 <DropdownMenuItem onClick={() => setReassignOpen(true)}>
                   <UserCog className="h-4 w-4 mr-2" />
                   Reassign POCs
                 </DropdownMenuItem>
               )}
-              {canDelete && (
+              {canDeleteLmp && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -376,6 +391,8 @@ function LmpStripCard({
         lmpLabel={`${rec.role} @ ${rec.company}`}
         currentOutreachPocName={rec.outreachPoc?.name ?? null}
       />
+
+      <EditLmpModal open={editOpen} onOpenChange={setEditOpen} rec={rec} />
 
       <ReassignPocModal
         open={reassignOpen}

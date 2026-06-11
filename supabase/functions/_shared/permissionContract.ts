@@ -1,5 +1,5 @@
 // Versioned permission contract consumed by both the frontend and Edge Functions.
-export const PERMISSION_CONTRACT_VERSION = "2026-06-11.2";
+export const PERMISSION_CONTRACT_VERSION = "2026-06-11.3";
 export const VIEW_AS_READ_ONLY = true;
 
 export type ContractRole = "admin" | "allocator" | "poc";
@@ -61,8 +61,8 @@ export const ACTION_MATRIX = {
 } as const satisfies Record<string, readonly ContractRole[]>;
 
 export const FIELD_PERMISSIONS = {
-  company: { editable: ["admin", "allocator"], requiresOwnership: false },
-  role: { editable: ["admin", "allocator"], requiresOwnership: false },
+  company: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  role: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   domain: { editable: ["admin", "allocator"], requiresOwnership: false },
   status: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   type: { editable: ["admin", "allocator"], requiresOwnership: false },

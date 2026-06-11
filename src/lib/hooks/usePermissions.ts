@@ -52,22 +52,24 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
 
   return useMemo(() => {
     const ownership: LmpOwnership = lmp ?? {};
-    const accessLevel = getLmpAccessLevel(role, user.name, ownership);
+    const actorName = user.pocProfileName || user.name;
+    const accessLevel = getLmpAccessLevel(role, actorName, ownership);
     const isReadOnly = isViewingAsOther || accessLevel === "summary";
 
     return {
       accessLevel,
       isReadOnly,
+      canEdit: !isReadOnly && accessLevel === "full" && canPerform(role, "edit_lmp"),
       canEditField: (field: LmpField) =>
-        !isReadOnly && canEditFieldFinal(role, field, user.name, ownership),
+        !isReadOnly && canEditFieldFinal(role, field, actorName, ownership),
       canChangeStatus: !isReadOnly && canPerform(role, "change_status"),
       canAssignPoc: !isReadOnly && canPerform(role, "assign_poc"),
       canChangeDomain: !isReadOnly && canPerform(role, "change_domain"),
       canDelete: !isViewingAsOther && accessLevel === "full" && canPerform(role, "delete_lmp"),
       canRollback: (auditActorName: string) =>
-        !isReadOnly && canRollback(role, user.name, auditActorName, ownership),
+        !isReadOnly && canRollback(role, actorName, auditActorName, ownership),
     };
-  }, [isViewingAsOther, role, user.name, lmp]);
+  }, [isViewingAsOther, role, user.name, user.pocProfileName, lmp]);
 }
 
 /**

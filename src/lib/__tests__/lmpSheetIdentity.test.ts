@@ -83,8 +83,7 @@ describe("findLmpSheetRow", () => {
     expect(validateLmpTrackerHeaders(drifted).error).toBeUndefined();
     expect(getLmpTrackerHeaderDrift(drifted)).toEqual([
       { column: 14, expected: "R1 Shortlisted", actual: "R1\nShortlisted" },
-      { column: 19, expected: "Prep Doc", actual: "Prep Doc Link" },
-      { column: 26, expected: "JD", actual: "Comment" },
+      { column: 26, expected: "Comments", actual: "Comment" },
     ]);
   });
 

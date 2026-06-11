@@ -44,7 +44,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const { role } = useRole();
-  const { canDelete } = useLmpPermission({
+  const { canEdit, canDelete } = useLmpPermission({
     prep_poc: rec.prepPoc?.name,
     support_poc: rec.supportPoc?.name,
     outreach_poc: rec.outreachPoc?.name,
@@ -110,7 +110,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
                 <RefreshCw className="h-4 w-4" /> Change status
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {canDelete && (
+              {canEdit && (
                 <DropdownMenuItem onClick={() => setEditOpen(true)}>
                   <Pencil className="h-4 w-4" /> Edit LMP
                 </DropdownMenuItem>

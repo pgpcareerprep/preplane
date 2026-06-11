@@ -1,8 +1,5 @@
 // Centralized RBAC rules for copilot edge functions.
-// Mirrors src/lib/permissions.ts ACTION_MATRIX (subset that matters server-side).
-//
-// IMPORTANT: When you add a new write action in the copilot, add it here AND in
-// src/lib/permissions.ts so client and server stay in lockstep.
+import { ACTION_MATRIX } from "./permissionContract.ts";
 
 export type Role = "admin" | "allocator" | "poc";
 
@@ -33,37 +30,6 @@ export type CopilotPermissionAction =
   | "add_feedback"
   | "add_activity_comment"
   | "bulk_update";
-
-const MATRIX: Record<CopilotPermissionAction, Role[]> = {
-  copilot_summarize: ["admin", "allocator", "poc"],
-  copilot_search:    ["admin", "allocator", "poc"],
-  copilot_analyze:   ["admin", "allocator", "poc"],
-
-  create_lmp:        ["admin", "allocator"],
-  edit_lmp:          ["admin", "allocator", "poc"],
-  delete_lmp:        ["admin"],
-  assign_poc:        ["admin", "allocator"],
-  reassign_poc:      ["admin", "allocator"],
-  change_status:     ["admin", "allocator", "poc"],
-  change_domain:     ["admin", "allocator"],
-  edit_remarks:      ["admin", "allocator", "poc"],
-  edit_daily_progress: ["admin", "allocator", "poc"],
-  edit_checklist:    ["admin", "allocator", "poc"],
-  edit_next_progress: ["admin", "allocator", "poc"],
-  // POC can upload JD and run/assign mentor for their own LMPs
-  upload_jd:         ["admin", "allocator", "poc"],
-  run_mentor:        ["admin", "allocator", "poc"],
-  assign_mentor:     ["admin", "allocator", "poc"],
-  // Candidate management
-  add_candidate:     ["admin", "allocator", "poc"],
-  remove_candidate:  ["admin", "allocator", "poc"],
-  update_candidate_stage: ["admin", "allocator", "poc"],
-  // Session & feedback
-  update_session:    ["admin", "allocator", "poc"],
-  add_feedback:      ["admin", "allocator", "poc"],
-  add_activity_comment: ["admin", "allocator", "poc"],
-  bulk_update:       ["admin"],
-};
 
 const SAFE_ALTERNATIVES: Partial<Record<CopilotPermissionAction, string>> = {
   delete_lmp:    "Ask an admin to delete this LMP, or mark its status as 'Closed' instead.",
@@ -113,7 +79,7 @@ export type PermissionResult = {
 export function checkPermission(role: string | undefined, action: string): PermissionResult {
   const r = (role as Role) || "poc";
   const a = action as CopilotPermissionAction;
-  const allowedRoles = MATRIX[a];
+  const allowedRoles = ACTION_MATRIX[a] as readonly Role[] | undefined;
   if (!allowedRoles) {
     return { allowed: false, role: r, action: a, reason: `Unknown action: ${action}`, human_action: action };
   }
