@@ -26,6 +26,13 @@ function normalized(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isBlankTemplateRow(row: unknown[]): boolean {
+  return row.every((cell) => {
+    const value = normalized(cell);
+    return value === "" || value === "false";
+  });
+}
+
 export function getLmpTrackerHeaderDrift(headers: unknown[]) {
   return CANONICAL_LMP_TRACKER_HEADERS.flatMap((expected, index) => {
     const actual = String(headers[index] ?? "");
@@ -94,10 +101,6 @@ export function findCompactableLmpBlankRows(headers: unknown[], rows: unknown[][
   const validation = validateLmpTrackerHeaders(headers);
   if (validation.error) return [];
 
-  const isBlankTemplateRow = (row: unknown[]) => row.every((cell) => {
-    const value = normalized(cell);
-    return value === "" || value === "false";
-  });
   let lastMeaningfulIndex = 0;
   for (let index = 1; index < rows.length; index++) {
     if (!isBlankTemplateRow(rows[index] ?? [])) lastMeaningfulIndex = index;
@@ -131,8 +134,8 @@ export function buildLmpSheetIntegrityReport(headers: unknown[], rows: unknown[]
     }
     const company = companyCol === -1 ? "" : String(rows[i]?.[companyCol] ?? "").trim();
     const role = roleCol === -1 ? "" : String(rows[i]?.[roleCol] ?? "").trim();
-    const hasAnyValue = rows[i]?.some((cell) => String(cell ?? "").trim() !== "");
-    if (hasAnyValue) missingLmpIdRows.push(sheetRow);
+    const hasBusinessData = !isBlankTemplateRow(rows[i] ?? []);
+    if (hasBusinessData) missingLmpIdRows.push(sheetRow);
     if (company || role) companyRoleWithoutLmpId.push({ row: sheetRow, company, role });
   }
 

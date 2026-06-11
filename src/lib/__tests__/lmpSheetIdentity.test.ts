@@ -128,11 +128,14 @@ describe("findLmpSheetRow", () => {
   });
 
   it("reports duplicate and missing LMP IDs without deleting data", () => {
+    const blankTemplate = Array(headers.length).fill("");
+    blankTemplate[7] = false;
     const report = buildLmpSheetIntegrityReport(headers, [
       headers,
       row("Microsoft", "Growth Manager", "LMP-1"),
       row("Microsoft", "Growth Manager", "LMP-1"),
       row("Google", "Product Manager", ""),
+      blankTemplate,
     ]);
     expect(report.safeToWrite).toBe(true);
     expect(report.duplicateLmpIds).toEqual([{ lmpId: "lmp-1", sheetRows: [15, 16] }]);
