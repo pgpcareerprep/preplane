@@ -104,6 +104,14 @@ describe("Sheet queue Invalid JWT release", () => {
     expect(sheets).toContain("if (duplicateLookup.error) return jsonError(duplicateLookup.error, 409)");
   });
 
+  it("retries only the retired full-header-label failure after identity-safe validation", () => {
+    const migration = read("supabase/migrations/20260611110000_retry_safe_lmp_sheet_header_drift.sql");
+    expect(migration).toContain("last_error = 'MISALIGNED_LMP_TRACKER_HEADERS'");
+    expect(migration).toContain("SELECT public.dispatch_sheet_retry_sweeper()");
+    expect(migration).not.toContain("DUPLICATE_LMP_ID_ROWS");
+    expect(migration).not.toContain("MISALIGNED_LMP_ID_HEADER");
+  });
+
   it("provides an admin-only non-destructive integrity report", () => {
     expect(sheets).toContain('op === "lmp-integrity-report" && !internalRequest && userRole !== "admin"');
     expect(sheets).toContain("buildLmpSheetIntegrityReport");

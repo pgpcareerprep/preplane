@@ -3,6 +3,7 @@ import {
   buildLmpSheetIntegrityReport,
   CANONICAL_LMP_TRACKER_HEADERS,
   findLmpSheetRow,
+  getLmpTrackerHeaderDrift,
   validateLmpTrackerHeaders,
 } from "../../../supabase/functions/_shared/lmpSheetIdentity";
 
@@ -72,10 +73,17 @@ describe("findLmpSheetRow", () => {
     expect(validateLmpTrackerHeaders(misplaced).error).toBe("MISALIGNED_LMP_ID_HEADER");
   });
 
-  it("blocks drift anywhere in the canonical A:AA header map", () => {
+  it("reports harmless display-label drift without blocking ID-based writes", () => {
     const drifted = [...headers];
+    drifted[13] = "R1\nShortlisted";
+    drifted[18] = "Prep Doc Link";
     drifted[25] = "Comment";
-    expect(validateLmpTrackerHeaders(drifted).error).toBe("MISALIGNED_LMP_TRACKER_HEADERS");
+    expect(validateLmpTrackerHeaders(drifted).error).toBeUndefined();
+    expect(getLmpTrackerHeaderDrift(drifted)).toEqual([
+      { column: 14, expected: "R1 Shortlisted", actual: "R1\nShortlisted" },
+      { column: 19, expected: "Prep Doc", actual: "Prep Doc Link" },
+      { column: 26, expected: "JD", actual: "Comment" },
+    ]);
   });
 
   it("blocks duplicate rows with the same LMP ID from update or delete", () => {

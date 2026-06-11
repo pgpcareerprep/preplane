@@ -26,6 +26,15 @@ function normalized(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+export function getLmpTrackerHeaderDrift(headers: unknown[]) {
+  return CANONICAL_LMP_TRACKER_HEADERS.flatMap((expected, index) => {
+    const actual = String(headers[index] ?? "");
+    return normalized(actual) === normalized(expected)
+      ? []
+      : [{ column: index + 1, expected, actual }];
+  });
+}
+
 export function validateLmpTrackerHeaders(headers: unknown[]): Pick<LmpSheetRowLookup, "lmpIdColumn" | "matches" | "error"> {
   const matches = headers
     .map((header, index) => normalized(header) === "lmp id" ? index : -1)
@@ -35,12 +44,11 @@ export function validateLmpTrackerHeaders(headers: unknown[]): Pick<LmpSheetRowL
   if (matches[0] !== LMP_ID_COLUMN_INDEX) {
     return { lmpIdColumn: matches[0], matches, error: "MISALIGNED_LMP_ID_HEADER" };
   }
-  const canonicalMismatch = CANONICAL_LMP_TRACKER_HEADERS.some(
-    (header, index) => normalized(headers[index]) !== normalized(header),
-  );
-  if (canonicalMismatch) {
-    return { lmpIdColumn: matches[0], matches, error: "MISALIGNED_LMP_TRACKER_HEADERS" };
-  }
+  // Display labels may legitimately differ from the canonical registry
+  // (for example line breaks, "Prep Doc Link", or a legacy Comment column).
+  // Identity safety depends on one unique LMP ID column at AA, not every
+  // visible label being byte-identical. Report drift separately without
+  // blocking DB-to-Sheet writes.
   return { lmpIdColumn: matches[0], matches };
 }
 
@@ -99,6 +107,7 @@ export function buildLmpSheetIntegrityReport(headers: unknown[], rows: unknown[]
   return {
     safeToWrite: !validation.error,
     headerError: validation.error ?? null,
+    headerDrift: getLmpTrackerHeaderDrift(headers),
     lmpIdHeaderColumns: validation.matches.map((index) => index + 1),
     duplicateLmpIds: [...ids.entries()]
       .filter(([, sheetRows]) => sheetRows.length > 1)
