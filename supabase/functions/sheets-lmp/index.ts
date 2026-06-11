@@ -1234,6 +1234,32 @@ Deno.serve(async (req: Request) => {
           const insertedRowNumber = tab === "LMP Tracker"
             ? await insertRowAtTop(tab, newValues)
             : await appendRow(tab, newValues);
+
+          // Post-insert concurrent-write guard: two sweeper invocations for the
+          // same job can both reach isAppend=true when they both read the sheet
+          // before either has inserted (TOCTOU race). After inserting, re-read
+          // column AA and immediately dedup if a parallel insert snuck in.
+          if (tab === "LMP Tracker" && lmpCode) {
+            try {
+              rangeCache.clear();
+              const dedupResult = await batchGet([range]);
+              const dedupRows = Object.values(dedupResult)[0] || [];
+              const dedupIndexes = findLmpSheetRowIndexes(dedupRows[0] ?? [], dedupRows, lmpCode);
+              if (dedupIndexes.length > 1) {
+                const scoreRow = (row: unknown[]) =>
+                  row.filter((c) => String(c ?? "").trim() !== "" && String(c ?? "").trim().toLowerCase() !== "false").length;
+                const best = dedupIndexes.reduce((a, b) =>
+                  scoreRow(dedupRows[a] ?? []) >= scoreRow(dedupRows[b] ?? []) ? a : b
+                );
+                const toDelete = dedupIndexes.filter((i) => i !== best).map((i) => headerRow + i);
+                await deleteSheetRows(tab, toDelete);
+                console.log(`[sync-db-to-sheet] post-insert dedup: removed ${toDelete.length} duplicate row(s) for ${lmpCode} (sheet rows ${toDelete})`);
+              }
+            } catch (e) {
+              console.warn(`[sync-db-to-sheet] post-insert dedup check failed for ${lmpCode}:`, e);
+            }
+          }
+
           // Persist the new sheet row number on lmp_processes so future
           // sync-db-to-sheet calls can find the row by sheet_row_id even
           // before col AA (LMP ID) is populated.
