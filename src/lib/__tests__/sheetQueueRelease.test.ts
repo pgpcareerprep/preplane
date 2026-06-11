@@ -69,7 +69,6 @@ describe("Sheet queue Invalid JWT release", () => {
       'next_progress_date: "Next Progress Date"',
       'next_progress_type: "Next Progress Type"',
       'jd_url: "JD"',
-      'jd_label: "JD Label"',
       'mentor_selected: "Mentor Selected"',
       'prep_poc: "Prep POC"',
       'support_poc: "Support POC"',
@@ -79,5 +78,26 @@ describe("Sheet queue Invalid JWT release", () => {
     expect(sheets).toContain('.from("lmp_processes_overview")');
     expect(sheets).toContain('"Candidate Count"');
     expect(sheets).toContain('"Mentor Selected"');
+  });
+
+  it("uses canonical row 14 and never mutates LMP Tracker headers", () => {
+    const schema = read("src/lib/sheets/schema.ts");
+    const identity = read("supabase/functions/_shared/lmpSheetIdentity.ts");
+    const migration = read("supabase/migrations/20260611033000_fix_lmp_tracker_identity_and_header_row.sql");
+    expect(schema).toContain("[TABS.LMP_TRACKER]: 14");
+    expect(identity).toContain("LMP_ID_COLUMN_INDEX = 26");
+    expect(sheets).toContain("? LMP_TRACKER_HEADER_ROW");
+    expect(sheets).not.toContain("Header bootstrap");
+    expect(sheets).not.toContain('"JD Upload"');
+    expect(migration).toContain("'headerRow', 14");
+    expect(migration).toContain("jsonb_set(payload, '{headerRow}', '14'::jsonb, true)");
+    expect(worker).toContain("unsafeSheetIdentity");
+    expect(worker).toContain("MISALIGNED_LMP_TRACKER_HEADERS");
+  });
+
+  it("provides an admin-only non-destructive integrity report", () => {
+    expect(sheets).toContain('op === "lmp-integrity-report" && !internalRequest && userRole !== "admin"');
+    expect(sheets).toContain("buildLmpSheetIntegrityReport");
+    expect(sheets).toContain("dryRun: true");
   });
 });

@@ -165,8 +165,9 @@ Deno.serve(async (req: Request) => {
         results.push({ id: row.id, status: reason ?? "done" });
       } else {
         const attempts = row.attempts + 1;
-        const giveUp = attempts >= MAX_ATTEMPTS;
         const errMsg = body?.error || body?.message || body?.reason || `HTTP ${res.status}`;
+        const unsafeSheetIdentity = /^(MISSING_LMP_ID_HEADER|DUPLICATE_LMP_ID_HEADERS|MISALIGNED_LMP_ID_HEADER|MISALIGNED_LMP_TRACKER_HEADERS|DUPLICATE_LMP_ID_ROWS|LMP_ID_REQUIRED)/.test(String(errMsg));
+        const giveUp = unsafeSheetIdentity || attempts >= MAX_ATTEMPTS;
         await sb.from("sheet_write_queue").update({
           status: giveUp ? "failed" : "pending",
           last_error: errMsg.toString().slice(0, 500),

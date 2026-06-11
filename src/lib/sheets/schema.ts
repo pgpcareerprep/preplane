@@ -56,20 +56,17 @@ export type TabName = (typeof TABS)[keyof typeof TABS];
 // All other tabs use row 1 as headers.
 export const HEADER_ROWS: Partial<Record<TabName, number>> = {
   [TABS.MASTERSHEET]: 2,
-  [TABS.LMP_TRACKER]: 15,
+  [TABS.LMP_TRACKER]: 14,
 };
 
 export function getHeaderRow(tab: TabName): number {
   return HEADER_ROWS[tab] ?? 1;
 }
 
-// ─── LMP Tracker headers (actual sheet columns, row 15 headers) ───
+// ─── LMP Tracker headers (actual sheet columns, row 14 headers) ───
 // Canonical layout matches the live tracker (27 columns, A–AA).
-// NOTE: the live sheet currently has duplicate orphan columns AB–AE
-// ("Next Progress Date", "Prep Doc Link", "Mentor Rating", "JD Upload")
-// from an earlier migration. Those are intentionally NOT in this array —
-// writes resolve via header-name lookup against the canonical headers below,
-// so DB→Sheet writes always target the visible columns.
+// Sheet headers are never mutated automatically. An ambiguous or misaligned
+// identity column blocks writes until an admin repairs the sheet manually.
 export const LMP_TRACKER_HEADERS = [
   /* A */ "Date",
   /* B */ "Company",

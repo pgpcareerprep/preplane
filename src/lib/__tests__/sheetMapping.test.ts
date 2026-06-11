@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { appPatchToDbPatch, DB_TO_SHEET, DB_STATUS_TO_SHEET, sheetPatchToDbPatch } from "@/lib/sheets/fieldMap";
+import { getHeaderRow, LMP_TRACKER_HEADERS, TABS } from "@/lib/sheets/schema";
 
 describe("DB_TO_SHEET field map", () => {
   it("is a non-empty object", () => {
@@ -20,10 +21,11 @@ describe("DB_TO_SHEET field map", () => {
     expect(DB_TO_SHEET["company"]).toBeDefined();
     expect(DB_TO_SHEET["role"]).toBeDefined();
     expect(DB_TO_SHEET["domain_raw"]).toBeDefined();
-    expect(DB_TO_SHEET["comments"]).toBeDefined();
     expect(DB_TO_SHEET["jd_url"]).toBe("JD");
-    expect(DB_TO_SHEET["jd_label"]).toBe("JD Label");
     expect(DB_TO_SHEET["lmp_code"]).toBe("LMP ID");
+    expect(DB_TO_SHEET["comments"]).toBeUndefined();
+    expect(DB_TO_SHEET["jd_label"]).toBeUndefined();
+    expect(DB_TO_SHEET["prep_doc_link"]).toBeUndefined();
   });
 
   it("all sheet header values are non-empty strings", () => {
@@ -38,6 +40,15 @@ describe("DB_TO_SHEET field map", () => {
     const headers = Object.values(DB_TO_SHEET);
     const unique = new Set(headers);
     expect(unique.size).toBe(headers.length);
+  });
+});
+
+describe("canonical LMP Tracker layout", () => {
+  it("uses row 14 headers and the exact A:AA contract", () => {
+    expect(getHeaderRow(TABS.LMP_TRACKER)).toBe(14);
+    expect(LMP_TRACKER_HEADERS).toHaveLength(27);
+    expect(LMP_TRACKER_HEADERS[25]).toBe("JD");
+    expect(LMP_TRACKER_HEADERS[26]).toBe("LMP ID");
   });
 });
 

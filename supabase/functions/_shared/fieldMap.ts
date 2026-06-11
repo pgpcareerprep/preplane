@@ -3,12 +3,11 @@
  *
  * SINGLE SOURCE OF TRUTH consumed by Deno Edge Functions and the frontend.
  *
- * ⚠️ LMP Tracker sync is **DB → Sheet** for every field EXCEPT the Comment
- * column (col Z), which is bidirectional. Edits made directly in the sheet
- * `Comment` cell flow back into `lmp_processes.comments`.
+ * LMP Tracker sync is DB → Sheet for the canonical A:AA layout. Sheet headers
+ * are not created or moved automatically.
  */
 export const SHEET_TO_DB: Record<string, string> = {
-  // Bidirectional — sheet `Comment` cell mirrors `lmp_processes.comments`.
+  // Compatibility-only: accepted when an existing sheet explicitly has it.
   Comment: "comments",
 };
 
@@ -31,21 +30,15 @@ export const DB_TO_SHEET: Record<string, string> = {
   r3_shortlisted: "R3 Shortlisted",
   final_convert: "Offer",
   convert_names: "Converted Name(s)",
-  // Col S in live LMP Tracker is "Prep Doc" (JSON blob of attached docs).
-  // "Prep Doc Link" is a separate orphan column with a clickable URL.
-  // Send BOTH from the trigger: prep_doc → JSON, prep_doc_link → URL.
   prep_doc: "Prep Doc",
-  prep_doc_link: "Prep Doc Link",
   prep_poc: "Prep POC",
   support_poc: "Support POC",
   outreach_poc: "Outreach POC",
   closing_date: "Closing Date",
   mentor_selected: "Mentor Selected",
   mentor_rating: "Mentor Rating",
-  comments: "Comment",
   lmp_code: "LMP ID",
   jd_url: "JD",
-  jd_label: "JD Label",
 };
 
 /**

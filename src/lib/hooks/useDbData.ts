@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { rowToALUMentor, _setAlumniCache, type ALUMentor } from "@/lib/alumniStore";
 import { syncLmpCountsToSheet } from "@/lib/sheets/syncLmpCounts";
+import { TABS } from "@/lib/sheets/schema";
 import { ACTIVE_LMP_STATUSES, normalizeLmpStatus } from "@/lib/config/lmpStatus";
 
 // ─── In-memory query cache (30s TTL) ───
