@@ -427,7 +427,11 @@ export function useLmpMutation() {
       role: "Role",
       domain: "Domain",
       createdAt: "Date",
-      lastActivity: "Closing Date",
+      // lastActivity is a read-only display field (derived from closing_date /
+      // updated_at). Intentionally NOT mapped here — writing it to the sheet
+      // column would coerce it to closing_date in the DB and trip the POC
+      // field-protection trigger.
+      // lastActivity: "Closing Date",  ← REMOVED
       type: "Type",
       r1Shortlisted: "R1 Shortlisted",
       r2Shortlisted: "R2 Shortlisted",
