@@ -43,6 +43,31 @@ function roleTypeToPocType(role_type?: string | null): PocRegistryEntry["poc_typ
   return "prep";
 }
 
+export function mapPocProfile(p: any): PocRegistryEntry {
+  return {
+    id: p.id,
+    name: p.name,
+    initials: p.initials || deriveInitials(p.name),
+    label: p.label || p.name,
+    color: p.color || "bg-orange-200 text-orange-600",
+    poc_type: roleTypeToPocType(p.role_type),
+    domains: mergePocDomains(p.primary_domain, p.domain_tags),
+    primary_domain: p.primary_domain ?? null,
+    skill_tags: p.skill_tags ?? [],
+    max_threshold: p.max_threshold ?? 8,
+    availability: statusToAvailability(p.status),
+    behavioral_pool_member: !!p.behavioral_pool_member,
+    company_experience: p.company_experience ?? [],
+    recruiter_ownership: p.recruiter_ownership ?? [],
+    last_assigned_at: p.last_assigned_at || p.last_activity_at || new Date().toISOString(),
+    access_level: (p.access_level as PocRegistryEntry["access_level"]) ?? "poc",
+  };
+}
+
+export function isEligiblePoc(entry: PocRegistryEntry): boolean {
+  return entry.availability === "available" && entry.max_threshold > 0;
+}
+
 export function mergePocDomains(primaryDomain?: string | null, domainTags?: string[] | null): string[] {
   const domains: string[] = [];
   const seen = new Set<string>();
@@ -65,24 +90,7 @@ export function usePocRegistry() {
         .select("id,name,initials,label,color,role_type,domain_tags,primary_domain,skill_tags,max_threshold,status,behavioral_pool_member,company_experience,recruiter_ownership,last_activity_at,last_assigned_at,access_level")
         .order("name");
       if (error) throw new Error(error.message);
-      return (data ?? []).map((p: any): PocRegistryEntry => ({
-        id: p.id,
-        name: p.name,
-        initials: p.initials || deriveInitials(p.name),
-        label: p.label || p.name,
-        color: p.color || "bg-orange-200 text-orange-600",
-        poc_type: roleTypeToPocType(p.role_type),
-        domains: mergePocDomains(p.primary_domain, p.domain_tags),
-        primary_domain: p.primary_domain ?? null,
-        skill_tags: p.skill_tags ?? [],
-        max_threshold: p.max_threshold ?? 8,
-        availability: statusToAvailability(p.status),
-        behavioral_pool_member: !!p.behavioral_pool_member,
-        company_experience: p.company_experience ?? [],
-        recruiter_ownership: p.recruiter_ownership ?? [],
-        last_assigned_at: p.last_assigned_at || p.last_activity_at || new Date().toISOString(),
-        access_level: (p.access_level as PocRegistryEntry["access_level"]) ?? "poc",
-      }));
+      return (data ?? []).map(mapPocProfile);
     },
     refetchInterval: POLL_INTERVAL,
     staleTime: 60_000,

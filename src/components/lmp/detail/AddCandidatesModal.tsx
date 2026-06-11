@@ -55,7 +55,7 @@ export function AddCandidatesModal({
   const [roundId, setRoundId] = useState<string>(initialRoundId);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: students = [], isLoading } = useStudents();
+  const { data: students = [], isLoading, error: studentsError } = useStudents();
   const taken = useMemo(() => new Set(existingIds), [existingIds]);
   const takenNames = useMemo(
     () => new Set(existingNames.map((n) => n.trim().toLowerCase()).filter(Boolean)),
@@ -298,7 +298,11 @@ export function AddCandidatesModal({
             )}
 
 
-            {isLoading ? (
+            {studentsError ? (
+              <div className="mt-3 py-12 text-center text-[13px] text-destructive">
+                Unable to load students: {studentsError instanceof Error ? studentsError.message : "Please sign in again and retry."}
+              </div>
+            ) : isLoading ? (
               <div className="mt-3 py-12 text-center text-[13px] text-muted-foreground">Loading students…</div>
             ) : (
               <>

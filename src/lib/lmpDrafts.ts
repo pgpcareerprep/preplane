@@ -35,6 +35,15 @@ export type DraftPayload = {
   created_by_name?: string | null;
 };
 
+async function requireAuthenticatedUserId(): Promise<string> {
+  const { data, error } = await supabase.auth.getUser();
+  const userId = data.user?.id;
+  if (error || !userId) {
+    throw new Error("AUTH_REQUIRED: Sign in again before saving a draft.");
+  }
+  return userId;
+}
+
 export async function listDrafts(): Promise<LmpDraft[]> {
   const { data, error } = await supabase
     .from("lmp_process_drafts")
@@ -55,6 +64,7 @@ export async function getDraft(id: string): Promise<LmpDraft | null> {
 }
 
 export async function saveDraft(payload: DraftPayload, draftId?: string | null): Promise<string> {
+  const userId = await requireAuthenticatedUserId();
   const row = {
     step: payload.step,
     company: payload.company ?? null,
@@ -80,11 +90,9 @@ export async function saveDraft(payload: DraftPayload, draftId?: string | null):
     return data.id;
   }
 
-  const { data: userData } = await supabase.auth.getUser();
-  const uid = userData?.user?.id;
   const { data, error } = await supabase
     .from("lmp_process_drafts")
-    .insert({ ...row, created_by: uid })
+    .insert({ ...row, created_by: userId })
     .select("id")
     .single();
   if (error) throw error;

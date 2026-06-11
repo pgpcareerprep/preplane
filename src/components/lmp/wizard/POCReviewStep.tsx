@@ -5,7 +5,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { ConfirmedPocSelection } from "@/lib/createLmpProcess";
 import { cn } from "@/lib/utils";
 import { allocatePoc, getDomainTier, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type DomainAliasResolver, type HistoricalProcess } from "@/lib/pocAllocation";
-import { usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
+import { isEligiblePoc, usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
 import type { PocCapability } from "@/lib/pocCapability";
 import { useDomains, usePocLiveLoads } from "@/lib/hooks/useDbData";
 import { supabase } from "@/integrations/supabase/client";
@@ -75,8 +75,8 @@ export function POCReviewStep({
     outreachName?: string;
   }) => Promise<void> | void;
 }) {
-  const { data: pocRegistry = [], isLoading: loadingPocs } = usePocRegistry();
-  const { data: liveLoads, isLoading: loadingLoads } = usePocLiveLoads();
+  const { data: pocRegistry = [], isLoading: loadingPocs, error: pocRegistryError } = usePocRegistry();
+  const { data: liveLoads, isLoading: loadingLoads, error: liveLoadsError } = usePocLiveLoads();
   const prepLoad = useMemo(() => liveLoads?.prepLoad ?? {}, [liveLoads?.prepLoad]);
   const outreachLoad = useMemo(() => liveLoads?.outreachLoad ?? {}, [liveLoads?.outreachLoad]);
   const { data: domainsList = [] } = useDomains();
@@ -137,7 +137,7 @@ export function POCReviewStep({
   // Build live POC pool (exclude on_leave & deactivated)
   const pocPool = useMemo(() => {
     return pocRegistry
-      .filter(p => p.availability !== "deactivated" && p.availability !== "on_leave")
+      .filter(isEligiblePoc)
       .map(p => {
         const load = p.poc_type === "outreach"
           ? (outreachLoad[p.name] ?? 0)
@@ -283,6 +283,22 @@ export function POCReviewStep({
       <div className="py-10 text-center text-n500 text-[13px]">
         <AlertTriangle className="h-6 w-6 mx-auto text-yellow-500 mb-2" />
         Domain not available — go back and enter role details.
+        <div className="mt-4">
+          <button onClick={onBack} className="text-[13px] text-n600 hover:text-n900">← Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  const pocDataError = pocRegistryError || liveLoadsError;
+  if (pocDataError) {
+    return (
+      <div className="py-10 text-center text-n500 text-[13px]">
+        <AlertTriangle className="h-6 w-6 mx-auto text-coral-500 mb-2" />
+        Unable to load POCs for allocation.
+        <p className="mt-1 text-[12px] text-n400">
+          {pocDataError instanceof Error ? pocDataError.message : "Please sign in again and retry."}
+        </p>
         <div className="mt-4">
           <button onClick={onBack} className="text-[13px] text-n600 hover:text-n900">← Back</button>
         </div>
