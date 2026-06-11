@@ -107,6 +107,8 @@ describe("Sheet queue Invalid JWT release", () => {
   it("retries only the retired full-header-label failure after identity-safe validation", () => {
     const migration = read("supabase/migrations/20260611110000_retry_safe_lmp_sheet_header_drift.sql");
     expect(migration).toContain("last_error = 'MISALIGNED_LMP_TRACKER_HEADERS'");
+    expect(migration).toContain("DISTINCT ON (COALESCE(idempotency_key, id::text))");
+    expect(migration).toContain("pending.idempotency_key = failed.idempotency_key");
     expect(migration).toContain("SELECT public.dispatch_sheet_retry_sweeper()");
     expect(migration).not.toContain("DUPLICATE_LMP_ID_ROWS");
     expect(migration).not.toContain("MISALIGNED_LMP_ID_HEADER");
