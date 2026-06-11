@@ -44,7 +44,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const { role } = useRole();
-  const { canEdit, canDelete } = useLmpPermission({
+  const { canEdit, canDelete, canAssignPoc, canChangeStatus } = useLmpPermission({
     prep_poc: rec.prepPoc?.name,
     support_poc: rec.supportPoc?.name,
     outreach_poc: rec.outreachPoc?.name,
@@ -75,7 +75,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
           {rec.role}
         </h3>
         <div data-stop-card-click>
-          <button
+          {canEdit && <button
             type="button"
             aria-label="Open comments"
             onClick={(e) => { e.stopPropagation(); openChat(rec.id); }}
@@ -87,7 +87,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
                 {commentCount}
               </span>
             )}
-          </button>
+          </button>}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -102,13 +102,19 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
               <DropdownMenuItem onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=kanban`)}>
                 <Eye className="h-4 w-4" /> View details
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast("Edit POC", { description: "Open POC editor" })}>
-                <UserCog className="h-4 w-4" /> Edit POC
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => toast("Change status", { description: "Open status changer" })}>
-                <RefreshCw className="h-4 w-4" /> Change status
-              </DropdownMenuItem>
+              {canAssignPoc && (
+                <DropdownMenuItem onClick={() => toast("Edit POC", { description: "Open POC editor" })}>
+                  <UserCog className="h-4 w-4" /> Edit POC
+                </DropdownMenuItem>
+              )}
+              {canChangeStatus && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => toast("Change status", { description: "Open status changer" })}>
+                    <RefreshCw className="h-4 w-4" /> Change status
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               {canEdit && (
                 <DropdownMenuItem onClick={() => setEditOpen(true)}>

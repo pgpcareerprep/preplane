@@ -21,6 +21,7 @@ import {
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { toast } from "sonner";
+import { useRole } from "@/lib/rolesContext";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
   ongoing: "pill-ongoing",
@@ -131,6 +132,9 @@ export function LmpProcessCompactCard({
   isMine: boolean;
 }) {
   const navigate = useNavigate();
+  const { role } = useRole();
+  const canManage = role === "admin" || role === "allocator";
+  const canOperate = canManage || isMine;
   const { update: updateMutation } = useLmpMutation();
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -173,16 +177,16 @@ export function LmpProcessCompactCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
+              {canOperate && <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
                 <Pencil className="h-3.5 w-3.5 mr-2" /> Edit LMP process
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onEditPoc(req)}>
+              </DropdownMenuItem>}
+              {canManage && <DropdownMenuItem onClick={() => onEditPoc(req)}>
                 <UserCog className="h-3.5 w-3.5 mr-2" /> Edit POC
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
+              </DropdownMenuItem>}
+              {canOperate && <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
                 <Plus className="h-3.5 w-3.5 mr-2" /> Add Candidates
-              </DropdownMenuItem>
-              <DropdownMenuSub>
+              </DropdownMenuItem>}
+              {canOperate && <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <RefreshCw className="h-3.5 w-3.5 mr-2" /> Change Status
                 </DropdownMenuSubTrigger>
@@ -197,17 +201,21 @@ export function LmpProcessCompactCard({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuItem onClick={() => onEditPoc(req)}>
+              </DropdownMenuSub>}
+              {canManage && <DropdownMenuItem onClick={() => onEditPoc(req)}>
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Reassign POC
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setConfirmDelete(true)}
-                className="text-coral-600 focus:text-coral-600"
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-              </DropdownMenuItem>
+              </DropdownMenuItem>}
+              {canManage && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setConfirmDelete(true)}
+                    className="text-coral-600 focus:text-coral-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

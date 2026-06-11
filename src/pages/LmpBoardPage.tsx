@@ -3,11 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { LayoutGrid, LayoutList, Loader2, DatabaseZap, UserX, FilterX, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 import { type LmpStatus } from "@/types/lmp";
 import { useLmpRows, useLmpMutation } from "@/lib/sheets/hooks";
-import { useLmpCandidateCounts, useLmpProcesses } from "@/lib/hooks/useDbData";
+import { useLmpCandidateCounts } from "@/lib/hooks/useDbData";
 import { LmpKpiStrip } from "@/components/lmp/LmpKpiStrip";
 import { LmpFilterBar, EMPTY_LMP_FILTERS, type LmpFilters } from "@/components/lmp/LmpFilterBar";
 import { LmpKanban } from "@/components/lmp/LmpKanban";
@@ -22,8 +22,7 @@ import type { ViewingTarget } from "@/lib/lmpViewingContext";
 
 export default function LmpBoardPage() {
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
-  const canEdit = !isViewingAsOther && canPerform(role, "edit_lmp");
+  const canEdit = canPerform(role, "edit_lmp");
   const { filterFor, target } = useLmpViewing();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialView = searchParams.get("view") === "kanban" ? "kanban" : "cards";
@@ -40,30 +39,13 @@ export default function LmpBoardPage() {
 
   // DB candidate counts (single source of truth — sheet column ignored).
   const { data: candidateCounts = {} } = useLmpCandidateCounts();
-  const { data: dbProcesses = [] } = useLmpProcesses();
-
-  // Build company+role → uuid lookup so we can attach the live count to
-  // each LmpRecord even when the sheet row hasn't been re-synced yet.
-  const companyRoleToId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const p of dbProcesses as any[]) {
-      const key = `${(p.company || "").trim().toLowerCase()}||${(p.role || "").trim().toLowerCase()}`;
-      map[key] = p.id;
-    }
-    return map;
-  }, [dbProcesses]);
 
   const records = useMemo(() => {
     return rawRecords.map((r) => {
-      // Prefer DB count if we can resolve the row, else fall back to row id directly.
-      const dbId =
-        (r as any).id && candidateCounts[(r as any).id] !== undefined
-          ? (r as any).id
-          : companyRoleToId[`${r.company.trim().toLowerCase()}||${r.role.trim().toLowerCase()}`];
-      const dbCount = dbId ? (candidateCounts[dbId] || 0) : 0;
+      const dbCount = r.id ? (candidateCounts[r.id] || 0) : 0;
       return dbCount > 0 ? { ...r, candidates: dbCount } : r;
     });
-  }, [rawRecords, companyRoleToId, candidateCounts]);
+  }, [rawRecords, candidateCounts]);
 
   useEffect(() => {
     const v = searchParams.get("view");
@@ -143,7 +125,7 @@ export default function LmpBoardPage() {
           {filtered.length === 0 ? (
             <BoardEmptyState recordCount={records.length} target={target} />
           ) : view === "kanban" ? (
-            <LmpKanban records={filtered} canDrag={canEdit && target === "me"} onChangeStatus={onChangeStatus} />
+            <LmpKanban records={filtered} canDrag={canEdit} onChangeStatus={onChangeStatus} />
           ) : (
             <LmpCardList
               records={filtered}

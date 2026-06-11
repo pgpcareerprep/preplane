@@ -1,6 +1,6 @@
 // Versioned permission contract consumed by both the frontend and Edge Functions.
-export const PERMISSION_CONTRACT_VERSION = "2026-06-11.3";
-export const VIEW_AS_READ_ONLY = true;
+export const PERMISSION_CONTRACT_VERSION = "2026-06-11.4";
+export const VIEW_AS_READ_ONLY = false;
 
 export type ContractRole = "admin" | "allocator" | "poc";
 
@@ -10,9 +10,13 @@ export const ACTION_MATRIX = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin", "allocator", "poc"],
+  delete_lmp: ["admin", "allocator"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
+  assign_outreach_poc: ["admin", "allocator"],
+  delete_comment: ["admin", "allocator"],
+  view_full_activity: ["admin", "allocator"],
+  configure_rounds: ["admin", "allocator", "poc"],
   assign_mentor: ["admin", "allocator", "poc"],
   run_mentor: ["admin", "allocator", "poc"],
   change_domain: ["admin", "allocator"],

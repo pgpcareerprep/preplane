@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import DOMPurify from "dompurify";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { BookOpen, ExternalLink, Folder, FolderPlus, Link as LinkIcon, Pencil, Plus, Save, Trash2, ChevronRight, ChevronDown, X } from "lucide-react";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import {
   useGuideManual, useSaveManual,
   useGuideNodes, useCreateNode, useUpdateNode, useDeleteNode,
@@ -32,8 +32,7 @@ function isValidUrl(v: string): boolean {
 
 export default function LmpGuidePage() {
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
-  const canEdit = !isViewingAsOther && (role === "admin" || role === "allocator");
+  const canEdit = role === "admin" || role === "allocator";
 
   useRealtimeInvalidate("lmp_guide_manual", [["lmp-guide", "manual"]], { enabled: true });
   useRealtimeInvalidate("lmp_guide_nodes", [["lmp-guide", "nodes"]], { enabled: true });

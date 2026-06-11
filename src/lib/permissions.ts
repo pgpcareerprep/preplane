@@ -26,6 +26,10 @@ export type Action =
   | "delete_lmp"
   | "assign_poc"
   | "reassign_poc"
+  | "assign_outreach_poc"
+  | "delete_comment"
+  | "view_full_activity"
+  | "configure_rounds"
   | "change_domain"
   | "change_status"
   | "edit_daily_progress"
@@ -81,9 +85,13 @@ const ACTION_MATRIX: Record<Action, Role[]> = {
   view_other_poc_lmps_summary: ["admin", "allocator", "poc"],
   create_lmp: ["admin", "allocator"],
   edit_lmp: ["admin", "allocator", "poc"],
-  delete_lmp: ["admin", "allocator", "poc"],
+  delete_lmp: ["admin", "allocator"],
   assign_poc: ["admin", "allocator"],
   reassign_poc: ["admin", "allocator"],
+  assign_outreach_poc: ["admin", "allocator"],
+  delete_comment: ["admin", "allocator"],
+  view_full_activity: ["admin", "allocator"],
+  configure_rounds: ["admin", "allocator", "poc"],
   change_domain: ["admin", "allocator"],
   change_status: ["admin", "allocator", "poc"],
   edit_daily_progress: ["admin", "allocator", "poc"],
@@ -242,10 +250,11 @@ export function isLmpOwner(userName: string, lmp: LmpOwnership, pocId?: string |
   if (pocId) {
     if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
     if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
+    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
   }
   const name = userName.toLowerCase().trim();
   if (!name) return false;
-  return [lmp.prep_poc, lmp.support_poc]
+  return [lmp.prep_poc, lmp.support_poc, lmp.outreach_poc]
     .filter(Boolean)
     .some((n) => n!.toLowerCase().trim() === name);
 }
@@ -413,7 +422,6 @@ export function canEditFieldFinal(
   // POC: must be assigned to this LMP
   const subRole = getPocSubRole(userName, lmp, pocId);
   if (subRole === "none") return false;
-  if (subRole === "outreach_poc") return canOutreachPocEditField(field);
   return true;
 }
 

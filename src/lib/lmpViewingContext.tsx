@@ -92,14 +92,14 @@ export function isUserPocOnRecord(rec: LmpRecord, userName: string): boolean {
 }
 
 /**
- * Operational POC check — only Primary POC (prepPoc) and Support POC (supportPoc).
- * Excludes allocator, adminOwner, and outreachPoc — those roles have read-only
- * access to operational actions like editing progress, scheduling sessions, etc.
+ * Operational POC check — any explicitly assigned Prep, Support, or Outreach POC.
+ * Allocator and admin ownership labels do not grant POC ownership.
  */
 export function isUserOperationalPoc(rec: LmpRecord, userName: string): boolean {
   if (!userName) return false;
   if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
   if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
+  if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
   // deprecated compat fields
   if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
   if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
@@ -136,8 +136,6 @@ const POC_COLORS = [
 
 export function LmpViewingProvider({ children }: { children: ReactNode }) {
   const { user, role, viewAsRole, viewAsUser, setViewAsUser } = useRole();
-  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
-
   // Default target:
   //  - admin → "all" (org oversight)
   //  - allocator/poc with a resolved POC profile → their own name (so the
@@ -231,9 +229,7 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [lmpRecords, dbPocList]);
 
-  // Edit permission is always tied to the REAL logged-in user, never the
-  // impersonated user. View-as is presentation-only; admin role grants no
-  // edit shortcut. Filtering (what records appear) is independent.
+  // View-as controls filtering only. Authority always comes from the real role.
   const matchName = user.pocProfileName ?? user.name;
 
   const value = useMemo<Ctx>(() => {
@@ -245,13 +241,13 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       return isPocOnRecord(rec, target);
     };
 
-    // Edit access is strictly for assigned Primary/Support POC only.
-    // Admin, allocator, outreach POC, and other users get read-only summary mode.
-    const modeFor = (rec: LmpRecord): LmpInteractionMode =>
-      isUserOperationalPoc(rec, matchName) ? "action" : "summary";
+    const modeFor = (rec: LmpRecord): LmpInteractionMode => {
+      if (role === "admin" || role === "allocator") return "action";
+      return isUserOperationalPoc(rec, matchName) ? "action" : "summary";
+    };
 
     return { target, setTarget, pocOptions, modeFor, filterFor, currentUserName: matchName };
-  }, [target, pocOptions, matchName, setTarget]);
+  }, [target, pocOptions, matchName, role, setTarget]);
 
   return <ViewingContext.Provider value={value}>{children}</ViewingContext.Provider>;
 }

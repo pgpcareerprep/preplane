@@ -31,14 +31,13 @@ type LmpOwnership = {
  * Hook for checking action-level permissions based on current role.
  */
 export function useActionPermission() {
-  const { role, viewAsRole, viewAsUser } = useRole();
-  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
+  const { role } = useRole();
   return useMemo(
     () => ({
-      can: (action: Action) => !isViewingAsOther && canPerform(role, action),
+      can: (action: Action) => canPerform(role, action),
       role,
     }),
-    [isViewingAsOther, role]
+    [role]
   );
 }
 
@@ -47,14 +46,14 @@ export function useActionPermission() {
  * Pass the LMP ownership data to get context-aware permissions.
  */
 export function useLmpPermission(lmp?: LmpOwnership | null) {
-  const { role, viewAsRole, viewAsUser, user } = useRole();
-  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
+  const { role, user } = useRole();
 
   return useMemo(() => {
     const ownership: LmpOwnership = lmp ?? {};
     const actorName = user.pocProfileName || user.name;
     const accessLevel = getLmpAccessLevel(role, actorName, ownership);
-    const isReadOnly = isViewingAsOther || accessLevel === "summary";
+    const isPrivileged = role === "admin" || role === "allocator";
+    const isReadOnly = isPrivileged ? false : accessLevel === "summary";
 
     return {
       accessLevel,
@@ -65,27 +64,24 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
       canChangeStatus: !isReadOnly && canPerform(role, "change_status"),
       canAssignPoc: !isReadOnly && canPerform(role, "assign_poc"),
       canChangeDomain: !isReadOnly && canPerform(role, "change_domain"),
-      canDelete: !isViewingAsOther && accessLevel === "full" && canPerform(role, "delete_lmp"),
+      canDelete: !isReadOnly && accessLevel === "full" && canPerform(role, "delete_lmp"),
       canRollback: (auditActorName: string) =>
         !isReadOnly && canRollback(role, actorName, auditActorName, ownership),
     };
-  }, [isViewingAsOther, role, user.name, user.pocProfileName, lmp]);
+  }, [role, user.name, user.pocProfileName, lmp]);
 }
 
 /**
  * Hook for Copilot permission checks.
  */
 export function useCopilotPermission() {
-  const { role, viewAsRole, viewAsUser, user } = useRole();
-  const isViewingAsOther = role === "admin" && (viewAsRole !== role || !!viewAsUser);
+  const { role, user } = useRole();
 
   return useMemo(
     () => ({
       check: (action: CopilotAction, targetLmpOwnership?: LmpOwnership) =>
-        isViewingAsOther && (action === "draft_update" || action === "execute_update")
-          ? { allowed: false, reason: "Switch back to your own view to perform actions." }
-          : canCopilotAction(role, action, user.name, targetLmpOwnership),
+        canCopilotAction(role, action, user.name, targetLmpOwnership),
     }),
-    [isViewingAsOther, role, user.name]
+    [role, user.name]
   );
 }

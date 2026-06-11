@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
 import { STATUS_META } from "@/lib/lmpTypes";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { EditLmpModal } from "@/components/lmp/EditLmpModal";
 import { TAG_STYLES } from "@/lib/pocAllocation";
@@ -34,19 +34,18 @@ export function StickyHeader({
   lmp, candidateCount, onConfigureRounds, readOnly, onChangeStatus,
 }: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; readOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
   const { role, user } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
   const domain = lmp.prepPoc || lmp.domainPrepPoc;
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
 
-  const { canDelete: canDeleteLmp } = useLmpPermission({
+  const { canEdit: canEditLmp, canDelete: canDeleteLmp, canAssignPoc } = useLmpPermission({
     prep_poc: lmp.prepPoc?.name,
     support_poc: lmp.supportPoc?.name,
     outreach_poc: lmp.outreachPoc?.name,
     allocator: lmp.allocator,
   });
-  const canDelete = !isViewingAsOther && !readOnly && canDeleteLmp;
-  const canReassignPoc = !isViewingAsOther && (role === "allocator" || role === "admin");
+  const canDelete = !readOnly && canDeleteLmp;
+  const canReassignPoc = role === "allocator" || role === "admin";
   const isPocActor = role === "poc";
   const [jdData, setJdData] = useJd(lmp.id);
   const hasJd = !!jdData;
@@ -58,7 +57,7 @@ export function StickyHeader({
 
   const { open: openChat } = useLmpChatDrawer();
   const commentCount = useLmpTotalCommentCount(lmp.id);
-  const canEditStatus = !isViewingAsOther && !!onChangeStatus && !readOnly;
+  const canEditStatus = !!onChangeStatus && !readOnly;
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
@@ -122,7 +121,7 @@ export function StickyHeader({
               {t}
             </span>
           ))}
-          {(canDelete || canReassignPoc) && (
+          {(canEditLmp || canDelete || canReassignPoc || canAssignPoc) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-n200 hover:bg-n100 text-n500 hover:text-n700 transition-colors">
@@ -130,21 +129,25 @@ export function StickyHeader({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
-                  <UserPlus className="h-3.5 w-3.5 mr-2" />
-                  {lmp.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
-                </DropdownMenuItem>
+                {canAssignPoc && (
+                  <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
+                    <UserPlus className="h-3.5 w-3.5 mr-2" />
+                    {lmp.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
+                  </DropdownMenuItem>
+                )}
                 {canReassignPoc && (
                   <DropdownMenuItem onClick={() => setReassignOpen(true)}>
                     <UserCog className="h-3.5 w-3.5 mr-2" /> Reassign POCs
                   </DropdownMenuItem>
                 )}
+                {canEditLmp && (
+                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                    <Pencil className="h-3.5 w-3.5 mr-2" /> Edit LMP
+                  </DropdownMenuItem>
+                )}
                 {canDelete && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setEditOpen(true)}>
-                      <Pencil className="h-3.5 w-3.5 mr-2" /> Edit LMP
-                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setDeleteOpen(true)}
                       className="text-coral-600 focus:text-coral-700 focus:bg-coral-50"
@@ -179,7 +182,7 @@ export function StickyHeader({
               {lmp.domain}
             </span>
           )}
-          <button
+          {!readOnly && <button
             onClick={() => openChat(lmp.id)}
             className="relative inline-flex items-center gap-1.5 rounded-full bg-card border border-n200 hover:border-orange-300 hover:text-orange-600 text-n700 px-3 h-7 text-[12px] font-medium transition-colors"
           >
@@ -190,7 +193,7 @@ export function StickyHeader({
                 {commentCount}
               </span>
             )}
-          </button>
+          </button>}
         </div>
         {domain && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 justify-end shrink-0">

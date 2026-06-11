@@ -18,10 +18,11 @@ const assigned = {
 
 describe("canonical permission contract", () => {
   it("is versioned and drives frontend actions", () => {
-    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-11.3");
+    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-11.4");
     expect(canPerform("allocator", "view_all_lmps")).toBe(true);
-    expect(canPerform("poc", "delete_lmp")).toBe(true);
-    expect(ACTION_MATRIX.delete_lmp).toEqual(["admin", "allocator", "poc"]);
+    expect(canPerform("poc", "delete_lmp")).toBe(false);
+    expect(ACTION_MATRIX.delete_lmp).toEqual(["admin", "allocator"]);
+    expect(ACTION_MATRIX.assign_outreach_poc).toEqual(["admin", "allocator"]);
   });
 
   it("allows privileged roles to configure any LMP", () => {
@@ -37,5 +38,12 @@ describe("canonical permission contract", () => {
     expect(canEditFieldFinal("poc", "daily_progress", "Someone Else", assigned)).toBe(false);
     expect(POC_WRITABLE_LMP_COLUMNS).toContain("daily_progress");
     expect(POC_WRITABLE_LMP_COLUMNS).toContain("company");
+  });
+
+  it("treats an explicitly assigned outreach POC as an owner", () => {
+    const outreach = { outreach_poc: "Outreach POC" };
+    expect(getLmpAccessLevel("poc", "Outreach POC", outreach)).toBe("full");
+    expect(canEditFieldFinal("poc", "company", "Outreach POC", outreach)).toBe(true);
+    expect(canEditFieldFinal("poc", "domain", "Outreach POC", outreach)).toBe(false);
   });
 });

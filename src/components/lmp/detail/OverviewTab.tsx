@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { JdButton } from "@/components/lmp/JdButton";
 import type { Requisition, Candidate } from "@/lib/lmpProcessMutations";
 import { cn } from "@/lib/utils";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { type LmpRecord, HEALTH_META, STATUS_META } from "@/lib/lmpTypes";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { useLmpCandidates, useAddLmpCandidates } from "@/lib/hooks/useDbData";
@@ -565,8 +565,7 @@ function HealthSlaCard({
 
 function StatusChangeCard({ status }: { status: keyof typeof STATUS_META }) {
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
-  const canEdit = !isViewingAsOther && (role === "allocator" || role === "admin");
+  const canEdit = role === "allocator" || role === "admin";
   const meta = STATUS_META[status];
   if (!canEdit) return null;
   return (

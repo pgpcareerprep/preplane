@@ -694,15 +694,6 @@ async function runTool(name: string, args: any): Promise<{ result: any; pending?
     }
     case "prepare_write": {
       const pending = args as PendingAction;
-      if (voiceRequestState().viewAs.impersonating) {
-        return {
-          result: {
-            staged: false,
-            blocked: true,
-            summary: `Read-only while viewing as ${voiceRequestState().viewAs.name ?? "another user"}. Switch back to your own view to make changes.`,
-          },
-        };
-      }
       // BUG-V3: snapshot current DB values so the spoken summary reflects DB truth.
       try {
         const snap = await snapshotForPending(pending);
@@ -779,12 +770,6 @@ async function handleVoiceRequest(req: Request) {
 
     // Confirmation branch — execute the staged write
     if (confirm) {
-      if (isImpersonating) {
-        return new Response(
-          JSON.stringify({ spoken: "Read-only while viewing as another user. Switch back to your own view to make changes." }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
       userLog.event("confirm_execute", { action: confirm.action });
       const r = await executePending(confirm, { id: auth.user.id, role: realRole });
       userLog.event("confirm_result", { ok: r.ok, error: r.error, ms: Math.round(performance.now() - t0) });
@@ -807,7 +792,7 @@ async function handleVoiceRequest(req: Request) {
 
     const identityBlock = `\n\nCURRENT USER\n- Name: ${realName}\n- Email: ${realEmail || "(unknown)"}\n- Real role: ${realRole}\n${
       isImpersonating
-        ? `- Viewing as: ${viewAsName} (${viewAsRole})\n- When the user says "me", "my", "I", "mine", "today's", resolve to ${viewAsName}. Scope all reads to ${viewAsName}'s LMPs/candidates.\n- All writes are BLOCKED while viewing as another user — respond "Read-only while viewing as ${viewAsName}. Switch back to edit." Do NOT call prepare_write.`
+        ? `- Viewing as: ${viewAsName} (${viewAsRole})\n- When the user says "me", "my", "I", "mine", "today's", resolve reads to ${viewAsName}. Scope reads to ${viewAsName}'s LMPs/candidates. Writes still use the authenticated user's real role (${realRole}) and backend ownership rules.`
         : `- The user is acting as themselves. "me", "my", "I" resolve to ${realName}.`
     }${effectiveRole === "poc" ? `\n- Effective role is POC — scope LMP listings, search, and workload to ${effectiveName}'s assignments unless the user explicitly says "all" / "everyone" / "org-wide" / another named POC.` : ""}`;
 

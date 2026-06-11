@@ -26,7 +26,11 @@ export function lmpMentorRowToMentor(row: LmpMentorRow): Mentor | null {
     outcome: 0,
     availability: (m.availability ?? "available") as Mentor["availability"],
     email: m.email ?? "",
-    phone: "",
+    phone: m.phone
+      ?? (m as typeof m & { contact_number?: string | null }).contact_number
+      ?? (m as typeof m & { mobile?: string | null }).mobile
+      ?? (m as typeof m & { mentor_phone?: string | null }).mentor_phone
+      ?? "",
     seniority: (m.seniority ?? "Mid") as Mentor["seniority"],
     linkedin: m.linkedin ?? undefined,
   };

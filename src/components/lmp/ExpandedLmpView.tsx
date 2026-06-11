@@ -2,7 +2,7 @@ import { UserPlus, ExternalLink, Eye, Play, Settings2, Megaphone, UserCog } from
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
 import { canPerform } from "@/lib/permissions";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -51,8 +51,7 @@ export function ExpandedLmpView({
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
-  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
+  const canReassignAll = canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
   // rounds resolved after dbLmpId below
   const { update: updateMutation } = useLmpMutation();
@@ -300,7 +299,7 @@ export function ExpandedLmpView({
               <button
                 type="button"
                 onClick={() => setAddOpen(true)}
-                disabled={summary}
+                disabled={!canPerform(role, "assign_outreach_poc")}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[12.5px] font-medium shadow-sm shadow-orange-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
                 <UserPlus className="h-3.5 w-3.5" /> Add Candidates

@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { VIEW_AS_READ_ONLY_STORAGE_KEY } from "@/integrations/supabase/client";
 import type { Session } from "@supabase/supabase-js";
 
 export type Role = "allocator" | "poc" | "admin";
@@ -59,13 +58,6 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [approvedUsers, setApprovedUsers] = useState<ApprovedUser[]>([]);
   const [user, setUser] = useState<User>(GUEST);
   const currentUserIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const readOnly = role === "admin" && (viewAsRole !== role || !!viewAsUser);
-    if (readOnly) localStorage.setItem(VIEW_AS_READ_ONLY_STORAGE_KEY, "true");
-    else localStorage.removeItem(VIEW_AS_READ_ONLY_STORAGE_KEY);
-    return () => localStorage.removeItem(VIEW_AS_READ_ONLY_STORAGE_KEY);
-  }, [role, viewAsRole, viewAsUser]);
 
   useEffect(() => {
     const applySession = (s: Session | null) => {
@@ -243,7 +235,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       // Hydrate persisted impersonation (admins) so session refreshes /
       // tab navigation don't wipe the "Viewing as" selection.
       let restoredViewAs: ApprovedUser | null = null;
-      if (resolvedRole === "admin") {
+      if (resolvedRole === "admin" || resolvedRole === "allocator") {
         try {
           const stored = typeof window !== "undefined"
             ? window.localStorage.getItem(`lmp_view_as_user_${uid}`)
@@ -264,8 +256,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       }
       setIsLoading(false);
 
-      // If admin, fetch all approved-status profiles for the switcher
-      if (resolvedRole === "admin") {
+      // Privileged roles can select a POC perspective without changing authority.
+      if (resolvedRole === "admin" || resolvedRole === "allocator") {
         const { data: allUsers } = await supabase
           .from("profiles")
           .select("display_name, email, role")
@@ -295,7 +287,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setViewAsUser = useCallback((u: ApprovedUser | null) => {
-    if (role !== "admin") return;
+    if (role !== "admin" && role !== "allocator") return;
     setViewAsUserState(u);
     if (u) {
       setViewAsRole(u.role as Role);
@@ -318,7 +310,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       role,
       viewAsRole,
       setViewAsRole: (r: Role) => {
-        if (role === "admin") {
+        if (role === "admin" || role === "allocator") {
           setViewAsRole(r);
           setViewAsUserState(null);
         }
@@ -344,12 +336,12 @@ export function useRole() {
 }
 
 /**
- * True when an admin is impersonating another role/user via the "view as"
- * switcher. Mutations should be blocked while this is true.
+ * True when a privileged user selected another data perspective.
+ * This affects filtering only; real-role permissions remain authoritative.
  */
 export function useIsViewingAsOther(): boolean {
   const { role, viewAsRole, viewAsUser } = useRole();
-  return role === "admin" && (viewAsRole !== role || !!viewAsUser);
+  return (role === "admin" || role === "allocator") && (viewAsRole !== role || !!viewAsUser);
 }
 
 export class ViewAsReadOnlyError extends Error {

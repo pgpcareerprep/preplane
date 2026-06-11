@@ -1242,11 +1242,8 @@ async function mirrorLmpFields(company: string, role: string, sheetFields: Recor
 // prepare_write/execute_pending confirmation path AND direct tool calls
 // the model may decide to invoke (update_lmp_field, update_lmp_status,
 // assign_poc, add_lmp_record, delete_lmp_record, bulk_update).
-// Enforces, in order:
-//   1. impersonation read-only (view-as is always read-only)
-//   2. role-based permission via checkPermission
-//   3. per-LMP POC ownership via assertPocOwnsLmp (admins/mods included)
-//   4. POC field whitelist for update_lmp_field when role === "poc"
+// Enforces real-role permissions and POC ownership. View-as affects read scope,
+// never the authenticated actor's authority.
 const WRITE_KIND_PERMS: Record<string, string> = {
   update_lmp_status: "change_status",
   update_lmp_field: "edit_lmp",
@@ -1271,21 +1268,14 @@ async function enforceWriteGuard(
   kind: string,
   args: Record<string, unknown>,
 ): Promise<{ ok: true } | { blocked: true; reason: string }> {
-  // 1. Impersonation read-only.
-  if (requestState().context.isImpersonating) {
-    return {
-      blocked: true,
-      reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
-    };
-  }
-  // 2. Role gate.
+  // 1. Real-role gate.
   const perm = WRITE_KIND_PERMS[kind];
   if (!perm) return { blocked: true, reason: `Unknown write kind: ${kind}` };
   const permResult = checkPermission(requestState().context.role, perm);
   if (!permResult.allowed) {
     return { blocked: true, reason: permResult.reason || `Your role (${requestState().context.role}) cannot perform ${perm}.` };
   }
-  // 3. Per-LMP ownership.
+  // 2. Per-LMP ownership.
   if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
       kind === "assign_poc" || kind === "delete_lmp_record") {
     const own = await assertPocOwnsLmp(args);
@@ -1298,7 +1288,7 @@ async function enforceWriteGuard(
       if (!own.ok) return { blocked: true, reason: `Bulk update blocked: ${own.reason}` };
     }
   }
-  // 4. POC field whitelist.
+  // 3. POC field whitelist.
   if (requestState().context.role === "poc" && kind === "update_lmp_field") {
     const fields = (args.fields as Record<string, unknown>) || {};
     const offenders = Object.keys(fields).filter((f) => {
@@ -1434,15 +1424,6 @@ async function executeTool(
       case "check_permission": {
         const action = String(args.action || "");
         const targetSummary = typeof args.target_summary === "string" ? args.target_summary : undefined;
-        if (requestState().context.isImpersonating) {
-          return JSON.stringify({
-            allowed: false, blocked: true,
-            role: requestState().context.role, action,
-            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
-            safe_alternative: "Summarise instead, or switch back to your own view.",
-            target_summary: targetSummary,
-          });
-        }
         const result = checkPermission(requestState().context.role, action);
         return JSON.stringify({ ...result, target_summary: targetSummary });
       }
@@ -1461,15 +1442,6 @@ async function executeTool(
         const syncImpact = typeof args.sync_impact === "string" && args.sync_impact.trim()
           ? args.sync_impact
           : (SYNC_IMPACT_BY_KIND[String(args.kind || "")] ?? "Updates LMP Tracker (sheet) and writes an activity-log entry.");
-
-        // Hard block: view-as is always read-only.
-        if (requestState().context.isImpersonating) {
-          return JSON.stringify({
-            blocked: true, allowed: false,
-            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
-            target_summary: targetSummary,
-          });
-        }
 
         // Re-validate RBAC server-side. Map kind → permission action.
         const PERM_MAP: Record<string,string> = {
@@ -1611,14 +1583,6 @@ async function executeTool(
         if (!id || !kind) return JSON.stringify({ error: "Missing pending_action_id or kind (stateless flow requires both)" });
         const currentSnapshot = (args.current_snapshot as Record<string, unknown>) || {};
         const proposedSnapshot = (args.proposed_snapshot as Record<string, unknown>) || {};
-
-        // Hard block: view-as is always read-only at execute time too.
-        if (requestState().context.isImpersonating) {
-          return JSON.stringify({
-            blocked: true, allowed: false,
-            reason: `Read-only while viewing as ${requestState().context.viewAsName ?? "another user"}. Switch back to your own view to make changes.`,
-          });
-        }
 
         // Re-validate RBAC at execute time.
         const PERM_MAP: Record<string,string> = {

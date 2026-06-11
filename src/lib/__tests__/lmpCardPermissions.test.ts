@@ -20,35 +20,46 @@ describe("LMP card edit and delete permissions", () => {
     }
   });
 
-  it("limits POC edit and delete actions to assigned LMPs and blocks domain edits", () => {
+  it("allows assigned POC operational edits but blocks delete, assignment, and domain edits", () => {
     expect(getLmpAccessLevel("poc", "Kriti Sharma", owned)).toBe("full");
     expect(canPerform("poc", "edit_lmp")).toBe(true);
-    expect(canPerform("poc", "delete_lmp")).toBe(true);
+    expect(canPerform("poc", "delete_lmp")).toBe(false);
+    expect(canPerform("poc", "assign_poc")).toBe(false);
+    expect(canPerform("poc", "reassign_poc")).toBe(false);
+    expect(canPerform("poc", "assign_outreach_poc")).toBe(false);
     expect(canEditFieldFinal("poc", "company", "Kriti Sharma", owned)).toBe(true);
     expect(canEditFieldFinal("poc", "role", "Kriti Sharma", owned)).toBe(true);
     expect(canEditFieldFinal("poc", "domain", "Kriti Sharma", owned)).toBe(false);
     expect(getLmpAccessLevel("poc", "Kriti Sharma", other)).toBe("summary");
   });
 
-  it("separates Edit and Delete menu checks and keeps view-as read-only", () => {
+  it("separates Edit/Delete checks and preserves privileged view-as authority", () => {
     const list = read("src/components/lmp/LmpCardList.tsx");
     const card = read("src/components/lmp/LmpCard.tsx");
     const hook = read("src/lib/hooks/usePermissions.ts");
     expect(list).toContain("canEdit: canEditLmp");
     expect(list).toContain("canDelete: canDeleteLmp");
     expect(list).not.toContain('canPerform(role, "delete_lmp") && mode === "action"');
-    expect(card).toContain("const { canEdit, canDelete }");
+    expect(card).toContain("const { canEdit, canDelete, canAssignPoc, canChangeStatus }");
     expect(hook).toContain('canEdit: !isReadOnly && accessLevel === "full"');
-    expect(hook).toContain("const isReadOnly = isViewingAsOther || accessLevel === \"summary\"");
+    expect(hook).toContain("const isReadOnly = isPrivileged ? false : accessLevel === \"summary\"");
+    expect(read("src/lib/lmpViewingContext.tsx")).toContain('if (role === "admin" || role === "allocator") return "action"');
   });
 
-  it("restores assigned-POC delete RLS and preserves Sheet delete queue wiring", () => {
-    const migration = read("supabase/migrations/20260611200000_restore_assigned_poc_lmp_delete.sql");
+  it("removes assigned-POC LMP delete RLS and preserves Sheet delete queue wiring", () => {
+    const migration = read("supabase/migrations/20260611210000_remove_poc_lmp_delete_policy.sql");
     const deletion = read("src/lib/hooks/useDbData.ts");
-    expect(migration).toContain("public.is_assigned_to_lmp(id)");
-    expect(migration).toContain("'poc'::public.app_role");
+    expect(migration).toContain('DROP POLICY IF EXISTS "Assigned POCs can delete lmp_processes"');
+    expect(migration).not.toContain("CREATE POLICY");
     expect(migration).not.toMatch(/DISABLE ROW LEVEL SECURITY/i);
     expect(deletion).toContain("tg_lmp_process_delete_sheet_sync");
     expect(deletion).toContain('.from("lmp_processes").delete().eq("id", lmpId)');
+  });
+
+  it("preserves mentor phone values from the database", () => {
+    const mapper = read("src/components/lmp/detail/mentors/mapDbMentor.ts");
+    expect(mapper).toContain("phone: m.phone");
+    expect(mapper).toContain("contact_number");
+    expect(mapper).toContain("mentor_phone");
   });
 });

@@ -32,7 +32,7 @@ import { useLmpProcessComment } from "@/lib/hooks/useLmpProcessComment";
 import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { useAvatarUrl } from "@/lib/hooks/useAvatarUrls";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { EditLmpModal } from "./EditLmpModal";
@@ -203,7 +203,6 @@ function LmpStripCard({
   const mode = useLmpMode(rec);
   const commentCount = dbComments.length + (sheetComment.trim() ? 1 : 0);
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
   const { canEdit: canEditLmp, canDelete: canDeleteLmp, canAssignPoc } = useLmpPermission({
     prep_poc: rec.prepPoc?.name,
     support_poc: rec.supportPoc?.name,
@@ -215,7 +214,7 @@ function LmpStripCard({
   const [editOpen, setEditOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
+  const canReassignAll = canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -291,13 +290,13 @@ function LmpStripCard({
 
         {/* 7. Action cluster */}
         <div data-stop-card-click className="flex items-center justify-end gap-0.5">
-          <IconAction
+          {canEditLmp && <IconAction
             label="Comments"
             badge={commentCount || undefined}
             onClick={() => openChat(rec.id)}
           >
             <MessageSquare className="h-4 w-4" />
-          </IconAction>
+          </IconAction>}
           <IconAction
             label="View details"
             onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}

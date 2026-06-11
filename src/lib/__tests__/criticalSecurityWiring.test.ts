@@ -160,15 +160,18 @@ describe("critical security wiring", () => {
     );
   });
 
-  it("enforces view-as read-only in both browser requests and the database", () => {
+  it("keeps view-as as a data perspective while preserving backend RLS", () => {
     const client = read("src/integrations/supabase/client.ts");
     const roles = read("src/lib/rolesContext.tsx");
     const migration = read("supabase/migrations/20260611010000_view_as_guard_and_sheet_queue_rpc.sql");
-    expect(client).toContain('"x-preplane-view-as-read-only"');
-    expect(roles).toContain("VIEW_AS_READ_ONLY_STORAGE_KEY");
+    const removal = read("supabase/migrations/20260611210000_remove_poc_lmp_delete_policy.sql");
+    expect(client).not.toContain('"x-preplane-view-as-read-only"');
+    expect(roles).not.toContain("VIEW_AS_READ_ONLY_STORAGE_KEY");
+    expect(roles).toContain('role === "admin" || role === "allocator"');
     expect(migration).toContain("request_is_view_as_read_only");
     expect(migration).toContain("reject_view_as_mutation");
     expect(migration).toContain("VIEW_AS_READ_ONLY");
     expect(migration).toContain("enqueue_all_lmp_sheet_mirrors");
+    expect(removal).toContain('DROP POLICY IF EXISTS "Assigned POCs can delete lmp_processes"');
   });
 });

@@ -5,7 +5,7 @@ import type { InlineFormBlock, FormField } from "@/lib/copilotBlocks";
 import { cn } from "@/lib/utils";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { useLmpViewing, isUserPocOnRecord } from "@/lib/lmpViewingContext";
-import { useRole, useIsViewingAsOther } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 
 function FieldRenderer({ field, value, onChange }: { field: FormField; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -139,7 +139,6 @@ export function CopilotInlineForm({ block, onAction }: { block: InlineFormBlock;
 
   // Authorization context
   const { role } = useRole();
-  const isImpersonating = useIsViewingAsOther();
   const { currentUserName } = useLmpViewing();
   const { data: lmpRows = [] } = useLmpRows();
 
@@ -163,20 +162,7 @@ export function CopilotInlineForm({ block, onAction }: { block: InlineFormBlock;
   };
 
   const preflightCheck = (): { ok: true } | { ok: false; reason: { title: string; body: string; role?: string; action?: string } } => {
-    // 1. Impersonation gate — read-only while viewing as someone else
-    if (isImpersonating) {
-      return {
-        ok: false,
-        reason: {
-          title: "Read-only while viewing as another user",
-          body: "You're viewing the workspace as someone else. Switch back to your own view to make changes.",
-          role,
-          action: block.action,
-        },
-      };
-    }
-
-    // 2. Ownership gate — only for forms that edit an existing LMP
+    // Ownership gate — only for forms that edit an existing LMP
     if (block.target_lmp_id && block.action && block.action !== "create_lmp") {
       if (!targetLmp) {
         // LMP not in current user's visible rows — almost certainly not theirs

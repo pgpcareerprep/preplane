@@ -75,7 +75,7 @@ export function Topbar() {
 
   const isAllView = target === "all";
   const isSelfView = !viewAsUser && !isAllView;
-  const isActionMode = isSelfView;
+  const isActionMode = role === "admin" || role === "allocator";
   const viewLabel = isAllView
     ? "All POCs"
     : viewAsUser
@@ -167,7 +167,7 @@ export function Topbar() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className={cn("text-[12px] truncate", isAllView && "font-semibold")}>All POCs</div>
-                      <div className="text-[10px] text-n400 dark:text-d-muted truncate">Org-wide oversight · View only</div>
+                      <div className="text-[10px] text-n400 dark:text-d-muted truncate">Org-wide oversight · Real-role actions</div>
                     </div>
                     {isAllView && <span className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0" />}
                   </DropdownMenuItem>

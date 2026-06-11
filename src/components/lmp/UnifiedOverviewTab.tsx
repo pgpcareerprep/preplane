@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, User, FileText, ExternalLink, Pencil } from "lucide-react";
 import { ReassignPocModal } from "@/components/lmp/ReassignPocModal";
-import { useIsViewingAsOther, useRole } from "@/lib/rolesContext";
+import { useRole } from "@/lib/rolesContext";
 import { canPerform } from "@/lib/permissions";
 import { useLmpMode } from "@/lib/lmpViewingContext";
 import { JdButton } from "./JdButton";
@@ -271,9 +271,8 @@ export function UnifiedOverviewTab({
 function PocRow({ lmp }: { lmp: LmpRecord }) {
   const [reassignOpen, setReassignOpen] = useState(false);
   const { role } = useRole();
-  const isViewingAsOther = useIsViewingAsOther();
   const mode = useLmpMode(lmp);
-  const canReassignAll = !isViewingAsOther && canPerform(role, "reassign_poc");
+  const canReassignAll = canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
 
   const pocs = [

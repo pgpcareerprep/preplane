@@ -62,7 +62,8 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const navigate = useNavigate();
-  const { user } = useRole();
+  const { user, role } = useRole();
+  const canManage = role === "admin" || role === "allocator";
   const { update: updateMutation } = useLmpMutation();
   const deleteLmp = useDeleteLmpProcess();
 
@@ -142,16 +143,20 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
-                <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Reassign POC
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setConfirmDelete(true)}
-                className="text-coral-600 focus:text-coral-600"
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-              </DropdownMenuItem>
+              {canManage && (
+                <>
+                  <DropdownMenuItem onClick={() => navigate(`/processes/${req.id}`)}>
+                    <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Reassign POC
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setConfirmDelete(true)}
+                    className="text-coral-600 focus:text-coral-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           </div>
