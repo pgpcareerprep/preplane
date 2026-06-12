@@ -295,6 +295,30 @@ export function getLmpAccessLevel(
   return "summary";
 }
 
+/** Management authority is based on the authenticated application role. */
+export function canManageLmp(role: Role): boolean {
+  return role === "admin" || role === "allocator";
+}
+
+/** Operational authority always requires assignment, regardless of app role. */
+export function canOperateLmp(
+  userName: string,
+  lmp: LmpOwnership,
+  pocId?: string | null,
+): boolean {
+  return isLmpOwner(userName, lmp, pocId);
+}
+
+/** All current roles may view an LMP at their resolved access level. */
+export function canViewLmp(
+  role: Role,
+  userName: string,
+  lmp: LmpOwnership,
+  pocId?: string | null,
+): boolean {
+  return getLmpAccessLevel(role, userName, lmp, pocId) !== "none";
+}
+
 // ─── Rollback Permissions ───
 
 export function canRollback(
@@ -417,12 +441,22 @@ export function canEditFieldFinal(
   const perm = CONTRACT_FIELD_PERMISSIONS[field];
   if (!perm) return false;
   if (!(perm.editable as readonly Role[]).includes(role)) return false;
-  // admin/allocator: no ownership gate — they can edit any LMP
-  if (role === "admin" || role === "allocator") return true;
-  // POC: must be assigned to this LMP
-  const subRole = getPocSubRole(userName, lmp, pocId);
-  if (subRole === "none") return false;
-  return true;
+
+  const managementFields: ReadonlyArray<LmpField> = [
+    "company",
+    "role",
+    "domain",
+    "closing_date",
+    "admin_owner",
+    "allocator",
+    "prep_poc",
+    "support_poc",
+    "outreach_poc",
+    "prep_doc",
+  ];
+  if (managementFields.includes(field)) return canManageLmp(role);
+
+  return canOperateLmp(userName, lmp, pocId);
 }
 
 /**

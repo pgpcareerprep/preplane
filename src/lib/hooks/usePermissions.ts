@@ -7,6 +7,9 @@ import { useMemo } from "react";
 import { useRole } from "@/lib/rolesContext";
 import {
   canPerform,
+  canManageLmp,
+  canOperateLmp,
+  canViewLmp,
   canEditFieldFinal,
   getLmpAccessLevel,
   canRollback,
@@ -54,17 +57,23 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
     const accessLevel = getLmpAccessLevel(role, actorName, ownership);
     const isPrivileged = role === "admin" || role === "allocator";
     const isReadOnly = isPrivileged ? false : accessLevel === "summary";
+    const canManage = canManageLmp(role);
+    const canOperate = canOperateLmp(actorName, ownership);
+    const canView = canViewLmp(role, actorName, ownership);
 
     return {
       accessLevel,
       isReadOnly,
-      canEdit: !isReadOnly && accessLevel === "full" && canPerform(role, "edit_lmp"),
+      canManageLmp: canManage,
+      canOperateLmp: canOperate,
+      canViewLmp: canView,
+      canEdit: canManage && canPerform(role, "edit_lmp"),
       canEditField: (field: LmpField) =>
-        !isReadOnly && canEditFieldFinal(role, field, actorName, ownership),
-      canChangeStatus: !isReadOnly && canPerform(role, "change_status"),
-      canAssignPoc: !isReadOnly && canPerform(role, "assign_poc"),
-      canChangeDomain: !isReadOnly && canPerform(role, "change_domain"),
-      canDelete: !isReadOnly && accessLevel === "full" && canPerform(role, "delete_lmp"),
+        canEditFieldFinal(role, field, actorName, ownership),
+      canChangeStatus: canOperate && canPerform(role, "change_status"),
+      canAssignPoc: canManage && canPerform(role, "assign_poc"),
+      canChangeDomain: canManage && canPerform(role, "change_domain"),
+      canDelete: canManage && canPerform(role, "delete_lmp"),
       canRollback: (auditActorName: string) =>
         !isReadOnly && canRollback(role, actorName, auditActorName, ownership),
     };

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { JdButton } from "@/components/lmp/JdButton";
 import type { Requisition, Candidate } from "@/lib/lmpProcessMutations";
 import { cn } from "@/lib/utils";
-import { useRole } from "@/lib/rolesContext";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { type LmpRecord, HEALTH_META, STATUS_META } from "@/lib/lmpTypes";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { useLmpCandidates, useAddLmpCandidates } from "@/lib/hooks/useDbData";
@@ -38,6 +38,12 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
   );
   const status: LmpRecord["status"] = lmp?.status ?? "ongoing";
   const lmpId = lmp?.id ?? req.id;
+  const { canManageLmp, canOperateLmp } = useLmpPermission({
+    prep_poc: lmp?.prepPoc?.name ?? req.prepPoc?.name,
+    support_poc: lmp?.supportPoc?.name ?? req.supportPoc?.name,
+    outreach_poc: lmp?.outreachPoc?.name ?? req.outreachPoc?.name,
+    allocator: lmp?.allocator,
+  });
 
   // Resolve DB UUID via LMP code first (stable), then UUID, then company+role.
   const dbLmpId = useDbLmpId({
@@ -135,7 +141,7 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* LEFT — primary narrative */}
         <div className="lg:col-span-3 space-y-6">
-          <JdSummaryCard req={req} />
+          <JdSummaryCard req={req} canManage={canManageLmp} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <DailyProgressSummaryCard lmpId={lmpId} />
             <ChecklistSummaryCard lmpId={lmpId} lmp={lmp} />
@@ -158,14 +164,15 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
             candidates={allCandidates}
             rounds={rounds}
             onAdd={() => setAddOpen(true)}
+            canAdd={canOperateLmp}
           />
           <SessionsCard />
-          <StatusChangeCard status={status} />
+          <StatusChangeCard status={status} canOperate={canOperateLmp} />
         </div>
       </div>
 
       <AddCandidatesModal
-        open={addOpen}
+        open={addOpen && canOperateLmp}
         onOpenChange={setAddOpen}
         existingIds={allCandidates.map((c) => c.studentId).filter(Boolean) as string[]}
         existingNames={allCandidates.map((c) => (c.name || "").trim().toLowerCase()).filter(Boolean)}
@@ -178,7 +185,7 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
 
 /* ───────────────── JD Summary (collapsible) ───────────────── */
 
-function JdSummaryCard({ req }: { req: Requisition }) {
+function JdSummaryCard({ req, canManage }: { req: Requisition; canManage: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [jdData, setJdData] = useJd(req.id);
   const [uploading, setUploading] = useState(false);
@@ -194,6 +201,7 @@ function JdSummaryCard({ req }: { req: Requisition }) {
   ];
 
   const handleJdUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canManage) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
@@ -247,6 +255,7 @@ function JdSummaryCard({ req }: { req: Requisition }) {
   };
 
   const handleRemoveJd = () => {
+    if (!canManage) return;
     deleteJd(req.id);
     setJdData(null);
   };
@@ -269,6 +278,7 @@ function JdSummaryCard({ req }: { req: Requisition }) {
               domain={req.domain}
               seniority={req.seniority}
               compact
+              readOnly={!canManage}
               onChange={(data) => setJdData(data)}
             />
           </div>
@@ -327,6 +337,7 @@ function JdSummaryCard({ req }: { req: Requisition }) {
                   </p>
                   <button
                     onClick={() => fileInputRef.current?.click()}
+                    disabled={!canManage}
                     className="inline-flex items-center gap-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-4 py-2 shadow-sm transition-colors"
                   >
                     <Upload className="h-3.5 w-3.5" />
@@ -358,6 +369,7 @@ function JdSummaryCard({ req }: { req: Requisition }) {
                     </div>
                     <button
                       onClick={handleRemoveJd}
+                      disabled={!canManage}
                       className="p-1 rounded hover:bg-n100 text-n400 hover:text-red-500 transition-colors"
                       title="Remove JD"
                     >
@@ -432,10 +444,12 @@ function CandidatesCard({
   candidates,
   rounds,
   onAdd,
+  canAdd,
 }: {
   candidates: Candidate[];
   rounds?: Round[];
   onAdd: () => void;
+  canAdd: boolean;
 }) {
   const roundLabel = (id: string) => {
     if (!id || id === "pool") return "Pool";
@@ -448,13 +462,13 @@ function CandidatesCard({
         <h5 className="text-[13px] font-semibold text-n800">
           Candidates <span className="text-n400 font-normal">({candidates.length})</span>
         </h5>
-        <button
+        {canAdd && <button
           onClick={onAdd}
           className="h-7 w-7 grid place-items-center rounded-md border border-n200 bg-card text-n600 hover:text-orange-600 hover:border-orange-300 hover:bg-orange-50 transition-colors"
           aria-label="Add candidates"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-        </button>
+        </button>}
       </div>
       <ul className="mt-3 divide-y divide-n100">
         {candidates.slice(0, 5).map((c) => (
@@ -563,11 +577,9 @@ function HealthSlaCard({
 
 /* ───────────────── Status Change ───────────────── */
 
-function StatusChangeCard({ status }: { status: keyof typeof STATUS_META }) {
-  const { role } = useRole();
-  const canEdit = role === "allocator" || role === "admin";
+function StatusChangeCard({ status, canOperate }: { status: keyof typeof STATUS_META; canOperate: boolean }) {
   const meta = STATUS_META[status];
-  if (!canEdit) return null;
+  if (!canOperate) return null;
   return (
     <div className="rounded-xl bg-card shadow-sm border border-n200 p-4">
       <h5 className="text-[13px] font-semibold text-n800 mb-2">Log Status Change</h5>

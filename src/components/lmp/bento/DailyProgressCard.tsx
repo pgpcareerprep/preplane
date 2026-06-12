@@ -24,6 +24,8 @@ import {
   type ProgressHistoryEntry,
 } from "@/lib/hooks/useProgressHistory";
 import { Textarea } from "@/components/ui/textarea";
+import { useLmpProcesses } from "@/lib/hooks/useDbData";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 
 // Sheets → DB auto-pull is removed. DB is the source of truth; the
 // `sheets-retry-sweeper` cron handles DB → Sheet mirroring server-side.
@@ -80,6 +82,19 @@ export function DailyProgressCard({
   supportPocName?: string | null;
   supportPocEmail?: string | null;
 }) {
+  const { data: lmpRows = [] } = useLmpProcesses({ includeArchived: true });
+  const permissionRow = (lmpRows as any[]).find(
+    (row) => row.id === lmpId || row.lmp_code === lmpId,
+  );
+  const { canOperateLmp } = useLmpPermission({
+    prep_poc: permissionRow?.prep_poc,
+    support_poc: permissionRow?.support_poc,
+    outreach_poc: permissionRow?.outreach_poc,
+    prep_poc_id: permissionRow?.prep_poc_id,
+    support_poc_id: permissionRow?.support_poc_id,
+    outreach_poc_ids: permissionRow?.outreach_poc_ids,
+  });
+  const effectiveMode = mode === "summary" || !canOperateLmp ? "summary" : "action";
   const localEntries = useProgress(lmpId);
   const noUpdateNeeded = !hasUpdateToday(localEntries);
 
@@ -308,7 +323,7 @@ export function DailyProgressCard({
     toast.success("Nudge cleared");
   };
 
-  if (mode === "summary") {
+  if (effectiveMode === "summary") {
     const latest = mergedEntries[0];
     const nextEntry = mergedEntries.find((e) => e.nextExpectedAt);
     return (

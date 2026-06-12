@@ -8,8 +8,7 @@ import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpTotalCommentCount } from "@/lib/hooks/useLmpTotalCommentCount";
 import { useLmpCandidatesLive } from "@/lib/hooks/useLmpCandidatesLive";
 import { ReassignPocModal } from "@/components/lmp/ReassignPocModal";
-import { useRole } from "@/lib/rolesContext";
-import { canPerform } from "@/lib/permissions";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 
 export function LmpDetailHeader({
   rec, canEdit, onChangeStatus,
@@ -27,9 +26,15 @@ export function LmpDetailHeader({
   const commentCount = useLmpTotalCommentCount(rec.id);
   const { data: liveCandidates = [] } = useLmpCandidatesLive(rec.id);
   const candidateCount = liveCandidates.length || rec.candidates;
-  const { role } = useRole();
-  const canReassignAll = canPerform(role, "reassign_poc");
-  const canReassignAny = canReassignAll;
+  const { canManageLmp, canOperateLmp } = useLmpPermission({
+    prep_poc: rec.prepPoc?.name,
+    support_poc: rec.supportPoc?.name,
+    outreach_poc: rec.outreachPoc?.name,
+    allocator: rec.allocator,
+  });
+  const canReassignAll = canManageLmp;
+  const canReassignAny = canManageLmp;
+  void canEdit;
 
   return (
     <section className="rounded-2xl bg-card shadow-sm border border-n200 p-6">
@@ -77,7 +82,7 @@ export function LmpDetailHeader({
 
         <div className="flex flex-col items-start lg:items-end gap-2">
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <button
+            {canOperateLmp && <button
               type="button"
               onClick={() => openChat(rec.id)}
               className="relative inline-flex items-center gap-1.5 rounded-full border border-n200 bg-card hover:border-orange-300 hover:text-orange-600 text-n700 px-3 h-8 text-[12px] font-medium transition-colors"
@@ -89,7 +94,7 @@ export function LmpDetailHeader({
                   {commentCount}
                 </span>
               )}
-            </button>
+            </button>}
             {canReassignAny && (
               <button
                 type="button"
@@ -101,7 +106,7 @@ export function LmpDetailHeader({
               </button>
             )}
           </div>
-          {canEdit ? (
+          {canOperateLmp ? (
             <div className="relative">
               <button
                 onClick={() => setOpen((v) => !v)}

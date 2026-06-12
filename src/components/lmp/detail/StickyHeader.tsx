@@ -3,7 +3,6 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
 import { STATUS_META } from "@/lib/lmpTypes";
-import { useRole } from "@/lib/rolesContext";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { EditLmpModal } from "@/components/lmp/EditLmpModal";
 import { TAG_STYLES } from "@/lib/pocAllocation";
@@ -33,20 +32,26 @@ const STATUS_PILL: Record<string, string> = {
 export function StickyHeader({
   lmp, candidateCount, onConfigureRounds, readOnly, onChangeStatus,
 }: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; readOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
-  const { role, user } = useRole();
   const domain = lmp.prepPoc || lmp.domainPrepPoc;
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
 
-  const { canEdit: canEditLmp, canDelete: canDeleteLmp, canAssignPoc } = useLmpPermission({
+  const {
+    canManageLmp,
+    canOperateLmp,
+    canEdit: canEditLmp,
+    canDelete: canDeleteLmp,
+    canAssignPoc,
+  } = useLmpPermission({
     prep_poc: lmp.prepPoc?.name,
     support_poc: lmp.supportPoc?.name,
     outreach_poc: lmp.outreachPoc?.name,
     allocator: lmp.allocator,
   });
-  const canDelete = !readOnly && canDeleteLmp;
-  const canReassignPoc = role === "allocator" || role === "admin";
-  const isPocActor = role === "poc";
+  const canManage = !readOnly && canManageLmp;
+  const canOperate = !readOnly && canOperateLmp;
+  const canDelete = canManage && canDeleteLmp;
+  const canReassignPoc = canManage;
   const [jdData, setJdData] = useJd(lmp.id);
   const hasJd = !!jdData;
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -57,7 +62,7 @@ export function StickyHeader({
 
   const { open: openChat } = useLmpChatDrawer();
   const commentCount = useLmpTotalCommentCount(lmp.id);
-  const canEditStatus = !!onChangeStatus && !readOnly;
+  const canEditStatus = !!onChangeStatus && canOperate;
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
@@ -68,7 +73,7 @@ export function StickyHeader({
   return (
     <section className="rounded-2xl bg-card border border-n200 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_4px_16px_-8px_rgba(15,23,42,0.08)] p-4 md:p-5 space-y-3">
       {/* ROW 1 — Rounds button (only when configure-rounds handler provided) */}
-      {onConfigureRounds && !readOnly && (
+      {onConfigureRounds && canManage && (
         <div className="flex items-center justify-end gap-2">
           <HeaderBtn icon={Settings2} label="Rounds" onClick={onConfigureRounds} />
         </div>
@@ -92,9 +97,9 @@ export function StickyHeader({
           <button
             onClick={() => {
               if (hasJd) setPreviewOpen(true);
-              else if (!readOnly) setUploadOpen(true);
+              else if (canManage) setUploadOpen(true);
             }}
-            disabled={!hasJd && readOnly}
+            disabled={!hasJd && !canManage}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12px] font-medium cursor-pointer transition-colors",
               hasJd
@@ -121,7 +126,7 @@ export function StickyHeader({
               {t}
             </span>
           ))}
-          {(canEditLmp || canDelete || canReassignPoc || canAssignPoc) && (
+          {((canManage && canEditLmp) || canDelete || canReassignPoc || (canManage && canAssignPoc)) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-n200 hover:bg-n100 text-n500 hover:text-n700 transition-colors">
@@ -129,7 +134,7 @@ export function StickyHeader({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                {canAssignPoc && (
+                {canManage && canAssignPoc && (
                   <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
                     <UserPlus className="h-3.5 w-3.5 mr-2" />
                     {lmp.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
@@ -140,7 +145,7 @@ export function StickyHeader({
                     <UserCog className="h-3.5 w-3.5 mr-2" /> Reassign POCs
                   </DropdownMenuItem>
                 )}
-                {canEditLmp && (
+                {canManage && canEditLmp && (
                   <DropdownMenuItem onClick={() => setEditOpen(true)}>
                     <Pencil className="h-3.5 w-3.5 mr-2" /> Edit LMP
                   </DropdownMenuItem>
@@ -182,7 +187,7 @@ export function StickyHeader({
               {lmp.domain}
             </span>
           )}
-          {!readOnly && <button
+          {canOperate && <button
             onClick={() => openChat(lmp.id)}
             className="relative inline-flex items-center gap-1.5 rounded-full bg-card border border-n200 hover:border-orange-300 hover:text-orange-600 text-n700 px-3 h-7 text-[12px] font-medium transition-colors"
           >

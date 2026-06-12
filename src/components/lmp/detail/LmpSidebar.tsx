@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { type LmpRecord, type LmpStatus, STATUS_META, HEALTH_META } from "@/lib/lmpTypes";
 import { STATUS_OPTIONS } from "@/lib/lmpDetail";
 import { DualPocRow } from "@/components/lmp/DualPocRow";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 
 const SESSION_PILL: Record<string, string> = {
   Scheduled: "bg-teal-50 text-teal-600 border-teal-200",
@@ -21,12 +22,19 @@ export function LmpSidebar({
   canEdit: boolean;
   onChangeStatus: (s: LmpStatus, reason: string) => void;
 }) {
+  const { canOperateLmp } = useLmpPermission({
+    prep_poc: rec.prepPoc?.name,
+    support_poc: rec.supportPoc?.name,
+    outreach_poc: rec.outreachPoc?.name,
+    allocator: rec.allocator,
+  });
+  void canEdit;
   return (
     <aside className="space-y-4 lg:sticky lg:top-4 self-start">
       <PocAssignmentCard rec={rec} />
       <CandidatesCard />
       <SessionsCard />
-      {canEdit && <LogProcessCard rec={rec} onChangeStatus={onChangeStatus} />}
+      {canOperateLmp && <LogProcessCard rec={rec} onChangeStatus={onChangeStatus} />}
       <HealthSlaCard rec={rec} />
     </aside>
   );

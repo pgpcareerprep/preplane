@@ -5,6 +5,8 @@ import { useChecklistNotes } from "@/lib/lmpExecutionEngine";
 import { DocumentLinkModal, type DocumentLinkInput } from "./DocumentLinkModal";
 import { ChecklistNotesModal } from "./ChecklistNotesModal";
 import type { DocumentLink, DocumentAddContext } from "./DocumentsCard";
+import { useLmpProcesses } from "@/lib/hooks/useDbData";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 
 type CheckItem = {
   id: string;
@@ -49,6 +51,19 @@ export function ChecklistCard({
   onUpdateDocument?: (id: string, patch: DocumentLinkInput) => void;
   onRemoveDocument?: (id: string) => void;
 }) {
+  const { data: lmpRows = [] } = useLmpProcesses({ includeArchived: true });
+  const permissionRow = (lmpRows as any[]).find(
+    (row) => row.id === lmpId || row.lmp_code === lmpId,
+  );
+  const { canOperateLmp } = useLmpPermission({
+    prep_poc: permissionRow?.prep_poc,
+    support_poc: permissionRow?.support_poc,
+    outreach_poc: permissionRow?.outreach_poc,
+    prep_poc_id: permissionRow?.prep_poc_id,
+    support_poc_id: permissionRow?.support_poc_id,
+    outreach_poc_ids: permissionRow?.outreach_poc_ids,
+  });
+  const effectiveMode = mode === "summary" || !canOperateLmp ? "summary" : "action";
   // Local optimistic overrides keyed by sheetKey. Lets the tick visibly flip
   // on the very first click, independent of when the parent cache /
   // pendingChecklist round-trip lands. Each override is cleared once the
@@ -110,7 +125,7 @@ export function ChecklistCard({
 
   const linksEnabled = !!onAddDocuments;
 
-  if (mode === "summary") {
+  if (effectiveMode === "summary") {
     const done = items.filter((i) => i.done).length;
     const total = items.length;
     const pct = total ? Math.round((done / total) * 100) : 0;
