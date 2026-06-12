@@ -1362,14 +1362,16 @@ Deno.serve(async (req: Request) => {
 
         const reconcileRange = `'${tab}'!A${headerRow}:ZZ10000`;
 
-        // ── 0. Fetch all non-archived DB LMPs, sorted by LMP date then insert time ──
+        // ── 0. Fetch all non-archived DB LMPs, newest-created first ────────────
+        // Business ordering is creation order, not the user-editable LMP date.
+        // This keeps the most recently created LMP at row 15 after reconcile.
         const { data: rawDbLmps, error: dbErr } = await serviceClient
           .from("lmp_processes")
           .select("*")
           .not("lmp_code", "is", null)
           .or("is_archived.is.null,is_archived.eq.false")
-          .order("date", { ascending: false })
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false });
         if (dbErr) return jsonError(`DB read failed: ${dbErr.message}`, 500);
         const dbLmps: any[] = rawDbLmps ?? [];
         if (dbLmps.length === 0) return jsonOk({ reconciled: true, message: "No active LMPs in DB" });
@@ -1468,40 +1470,16 @@ Deno.serve(async (req: Request) => {
         }
         const currentLmpCount = presentCodes.size;
         const targetCount = dbLmps.length;
-        const missingCount = targetCount - currentLmpCount;
+        const missingCount = Math.max(0, targetCount - currentLmpCount);
         report.missing = dbLmps
           .filter((l: any) => !presentCodes.has(String(l.lmp_code).toLowerCase()))
           .map((l: any) => l.lmp_code);
 
-        // ── 4. Insert blank rows for missing LMPs ─────────────────────────────
-        if (missingCount > 0) {
-          const sheetIdNum = await getSheetIdByTitle(tab);
-          const insertBody = {
-            requests: [{
-              insertDimension: {
-                range: {
-                  sheetId: sheetIdNum,
-                  dimension: "ROWS",
-                  startIndex: headerRow,          // 0-based → inserts before 1-based row 15
-                  endIndex: headerRow + missingCount,
-                },
-                inheritFromBefore: false,
-              },
-            }],
-          };
-          const insRes = await sheetsClient.rawFetch(`${baseUrl}:batchUpdate`, {
-            method: "POST",
-            body: JSON.stringify(insertBody),
-          });
-          if (!insRes.ok) {
-            const txt = await insRes.text();
-            throw new Error(`batch insertDimension [${insRes.status}]: ${txt.slice(0, 300)}`);
-          }
-          rangeCache.clear();
-          console.log(`[lmp-reconcile] inserted ${missingCount} blank row(s) for missing LMPs`);
-        }
-
-        // ── 5. Re-read after insertions; build resolveHeader ──────────────────
+        // ── 4. Re-read after cleanup; build resolveHeader ─────────────────────
+        // Do not insert temporary blank rows. Google Sheets already has writable
+        // rows below the current data section, and the single values batch below
+        // fills every active LMP row deterministically without a visible blank
+        // intermediate state.
         rangeCache.clear();
         const preWriteResult = await batchGet([reconcileRange]);
         const preWriteRows = Object.values(preWriteResult)[0] as unknown[][] || [];
@@ -1565,8 +1543,8 @@ Deno.serve(async (req: Request) => {
           return finalHeaders.map((h: string) => patch[h] ?? "");
         };
 
-        // ── 6. Overwrite rows 15..14+N with sorted DB data ────────────────────
-        // dbLmps is already ordered by date desc, created_at desc (newest first = row 15)
+        // ── 5. Overwrite rows 15..14+N with sorted DB data ────────────────────
+        // dbLmps is already ordered by created_at desc (newest first = row 15).
         const sortedBatch: { range: string; values: unknown[][] }[] = [];
         for (let i = 0; i < dbLmps.length; i++) {
           const targetRow = headerRow + 1 + i;  // row 15 = i=0, row 16 = i=1, ...
@@ -1576,14 +1554,12 @@ Deno.serve(async (req: Request) => {
           });
         }
 
-        // batchUpdate in chunks of 20 to stay well within API limits
-        const CHUNK = 20;
-        for (let i = 0; i < sortedBatch.length; i += CHUNK) {
-          await batchUpdate(sortedBatch.slice(i, i + CHUNK));
-        }
+        // One values.batchUpdate request avoids a partially rewritten tracker
+        // becoming visible between chunks.
+        await batchUpdate(sortedBatch);
         console.log(`[lmp-reconcile] wrote ${sortedBatch.length} sorted LMP rows`);
 
-        // ── 7. Re-read and update sheet_row_id in DB ──────────────────────────
+        // ── 6. Re-read and update sheet_row_id in DB ──────────────────────────
         rangeCache.clear();
         const finalResult = await batchGet([reconcileRange]);
         const finalRows = Object.values(finalResult)[0] as unknown[][] || [];
@@ -1608,7 +1584,7 @@ Deno.serve(async (req: Request) => {
 
         report.sheet_lmp_count_after = dbLmps.length;
         report.rows_deleted = rowsToDelete.length;
-        report.rows_inserted = missingCount;
+        report.rows_inserted = 0;
 
         logSyncEvent({
           tab_name: tab, direction: "app_to_sheet", operation: "lmp-reconcile",

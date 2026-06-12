@@ -109,6 +109,26 @@ Deno.serve(async (req: Request) => {
       lmp_code: lmpCode,
       attempt: row.attempts + 1,
     });
+
+    // A full reconcile rewrites the entire LMP Tracker. Never start it while a
+    // targeted LMP write is processing; defer it so immediate create/update
+    // jobs finish first and the final reconcile order remains deterministic.
+    if (row.operation === "lmp-reconcile" && row.tab_name === "LMP Tracker") {
+      const { count: activeTargetedWrites } = await sb
+        .from("sheet_write_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("tab_name", "LMP Tracker")
+        .eq("status", "processing")
+        .neq("operation", "lmp-reconcile");
+      if ((activeTargetedWrites ?? 0) > 0) {
+        await sb.from("sheet_write_queue")
+          .update({ next_retry_at: new Date(Date.now() + 10_000).toISOString() })
+          .eq("id", row.id)
+          .eq("status", "pending");
+        results.push({ id: row.id, status: "reconcile_deferred" });
+        continue;
+      }
+    }
     // If tab is still cooling down, push next_retry_at out and continue.
     const cool = cooldownMap.get(row.tab_name) ?? 0;
     if (cool > Date.now()) {
@@ -120,9 +140,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // Mark processing.
-    await sb.from("sheet_write_queue")
+    const { data: claimedRows } = await sb.from("sheet_write_queue")
       .update({ status: "processing", attempts: row.attempts + 1, attempt_count: (row.attempt_count ?? 0) + 1 })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .select("id");
+    if (!claimedRows?.length) {
+      results.push({ id: row.id, status: "already_claimed" });
+      continue;
+    }
 
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/sheets-lmp`, {
