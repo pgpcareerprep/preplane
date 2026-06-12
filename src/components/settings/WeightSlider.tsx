@@ -7,12 +7,14 @@ export function WeightSlider({
   value,
   onChange,
   color = "hsl(var(--orange-500))",
+  disabled = false,
 }: {
   label: string;
   helper?: string;
   value: number;
   onChange: (v: number) => void;
   color?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -27,6 +29,7 @@ export function WeightSlider({
         step={1}
         value={[value]}
         onValueChange={([v]) => onChange(v)}
+        disabled={disabled}
       >
         <Slider.Track className="bg-n200 relative grow rounded-full h-1.5">
           <Slider.Range
@@ -36,7 +39,7 @@ export function WeightSlider({
         </Slider.Track>
         <Slider.Thumb
           className={cn(
-            "block h-[18px] w-[18px] rounded-full bg-card border-2 shadow-md cursor-grab active:cursor-grabbing",
+            "block h-[18px] w-[18px] rounded-full bg-card border-2 shadow-md cursor-grab active:cursor-grabbing disabled:cursor-default disabled:opacity-60",
             "focus:outline-none focus-visible:shadow-focus transition-transform duration-150 hover:scale-110",
           )}
           style={{ borderColor: color }}

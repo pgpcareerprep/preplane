@@ -312,7 +312,7 @@ export default function DataSourcesPage() {
               onViewHistory={() => setModal({ source: "lmp_db", kind: "history" })}
               viewAllLabel="View All LMP Processes"
               showHistory={isAdmin}
-              onSync={() => smartLmpSync.mutate()}
+              onSync={isAdmin ? () => smartLmpSync.mutate() : undefined}
               syncing={smartLmpSync.isPending}
               onInspectMapping={isAdmin ? () => setMappingOpen(true) : undefined}
               onExport={() => exportLmpProcessesCsv(`lmp_processes_${dateStamp()}.csv`)}
@@ -337,7 +337,7 @@ export default function DataSourcesPage() {
             />
 
 
-            <ExternalDiscoveryCard index={6} />
+            <ExternalDiscoveryCard index={6} readOnly={isReadOnly} />
           </div>
 
           {modal?.kind === "upload" && (
@@ -347,7 +347,7 @@ export default function DataSourcesPage() {
             <ViewAllMentorsModal open onOpenChange={(v) => !v && setModal(null)} />
           )}
           {modal?.kind === "viewAll" && modal.source === "alumni_db" && (
-            <AlumniViewAllModal open onOpenChange={(v) => !v && setModal(null)} />
+            <AlumniViewAllModal open onOpenChange={(v) => !v && setModal(null)} readOnly={isReadOnly} />
           )}
           {modal?.kind === "viewAll" && modal.source === "student_db" && (
             <ViewAllStudentsModal open onOpenChange={(v) => !v && setModal(null)} />
@@ -359,7 +359,7 @@ export default function DataSourcesPage() {
             <ViewAllPocsModal open onOpenChange={(v) => !v && setModal(null)} />
           )}
           {modal?.kind === "viewAll" && modal.source === "lmp_db" && (
-            <ViewAllLmpsModal open onOpenChange={(v) => !v && setModal(null)} />
+            <ViewAllLmpsModal open onOpenChange={(v) => !v && setModal(null)} readOnly={isReadOnly} />
           )}
           {modal?.kind === "viewAll" && modal.source === "lmp_mentors_db" && (
             <LmpMentorAssignmentsModal open onOpenChange={(v) => !v && setModal(null)} />

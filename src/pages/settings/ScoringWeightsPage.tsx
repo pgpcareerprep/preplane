@@ -7,6 +7,7 @@ import { WeightDonut } from "@/components/settings/WeightDonut";
 import { cn } from "@/lib/utils";
 import { fetchScoringWeights, saveScoringWeights, DEFAULT_WEIGHTS } from "@/lib/scoringWeights";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/lib/rolesContext";
 
 type Key = "role" | "skills" | "company" | "industry" | "seniority";
 
@@ -34,6 +35,8 @@ const SPARSE: { key: SparseKey; label: string; color: string }[] = [
 ];
 
 export default function ScoringWeightsPage() {
+  const { role } = useRole();
+  const canEdit = role === "admin" || role === "allocator";
   const [weights, setWeights] = useState<Record<Key, number>>(() => ({ ...DEFAULT_WEIGHTS }));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,6 +75,11 @@ export default function ScoringWeightsPage() {
         <h3 className="text-[24px] font-semibold tracking-[-0.5px] text-n900">Matching Score Weights</h3>
         <p className="text-[13px] text-n500 mt-1">These weights apply to all future mentor matches.</p>
       </header>
+      {!canEdit && (
+        <div className="rounded-lg border border-n200 bg-n50 px-4 py-3 text-[13px] text-n600">
+          Read-only view. Scoring configuration can be changed by admins and allocators.
+        </div>
+      )}
 
       {/* Main weights card */}
       <section className="rounded-lg bg-card border border-n200 shadow-sm p-6">
@@ -85,6 +93,7 @@ export default function ScoringWeightsPage() {
                 value={weights[s.key]}
                 onChange={v => setWeights(w => ({ ...w, [s.key]: v }))}
                 color={s.color}
+                disabled={!canEdit}
               />
             ))}
           </div>
@@ -108,7 +117,7 @@ export default function ScoringWeightsPage() {
         </div>
 
         {/* Presets */}
-        <div className="mt-8 pt-6 border-t border-n100">
+        {canEdit && <div className="mt-8 pt-6 border-t border-n100">
           <div className="label-eyebrow mb-3">Presets</div>
           <div className="flex flex-wrap gap-2">
             {Object.keys(PRESETS).map(name => (
@@ -121,7 +130,7 @@ export default function ScoringWeightsPage() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
 
       {/* Sparse JD overrides */}
@@ -153,6 +162,7 @@ export default function ScoringWeightsPage() {
                     value={sparse[s.key]}
                     onChange={v => setSparse(w => ({ ...w, [s.key]: v }))}
                     color={s.color}
+                    disabled={!canEdit}
                   />
                 ))}
               </div>
@@ -162,7 +172,7 @@ export default function ScoringWeightsPage() {
       </section>
 
       {/* Save */}
-      <button
+      {canEdit && <button
         disabled={!valid || saving || loading}
         onClick={async () => {
           if (!valid) return;
@@ -185,7 +195,7 @@ export default function ScoringWeightsPage() {
       >
         {saving && <Loader2 className="h-4 w-4 animate-spin" />}
         {loading ? "Loading…" : saving ? "Saving…" : "Save Scoring Config"}
-      </button>
+      </button>}
     </div>
   );
 }

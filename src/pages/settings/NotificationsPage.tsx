@@ -3,6 +3,7 @@ import { Bell, Clock, Save, Loader2, Send, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { useRole } from "@/lib/rolesContext";
 
 const ALL_DAYS = [
   { key: "monday", label: "Mon" },
@@ -216,6 +217,8 @@ function TimePicker12({
 }
 
 export default function NotificationsPage() {
+  const { role } = useRole();
+  const canEdit = role === "admin" || role === "allocator";
   const [schedule, setSchedule] = useState<ReminderSchedule>(DEFAULT_SCHEDULE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -302,9 +305,14 @@ export default function NotificationsPage() {
           Configure when progress reminder emails are sent to POCs.
         </p>
       </header>
+      {!canEdit && (
+        <div className="rounded-lg border border-n200 bg-n50 px-4 py-3 text-[13px] text-n600">
+          Read-only view. Notification configuration can be changed by admins and allocators.
+        </div>
+      )}
 
       {/* Reminder Schedule Card */}
-      <div className="rounded-xl bg-card border border-n200 shadow-sm overflow-hidden">
+      <fieldset disabled={!canEdit} className={cn("rounded-xl bg-card border border-n200 shadow-sm overflow-hidden", !canEdit && "opacity-80")}>
         {/* Header */}
         <div className="px-5 py-4 border-b border-n200 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -419,10 +427,10 @@ export default function NotificationsPage() {
             Save Schedule
           </button>
         </div>
-      </div>
+      </fieldset>
 
       {/* Test email delivery */}
-      <div className="rounded-xl bg-card border border-n200 shadow-sm overflow-hidden">
+      {canEdit && <div className="rounded-xl bg-card border border-n200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-n200 flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-sky-50 text-sky-600 grid place-items-center">
             <Mail className="h-4.5 w-4.5" strokeWidth={1.5} />
@@ -450,7 +458,7 @@ export default function NotificationsPage() {
             Send test email
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Recent reminder activity */}
       <ReminderActivityPanel />

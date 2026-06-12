@@ -15,8 +15,8 @@ import { toast } from "sonner";
 const PAGE_SIZE = 50;
 
 export function AlumniViewAllModal({
-  open, onOpenChange,
-}: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  open, onOpenChange, readOnly = false,
+}: { open: boolean; onOpenChange: (v: boolean) => void; readOnly?: boolean }) {
   const { data: alumni = [], isLoading } = useAllAlumni();
   const { names: domainOptions, display: domainDisplay, matches: domainMatches } = useResolveDomain();
   const qc = useQueryClient();
@@ -88,14 +88,16 @@ export function AlumniViewAllModal({
                 Showing {filtered.length} of {alumni.length} alumni
               </p>
             </div>
-            <button
-              onClick={() => setConfirmOpen(true)}
-              disabled={alumni.length === 0 || deleting}
-              className="mr-8 inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-red-200 text-red-600 hover:bg-red-50 text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete All
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => setConfirmOpen(true)}
+                disabled={alumni.length === 0 || deleting}
+                className="mr-8 inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-red-200 text-red-600 hover:bg-red-50 text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete All
+              </button>
+            )}
           </div>
         </DialogHeader>
 
@@ -195,7 +197,7 @@ export function AlumniViewAllModal({
         )}
       </DialogContent>
 
-      <AlertDialog open={confirmOpen} onOpenChange={(v) => { setConfirmOpen(v); if (!v) setConfirmText(""); }}>
+      <AlertDialog open={!readOnly && confirmOpen} onOpenChange={(v) => { setConfirmOpen(v); if (!v) setConfirmText(""); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete all alumni?</AlertDialogTitle>

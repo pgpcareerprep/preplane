@@ -120,9 +120,9 @@ const AppRoutes = () => (
     <Route path="/feedback" element={<MentorFeedbackPage />} />
     <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
 
-    {/* Admin-only routes */}
+    {/* Shared repository route; DataSourcesPage keeps non-admin access read-only. */}
     <Route path="/data-sources" element={
-      <RouteRoleGate allowed={["admin"]}>
+      <RouteRoleGate allowed={["admin", "allocator", "poc"]}>
         <DataSourcesPage />
       </RouteRoleGate>
     } />
@@ -151,22 +151,22 @@ const AppRoutes = () => (
       </RouteRoleGate>
     }>
       <Route index element={<GeneralPage />} />
-      <Route path="scoring" element={<RouteRoleGate allowed={["admin", "allocator"]}><ScoringWeightsPage /></RouteRoleGate>} />
+      <Route path="scoring" element={<RouteRoleGate allowed={["admin", "allocator", "poc"]}><ScoringWeightsPage /></RouteRoleGate>} />
       <Route path="poc-domains" element={<RouteRoleGate allowed={["admin", "allocator"]}><PocDomainsPage /></RouteRoleGate>} />
-      <Route path="feedback" element={<RouteRoleGate allowed={["admin", "allocator"]}><FeedbackFormsPage /></RouteRoleGate>} />
+      <Route path="feedback" element={<RouteRoleGate allowed={["admin", "allocator", "poc"]}><FeedbackFormsPage /></RouteRoleGate>} />
       <Route path="users" element={
         <RouteRoleGate allowed={["admin"]}>
           <UserManagementPage />
         </RouteRoleGate>
       } />
       
-      <Route path="notifications" element={<RouteRoleGate allowed={["admin", "allocator"]}><NotificationsPage /></RouteRoleGate>} />
+      <Route path="notifications" element={<RouteRoleGate allowed={["admin", "allocator", "poc"]}><NotificationsPage /></RouteRoleGate>} />
       <Route path="knowledge" element={
         <RouteRoleGate allowed={["admin"]}>
           <KnowledgeBasePage />
         </RouteRoleGate>
       } />
-      <Route path="lmp-guide" element={<RouteRoleGate allowed={["admin", "allocator"]}><LmpGuidePage /></RouteRoleGate>} />
+      <Route path="lmp-guide" element={<RouteRoleGate allowed={["admin", "allocator", "poc"]}><LmpGuidePage /></RouteRoleGate>} />
     </Route>
 
     <Route path="*" element={<NotFound />} />

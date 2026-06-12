@@ -19,6 +19,7 @@ import {
 } from "@/lib/feedbackForm";
 import { DynamicFeedbackForm } from "@/components/feedback/DynamicFeedbackForm";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useRole } from "@/lib/rolesContext";
 
 const AUDIENCES: { id: Audience; label: string; description: string }[] = [
   { id: "student", label: "Student form", description: "Filled by students after a session is closed (/feedback/:token)." },
@@ -28,6 +29,8 @@ const AUDIENCES: { id: Audience; label: string; description: string }[] = [
 const FIELD_TYPES: FieldType[] = ["vibe", "rating", "rating_group", "toggle_group", "textarea", "text", "toggle", "select", "confirm"];
 
 export default function FeedbackFormsPage() {
+  const { role } = useRole();
+  const canEdit = role === "admin" || role === "allocator";
   const [audience, setAudience] = useState<Audience>("student");
 
   useRealtimeInvalidate("feedback_templates", [["db-feedback-templates"], ["feedback-templates"]], { enabled: true });
@@ -43,6 +46,11 @@ export default function FeedbackFormsPage() {
           <p className="text-[13px] text-n500">Build the post-session forms students and POCs fill out. Saved forms are used live.</p>
         </div>
       </header>
+      {!canEdit && (
+        <div className="mb-5 rounded-lg border border-n200 bg-n50 px-4 py-3 text-[13px] text-n600">
+          Read-only view. Feedback forms can be changed by admins and allocators.
+        </div>
+      )}
 
       <div className="inline-flex rounded-lg border border-n200 bg-card p-1 mb-5">
         {AUDIENCES.map((a) => (
@@ -59,12 +67,12 @@ export default function FeedbackFormsPage() {
         ))}
       </div>
 
-      <Editor key={audience} audience={audience} />
+      <Editor key={audience} audience={audience} canEdit={canEdit} />
     </div>
   );
 }
 
-function Editor({ audience }: { audience: Audience }) {
+function Editor({ audience, canEdit }: { audience: Audience; canEdit: boolean }) {
   const { data: tpl, isLoading } = useFeedbackTemplate(audience);
   const save = useSaveFeedbackTemplate();
   const [draft, setDraft] = useState<FeedbackTemplate | null>(null);
@@ -120,7 +128,7 @@ function Editor({ audience }: { audience: Audience }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] gap-6">
-      <div>
+      <fieldset disabled={!canEdit} className={cn(!canEdit && "opacity-80")}>
         {/* Header card */}
         <div className="rounded-xl bg-card border border-n200 p-4 mb-4 space-y-3">
           <Field label="Title">
@@ -266,7 +274,7 @@ function Editor({ audience }: { audience: Audience }) {
             <Save className="h-3.5 w-3.5 mr-1.5" /> {save.isPending ? "Saving…" : dirty ? "Save changes" : "Saved"}
           </Button>
         </div>
-      </div>
+      </fieldset>
 
       {/* Live preview */}
       <div className="lg:sticky lg:top-4 self-start">
@@ -303,7 +311,7 @@ function Editor({ audience }: { audience: Audience }) {
       </div>
 
       <ConfirmDialog
-        open={blankConfirm}
+        open={canEdit && blankConfirm}
         onOpenChange={setBlankConfirm}
         title="Start a blank form?"
         description="This replaces the current draft with an empty form. Your saved version stays unchanged until you click Save."

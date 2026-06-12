@@ -360,7 +360,7 @@ function CountCell({ count, lmpId, round }: { count: number; lmpId: string; roun
 }
 
 // ── Main modal ───────────────────────────────────────────────────
-export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { open: boolean; onOpenChange: (v: boolean) => void; readOnly?: boolean }) {
   const navigate = useNavigate();
   const { data: rawRows, isLoading } = useLmpFullView();
   const { names: domainOptions, display: domainDisplay, matches: domainMatches } = useResolveDomain();
@@ -635,7 +635,7 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
             </Popover>
           </div>
 
-          {selectedIds.size > 0 && (
+          {!readOnly && selectedIds.size > 0 && (
             <div className="px-6 py-2 border-b border-n200 bg-orange-50/60 flex items-center gap-3">
               <span className="text-[13px] font-medium text-n800">
                 {selectedIds.size} selected
@@ -697,15 +697,17 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
 
                   <thead className="bg-n50 sticky top-0 z-20">
                     <tr>
-                      <th
-                        className="w-[44px] px-3 py-2 border-b border-n200 bg-n50 sticky left-0 z-30"
-                      >
-                        <Checkbox
-                          checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                          onCheckedChange={() => toggleAll()}
-                          aria-label="Select all"
-                        />
-                      </th>
+                      {!readOnly && (
+                        <th
+                          className="w-[44px] px-3 py-2 border-b border-n200 bg-n50 sticky left-0 z-30"
+                        >
+                          <Checkbox
+                            checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                            onCheckedChange={() => toggleAll()}
+                            aria-label="Select all"
+                          />
+                        </th>
+                      )}
                       {visibleCols.map((c) => (
                         <th
                           key={c.key}
@@ -713,7 +715,7 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
                             "px-3 py-2 text-[12px] font-medium text-n600 whitespace-nowrap border-b border-n200 bg-n50",
                             c.minW,
                             c.align === "center" ? "text-center" : "text-left",
-                            c.key === "company" && "sticky left-[44px] z-30",
+                            c.key === "company" && !readOnly && "sticky left-[44px] z-30",
                           )}
                         >
                           {c.label}
@@ -733,19 +735,21 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
                           }}
                           className={cn("group cursor-pointer", checked && "bg-orange-50/40")}
                         >
-                          <td
-                            onClick={(e) => e.stopPropagation()}
-                            className={cn(
-                              "w-[44px] px-3 py-2.5 border-b border-n100 align-middle bg-card sticky left-0 z-10",
-                              checked && "bg-orange-50/60",
-                            )}
-                          >
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={() => toggleOne(r.id)}
-                              aria-label={`Select ${r.company ?? "row"}`}
-                            />
-                          </td>
+                          {!readOnly && (
+                            <td
+                              onClick={(e) => e.stopPropagation()}
+                              className={cn(
+                                "w-[44px] px-3 py-2.5 border-b border-n100 align-middle bg-card sticky left-0 z-10",
+                                checked && "bg-orange-50/60",
+                              )}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => toggleOne(r.id)}
+                                aria-label={`Select ${r.company ?? "row"}`}
+                              />
+                            </td>
+                          )}
                           {visibleCols.map((c) => (
                             <td
                               key={c.key}
@@ -753,7 +757,7 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
                                 "px-3 py-2.5 border-b border-n100 align-middle bg-card group-hover:bg-orange-50/50",
                                 c.minW,
                                 c.align === "center" ? "text-center" : "text-left",
-                                c.key === "company" && "sticky left-[44px] z-10",
+                                c.key === "company" && !readOnly && "sticky left-[44px] z-10",
                                 checked && "bg-orange-50/40",
                               )}
                             >
@@ -771,7 +775,7 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialog open={!readOnly && confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedIds.size} LMP{selectedIds.size > 1 ? "s" : ""}?</AlertDialogTitle>
@@ -794,4 +798,3 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
     </TooltipProvider>
   );
 }
-

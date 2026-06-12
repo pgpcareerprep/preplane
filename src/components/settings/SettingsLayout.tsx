@@ -11,13 +11,13 @@ type Item = { label: string; to: string; icon: LucideIcon; roles?: Array<"admin"
 
 const ITEMS: Item[] = [
   { label: "General",          to: "/settings",             icon: Settings },
-  { label: "Scoring Weights",  to: "/settings/scoring",     icon: Scale, roles: ["admin", "allocator"] },
+  { label: "Scoring Weights",  to: "/settings/scoring",     icon: Scale, roles: ["admin", "allocator", "poc"] },
   { label: "POC Domain Config",to: "/settings/poc-domains", icon: Users, roles: ["admin", "allocator"] },
-  { label: "Feedback Forms",   to: "/settings/feedback",    icon: ClipboardList, roles: ["admin", "allocator"] },
+  { label: "Feedback Forms",   to: "/settings/feedback",    icon: ClipboardList, roles: ["admin", "allocator", "poc"] },
   { label: "User Management",  to: "/settings/users",       icon: UserCog, roles: ["admin"] },
   { label: "AI Knowledge Base",to: "/settings/knowledge",   icon: Brain, roles: ["admin"] },
-  { label: "LMP Guide",        to: "/settings/lmp-guide",   icon: BookOpen, roles: ["admin", "allocator"] },
-  { label: "Notifications",    to: "/settings/notifications",icon: Bell, roles: ["admin", "allocator"] },
+  { label: "LMP Guide",        to: "/settings/lmp-guide",   icon: BookOpen, roles: ["admin", "allocator", "poc"] },
+  { label: "Notifications",    to: "/settings/notifications",icon: Bell, roles: ["admin", "allocator", "poc"] },
 ];
 
 export function SettingsLayout() {

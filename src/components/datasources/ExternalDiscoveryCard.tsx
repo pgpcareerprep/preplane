@@ -40,15 +40,15 @@ function formatExpires(meta: LinkedinCacheMeta | null, ttlH: number): string {
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
 }
 
-export function ExternalDiscoveryCard({ index = 3 }: { index?: number }) {
+export function ExternalDiscoveryCard({ index = 3, readOnly = false }: { index?: number; readOnly?: boolean }) {
   return (
     <ErrorBoundary fallbackTitle="External discovery unavailable">
-      <ExternalDiscoveryCardInner index={index} />
+      <ExternalDiscoveryCardInner index={index} readOnly={readOnly} />
     </ErrorBoundary>
   );
 }
 
-function ExternalDiscoveryCardInner({ index = 3 }: { index?: number }) {
+function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: number; readOnly?: boolean }) {
   const [cfg, setCfg] = useState<ExternalDiscoveryConfig>(() => {
     const { anyEnabled: _ignored, ...rest } = getExternalDiscoveryConfig();
     return rest;
@@ -211,17 +211,19 @@ function ExternalDiscoveryCardInner({ index = 3 }: { index?: number }) {
         </span>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-n100 flex items-center justify-end">
-        <button
-          onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-card border border-n300 hover:bg-n50 text-n800 text-[13px] font-medium px-3.5 py-2 transition-colors"
-        >
-          <Settings className="h-4 w-4" strokeWidth={1.5} />
-          View Settings
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="mt-6 pt-4 border-t border-n100 flex items-center justify-end">
+          <button
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-card border border-n300 hover:bg-n50 text-n800 text-[13px] font-medium px-3.5 py-2 transition-colors"
+          >
+            <Settings className="h-4 w-4" strokeWidth={1.5} />
+            View Settings
+          </button>
+        </div>
+      )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={!readOnly && open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>External Mentor Discovery — Settings</DialogTitle>
