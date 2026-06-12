@@ -33,13 +33,14 @@ const DIM_LABEL: Record<keyof Mentor["scores"], string> = {
 };
 
 export function MentorCard({
-  mentor, index, onShortlist, onView, onSelect,
+  mentor, index, onShortlist, onView, onSelect, readOnly = false,
 }: {
   mentor: Mentor;
   index: number;
   onShortlist: () => void;
   onView: () => void;
   onSelect: () => void;
+  readOnly?: boolean;
 }) {
   const meta = SOURCE_META[mentor.source];
   const [expanded, setExpanded] = useState(false);
@@ -190,7 +191,7 @@ export function MentorCard({
         >
           <Eye className="h-3 w-3" /> Profile
         </button>
-        <button
+        {!readOnly && <button
           onClick={onShortlist}
           className={cn(
             "inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[12px] font-medium transition-colors",
@@ -201,7 +202,7 @@ export function MentorCard({
         >
           <Star className={cn("h-3 w-3", mentor.shortlisted && "fill-yellow-500 text-yellow-500")} />
           {mentor.shortlisted ? "Shortlisted" : "Shortlist"}
-        </button>
+        </button>}
         <button
           onClick={() => setExpanded((v) => !v)}
           className="inline-flex items-center gap-1 rounded-md text-n500 hover:bg-n100 hover:text-n800 px-2 py-1.5 text-[12px] font-medium transition-colors"
@@ -215,12 +216,12 @@ export function MentorCard({
           </motion.span>
           {expanded ? "Less" : "Details"}
         </button>
-        <button
+        {!readOnly && <button
           onClick={onSelect}
           className="ml-auto inline-flex items-center gap-1 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[12px] font-medium px-3 py-1.5 shadow-sm transition-colors"
         >
           Select →
-        </button>
+        </button>}
       </div>
     </div>
 

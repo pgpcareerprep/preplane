@@ -4,9 +4,11 @@ import { cn } from "@/lib/utils";
 export function MentorsEmptyState({
   onRun,
   onAlign,
+  readOnly = false,
 }: {
   onRun: () => void;
   onAlign?: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl surface-ai-aura border border-plum-200 shadow-md p-12 text-center">
@@ -30,7 +32,7 @@ export function MentorsEmptyState({
         Run the AI matching engine to find the best mentors, or pick one manually from the mentor pool.
       </p>
 
-      <div className="relative mt-6 flex flex-col sm:flex-row justify-center gap-3 max-w-xl mx-auto">
+      {!readOnly && <div className="relative mt-6 flex flex-col sm:flex-row justify-center gap-3 max-w-xl mx-auto">
         <button
           onClick={onRun}
           className={cn(
@@ -53,7 +55,7 @@ export function MentorsEmptyState({
             Align Mentor
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

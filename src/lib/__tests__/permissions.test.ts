@@ -33,7 +33,7 @@ describe("canonical permission contract", () => {
 
   it("limits POC writes to assigned operational fields", () => {
     expect(canEditFieldFinal("poc", "daily_progress", "Assigned POC", assigned)).toBe(true);
-    expect(canEditFieldFinal("poc", "company", "Assigned POC", assigned)).toBe(true);
+    expect(canEditFieldFinal("poc", "company", "Assigned POC", assigned)).toBe(false);
     expect(canEditFieldFinal("poc", "domain", "Assigned POC", assigned)).toBe(false);
     expect(canEditFieldFinal("poc", "daily_progress", "Someone Else", assigned)).toBe(false);
     expect(POC_WRITABLE_LMP_COLUMNS).toContain("daily_progress");
@@ -43,7 +43,7 @@ describe("canonical permission contract", () => {
   it("treats an explicitly assigned outreach POC as an owner", () => {
     const outreach = { outreach_poc: "Outreach POC" };
     expect(getLmpAccessLevel("poc", "Outreach POC", outreach)).toBe("full");
-    expect(canEditFieldFinal("poc", "company", "Outreach POC", outreach)).toBe(true);
+    expect(canEditFieldFinal("poc", "company", "Outreach POC", outreach)).toBe(false);
     expect(canEditFieldFinal("poc", "domain", "Outreach POC", outreach)).toBe(false);
   });
 });

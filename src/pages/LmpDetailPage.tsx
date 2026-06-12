@@ -16,8 +16,8 @@ import { MentorsTab } from "@/components/lmp/detail/MentorsTab";
 import { SessionsLiveTab } from "@/components/lmp/detail/SessionsLiveTab";
 import { FeedbackTab } from "@/components/lmp/detail/FeedbackTab";
 import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
-import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useRole } from "@/lib/rolesContext";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { Eye } from "lucide-react";
 
 const TABS = ["Overview", "Mentors", "Sessions", "Feedback"] as const;
@@ -52,13 +52,17 @@ export default function LmpDetailPage() {
 
   // IMPORTANT: call all hooks before any early return so hook order stays stable
   // across renders (e.g. after the LMP is deleted and `lmp` flips to undefined).
-  const mode = useLmpMode((lmp ?? {}) as any);
   const { isLoading: isRoleLoading, user, role } = useRole();
+  const { canOperateLmp } = useLmpPermission(lmp ? {
+    prep_poc: lmp.prepPoc?.name,
+    support_poc: lmp.supportPoc?.name,
+    outreach_poc: lmp.outreachPoc?.name,
+  } : null);
   // Only treat as read-only once auth/role/POC profile have fully resolved.
   // Otherwise a Support POC would briefly see the read-only banner on every
   // page load while `pocProfileName` is still being fetched.
   const pocProfileReady = role === "admin" || !!user.pocProfileName || !!user.name;
-  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && mode === "summary";
+  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
 
   const backHref = from === "kanban" ? "/lmp" : "/lmp?view=cards";
 
@@ -92,7 +96,7 @@ export default function LmpDetailPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> Last Mile Prep
       </Link>
 
-      <StickyHeaderWithCount lmp={lmp} readOnly={readOnly} />
+      <StickyHeaderWithCount lmp={lmp} readOnly={false} />
 
       {readOnly && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[12.5px] flex items-center gap-2">
@@ -121,11 +125,7 @@ export default function LmpDetailPage() {
         </nav>
       </div>
 
-      <div
-        className="pt-2"
-        {...(readOnly ? { inert: "" as unknown as boolean } : {})}
-        aria-disabled={readOnly || undefined}
-      >
+      <div className="pt-2">
         {/* Keep all tabs mounted — toggle visibility so react-query caches,
             realtime subscriptions and local component state persist across
             tab switches (prevents candidate list / mentor shortlist flicker). */}

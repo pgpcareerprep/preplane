@@ -19,6 +19,7 @@ type Props = {
   mentorName: string;
   scheduledAt: string | null;
   token: string | null;
+  readOnly?: boolean;
 };
 
 type FB = {
@@ -38,6 +39,7 @@ export function StudentFeedbackDrawer({
   mentorName,
   scheduledAt,
   token,
+  readOnly = false,
 }: Props) {
   const { data: tpl } = useFeedbackTemplate("student");
 
@@ -80,7 +82,7 @@ export function StudentFeedbackDrawer({
           </p>
         </SheetHeader>
 
-        {link && (
+        {link && !readOnly && (
           <div className="mt-4 rounded-lg border border-n200 bg-n50 px-3 py-2 flex items-center gap-2">
             <span className="text-[11.5px] text-n600 truncate flex-1" title={link}>{link}</span>
             <button
@@ -124,7 +126,7 @@ export function StudentFeedbackDrawer({
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[12px] text-n500">Feedback not submitted yet.</span>
-                      {link && (
+                      {link && !readOnly && (
                         <button
                           onClick={copyLink}
                           className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 text-[12px] font-medium"

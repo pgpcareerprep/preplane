@@ -295,6 +295,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
   }, [collapsedSessions, mentorName]);
 
   const copyLink = async (sessionId: string) => {
+    if (readOnly) return;
     try {
       await copySessionFeedbackLink(sessionId);
       toast.success("Fresh student feedback link copied");
@@ -304,7 +305,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
   };
 
   const regenerate = async () => {
-    if (!regenId) return;
+    if (readOnly || !regenId) return;
     try {
       await issueSessionFeedbackToken(regenId);
       toast.success("Feedback link rotated");
@@ -500,7 +501,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
         ))}
       </div>
 
-      <Dialog open={!!regenId} onOpenChange={(o) => !o && setRegenId(null)}>
+      <Dialog open={!!regenId && !readOnly} onOpenChange={(o) => !o && setRegenId(null)}>
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="text-[18px] font-semibold text-n900">Regenerate token?</DialogTitle>
@@ -537,6 +538,7 @@ export function FeedbackTab({ reqId: lmpId, readOnly = false }: { reqId: string;
             mentorName={mentorName(row)}
             scheduledAt={row.scheduled_at}
             token={row.student_feedback_token}
+            readOnly={readOnly}
           />
         );
       })()}

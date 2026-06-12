@@ -22,6 +22,7 @@ import { useLmpProcesses, usePocProfiles } from "@/lib/hooks/useDbData";
 import { resolvePocEmail } from "@/lib/poc/resolvePocEmail";
 import { getJd, fetchJdFromDb, useJd, type JdData } from "@/lib/jdStore";
 import { supabase } from "@/integrations/supabase/client";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 
 export function UnifiedOverviewTab({
   lmp,
@@ -37,6 +38,12 @@ export function UnifiedOverviewTab({
   const saveNextDateDb = useSaveNextProgressDate();
   const { data: dbProcesses = [] } = useLmpProcesses();
   const { data: pocProfiles = [] } = usePocProfiles();
+  const { canManageLmp, canOperateLmp } = useLmpPermission({
+    prep_poc: lmp.prepPoc?.name,
+    support_poc: lmp.supportPoc?.name,
+    outreach_poc: lmp.outreachPoc?.name,
+  });
+  const operationalReadOnly = readOnly || !canOperateLmp;
 
   const dbRow = useMemo(() => {
     return (dbProcesses as any[]).find(
@@ -58,6 +65,7 @@ export function UnifiedOverviewTab({
 
   const handleSaveProgress = useCallback(
     async (text: string) => {
+      if (operationalReadOnly) return;
       const today = new Date().toLocaleDateString("en-IN", {
         day: "2-digit",
         month: "2-digit",
@@ -77,12 +85,13 @@ export function UnifiedOverviewTab({
         patch: { dailyProgress: next },
       });
     },
-    [lmp.id, updateMutation],
+    [lmp.id, operationalReadOnly, updateMutation],
   );
 
 
   const handleSaveNextDate = useCallback(
     (date: string, type?: string) => {
+      if (operationalReadOnly) return;
       const reminderType = type || "Follow-up";
       const safeDate = date && date.trim() !== "" ? date : null;
       updateMutation.mutate({ id: lmp.id, patch: { nextExpectedProgress: safeDate ?? "", nextExpectedType: reminderType } });
@@ -95,12 +104,13 @@ export function UnifiedOverviewTab({
         });
       }
     },
-    [lmp.id, prepPocEmail, dbLmpId, updateMutation, saveNextDateDb],
+    [lmp.id, prepPocEmail, dbLmpId, operationalReadOnly, updateMutation, saveNextDateDb],
   );
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
   const handleChecklistToggle = useCallback(
     (sheetKey: string, newValue: boolean) => {
+      if (operationalReadOnly) return;
       setPendingChecklist((p) => ({ ...p, [sheetKey]: newValue }));
       updateMutation.mutate(
         { id: lmp.id, patch: { [sheetKey]: newValue } },
@@ -116,7 +126,7 @@ export function UnifiedOverviewTab({
       );
       toast.success(newValue ? "Checklist item marked done" : "Checklist item reopened");
     },
-    [lmp.id, updateMutation],
+    [lmp.id, operationalReadOnly, updateMutation],
   );
 
   // Documents — shared JSON array on lmp_processes.documents (checklist + general).
@@ -207,12 +217,12 @@ export function UnifiedOverviewTab({
 
   return (
     <div className="space-y-4">
-      <JdCollapsible lmp={lmp} readOnly={readOnly} />
+      <JdCollapsible lmp={lmp} readOnly={!canManageLmp} />
 
       {/* Daily Progress — full-width action card */}
       <DailyProgressCard
         lmpId={lmpId}
-        mode={readOnly ? "summary" : "action"}
+        mode={operationalReadOnly ? "summary" : "action"}
         onSaveProgress={handleSaveProgress}
         onSaveNextDate={handleSaveNextDate}
         initialPrepProgress={lmp.prepProgress}
@@ -227,7 +237,7 @@ export function UnifiedOverviewTab({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChecklistCard
           lmpId={lmpId}
-          mode={readOnly ? "summary" : "action"}
+          mode={operationalReadOnly ? "summary" : "action"}
           sheetValues={{
             mentorAligned: pendingChecklist.mentorAligned ?? lmp.mentorAligned,
             prepDocShared: pendingChecklist.prepDocShared ?? lmp.prepDocShared,
@@ -240,16 +250,16 @@ export function UnifiedOverviewTab({
           onUpdateDocument={handleUpdateDocument}
           onRemoveDocument={handleRemoveDocument}
         />
-        <SessionsActionCard reqId={lmpId} onOpenSessionsTab={onOpenSessionsTab} readOnly={readOnly} />
+        <SessionsActionCard reqId={lmpId} onOpenSessionsTab={onOpenSessionsTab} readOnly={operationalReadOnly} />
       </div>
 
       {/* Pipeline */}
-      <InteractivePipelineCard lmpId={lmpId} lmp={lmp} readOnly={readOnly} />
+      <InteractivePipelineCard lmpId={lmpId} lmp={lmp} readOnly={operationalReadOnly} canManage={canManageLmp} />
 
 
       {/* Documents */}
       <DocumentsCard
-        mode={readOnly ? "summary" : "action"}
+        mode={canManageLmp ? "action" : "summary"}
         documents={currentDocs}
         onAdd={handleAddDocuments}
         onUpdate={handleUpdateDocument}
@@ -257,7 +267,7 @@ export function UnifiedOverviewTab({
       />
 
       {/* Activity Timeline */}
-      <ActivityTimelineCard lmpId={lmpId} />
+      <ActivityTimelineCard lmpId={lmpId} readOnly={operationalReadOnly} />
 
       {/* POC Assignment */}
       <PocRow lmp={lmp} />

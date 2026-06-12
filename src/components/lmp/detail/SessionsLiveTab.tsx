@@ -128,6 +128,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
 
   const updateStatus = useMutation({
     mutationFn: async ({ ids, patch }: { ids: string[]; patch: Record<string, any> }) => {
+      if (readOnly) throw new Error("Only an assigned POC can update sessions.");
       const { error } = await supabase.from("sessions").update(patch as any).in("id", ids);
       if (error) throw error;
     },
@@ -140,6 +141,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
 
   const deleteSessions = useMutation({
     mutationFn: async (ids: string[]) => {
+      if (readOnly) throw new Error("Only an assigned POC can delete sessions.");
       const { error } = await supabase.from("sessions").delete().in("id", ids);
       if (error) throw error;
     },
@@ -152,11 +154,13 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
   });
 
   const handleDelete = (g: GroupedSession) => {
+    if (readOnly) return;
     if (!confirm("Delete this session? This cannot be undone.")) return;
     deleteSessions.mutate(g.sessionIds);
   };
 
   const handleMarkComplete = (g: GroupedSession) => {
+    if (readOnly) return;
     updateStatus.mutate(
       {
         ids: g.sessionIds,
@@ -179,18 +183,21 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
     );
   };
   const handleNoShow = (g: GroupedSession) => {
+    if (readOnly) return;
     updateStatus.mutate({ ids: g.sessionIds, patch: { status: "no-show" } }, { onSuccess: () => toast.success("Marked as no-show") });
   };
   const handleCancel = (g: GroupedSession) => {
+    if (readOnly) return;
     if (!confirm("Cancel this session?")) return;
     updateStatus.mutate({ ids: g.sessionIds, patch: { status: "cancelled" } }, { onSuccess: () => toast.success("Session cancelled") });
   };
   const openReschedule = (g: GroupedSession) => {
+    if (readOnly) return;
     setReschedRow({ ...g.primary, __ids: g.sessionIds });
     setReschedAt(g.primary.scheduled_at ? new Date(g.primary.scheduled_at).toISOString().slice(0, 16) : "");
   };
   const confirmReschedule = () => {
-    if (!reschedRow || !reschedAt) return;
+    if (readOnly || !reschedRow || !reschedAt) return;
     const oldLabel = reschedRow.scheduled_at ? new Date(reschedRow.scheduled_at).toLocaleString() : "unscheduled";
     const ids: string[] = reschedRow.__ids ?? [reschedRow.id];
     updateStatus.mutate(
@@ -296,7 +303,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
                   <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize", STATUS_CLS[s.status] || "bg-n100 text-n600 border-n200")}>
                     {s.status}
                   </span>
-                  <DropdownMenu>
+                  {!readOnly && <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
                         className="h-7 w-7 inline-flex items-center justify-center rounded-md text-n500 hover:text-n800 hover:bg-n100"
@@ -316,11 +323,11 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
                         <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete session
                       </DropdownMenuItem>
                     </DropdownMenuContent>
-                  </DropdownMenu>
+                  </DropdownMenu>}
                 </div>
 
                 {/* Action row */}
-                <div className="mt-3 flex flex-wrap gap-2 pl-14">
+                {!readOnly && <div className="mt-3 flex flex-wrap gap-2 pl-14">
                   {s.status === "scheduled" && (
                     <>
                       <ActBtn variant="primary" onClick={() => handleMarkComplete(g)} disabled={updateStatus.isPending}>Mark Complete</ActBtn>
@@ -351,7 +358,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
                   {s.status === "rescheduled" && (
                     <span className="text-[12px] text-n500">Awaiting new session start</span>
                   )}
-                </div>
+                </div>}
               </div>
             );
           })}
@@ -414,10 +421,10 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
         </DialogContent>
       </Dialog>
 
-      <CreateSessionDialog open={open} onOpenChange={setOpen} lmpId={lmpId} />
+      <CreateSessionDialog open={open && !readOnly} onOpenChange={setOpen} lmpId={lmpId} />
 
       <EditSessionDialog
-        open={!!editGroup}
+        open={!!editGroup && !readOnly}
         onOpenChange={(o) => !o && setEditGroup(null)}
         lmpId={lmpId}
         group={editGroup}
@@ -425,7 +432,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
 
       {/* POC Feedback Modal */}
       <POCFeedbackModal
-        open={!!feedbackRow}
+        open={!!feedbackRow && !readOnly}
         onOpenChange={(o) => !o && setFeedbackRow(null)}
         session={feedbackRow ? toMockSession(feedbackRow.row) : null}
         dbSessionId={feedbackRow?.row.id}
@@ -437,7 +444,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
       />
 
       {/* Share student link modal (re-uses POCFeedbackModal success state semantics) */}
-      <Dialog open={!!shareRow} onOpenChange={(o) => !o && setShareRow(null)}>
+      <Dialog open={!!shareRow && !readOnly} onOpenChange={(o) => !o && setShareRow(null)}>
         <DialogContent className="max-w-[480px]">
           <DialogHeader><DialogTitle>Share student feedback link</DialogTitle></DialogHeader>
           {shareRow?.student_feedback_token ? (
@@ -452,7 +459,7 @@ export function SessionsLiveTab({ lmpId, readOnly = false }: { lmpId: string; re
       </Dialog>
 
       {/* Reschedule modal */}
-      <Dialog open={!!reschedRow} onOpenChange={(o) => !o && setReschedRow(null)}>
+      <Dialog open={!!reschedRow && !readOnly} onOpenChange={(o) => !o && setReschedRow(null)}>
         <DialogContent className="max-w-[420px]">
           <DialogHeader><DialogTitle>Reschedule session</DialogTitle></DialogHeader>
           <div className="space-y-2">

@@ -151,7 +151,7 @@ function DraggableCard({ id, children }: { id: string; children: (dragHandleProp
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpId: string; lmp?: LmpRecord; readOnly?: boolean }) {
+export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManage = false }: { lmpId: string; lmp?: LmpRecord; readOnly?: boolean; canManage?: boolean }) {
   const [addOpen, setAddOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const addMutation = useAddLmpCandidates();
@@ -181,6 +181,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
   const sensors = useSensors(mouseSensor, touchSensor);
 
   function handleDragStart(event: DragStartEvent) {
+    if (readOnly) return;
     const activeId = event.active.id as string;
     for (let ci = 0; ci < columns.length; ci++) {
       const col = columns[ci];
@@ -197,6 +198,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (readOnly) return;
     setOverId(null);
     setActiveItem(null);
     const { active, over } = event;
@@ -228,8 +230,8 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
           </button>
           <button
             onClick={() => setConfigOpen(true)}
-            disabled={readOnly}
-            title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+            disabled={!canManage}
+            title={!canManage ? "Only admin or allocator can configure rounds" : undefined}
             className="inline-flex items-center gap-1.5 rounded-md bg-card border border-n300 hover:bg-n100 text-n800 text-[12.5px] font-medium px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"
           >
             <Settings2 className="h-3.5 w-3.5" /> Configure Rounds
@@ -275,7 +277,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
                       const isDb = item.source === "db" && !!item.id;
                       const card = (
                         <div className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm">
-                          {isDb ? (
+                          {isDb && !readOnly ? (
                             <span
                               className="cursor-grab active:cursor-grabbing text-n300 hover:text-n600 shrink-0 h-4 w-4 flex items-center justify-center"
                               title="Drag to move"
@@ -294,9 +296,9 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
                             {initialsFrom(item.name)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-[12.5px] text-n800 font-medium truncate">{item.name}</div>
+                            <div className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={item.name}>{item.name}</div>
                           </div>
-                          {isDb ? (
+                          {isDb && !readOnly ? (
                             <>
                               <select
                                 value={col.id}
@@ -335,7 +337,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
                         </div>
                       );
 
-                      if (!isDb) {
+                      if (!isDb || readOnly) {
                         return <div key={`${col.id}-${i}-${item.name}`}>{card}</div>;
                       }
                       return (
@@ -358,7 +360,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
                                 {initialsFrom(item.name)}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="text-[12.5px] text-n800 font-medium truncate">{item.name}</div>
+                                <div className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={item.name}>{item.name}</div>
                               </div>
                               <select
                                 value={col.id}
@@ -403,7 +405,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
                 <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0", CANDIDATE_COLORS[activeItem.colorIdx])}>
                   {initialsFrom(activeItem.name)}
                 </div>
-                <span className="text-[12.5px] text-n800 font-medium truncate">{activeItem.name}</span>
+                <span className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={activeItem.name}>{activeItem.name}</span>
               </div>
             )}
           </DragOverlay>
@@ -418,7 +420,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
       )}
 
       <AddCandidatesModal
-        open={addOpen}
+        open={addOpen && !readOnly}
         onOpenChange={setAddOpen}
         existingIds={existingStudentIds}
         rounds={rounds}
@@ -443,22 +445,22 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false }: { lmpI
       />
 
       <RoundConfigModal
-        open={configOpen}
+        open={configOpen && canManage}
         onOpenChange={setConfigOpen}
         rounds={rounds}
         hasCandidates={hasAnyData}
-        onSave={(rs) => saveRoundsMutation.mutate(rs)}
+        onSave={(rs) => { if (canManage) saveRoundsMutation.mutate(rs); }}
       />
 
       <ConfirmDialog
-        open={!!pendingDelete}
+        open={!!pendingDelete && !readOnly}
         onOpenChange={(o) => { if (!o) setPendingDelete(null); }}
         title={pendingDelete ? `Remove ${pendingDelete.name}?` : "Remove candidate?"}
         description="This unlinks the candidate from this LMP process. You can re-add them later."
         confirmLabel="Remove"
         tone="danger"
         onConfirm={() => {
-          if (!pendingDelete) return;
+          if (!pendingDelete || readOnly) return;
           deleteMutation.mutate({ id: pendingDelete.id, lmp_id: dbLmpId });
           setPendingDelete(null);
         }}

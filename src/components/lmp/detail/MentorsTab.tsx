@@ -281,7 +281,9 @@ function MentorsTabImpl({
       );
   }, [suggested, filters, sort]);
 
-  const openMatchContext = () => setMatchContextOpen(true);
+  const openMatchContext = () => {
+    if (!readOnly) setMatchContextOpen(true);
+  };
 
   const yieldFrame = (ms = 80) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -290,6 +292,7 @@ function MentorsTabImpl({
   };
 
   const runMatching = (context: MatchContext) => {
+    if (readOnly) return;
     setMatchContextOpen(false);
     setMatchingErrors([]);
     cancelMatchingRef.current = false;
@@ -494,6 +497,7 @@ function MentorsTabImpl({
   }
 
   const toggleShortlist = async (m: Mentor) => {
+    if (readOnly) return;
     if (shortlistedIds.has(m.id)) {
       setState((prev) => ({
         shortlisted: prev.shortlisted.filter((s) => s.mentor.id !== m.id),
@@ -532,6 +536,7 @@ function MentorsTabImpl({
   };
 
   const removeShortlist = (id: string) => {
+    if (readOnly) return;
     setState((prev) => ({
       shortlisted: prev.shortlisted.filter((s) => s.mentor.id !== id),
       suggested: prev.suggested.map((x) => x.id === id ? { ...x, shortlisted: false } : x),
@@ -543,10 +548,12 @@ function MentorsTabImpl({
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const removeFromReview = (id: string) => {
+    if (readOnly) return;
     setState((prev) => ({ suggested: prev.suggested.filter((m) => m.id !== id) }));
   };
 
   const handleReviewDragEnd = (e: DragEndEvent) => {
+    if (readOnly) return;
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     setState((prev) => {
@@ -558,6 +565,7 @@ function MentorsTabImpl({
   };
 
   const confirmTop5 = async () => {
+    if (readOnly) return;
     const prev = state;
     const top = prev.suggested.slice(0, 5);
     const stamp = nowStamp();
@@ -594,6 +602,7 @@ function MentorsTabImpl({
   };
 
   const confirmAssignment = async (draft: AssignmentDraft) => {
+    if (readOnly) return;
     const mentor = assignTarget;
     const round = rounds.find((r) => r.id === draft.roundId);
     if (!mentor || !round) return;
@@ -661,6 +670,7 @@ function MentorsTabImpl({
   };
 
   const unassign = async (id: string) => {
+    if (readOnly) return;
     const target = state.assignments.find((a) => a.id === id);
     setState((prev) => ({ assignments: prev.assignments.filter((a) => a.id !== id) }));
     // Persist deletion: clear mentor_id from the specific candidate row only,
@@ -711,6 +721,7 @@ function MentorsTabImpl({
   // Direct align (manual mentor pick) — upserts to lmp_mentors and pushes into shortlisted
   // so the empty state cannot re-appear after refresh.
   const alignMentorDirect = async (mentor: Mentor) => {
+    if (readOnly) return;
     const { data, error: upErr } = await (supabase as any).rpc("align_mentor_to_lmp", {
       p_lmp_id: reqId,
       p_mentor: mentor,
@@ -752,9 +763,10 @@ function MentorsTabImpl({
         <MentorsEmptyState
           onRun={openMatchContext}
           onAlign={() => setAlignOpen(true)}
+          readOnly={readOnly}
         />
         <MatchContextModal
-          open={matchContextOpen}
+          open={matchContextOpen && !readOnly}
           onOpenChange={setMatchContextOpen}
           lmpId={reqId}
           role={role}
@@ -765,7 +777,7 @@ function MentorsTabImpl({
           dbMentorCount={allMentors.length}
         />
         <AlignMentorModal
-          open={alignOpen}
+          open={alignOpen && !readOnly}
           onOpenChange={setAlignOpen}
           onAlign={alignMentorDirect}
           role={role}
@@ -979,6 +991,7 @@ function MentorsTabImpl({
                           onView={() => setProfile(m)}
                           onSelect={() => setAssignTarget(m)}
                           onRemove={removeFromReview}
+                          readOnly={readOnly}
                         />
                       ))}
                     </div>
@@ -1026,6 +1039,7 @@ function MentorsTabImpl({
                               onShortlist={() => toggleShortlist(m)}
                               onView={() => setProfile(m)}
                               onSelect={() => setAssignTarget(m)}
+                              readOnly={readOnly}
                             />
                           ))}
                         </div>
@@ -1067,12 +1081,13 @@ function MentorsTabImpl({
           })()}
           onAssign={(m) => setAssignTarget(m)}
           onRemove={removeShortlist}
+          readOnly={readOnly}
         />
       )}
 
       {subTab === "assigned" && (
         <div className="space-y-6">
-          <AssignedTable assignments={assignments} onUnassign={unassign} />
+          <AssignedTable assignments={assignments} onUnassign={unassign} readOnly={readOnly} />
           <div className="rounded-2xl border border-n200 bg-card p-4 shadow-sm">
             <SessionsLiveTab lmpId={reqId} readOnly={readOnly} />
           </div>
@@ -1086,7 +1101,7 @@ function MentorsTabImpl({
       />
 
       <AssignMentorModal
-        open={!!assignTarget}
+        open={!!assignTarget && !readOnly}
         onOpenChange={(o) => !o && setAssignTarget(null)}
         mentor={assignTarget}
         candidates={candidates}
@@ -1124,7 +1139,7 @@ function MentorsTabImpl({
       </Dialog>
 
       <MatchContextModal
-        open={matchContextOpen}
+        open={matchContextOpen && !readOnly}
         onOpenChange={setMatchContextOpen}
         lmpId={reqId}
         role={role}
@@ -1136,7 +1151,7 @@ function MentorsTabImpl({
       />
 
       <AlignMentorModal
-        open={alignOpen}
+        open={alignOpen && !readOnly}
         onOpenChange={setAlignOpen}
         onAlign={alignMentorDirect}
         role={role}

@@ -12,10 +12,12 @@ export function ShortlistedTable({
   entries,
   onAssign,
   onRemove,
+  readOnly = false,
 }: {
   entries: ShortlistEntry[];
   onAssign: (m: Mentor) => void;
   onRemove: (id: string) => void;
+  readOnly?: boolean;
 }) {
   if (entries.length === 0) {
     return (
@@ -38,7 +40,7 @@ export function ShortlistedTable({
             <Th>Domain</Th>
             <Th>Experience</Th>
             <Th>Shortlisted</Th>
-            <Th className="text-right">Actions</Th>
+            {!readOnly && <Th className="text-right">Actions</Th>}
           </tr>
         </thead>
         <tbody>
@@ -58,7 +60,7 @@ export function ShortlistedTable({
               <Td className="text-n700">{m.role}</Td>
               <Td className="text-n700">{m.seniority} · {m.company}</Td>
               <Td className="text-n500 tabular-nums">{shortlistedAt}</Td>
-              <Td className="text-right">
+              {!readOnly && <Td className="text-right">
                 <div className="inline-flex items-center gap-1.5">
                   <button
                     onClick={() => onAssign(m)}
@@ -74,7 +76,7 @@ export function ShortlistedTable({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              </Td>
+              </Td>}
             </tr>
           ))}
         </tbody>

@@ -241,13 +241,11 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       return isPocOnRecord(rec, target);
     };
 
-    const modeFor = (rec: LmpRecord): LmpInteractionMode => {
-      if (role === "admin" || role === "allocator") return "action";
-      return isUserOperationalPoc(rec, matchName) ? "action" : "summary";
-    };
+    const modeFor = (rec: LmpRecord): LmpInteractionMode =>
+      isUserOperationalPoc(rec, matchName) ? "action" : "summary";
 
     return { target, setTarget, pocOptions, modeFor, filterFor, currentUserName: matchName };
-  }, [target, pocOptions, matchName, role, setTarget]);
+  }, [target, pocOptions, matchName, setTarget]);
 
   return <ViewingContext.Provider value={value}>{children}</ViewingContext.Provider>;
 }

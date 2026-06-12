@@ -60,7 +60,7 @@ const KIND_DOT: Record<TimelineEntryKind, string> = {
 
 const COLLAPSED_LIMIT = 3;
 
-export function ActivityTimelineCard({ lmpId }: { lmpId: string }) {
+export function ActivityTimelineCard({ lmpId, readOnly = false }: { lmpId: string; readOnly?: boolean }) {
   const all = useTimeline(lmpId);
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("all");
@@ -118,7 +118,7 @@ export function ActivityTimelineCard({ lmpId }: { lmpId: string }) {
           <ul className="relative pl-5 space-y-3">
             <span className="absolute left-1.5 top-1 bottom-1 w-px bg-n200" />
             {items.map((e) => (
-              <TimelineRow key={e.id} entry={e} lmpId={lmpId} />
+              <TimelineRow key={e.id} entry={e} lmpId={lmpId} readOnly={readOnly} />
             ))}
           </ul>
           {filtered.length > COLLAPSED_LIMIT && (
@@ -147,13 +147,13 @@ export function ActivityTimelineCard({ lmpId }: { lmpId: string }) {
   );
 }
 
-function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string }) {
+function TimelineRow({ entry: e, lmpId, readOnly }: { entry: TimelineEntry; lmpId: string; readOnly: boolean }) {
   const Icon = KIND_ICON[e.kind] ?? Activity;
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submit = useCallback(async () => {
-    if (!text.trim() || submitting) return;
+    if (readOnly || !text.trim() || submitting) return;
     setSubmitting(true);
     try {
       await addTimelineComment(lmpId, e.id, text);
@@ -164,7 +164,7 @@ function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string 
     } finally {
       setSubmitting(false);
     }
-  }, [text, submitting, lmpId, e.id]);
+  }, [text, submitting, lmpId, e.id, readOnly]);
   return (
     <li className="relative">
       <span
@@ -193,14 +193,14 @@ function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string 
                 </span>
               </>
             )}
-            <button
+            {!readOnly && <button
               type="button"
               onClick={() => setOpen((v) => !v)}
               className="ml-auto inline-flex items-center gap-1 text-n500 hover:text-orange-600"
             >
               <MessageSquarePlus className="h-3 w-3" />
               {e.comments?.length ? `${e.comments.length} comment${e.comments.length > 1 ? "s" : ""}` : "Comment"}
-            </button>
+            </button>}
           </div>
 
           {(e.comments?.length ?? 0) > 0 && (
@@ -214,7 +214,7 @@ function TimelineRow({ entry: e, lmpId }: { entry: TimelineEntry; lmpId: string 
             </ul>
           )}
 
-          {open && (
+          {open && !readOnly && (
             <div className="mt-1.5 flex items-center gap-1.5">
               <input
                 value={text}

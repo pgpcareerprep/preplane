@@ -35,9 +35,11 @@ type Group = {
 export function AssignedTable({
   assignments,
   onUnassign,
+  readOnly = false,
 }: {
   assignments: Assignment[];
   onUnassign: (id: string) => void;
+  readOnly?: boolean;
 }) {
   const [openGroup, setOpenGroup] = useState<Group | null>(null);
 
@@ -75,7 +77,7 @@ export function AssignedTable({
               <Th>Round</Th>
               <Th>Role</Th>
               <Th>Status</Th>
-              <Th className="text-right">Actions</Th>
+              {!readOnly && <Th className="text-right">Actions</Th>}
             </tr>
           </thead>
           <tbody>
@@ -126,7 +128,7 @@ export function AssignedTable({
                       {aggStatus}
                     </span>
                   </Td>
-                  <Td className="text-right">
+                  {!readOnly && <Td className="text-right">
                     {isGroup ? (
                       <button
                         onClick={() => setOpenGroup(g)}
@@ -143,7 +145,7 @@ export function AssignedTable({
                         <X className="h-3.5 w-3.5" /> Unassign
                       </button>
                     )}
-                  </Td>
+                  </Td>}
                 </tr>
               );
             })}
@@ -178,7 +180,7 @@ export function AssignedTable({
                       <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", STATUS_STYLE[a.status])}>
                         {a.status}
                       </span>
-                      <button
+                      {!readOnly && <button
                         onClick={() => {
                           onUnassign(a.id);
                           // Close if this was the last one
@@ -189,7 +191,7 @@ export function AssignedTable({
                         className="inline-flex items-center gap-1 rounded-md border border-n300 bg-card text-n700 hover:bg-n100 text-[12px] font-medium px-2.5 py-1 transition-colors"
                       >
                         <X className="h-3 w-3" /> Unassign
-                      </button>
+                      </button>}
                     </div>
                   </div>
                 );

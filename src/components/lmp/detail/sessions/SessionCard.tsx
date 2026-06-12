@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { type Session, STATUS_META } from "@/lib/session";
 
 export function SessionCard({
-  session, sessions, index, onComplete, onNoShow, onReschedule, onCancel, onFillFeedback, onSendReminder,
+  session, sessions, index, onComplete, onNoShow, onReschedule, onCancel, onFillFeedback, onSendReminder, readOnly = false,
 }: {
   session: Session;
   sessions?: Session[]; // when present and length > 1, render grouped variant
@@ -15,6 +15,7 @@ export function SessionCard({
   onCancel: () => void;
   onFillFeedback: () => void;
   onSendReminder: () => void;
+  readOnly?: boolean;
 }) {
   const meta = STATUS_META[session.status];
   const isGroup = !!sessions && sessions.length > 1;
@@ -105,7 +106,7 @@ export function SessionCard({
         </span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      {!readOnly && <div className="mt-4 flex flex-wrap items-center gap-2">
         {session.status === "scheduled" && (
           <>
             <Btn variant="primary-sage" onClick={onComplete}>Mark Complete</Btn>
@@ -134,7 +135,7 @@ export function SessionCard({
         {session.status === "closed" && (
           <Btn variant="ghost" onClick={() => {}}>View Summary</Btn>
         )}
-      </div>
+      </div>}
     </motion.article>
   );
 }
