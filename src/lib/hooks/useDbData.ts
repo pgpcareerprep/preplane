@@ -77,7 +77,7 @@ export function useLmpProcesses(filters?: { domain?: string; status?: string; po
     queryFn: async () =>
       withCache(queryKey, async () => {
         // Bump explicit limit past Supabase's 1000 default so all 344+ LMP processes render.
-        let q = supabase.from("lmp_processes").select("*, domains(name, slug)").order("updated_at", { ascending: false }).limit(5000);
+        let q = supabase.from("lmp_processes").select("*, domains(name, slug)").order("created_at", { ascending: false }).limit(5000);
         if (filters?.status) {
           q = q.eq("status", filters.status);
         } else if (!filters?.includeArchived) {
@@ -857,7 +857,7 @@ export function useLmpProcessesOverview(limit = 200) {
         const { data, error } = await (supabase as any)
           .from("lmp_processes_overview")
           .select("*")
-          .order("updated_at", { ascending: false })
+          .order("created_at", { ascending: false })
           .limit(limit);
         if (error) throw error;
         return data ?? [];
@@ -1270,7 +1270,7 @@ export function useLmpFullView() {
       const { data, error } = await supabase
         .from("lmp_full_view" as any)
         .select("*")
-        .order("updated_at", { ascending: false });
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];
     },

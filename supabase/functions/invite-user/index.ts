@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!["admin", "allocator", "poc", "allocator"].includes(cleanRole)) {
+    if (!["admin", "allocator", "poc"].includes(cleanRole)) {
       return new Response(JSON.stringify({ error: "invalid role" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -67,8 +67,8 @@ Deno.serve(async (req) => {
     // BUG-R3: dedupe + 60s cooldown per email so admins can't spam invites.
     const { data: existing } = await admin
       .from("profiles")
-      .select("user_id, updated_at, access_status")
-      .eq("email", cleanEmail)
+      .select("id, user_id, updated_at, access_status")
+      .ilike("email", cleanEmail)
       .maybeSingle();
 
     if (existing?.user_id && existing.access_status === "approved") {
@@ -90,20 +90,37 @@ Deno.serve(async (req) => {
     }
 
     // Pre-create the profile so the role is set when handle_new_user fires.
-    const { error: profErr } = await admin.from("profiles").upsert(
-      {
-        display_name: cleanName,
-        email: cleanEmail,
-        role: cleanRole,
-        access_status: "approved",
-        is_active: true,
-      },
-      { onConflict: "email" },
-    );
+    const profileValues = {
+      display_name: cleanName,
+      email: cleanEmail,
+      role: cleanRole,
+      access_status: "approved",
+      is_active: true,
+    };
+    const { error: profErr } = existing?.id
+      ? await admin.from("profiles").update(profileValues).eq("id", existing.id)
+      : await admin.from("profiles").insert(profileValues);
     if (profErr) throw profErr;
 
-    // Matching poc_profiles row is created automatically by the
-    // trg_sync_profile_to_poc trigger on the profiles table.
+    // User Management only adds users to the allocation roster when their
+    // explicit access role is POC. Existing POC allocation fields are never
+    // overwritten during access-profile linking.
+    if (cleanRole === "poc") {
+      const { data: existingPoc, error: pocLookupError } = await admin
+        .from("poc_profiles")
+        .select("id")
+        .ilike("email", cleanEmail)
+        .maybeSingle();
+      if (pocLookupError) throw pocLookupError;
+
+      if (!existingPoc) {
+        const { error: pocInsertError } = await admin.from("poc_profiles").insert({
+          name: cleanName,
+          email: cleanEmail,
+        });
+        if (pocInsertError) throw pocInsertError;
+      }
+    }
 
     // Send invite email
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(cleanEmail, {

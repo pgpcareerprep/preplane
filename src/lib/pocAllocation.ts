@@ -307,7 +307,11 @@ function activePocs(pool: PocCapability[]) {
 
 function eligible(pool: PocCapability[]) {
   return pool.filter(
-    (p) => p.availability === "available" && p.currentLoad < p.maxThreshold,
+    (p) =>
+      p.availability === "available" &&
+      p.currentLoad < p.maxThreshold &&
+      Array.isArray(p.domains) &&
+      p.domains.length > 0,
   );
 }
 
@@ -538,7 +542,9 @@ export function allocatePoc(
 
     const canReuse = (poc: PocCapability) =>
       poc.availability === "available" &&
-      poc.currentLoad < poc.maxThreshold;
+      poc.currentLoad < poc.maxThreshold &&
+      Array.isArray(poc.domains) &&
+      poc.domains.length > 0;
 
     const buildResult = (
       matchedPoc: PocCapability,

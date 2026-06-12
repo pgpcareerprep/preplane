@@ -36,6 +36,13 @@ function rowToCapability(r: any): PocCapability {
     : rt === "outreach_poc" ? "outreach"
     : rt === "support_poc" ? "cross"
     : "domain";
+  const normalizedStatus = String(r.status ?? "active").trim().toLowerCase();
+  const availability: PocCapability["availability"] =
+    normalizedStatus === "inactive" || normalizedStatus === "deactivated"
+      ? "deactivated"
+      : normalizedStatus === "on_leave" || normalizedStatus === "leave"
+        ? "on_leave"
+        : "available";
   return {
     id: r.id ?? r.poc_id ?? undefined,
     name: r.name,
@@ -50,7 +57,7 @@ function rowToCapability(r: any): PocCapability {
     maxThreshold: Number(r.max_threshold ?? 8),
     skillTags: Array.isArray(r.skill_tags) ? r.skill_tags : [],
     lastAssignedAt: r.last_assigned_at ?? r.last_activity_at ?? "",
-    availability: r.status === "inactive" ? "deactivated" : "available",
+    availability,
     behavioralPoolMember: !!r.behavioral_pool_member,
     companyExperience: Array.isArray(r.company_experience) ? r.company_experience : [],
     recruiterOwnership: Array.isArray(r.recruiter_ownership) ? r.recruiter_ownership : [],

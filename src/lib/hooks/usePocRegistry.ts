@@ -65,7 +65,9 @@ export function mapPocProfile(p: any): PocRegistryEntry {
 }
 
 export function isEligiblePoc(entry: PocRegistryEntry): boolean {
-  return entry.availability === "available" && entry.max_threshold > 0;
+  return entry.availability === "available" &&
+    entry.max_threshold > 0 &&
+    entry.domains.length > 0;
 }
 
 export function mergePocDomains(primaryDomain?: string | null, domainTags?: string[] | null): string[] {
