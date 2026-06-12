@@ -326,6 +326,7 @@ export function runPipeline(
   jd: JdInfo,
   _weights: ScoringWeights,
   matchMode: MatchMode = "balanced",
+  suggestionLimit = TOTAL_LIMIT,
 ): Mentor[] {
   const deduplicated = deduplicateCandidates(rawCandidates);
 
@@ -492,7 +493,7 @@ export function runPipeline(
   const sourceRankMap: Record<"MU" | "ALU" | "EXT", 1 | 2 | 3> = { MU: 1, ALU: 2, EXT: 3 };
 
   // Per-source quota: guarantee each present source gets a fair share of the
-  // TOTAL_LIMIT slots so MU/ALU score boosts don't crowd out EXT results.
+  // suggestionLimit slots so MU/ALU score boosts don't crowd out EXT results.
   const sortedAll = scored.slice().sort((a, b) => b.score - a.score);
   const bySource: Record<string, Mentor[]> = {};
   for (const m of sortedAll) {
@@ -501,21 +502,21 @@ export function runPipeline(
   }
   const presentSources = Object.keys(bySource);
   const perSourceQuota = presentSources.length > 0
-    ? Math.ceil(TOTAL_LIMIT / presentSources.length)
-    : TOTAL_LIMIT;
+    ? Math.ceil(suggestionLimit / presentSources.length)
+    : suggestionLimit;
   const picked = new Set<string>();
   const finalList: Mentor[] = [];
   for (const src of presentSources) {
     for (const m of bySource[src].slice(0, perSourceQuota)) {
-      if (finalList.length >= TOTAL_LIMIT) break;
+      if (finalList.length >= suggestionLimit) break;
       picked.add(m.id);
       finalList.push(m);
     }
   }
   // Fill remaining slots by absolute score.
-  if (finalList.length < TOTAL_LIMIT) {
+  if (finalList.length < suggestionLimit) {
     for (const m of sortedAll) {
-      if (finalList.length >= TOTAL_LIMIT) break;
+      if (finalList.length >= suggestionLimit) break;
       if (picked.has(m.id)) continue;
       picked.add(m.id);
       finalList.push(m);

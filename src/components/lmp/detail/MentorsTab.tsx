@@ -29,6 +29,7 @@ import { AssignedTable, type Assignment } from "./mentors/AssignedTable";
 import { AssignMentorModal, type AssignmentDraft } from "./mentors/AssignMentorModal";
 import { MatchContextModal, type MatchContext, type MatchMode } from "./mentors/MatchContextModal";
 import { AlignMentorModal } from "./mentors/AlignMentorModal";
+import { SessionsLiveTab } from "./SessionsLiveTab";
 import { useMentorsTabState } from "@/lib/mentorsTabStore";
 import { useLmpMentorsLive } from "@/lib/hooks/useLmpMentorsLive";
 import { lmpMentorRowToMentor } from "./mentors/mapDbMentor";
@@ -47,6 +48,7 @@ import {
   type ScoringCandidate, type JdInfo,
 } from "@/lib/mentorPipeline";
 import { fetchMentorCompanyTiers } from "@/lib/mentorCompanyTiers";
+import { LMP_MENTOR_SUGGESTION_LIMIT } from "@/lib/config/thresholds";
 
 const SUB_TABS: { id: "suggested" | "shortlisted" | "assigned"; label: string; icon: typeof Sparkles }[] = [
   { id: "suggested",  label: "Suggested",   icon: Sparkles },
@@ -359,7 +361,11 @@ function MentorsTabImpl({
     }
 
     const gapSkills = context?.useResumes ? (context.resumeGapSkills || []) : [];
-    const jdIndustry = industry || domain || "";
+    const jdIndustry = Array.from(new Set(
+      [industry, domain, ...(context?.selectedIndustries ?? [])]
+        .map((value) => value?.trim())
+        .filter((value): value is string => !!value),
+    )).join(" ");
     const jdInfo = { jdSkills, jdRole, jdSeniority, jdCompany, jdIndustry, gapSkills };
 
     const rawCandidates: ScoringCandidate[] = [];
@@ -436,7 +442,13 @@ function MentorsTabImpl({
           toast.warning("No mentor data found in selected sources. Upload CSVs in Data Sources first.");
         } else {
           const merged = [...rawCandidates, ...externalCandidates];
-          const fullScored = runPipeline(merged, jdInfo, getScoringWeights(), context.matchMode);
+          const fullScored = runPipeline(
+            merged,
+            jdInfo,
+            getScoringWeights(),
+            context.matchMode,
+            LMP_MENTOR_SUGGESTION_LIMIT,
+          );
           setState({ suggested: fullScored, phase: "results", subTab: "suggested", reviewMode: true });
           // (loading overlay handles dismissal automatically)
           emitMatchToast(fullScored);
@@ -1059,7 +1071,12 @@ function MentorsTabImpl({
       )}
 
       {subTab === "assigned" && (
-        <AssignedTable assignments={assignments} onUnassign={unassign} />
+        <div className="space-y-6">
+          <AssignedTable assignments={assignments} onUnassign={unassign} />
+          <div className="rounded-2xl border border-n200 bg-card p-4 shadow-sm">
+            <SessionsLiveTab lmpId={reqId} readOnly={readOnly} />
+          </div>
+        </div>
       )}
 
       <MentorProfileDrawer

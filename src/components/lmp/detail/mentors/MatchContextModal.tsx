@@ -22,6 +22,7 @@ export type MatchContext = {
   resumeGapSkills: string[];
   sources: MentorSource[];
   selectedSkills: string[];
+  selectedIndustries: string[];
   matchMode: MatchMode;
 };
 
@@ -119,6 +120,25 @@ export function MatchContextModal({
     if (!allSkillChips.includes(v)) setCustomSkills(prev => [v, ...prev]);
     if (!selectedSkills.includes(v)) setSelectedSkills(prev => [v, ...prev]);
     setCustomSkillInput("");
+  };
+
+  // Optional industry context is passed through the existing industry text
+  // signal. It does not change matching weights or pipeline behavior.
+  const [selectedIndustries, setSelectedIndustries] = useState<string[]>(() =>
+    domain.trim() ? [domain.trim()] : [],
+  );
+  const [industryInput, setIndustryInput] = useState("");
+  useEffect(() => {
+    if (!open || !domain.trim()) return;
+    setSelectedIndustries((prev) => prev.includes(domain.trim()) ? prev : [domain.trim(), ...prev]);
+  }, [domain, open]);
+  const addIndustry = () => {
+    const value = industryInput.trim();
+    if (!value) return;
+    setSelectedIndustries((prev) => prev.some((item) => item.toLowerCase() === value.toLowerCase())
+      ? prev
+      : [...prev, value]);
+    setIndustryInput("");
   };
 
   // Sources
@@ -244,17 +264,22 @@ export function MatchContextModal({
       };
     }
 
-    onConfirm({
-      jdMode,
-      jdData: finalJdData,
-      fallbackKeywords,
-      useResumes,
-      resumeSkills,
-      resumeGapSkills: gapSkills,
-      sources,
-      selectedSkills,
-      matchMode,
-    });
+    // Leave the immediate loader visible for a frame before the modal hands
+    // off to the existing MatchingOverlay.
+    window.setTimeout(() => {
+      onConfirm({
+        jdMode,
+        jdData: finalJdData,
+        fallbackKeywords,
+        useResumes,
+        resumeSkills,
+        resumeGapSkills: gapSkills,
+        sources,
+        selectedSkills,
+        selectedIndustries,
+        matchMode,
+      });
+    }, 100);
   };
 
   const SOURCE_CHIPS: { id: MentorSource; label: string; fullLabel: string; count: number; disabled?: boolean; badgeText?: string; tooltip: { title: string; subtitle?: string } }[] = [
@@ -455,6 +480,56 @@ export function MatchContextModal({
             jdAttached={!!jdData}
           />
 
+          {/* Optional industry context */}
+          <div>
+            <div className="label-eyebrow mb-2">Required Industries <span className="normal-case text-n400">(optional)</span></div>
+            <p className="text-[11px] text-n500 mb-2">
+              Pre-filled from this LMP's domain. Add industries to strengthen the existing industry context.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={industryInput}
+                onChange={(event) => setIndustryInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addIndustry();
+                  }
+                }}
+                placeholder="Add an industry, then press Enter"
+                className="flex-1 h-9 rounded-md border border-n300 bg-card px-3 text-[12px] text-n900 placeholder:text-n400 focus:outline-none focus:border-orange-400"
+              />
+              <button
+                type="button"
+                onClick={addIndustry}
+                disabled={!industryInput.trim()}
+                className="h-9 rounded-md border border-n300 bg-card px-3 text-[12px] font-medium text-n700 hover:bg-n100 disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+            {selectedIndustries.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {selectedIndustries.map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2.5 py-1 text-[11px] font-medium"
+                  >
+                    {item}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIndustries((prev) => prev.filter((value) => value !== item))}
+                      aria-label={`Remove ${item}`}
+                      className="hover:text-sky-900"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {!jdData && !inlineJdText.trim() && !fallbackKeywords.trim() && selectedSkills.length === 0 && (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -637,7 +712,7 @@ export function MatchContextModal({
               {starting ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Starting…
+                  Running mentor matching…
                 </>
               ) : (
                 <>Run Matching →</>

@@ -12,8 +12,11 @@ export const SLA_DORMANT_DAYS = 14;
 /** Ongoing-process count above which a POC is considered overloaded. */
 export const POC_OVERLOAD_THRESHOLD = 10;
 
-/** Total mentor candidates retained after merging MU + ALU + EXT pipelines. */
+/** Default total mentor candidates retained after merging MU + ALU + EXT pipelines. */
 export const TOTAL_LIMIT = 15;
+
+/** Expanded suggestion cap used only by the LMP Mentors tab. */
+export const LMP_MENTOR_SUGGESTION_LIMIT = 30;
 
 /** If MU+ALU yield >= this many mentors, the external (EXT) pipeline is skipped. */
 export const SKIP_EXT_THRESHOLD = 25;
