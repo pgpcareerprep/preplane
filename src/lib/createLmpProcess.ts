@@ -28,11 +28,67 @@ export type CreateLmpPayload = {
   createdByName?: string;
   selection: ConfirmedPocSelection;
   jd?: CreateLmpJdPayload;
+  allowDuplicate?: boolean;
 };
+
+export type ExistingLmpSummary = {
+  id: string;
+  lmp_code: string | null;
+  company: string | null;
+  role: string | null;
+  created_by: string | null;
+  created_at: string | null;
+};
+
+export class DuplicateLmpError extends Error {
+  existing: ExistingLmpSummary;
+
+  constructor(existing: ExistingLmpSummary) {
+    super("An LMP for this company and role already exists");
+    this.name = "DuplicateLmpError";
+    this.existing = existing;
+  }
+}
+
+const normalizeKeyPart = (value: string | null | undefined) =>
+  (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+const escapeIlike = (value: string) => value.replace(/[%_\\]/g, (ch) => `\\${ch}`);
 
 export async function createLmpProcess(payload: CreateLmpPayload) {
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
+  const company = payload.company.trim();
+  const role = payload.role.trim();
+
+  if (!payload.allowDuplicate) {
+    const companyNorm = normalizeKeyPart(company);
+    const roleNorm = normalizeKeyPart(role);
+    const { data: existingRows, error: duplicateCheckError } = await supabase
+      .from("lmp_processes")
+      .select("id,lmp_code,company,role,created_by,created_at,status")
+      .ilike("company", `%${escapeIlike(company)}%`)
+      .ilike("role", `%${escapeIlike(role)}%`)
+      .or("status.is.null,status.neq.archived")
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    if (duplicateCheckError) throw duplicateCheckError;
+
+    const existing = (existingRows ?? []).find(
+      (row) => normalizeKeyPart(row.company) === companyNorm && normalizeKeyPart(row.role) === roleNorm
+    );
+    if (existing) {
+      throw new DuplicateLmpError({
+        id: existing.id,
+        lmp_code: existing.lmp_code ?? null,
+        company: existing.company ?? null,
+        role: existing.role ?? null,
+        created_by: existing.created_by ?? null,
+        created_at: existing.created_at ?? null,
+      });
+    }
+  }
 
   // Resolve canonical POC names + domain id in a single parallel batch.
   // Previously: 3 sequential `poc_profiles` lookups + 1 domain lookup = 4 round-trips.
@@ -72,9 +128,9 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
   const histTag = payload.selection.prepPoc.historicalTag ?? null;
   let allocationReason = allocation.allocationReason;
   if (histTag === "Converted Expert") {
-    allocationReason += ` 🏆 Converted Expert — ${prepName} previously placed candidates at ${payload.company} for ${payload.role}.`;
+    allocationReason += ` 🏆 Converted Expert — ${prepName} previously placed candidates at ${company} for ${role}.`;
   } else if (histTag === "Previously Assigned") {
-    allocationReason += ` 📌 Previously Assigned — ${prepName} has handled ${payload.company} / ${payload.role} before.`;
+    allocationReason += ` 📌 Previously Assigned — ${prepName} has handled ${company} / ${role} before.`;
   }
 
   // 1. Insert into lmp_processes (include JD fields if provided so the
@@ -97,8 +153,8 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
   const { data: lmp, error: lmpError } = await supabase
     .from("lmp_processes")
     .insert({
-      company: payload.company,
-      role: payload.role,
+      company,
+      role,
       domain_raw: payload.domain,
       domain_id: domainId,
       type: payload.type ?? "Full Time",

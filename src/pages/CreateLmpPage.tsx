@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -7,7 +7,7 @@ import { JDInputStep, type JDInputExtras, type JDInputInitial } from "@/componen
 import { POCReviewStep, type POCReviewInitial } from "@/components/lmp/wizard/POCReviewStep";
 import { DraftsTable } from "@/components/lmp/wizard/DraftsTable";
 import type { ParsedJD } from "@/components/lmp/wizard/AIPreviewPanel";
-import { createLmpProcess, type ConfirmedPocSelection } from "@/lib/createLmpProcess";
+import { createLmpProcess, DuplicateLmpError, type ConfirmedPocSelection, type ExistingLmpSummary } from "@/lib/createLmpProcess";
 import { TABS } from "@/lib/sheets";
 import { useRole } from "@/lib/rolesContext";
 import { PlaceholderView } from "@/components/PlaceholderView";
@@ -29,6 +29,12 @@ export default function CreateLmpPage() {
   const [step2Initial, setStep2Initial] = useState<POCReviewInitial | undefined>();
   // Force re-mount of JD step when resuming a draft
   const [wizardKey, setWizardKey] = useState(0);
+  const [isCreating, setIsCreating] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    existing: ExistingLmpSummary;
+    selection: ConfirmedPocSelection;
+  } | null>(null);
+  const pendingCreateSignatureRef = useRef<string | null>(null);
 
   if (role !== "allocator" && role !== "admin") {
     return (
@@ -114,11 +120,34 @@ export default function CreateLmpPage() {
     }
   };
 
-  const handleFinish = async (selection: ConfirmedPocSelection) => {
+  const createSignature = (selection: ConfirmedPocSelection) =>
+    JSON.stringify({
+      company: jd?.company?.trim().toLowerCase() ?? "",
+      role: jd?.role?.trim().toLowerCase() ?? "",
+      domain: jd?.domain?.trim().toLowerCase() ?? "",
+      type: (jd as any)?.processType === "internship" ? "Internship" : "Full Time",
+      prep: selection.prepPoc.pocId ?? selection.prepPoc.name,
+      support: selection.supportPoc?.pocId ?? selection.supportPoc?.name ?? null,
+      outreach: selection.outreachPoc?.pocId ?? selection.outreachPoc?.name ?? null,
+      candidates: (extras?.selectedCandidates ?? []).map((c) => c.studentId ?? c.name).sort(),
+    });
+
+  const handleFinish = async (
+    selection: ConfirmedPocSelection,
+    options: { allowDuplicate?: boolean } = {}
+  ) => {
     if (!jd) {
       toast.error("Missing process data", { description: "Please complete Basic Info first." });
       return;
     }
+
+    const signature = createSignature(selection);
+    if (isCreating || pendingCreateSignatureRef.current === signature) {
+      return;
+    }
+    pendingCreateSignatureRef.current = signature;
+    setIsCreating(true);
+    setDuplicatePrompt(null);
 
     try {
       // Build JD payload from wizard state (paste or uploaded file).
@@ -147,6 +176,7 @@ export default function CreateLmpPage() {
         createdByName: user.name,
         selection,
         jd: jdPayload,
+        allowDuplicate: options.allowDuplicate,
       });
 
       // Cache JD locally so the detail page renders instantly.
@@ -207,9 +237,19 @@ export default function CreateLmpPage() {
 
       navigate(`/processes/${created.id}`);
     } catch (error: any) {
+      if (error instanceof DuplicateLmpError) {
+        setDuplicatePrompt({ existing: error.existing, selection });
+        toast.warning("An LMP for this company and role already exists", {
+          description: "Open the existing LMP, or confirm if you intentionally need another one.",
+        });
+        return;
+      }
       toast.error("Process creation failed", {
         description: error.message ?? "Please check database and sheet sync.",
       });
+    } finally {
+      pendingCreateSignatureRef.current = null;
+      setIsCreating(false);
     }
   };
 
@@ -252,22 +292,59 @@ export default function CreateLmpPage() {
           />
         )}
         {step === 2 && (
-          <POCReviewStep
-            key={`step2-${wizardKey}`}
-            initial={step2Initial}
-            onSaveDraft={handleSaveDraftStep2}
-            onContinue={handleFinish}
-            onBack={() => setStep(1)}
-            reqDomain={jd?.domain}
-            companyName={jd?.company}
-            roleTitle={jd?.role}
-            jdText={
-              jd
-                ? `${jd.role} ${jd.company} ${jd.requiredSkills.join(" ")} ${jd.preferredSkills.join(" ")} ${extras?.jdText ?? ""}`
-                : null
-            }
-            parsedSkills={[...(jd?.requiredSkills ?? []), ...(jd?.preferredSkills ?? [])]}
-          />
+          <div className="relative">
+            {duplicatePrompt && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div className="font-semibold">An LMP for this company and role already exists</div>
+                <div className="mt-1 text-amber-800">
+                  Existing process: {duplicatePrompt.existing.company ?? jd?.company} — {duplicatePrompt.existing.role ?? jd?.role}
+                  {duplicatePrompt.existing.lmp_code ? ` (${duplicatePrompt.existing.lmp_code})` : ""}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/processes/${duplicatePrompt.existing.id}`)}
+                    className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    Open existing LMP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFinish(duplicatePrompt.selection, { allowDuplicate: true })}
+                    disabled={isCreating}
+                    className="rounded-md border border-amber-300 bg-card px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCreating ? "Creating…" : "Create another anyway"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className={isCreating ? "pointer-events-none opacity-60" : undefined} aria-busy={isCreating}>
+              <POCReviewStep
+                key={`step2-${wizardKey}`}
+                initial={step2Initial}
+                onSaveDraft={handleSaveDraftStep2}
+                onContinue={handleFinish}
+                onBack={() => setStep(1)}
+                reqDomain={jd?.domain}
+                companyName={jd?.company}
+                roleTitle={jd?.role}
+                jdText={
+                  jd
+                    ? `${jd.role} ${jd.company} ${jd.requiredSkills.join(" ")} ${jd.preferredSkills.join(" ")} ${extras?.jdText ?? ""}`
+                    : null
+                }
+                parsedSkills={[...(jd?.requiredSkills ?? []), ...(jd?.preferredSkills ?? [])]}
+              />
+            </div>
+            {isCreating && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/55 backdrop-blur-[1px]">
+                <div className="rounded-full border border-orange-200 bg-card px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
+                  Creating LMP…
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
