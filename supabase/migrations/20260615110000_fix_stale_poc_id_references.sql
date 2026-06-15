@@ -123,8 +123,9 @@ END $$;
 -- We update one stale→canonical pair at a time to handle any permutation.
 DO $$
 DECLARE
-  r record;
-  n int := 0;
+  r   record;
+  n   int := 0;
+  cnt int;
 BEGIN
   FOR r IN
     SELECT stale.id AS stale_id, canonical.id AS canonical_id
@@ -145,7 +146,8 @@ BEGIN
     UPDATE public.lmp_processes
     SET    outreach_poc_ids = array_replace(outreach_poc_ids, r.stale_id, r.canonical_id)
     WHERE  r.stale_id = ANY(outreach_poc_ids);
-    GET DIAGNOSTICS n = n + ROW_COUNT;
+    GET DIAGNOSTICS cnt = ROW_COUNT;
+    n := n + cnt;
   END LOOP;
   RAISE NOTICE 'outreach_poc_ids: re-pointed % row(s)', n;
 END $$;
