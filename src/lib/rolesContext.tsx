@@ -10,8 +10,10 @@ export type User = {
   email: string;
   initials: string;
   domain?: string;
-  /** Canonical POC name from poc_profiles — used for sheet matching */
+  /** Canonical full name from poc_profiles — used for display and sheet matching */
   pocProfileName?: string;
+  /** poc_profiles.id UUID — used for ID-based ownership checks (preferred over name) */
+  pocProfileId?: string | null;
   avatarUrl?: string | null;
 };
 
@@ -198,26 +200,32 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       const displayName = profile?.display_name || session.user.email || "User";
       const email = profile?.email || userEmail;
 
-      // Fetch canonical POC profile name by email for sheet matching
+      // Fetch canonical POC full name and ID by email — the single source of truth
       let pocProfileName: string | undefined;
+      let pocProfileId: string | null = null;
       if (userEmail) {
         const { data: pocP } = await supabase
           .from("poc_profiles")
-          .select("name")
+          .select("id, name")
           .eq("email", userEmail)
           .maybeSingle();
         if (pocP?.name) pocProfileName = pocP.name;
+        if (pocP?.id) pocProfileId = pocP.id;
       }
-      // Fallback: try matching display name's first name to poc_profiles
+      // Fallback: prefix-match display name's first name — only when email lookup failed.
+      // Requires a unique match to avoid "Mansi Bhargava" vs "Mansi Jain" ambiguity.
       if (!pocProfileName && displayName && displayName !== "User") {
         const firstName = displayName.split(" ")[0];
-        if (firstName) {
-          const { data: pocP2 } = await supabase
+        if (firstName && firstName.length >= 3) {
+          const { data: pocMatches } = await supabase
             .from("poc_profiles")
-            .select("name")
-            .ilike("name", firstName)
-            .maybeSingle();
-          if (pocP2?.name) pocProfileName = pocP2.name;
+            .select("id, name")
+            .ilike("name", `${firstName} %`)
+            .limit(2);
+          if (pocMatches && pocMatches.length === 1) {
+            pocProfileName = pocMatches[0].name;
+            pocProfileId = pocMatches[0].id;
+          }
         }
       }
 
@@ -227,8 +235,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         id: uid,
         name: displayName,
         email,
-        initials: initialsFrom(displayName),
+        initials: initialsFrom(pocProfileName ?? displayName),
         pocProfileName,
+        pocProfileId,
         avatarUrl: (profile as any)?.avatar_url ?? null,
       });
       setRole(resolvedRole);
@@ -267,10 +276,27 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           .order("role")
           .order("display_name");
         if (!cancelled && allUsers) {
+          const validUsers = (allUsers as any[]).filter((u) => u.display_name && u.email && u.role);
+          // Enrich: prefer poc_profiles.name (canonical full name) over profiles.display_name
+          // so the Viewing As dropdown always matches the POC Domain database.
+          const emails = validUsers.map((u) => (u.email as string).toLowerCase());
+          let pocNameByEmail: Map<string, string> = new Map();
+          if (emails.length > 0) {
+            const { data: pocRows } = await supabase
+              .from("poc_profiles")
+              .select("email, name")
+              .not("email", "is", null)
+              .in("email", emails);
+            for (const p of pocRows ?? []) {
+              if (p.email && p.name) pocNameByEmail.set(p.email.toLowerCase(), p.name as string);
+            }
+          }
           setApprovedUsers(
-            (allUsers as any[])
-              .filter((u) => u.display_name && u.email && u.role)
-              .map((u) => ({ name: u.display_name as string, email: u.email as string, role: u.role as Role })),
+            validUsers.map((u) => ({
+              name: (pocNameByEmail.get((u.email as string).toLowerCase()) ?? u.display_name) as string,
+              email: u.email as string,
+              role: u.role as Role,
+            })),
           );
         }
       }

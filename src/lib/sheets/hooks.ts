@@ -277,6 +277,9 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
         return [{ label: "Document", url: raw }];
       }
     })(),
+    prepPocId: row.prep_poc_id ?? null,
+    supportPocId: row.support_poc_id ?? null,
+    outreachPocIds: Array.isArray(row.outreach_poc_ids) ? row.outreach_poc_ids : null,
     allocator: row.allocator || "",
     adminOwner: row.admin_owner || "",
     lmpCode: row.lmp_code || "",

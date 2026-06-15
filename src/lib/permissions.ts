@@ -242,38 +242,30 @@ export type LmpOwnership = {
   outreach_poc_ids?: string[] | null;
 };
 
-/**
- * Owner check. Prefers UUID match (pocId) when both are available; falls back
- * to case-insensitive name match for legacy rows where `*_id` is null.
- */
-export function isLmpOwner(userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (pocId) {
-    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
-    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
-  }
-  const name = userName.toLowerCase().trim();
-  if (!name) return false;
-  return [lmp.prep_poc, lmp.support_poc, lmp.outreach_poc]
-    .filter(Boolean)
-    .some((n) => n!.toLowerCase().trim() === name);
+// All ownership checks are UUID-only. Name-based comparison has been removed to
+// prevent partial/first-name values from creating inconsistent edit permissions.
+// The DB migration (20260615100000) normalizes text fields and backfills all
+// *_poc_id columns; a BEFORE INSERT OR UPDATE trigger keeps them consistent on
+// future writes, including reconcile writes from the Google Sheet edge function.
+
+export function isLmpOwner(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
+  if (!pocId) return false;
+  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
+  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
+  if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
+  return false;
 }
 
-export function isLmpPrepPoc(userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (pocId) {
-    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
-    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-  }
-  const name = userName.toLowerCase().trim();
-  return [lmp.prep_poc, lmp.support_poc]
-    .filter(Boolean)
-    .some((n) => n!.toLowerCase().trim() === name);
+export function isLmpPrepPoc(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
+  if (!pocId) return false;
+  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
+  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
+  return false;
 }
 
-export function isLmpOutreachPoc(userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (pocId && Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
-  const name = userName.toLowerCase().trim();
-  return lmp.outreach_poc?.toLowerCase().trim() === name;
+export function isLmpOutreachPoc(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
+  if (!pocId) return false;
+  return Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId);
 }
 
 /**
@@ -408,16 +400,11 @@ export function canCopilotAction(
  */
 export type PocSubRole = "prep_poc" | "outreach_poc" | "support_poc" | "none";
 
-export function getPocSubRole(userName: string, lmp: LmpOwnership, pocId?: string | null): PocSubRole {
-  if (pocId) {
-    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return "prep_poc";
-    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return "support_poc";
-    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return "outreach_poc";
-  }
-  const name = userName.toLowerCase().trim();
-  if (lmp.prep_poc?.toLowerCase().trim() === name) return "prep_poc";
-  if (lmp.support_poc?.toLowerCase().trim() === name) return "support_poc";
-  if (lmp.outreach_poc?.toLowerCase().trim() === name) return "outreach_poc";
+export function getPocSubRole(_userName: string, lmp: LmpOwnership, pocId?: string | null): PocSubRole {
+  if (!pocId) return "none";
+  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return "prep_poc";
+  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return "support_poc";
+  if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return "outreach_poc";
   return "none";
 }
 

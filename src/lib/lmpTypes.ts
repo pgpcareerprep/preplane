@@ -49,6 +49,10 @@ export type LmpRecord = {
   domainPrepPoc?: LmpPoc;
   /** @deprecated Use supportPoc instead */
   behavioralPrepPoc?: LmpPoc;
+  // UUID-based POC ownership — preferred over name fields for permission checks
+  prepPocId?: string | null;
+  supportPocId?: string | null;
+  outreachPocIds?: string[] | null;
   // POC source tracking
   prepPocSource?: "auto_allocated" | "manual_override" | null;
   supportPocSource?: "suggested_selected" | "manual_selected" | null;

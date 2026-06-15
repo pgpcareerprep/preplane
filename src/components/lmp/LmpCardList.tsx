@@ -208,6 +208,9 @@ function LmpStripCard({
     support_poc: rec.supportPoc?.name,
     outreach_poc: rec.outreachPoc?.name,
     allocator: rec.allocator,
+    prep_poc_id: rec.prepPocId,
+    support_poc_id: rec.supportPocId,
+    outreach_poc_ids: rec.outreachPocIds,
   });
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);

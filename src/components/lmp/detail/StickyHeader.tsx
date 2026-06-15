@@ -47,6 +47,9 @@ export function StickyHeader({
     support_poc: lmp.supportPoc?.name,
     outreach_poc: lmp.outreachPoc?.name,
     allocator: lmp.allocator,
+    prep_poc_id: lmp.prepPocId,
+    support_poc_id: lmp.supportPocId,
+    outreach_poc_ids: lmp.outreachPocIds,
   });
   const canManage = !readOnly && canManageLmp;
   const canOperate = !readOnly && canOperateLmp;
