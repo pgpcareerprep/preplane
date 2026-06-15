@@ -8,6 +8,7 @@ import { canPerform } from "@/lib/permissions";
 import { type LmpStatus } from "@/types/lmp";
 import { useLmpRows, useLmpMutation } from "@/lib/sheets/hooks";
 import { useLmpCandidateCounts } from "@/lib/hooks/useDbData";
+import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
 import { LmpKpiStrip } from "@/components/lmp/LmpKpiStrip";
 import { LmpFilterBar, EMPTY_LMP_FILTERS, type LmpFilters } from "@/components/lmp/LmpFilterBar";
 import { LmpKanban } from "@/components/lmp/LmpKanban";
@@ -86,9 +87,19 @@ export default function LmpBoardPage() {
   }, [records, filters, filterFor, overdueOnly]);
 
 
+  const [feedbackLmpId, setFeedbackLmpId] = useState<string | null>(null);
+
   const onChangeStatus = (id: string, status: LmpStatus, reason: string) => {
-    updateMutation.mutate({ id, patch: { status, reason: reason || undefined, lastActivity: `Just now — Status updated` } });
-    toast.success(`Status updated`);
+    updateMutation.mutate(
+      { id, patch: { status, reason: reason || undefined, lastActivity: `Just now — Status updated` } },
+      {
+        onSuccess: () => {
+          toast.success("Status updated");
+          if (status === "not-converted") setFeedbackLmpId(id);
+        },
+        onError: () => toast.error("Failed to update status"),
+      },
+    );
   };
 
   return (
@@ -135,6 +146,14 @@ export default function LmpBoardPage() {
             />
           )}
         </>
+      )}
+
+      {feedbackLmpId && (
+        <OutreachFeedbackModal
+          open={!!feedbackLmpId}
+          lmpId={feedbackLmpId}
+          onClose={() => setFeedbackLmpId(null)}
+        />
       )}
     </div>
   );

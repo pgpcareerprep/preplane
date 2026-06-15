@@ -16,9 +16,10 @@ import { MentorsTab } from "@/components/lmp/detail/MentorsTab";
 import { SessionsLiveTab } from "@/components/lmp/detail/SessionsLiveTab";
 import { FeedbackTab } from "@/components/lmp/detail/FeedbackTab";
 import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
+import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useRole } from "@/lib/rolesContext";
-import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { Eye } from "lucide-react";
+import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
 
 const TABS = ["Overview", "Mentors", "Sessions", "Feedback"] as const;
 type Tab = typeof TABS[number];
@@ -52,20 +53,13 @@ export default function LmpDetailPage() {
 
   // IMPORTANT: call all hooks before any early return so hook order stays stable
   // across renders (e.g. after the LMP is deleted and `lmp` flips to undefined).
+  const mode = useLmpMode((lmp ?? {}) as any);
   const { isLoading: isRoleLoading, user, role } = useRole();
-  const { canOperateLmp } = useLmpPermission(lmp ? {
-    prep_poc: lmp.prepPoc?.name,
-    support_poc: lmp.supportPoc?.name,
-    outreach_poc: lmp.outreachPoc?.name,
-    prep_poc_id: lmp.prepPocId,
-    support_poc_id: lmp.supportPocId,
-    outreach_poc_ids: lmp.outreachPocIds,
-  } : null);
   // Only treat as read-only once auth/role/POC profile have fully resolved.
   // Otherwise a Support POC would briefly see the read-only banner on every
   // page load while `pocProfileName` is still being fetched.
   const pocProfileReady = role === "admin" || !!user.pocProfileName || !!user.name;
-  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
+  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && mode === "summary";
 
   const backHref = from === "kanban" ? "/lmp" : "/lmp?view=cards";
 
@@ -99,7 +93,7 @@ export default function LmpDetailPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> Last Mile Prep
       </Link>
 
-      <StickyHeaderWithCount lmp={lmp} readOnly={false} />
+      <StickyHeaderWithCount lmp={lmp} readOnly={readOnly} />
 
       {readOnly && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[12.5px] flex items-center gap-2">
@@ -128,7 +122,11 @@ export default function LmpDetailPage() {
         </nav>
       </div>
 
-      <div className="pt-2">
+      <div
+        className="pt-2"
+        {...(readOnly ? { inert: "" as unknown as boolean } : {})}
+        aria-disabled={readOnly || undefined}
+      >
         {/* Keep all tabs mounted — toggle visibility so react-query caches,
             realtime subscriptions and local component state persist across
             tab switches (prevents candidate list / mentor shortlist flicker). */}
@@ -154,19 +152,32 @@ function StickyHeaderWithCount({ lmp, readOnly }: { lmp: NonNullable<ReturnType<
   const { data: liveCandidates = [] } = useLmpCandidatesLive(lmp.id);
   const count = Math.max(lmp.candidates ?? 0, liveCandidates.length);
   const { update } = useLmpMutation();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const handleChangeStatus = (next: typeof lmp.status) => {
     update.mutate(
       { id: lmp.id, patch: { status: next, lastActivity: "Just now — Status updated" } },
-      { onError: (e: any) => toast.error(e?.message || "Failed to update status") },
+      {
+        onSuccess: () => {
+          if (next === "not-converted") setFeedbackOpen(true);
+        },
+        onError: (e: any) => toast.error(e?.message || "Failed to update status"),
+      },
     );
   };
   return (
-    <StickyHeader
-      lmp={lmp}
-      candidateCount={count}
-      readOnly={readOnly}
-      onChangeStatus={readOnly ? undefined : handleChangeStatus}
-    />
+    <>
+      <StickyHeader
+        lmp={lmp}
+        candidateCount={count}
+        readOnly={readOnly}
+        onChangeStatus={readOnly ? undefined : handleChangeStatus}
+      />
+      <OutreachFeedbackModal
+        open={feedbackOpen}
+        lmpId={lmp.id}
+        onClose={() => setFeedbackOpen(false)}
+      />
+    </>
   );
 }
 

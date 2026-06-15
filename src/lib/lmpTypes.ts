@@ -96,6 +96,7 @@ export type LmpRecord = {
     created_at?: string;
     updated_at?: string;
   }>;
+  feedbackByOutreach?: string;
   // Admin / allocator / process meta (from lmp_processes)
   allocator?: string;
   adminOwner?: string;

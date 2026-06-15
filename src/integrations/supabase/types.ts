@@ -1227,6 +1227,48 @@ export type Database = {
         }
         Relationships: []
       }
+      lmp_outreach_feedback: {
+        Row: {
+          id: string
+          lmp_id: string
+          feedback: string
+          created_by: string | null
+          created_by_name: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          lmp_id: string
+          feedback: string
+          created_by?: string | null
+          created_by_name?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          lmp_id?: string
+          feedback?: string
+          created_by?: string | null
+          created_by_name?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lmp_outreach_feedback_lmp_id_fkey"
+            columns: ["lmp_id"]
+            isOneToOne: false
+            referencedRelation: "lmp_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lmp_outreach_feedback_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "poc_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lmp_processes: {
         Row: {
           admin_owner: string | null
@@ -1292,6 +1334,7 @@ export type Database = {
           status: string
           support_poc: string | null
           support_poc_id: string | null
+          feedback_by_outreach: string | null
           sync_source: string | null
           type: string | null
           updated_at: string
@@ -1313,6 +1356,7 @@ export type Database = {
           date?: string | null
           domain_id?: string | null
           domain_raw?: string | null
+          feedback_by_outreach?: string | null
           final_convert?: string | null
           historical_tag?: string | null
           is_archived?: boolean | null
@@ -1381,6 +1425,7 @@ export type Database = {
           date?: string | null
           domain_id?: string | null
           domain_raw?: string | null
+          feedback_by_outreach?: string | null
           final_convert?: string | null
           historical_tag?: string | null
           is_archived?: boolean | null
@@ -2419,6 +2464,7 @@ export type Database = {
           daily_log_count: number | null
           domain_id: string | null
           domain_raw: string | null
+          feedback_by_outreach: string | null
           final_convert: string | null
           id: string | null
           jd_label: string | null
@@ -2461,6 +2507,7 @@ export type Database = {
           daily_log_count?: never
           domain_id?: string | null
           domain_raw?: string | null
+          feedback_by_outreach?: string | null
           final_convert?: string | null
           id?: string | null
           jd_label?: string | null
@@ -2503,6 +2550,7 @@ export type Database = {
           daily_log_count?: never
           domain_id?: string | null
           domain_raw?: string | null
+          feedback_by_outreach?: string | null
           final_convert?: string | null
           id?: string | null
           jd_label?: string | null

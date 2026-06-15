@@ -22,6 +22,7 @@ import { useLmpMutation } from "@/lib/sheets/hooks";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { toast } from "sonner";
 import { useRole } from "@/lib/rolesContext";
+import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
   ongoing: "pill-ongoing",
@@ -138,11 +139,17 @@ export function LmpProcessCompactCard({
   const { update: updateMutation } = useLmpMutation();
   const deleteLmp = useDeleteLmpProcess();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const handleChangeStatus = (newStatus: ReqStatus) => {
     updateMutation.mutate(
       { id: req.id, patch: { status: newStatus, lastActivity: "Just now — Status updated" } },
-      { onSuccess: () => toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`) },
+      {
+        onSuccess: () => {
+          toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`);
+          if (newStatus === "not-converted") setFeedbackOpen(true);
+        },
+      },
     );
   };
 
@@ -300,6 +307,11 @@ export function LmpProcessCompactCard({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <OutreachFeedbackModal
+      open={feedbackOpen}
+      lmpId={req.id}
+      onClose={() => setFeedbackOpen(false)}
+    />
     </>
   );
 }

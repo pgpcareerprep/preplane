@@ -1,7 +1,8 @@
-import { UserPlus, ExternalLink, Eye, Play, Settings2, Megaphone, UserCog } from "lucide-react";
+import { UserPlus, ExternalLink, Eye, Play, Settings2, Megaphone, UserCog, MessageSquare } from "lucide-react";
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
-import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { canPerform } from "@/lib/permissions";
+import { useRole } from "@/lib/rolesContext";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,6 +27,8 @@ import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
+import { OutreachFeedbackHistoryModal } from "./OutreachFeedbackHistoryModal";
 
 /**
  * Inline-expanded LMP workspace. Notion-style bento grid; no internal tabs.
@@ -49,18 +52,11 @@ export function ExpandedLmpView({
   const [roundsOpen, setRoundsOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const { canManageLmp, canOperateLmp } = useLmpPermission({
-    prep_poc: rec.prepPoc?.name,
-    support_poc: rec.supportPoc?.name,
-    outreach_poc: rec.outreachPoc?.name,
-    allocator: rec.allocator,
-    prep_poc_id: rec.prepPocId,
-    support_poc_id: rec.supportPocId,
-    outreach_poc_ids: rec.outreachPocIds,
-  });
-  const canReassignAll = canManageLmp;
-  const canReassignAny = canManageLmp;
-  const operationalMode = canOperateLmp ? "action" : "summary";
+  const [feedbackHistoryOpen, setFeedbackHistoryOpen] = useState(false);
+  const [pendingNotConvertedFeedback, setPendingNotConvertedFeedback] = useState(false);
+  const { role } = useRole();
+  const canReassignAll = canPerform(role, "reassign_poc");
+  const canReassignAny = canReassignAll;
   // rounds resolved after dbLmpId below
   const { update: updateMutation } = useLmpMutation();
   const saveNextDateDb = useSaveNextProgressDate();
@@ -112,7 +108,6 @@ export function ExpandedLmpView({
   const { data: existingCandidates = [] } = useLmpCandidates(dbLmpId);
 
   const handleSaveProgress = async (text: string) => {
-    if (!canOperateLmp) return;
     const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit" });
     const entry = `[${today}] ${text}`;
     // Read fresh value from DB so each save appends instead of overwriting
@@ -128,7 +123,6 @@ export function ExpandedLmpView({
   };
 
   const handleSaveNextDate = useCallback((date: string, type?: string, enableReminder: boolean = true) => {
-    if (!canOperateLmp) return;
     const reminderType = type || "Follow-up";
     const safeDate = date && date.trim() !== "" ? date : null;
     // 1. Write to Google Sheet (column L date + column M type)
@@ -145,11 +139,10 @@ export function ExpandedLmpView({
         skipReminder: !enableReminder,
       });
     }
-  }, [rec.id, dbLmpId, updateMutation, saveNextDateDb, prepPocEmail, canOperateLmp]);
+  }, [rec.id, dbLmpId, updateMutation, saveNextDateDb, prepPocEmail]);
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
   const handleChecklistToggle = useCallback((sheetKey: string, newValue: boolean) => {
-    if (!canOperateLmp) return;
     setPendingChecklist((p) => ({ ...p, [sheetKey]: newValue }));
     updateMutation.mutate(
       { id: rec.id, patch: { [sheetKey]: newValue } },
@@ -163,7 +156,7 @@ export function ExpandedLmpView({
         },
       },
     );
-  }, [rec.id, updateMutation, canOperateLmp]);
+  }, [rec.id, updateMutation]);
 
   // Clear pending only when refetched DB row matches the optimistic value.
   // Removes the flicker between mutation settle and refetch landing.
@@ -185,7 +178,6 @@ export function ExpandedLmpView({
 
   // Mentor alignment — writes to sheet column V ("Mentor Selected")
   const handleAlignMentor = useCallback((mentorName: string) => {
-    if (!canOperateLmp) return;
     updateMutation.mutate({
       id: rec.id,
       patch: {
@@ -194,7 +186,7 @@ export function ExpandedLmpView({
       },
     });
     toast.success(`Mentor aligned: ${mentorName}`);
-  }, [rec.id, updateMutation, canOperateLmp]);
+  }, [rec.id, updateMutation]);
 
   // Documents — single JSON array on lmp_processes.documents. Each entry has
   // a stable id + source_type so checklist-linked and general documents share
@@ -264,7 +256,7 @@ export function ExpandedLmpView({
         <div className="lg:col-span-2 order-2 lg:order-1 flex flex-col">
           <DailyProgressCard
             lmpId={rec.id}
-            mode={operationalMode}
+            mode={mode}
             onSaveProgress={handleSaveProgress}
             onSaveNextDate={handleSaveNextDate}
             initialPrepProgress={rec.prepProgress}
@@ -300,7 +292,6 @@ export function ExpandedLmpView({
                 company={rec.company}
                 domain={rec.domain}
                 seniority={seniority}
-                readOnly={!canManageLmp}
               />
               <button
                 type="button"
@@ -312,14 +303,14 @@ export function ExpandedLmpView({
               <button
                 type="button"
                 onClick={() => setAddOpen(true)}
-                disabled={!canOperateLmp}
+                disabled={!canPerform(role, "assign_outreach_poc")}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[12.5px] font-medium shadow-sm shadow-orange-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
                 <UserPlus className="h-3.5 w-3.5" /> Add Candidates
               </button>
               <button
                 type="button"
-                disabled={!canOperateLmp}
+                disabled={summary}
                 onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?tab=mentors&from=cards`)}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[12.5px] font-medium shadow-sm shadow-orange-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
@@ -327,7 +318,7 @@ export function ExpandedLmpView({
               </button>
               <button
                 type="button"
-                disabled={!canManageLmp}
+                disabled={summary}
                 onClick={() => setRoundsOpen(true)}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -335,7 +326,7 @@ export function ExpandedLmpView({
               </button>
               <button
                 type="button"
-                disabled={!canManageLmp}
+                disabled={summary}
                 onClick={() => setOutreachOpen(true)}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 title={rec.outreachPoc?.name ? `Outreach POC: ${rec.outreachPoc.name}` : "Assign Outreach POC"}
@@ -355,12 +346,19 @@ export function ExpandedLmpView({
                   <UserCog className="h-3.5 w-3.5" /> Reassign POCs
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setFeedbackHistoryOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all col-span-2"
+              >
+                <MessageSquare className="h-3.5 w-3.5" /> Outreach Feedback
+              </button>
             </div>
           </div>
 
           <ChecklistCard
             lmpId={rec.id}
-            mode={operationalMode}
+            mode={mode}
             sheetValues={{
               mentorAligned: pendingChecklist.mentorAligned ?? rec.mentorAligned,
               prepDocShared: pendingChecklist.prepDocShared ?? rec.prepDocShared,
@@ -417,9 +415,9 @@ export function ExpandedLmpView({
 
       {/* ROW 2 — Context layer */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MentorSnapshotCard rec={rec} mode={operationalMode} onAlignMentor={handleAlignMentor} />
+        <MentorSnapshotCard rec={rec} mode={mode} onAlignMentor={handleAlignMentor} />
         <DocumentsCard
-          mode={canManageLmp ? "action" : "summary"}
+          mode={mode}
           documents={currentDocs}
           onAdd={handleAddDocuments}
           onUpdate={handleUpdateDocument}
@@ -427,7 +425,7 @@ export function ExpandedLmpView({
         />
         <PipelineSnapshotCard
           rec={rec}
-          mode={operationalMode}
+          mode={mode}
           rounds={rounds}
           candidates={(existingCandidates as any[]).map((c) => ({
             id: c.id,
@@ -441,7 +439,7 @@ export function ExpandedLmpView({
         />
       </div>
 
-      {addOpen && canOperateLmp && (
+      {addOpen && (
         <AddCandidatesModalPersist
           open={addOpen}
           onOpenChange={setAddOpen}
@@ -483,6 +481,16 @@ export function ExpandedLmpView({
         lmpId={rec.id}
         lmpLabel={`${rec.role} @ ${rec.company}`}
         scope={canReassignAll ? "all" : "support_outreach"}
+      />
+      <OutreachFeedbackHistoryModal
+        open={feedbackHistoryOpen}
+        onOpenChange={setFeedbackHistoryOpen}
+        lmpId={rec.id}
+      />
+      <OutreachFeedbackModal
+        open={pendingNotConvertedFeedback}
+        lmpId={rec.id}
+        onClose={() => setPendingNotConvertedFeedback(false)}
       />
     </div>
   );

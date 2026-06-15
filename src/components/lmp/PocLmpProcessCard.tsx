@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
+import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
 
 const DOT_COLORS = [
   "bg-orange-200 text-orange-600",
@@ -61,6 +62,7 @@ function slaTone(days: number) {
 export function PocLmpProcessCard({ req, index }: { req: Requisition; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const navigate = useNavigate();
   const { user, role } = useRole();
   const canManage = role === "admin" || role === "allocator";
@@ -70,7 +72,12 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
   const handleChangeStatus = (newStatus: ReqStatus) => {
     updateMutation.mutate(
       { id: req.id, patch: { status: newStatus, lastActivity: "Just now — Status updated" } },
-      { onSuccess: () => toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`) },
+      {
+        onSuccess: () => {
+          toast.success(`Status updated to ${STATUS_OPTIONS.find((o) => o.value === newStatus)?.label ?? newStatus}`);
+          if (newStatus === "not-converted") setFeedbackOpen(true);
+        },
+      },
     );
   };
 
@@ -307,6 +314,11 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <OutreachFeedbackModal
+      open={feedbackOpen}
+      lmpId={req.id}
+      onClose={() => setFeedbackOpen(false)}
+    />
     </>
   );
 }

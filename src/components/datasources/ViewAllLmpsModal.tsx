@@ -75,59 +75,62 @@ type ColKey =
   | "daily_progress" | "prep_doc_shared" | "mentor_aligned"
   | "assignment_review" | "one_to_one_mock"
   | "next_progress_date" | "next_progress_type"
-  | "r1" | "r2" | "r3" | "offer"
-  | "final_convert" | "convert_names"
-  | "comments" | "prep_doc"
+  | "pool_num" | "pool_names"
+  | "r1_num" | "r1_names"
+  | "r2_num" | "r2_names"
+  | "r3_num" | "r3_names"
+  | "final_convert_num" | "convert_names"
+  | "prep_doc_link"
   | "prep_poc" | "support_poc" | "outreach_poc"
-  | "mentor" | "closing_date" | "updated" | "lmp_code";
+  | "closing_date"
+  | "mentor_selected" | "mentor_rating"
+  | "feedback_by_outreach"
+  | "comment" | "lmp_code";
 
 const COLUMNS: { key: ColKey; label: string; minW: string; align?: "center" }[] = [
-  { key: "date", label: "Date", minW: "min-w-[110px]" },
-  { key: "company", label: "Company", minW: "min-w-[160px]" },
-  { key: "role", label: "Role", minW: "min-w-[140px]" },
-  { key: "domain", label: "Domain", minW: "min-w-[120px]" },
-  { key: "status", label: "Status", minW: "min-w-[120px]" },
-  { key: "type", label: "Type", minW: "min-w-[100px]" },
-  { key: "daily_progress", label: "Daily Progress", minW: "min-w-[260px]" },
-  { key: "prep_doc_shared", label: "Prep Doc Shared", minW: "min-w-[60px]", align: "center" },
-  { key: "mentor_aligned", label: "Mentor Aligned", minW: "min-w-[60px]", align: "center" },
-  { key: "assignment_review", label: "Assignment Review", minW: "min-w-[60px]", align: "center" },
-  { key: "one_to_one_mock", label: "1:1 Mock Completed", minW: "min-w-[60px]", align: "center" },
-  { key: "next_progress_date", label: "Next Progress Date", minW: "min-w-[140px]" },
-  { key: "next_progress_type", label: "Next Progress Type", minW: "min-w-[140px]" },
-  { key: "r1", label: "R1", minW: "min-w-[50px]", align: "center" },
-  { key: "r2", label: "R2", minW: "min-w-[50px]", align: "center" },
-  { key: "r3", label: "R3", minW: "min-w-[50px]", align: "center" },
-  { key: "offer", label: "Offer", minW: "min-w-[60px]", align: "center" },
-  { key: "final_convert", label: "Converted Names", minW: "min-w-[120px]" },
-  { key: "convert_names", label: "Converted Names", minW: "min-w-[180px]" },
-  { key: "prep_doc", label: "Prep Doc", minW: "min-w-[120px]" },
-  { key: "prep_poc", label: "Prep POC", minW: "min-w-[160px]" },
-  { key: "support_poc", label: "Support POC", minW: "min-w-[160px]" },
-  { key: "outreach_poc", label: "Outreach POC", minW: "min-w-[160px]" },
-  { key: "closing_date", label: "Closing Date", minW: "min-w-[120px]" },
-  { key: "mentor", label: "Mentor (Rating)", minW: "min-w-[160px]" },
-  { key: "comments", label: "Comments", minW: "min-w-[220px]" },
-  { key: "updated", label: "Updated", minW: "min-w-[110px]" },
-  { key: "lmp_code", label: "LMP ID", minW: "min-w-[140px]" },
+  { key: "date",               label: "Date",                         minW: "min-w-[110px]" },
+  { key: "company",            label: "Company",                      minW: "min-w-[160px]" },
+  { key: "role",               label: "Role",                         minW: "min-w-[140px]" },
+  { key: "domain",             label: "Domain",                       minW: "min-w-[120px]" },
+  { key: "status",             label: "Status",                       minW: "min-w-[120px]" },
+  { key: "type",               label: "Type",                         minW: "min-w-[100px]" },
+  { key: "daily_progress",     label: "Daily Progress",               minW: "min-w-[260px]" },
+  { key: "prep_doc_shared",    label: "Prep Doc Shared",              minW: "min-w-[60px]",  align: "center" },
+  { key: "mentor_aligned",     label: "Mentor Aligned",               minW: "min-w-[60px]",  align: "center" },
+  { key: "assignment_review",  label: "Assignment Review",            minW: "min-w-[60px]",  align: "center" },
+  { key: "one_to_one_mock",    label: "1:1 mock completed",           minW: "min-w-[60px]",  align: "center" },
+  { key: "next_progress_date", label: "Next Progress Date",           minW: "min-w-[140px]" },
+  { key: "next_progress_type", label: "Next Progress Type",           minW: "min-w-[140px]" },
+  { key: "pool_num",           label: "Shortlisted (Pool) - Number",  minW: "min-w-[60px]",  align: "center" },
+  { key: "pool_names",         label: "Shortlisted (Pool) - Name(s)", minW: "min-w-[160px]" },
+  { key: "r1_num",             label: "R1 - Numbers",                 minW: "min-w-[60px]",  align: "center" },
+  { key: "r1_names",           label: "R1 - Names",                   minW: "min-w-[160px]" },
+  { key: "r2_num",             label: "R2 - Numbers",                 minW: "min-w-[60px]",  align: "center" },
+  { key: "r2_names",           label: "R2 - Names",                   minW: "min-w-[160px]" },
+  { key: "r3_num",             label: "R3 - Numbers",                 minW: "min-w-[60px]",  align: "center" },
+  { key: "r3_names",           label: "R3 - Names",                   minW: "min-w-[160px]" },
+  { key: "final_convert_num",  label: "Final Converted Numbers",      minW: "min-w-[60px]",  align: "center" },
+  { key: "convert_names",      label: "Converted Names",              minW: "min-w-[180px]" },
+  { key: "prep_doc_link",      label: "Prep Doc Link",                minW: "min-w-[120px]" },
+  { key: "prep_poc",           label: "Prep POC",                     minW: "min-w-[160px]" },
+  { key: "support_poc",        label: "Support POC",                  minW: "min-w-[160px]" },
+  { key: "outreach_poc",       label: "Outreach POC",                 minW: "min-w-[160px]" },
+  { key: "closing_date",       label: "Closing Date",                 minW: "min-w-[120px]" },
+  { key: "mentor_selected",    label: "Mentor Selected",              minW: "min-w-[140px]" },
+  { key: "mentor_rating",      label: "Mentor Rating",                minW: "min-w-[100px]", align: "center" },
+  { key: "feedback_by_outreach", label: "Feedback by outreach",       minW: "min-w-[220px]" },
+  { key: "comment",            label: "Comment",                      minW: "min-w-[220px]" },
+  { key: "lmp_code",           label: "LMP ID",                       minW: "min-w-[140px]" },
 ];
 
 const DEFAULT_VISIBLE: Record<ColKey, boolean> = (() => {
-  const visible: ColKey[] = [
-    "date", "company", "role", "domain", "status", "type", "daily_progress",
-    "prep_doc_shared", "mentor_aligned", "assignment_review", "one_to_one_mock",
-    "next_progress_date", "next_progress_type",
-    "r1", "r2", "r3", "offer", "convert_names", "prep_doc",
-    "prep_poc", "support_poc", "outreach_poc", "closing_date",
-    "mentor", "comments", "updated", "lmp_code",
-  ];
   return COLUMNS.reduce((acc, c) => {
-    acc[c.key] = visible.includes(c.key);
+    acc[c.key] = true;
     return acc;
   }, {} as Record<ColKey, boolean>);
 })();
 
-const STORAGE_KEY = "lmp_table_col_vis_v3";
+const STORAGE_KEY = "lmp_table_col_vis_v4";
 
 function loadVisibility(): Record<ColKey, boolean> {
   if (typeof window === "undefined") return DEFAULT_VISIBLE;
@@ -360,7 +363,7 @@ function CountCell({ count, lmpId, round }: { count: number; lmpId: string; roun
 }
 
 // ── Main modal ───────────────────────────────────────────────────
-export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { open: boolean; onOpenChange: (v: boolean) => void; readOnly?: boolean }) {
+export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const navigate = useNavigate();
   const { data: rawRows, isLoading } = useLmpFullView();
   const { names: domainOptions, display: domainDisplay, matches: domainMatches } = useResolveDomain();
@@ -520,24 +523,38 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
         return <span className="text-[12px] text-n600">{formatDate(r.next_progress_date)}</span>;
       case "next_progress_type":
         return <span className="text-[12px] text-n500">{r.next_progress_type || "—"}</span>;
-      case "r1": return <CountCell count={Number(r.r1_count) || 0} lmpId={r.id} round="r1" />;
-      case "r2": return <CountCell count={Number(r.r2_count) || 0} lmpId={r.id} round="r2" />;
-      case "r3": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
-      case "offer": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
-      case "final_convert": return <span className="text-[12px] text-n700">{r.final_convert || "—"}</span>;
+      // Pool (was R1) — candidates shortlisted for first stage
+      case "pool_num": return <CountCell count={Number(r.r1_count) || 0} lmpId={r.id} round="r1" />;
+      case "pool_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r1_shortlisted || ""}>{r.r1_shortlisted || "—"}</span>;
+      // R1 (was R2)
+      case "r1_num": return <CountCell count={Number(r.r2_count) || 0} lmpId={r.id} round="r2" />;
+      case "r1_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r2_shortlisted || ""}>{r.r2_shortlisted || "—"}</span>;
+      // R2 (was R3)
+      case "r2_num": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
+      case "r2_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_shortlisted || ""}>{r.r3_shortlisted || "—"}</span>;
+      // R3 (was Offer)
+      case "r3_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
+      case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.final_convert || ""}>{r.final_convert || "—"}</span>;
+      // Final converted
+      case "final_convert_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
       case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.convert_names || ""}>{r.convert_names || "—"}</span>;
-      case "comments": return <span className="text-[12px] text-n700 truncate block max-w-[220px]" title={r.comments || ""}>{r.comments || "—"}</span>;
-      case "prep_doc": return <LinkIconCell href={r.prep_doc} label="Prep doc" icon={Paperclip} />;
+      case "prep_doc_link": return <LinkIconCell href={r.prep_doc} label="Prep doc" icon={Paperclip} />;
       case "prep_poc": return <PocAvatarsCell names={r.prep_poc_names} />;
       case "support_poc": return <PocAvatarsCell names={r.support_poc_names} />;
       case "outreach_poc": return <PocAvatarsCell names={r.outreach_poc_names} />;
-      case "mentor": return <MentorCell name={r.mentor_name} rating={r.mentor_feedback_avg} />;
       case "closing_date":
         return r.closing_date
           ? <span className="text-[12px] text-n600">{formatDate(r.closing_date)}</span>
           : <span className="text-n400">—</span>;
-      case "updated":
-        return <span className="text-[12px] text-n500 whitespace-nowrap">{relativeTime(r.updated_at)}</span>;
+      case "mentor_selected":
+        return <span className="text-[12px] text-n700">{r.mentor_selected || r.mentor_name || "—"}</span>;
+      case "mentor_rating":
+        return r.mentor_feedback_avg && Number(r.mentor_feedback_avg) > 0
+          ? <span className="inline-flex items-center gap-0.5 text-[12px] text-amber-600"><Star className="h-3 w-3 fill-amber-400 stroke-amber-500" />{Number(r.mentor_feedback_avg).toFixed(1)}</span>
+          : <span className="text-n400">—</span>;
+      case "feedback_by_outreach":
+        return <span className="text-[12px] text-n700 truncate block max-w-[220px]" title={r.feedback_by_outreach || ""}>{r.feedback_by_outreach || "—"}</span>;
+      case "comment": return <span className="text-[12px] text-n700 truncate block max-w-[220px]" title={r.comments || ""}>{r.comments || "—"}</span>;
       case "lmp_code":
         return <span className="text-[12px] font-mono text-n700 whitespace-nowrap">{r.lmp_code || "—"}</span>;
     }
@@ -635,7 +652,7 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
             </Popover>
           </div>
 
-          {!readOnly && selectedIds.size > 0 && (
+          {selectedIds.size > 0 && (
             <div className="px-6 py-2 border-b border-n200 bg-orange-50/60 flex items-center gap-3">
               <span className="text-[13px] font-medium text-n800">
                 {selectedIds.size} selected
@@ -697,17 +714,15 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
 
                   <thead className="bg-n50 sticky top-0 z-20">
                     <tr>
-                      {!readOnly && (
-                        <th
-                          className="w-[44px] px-3 py-2 border-b border-n200 bg-n50 sticky left-0 z-30"
-                        >
-                          <Checkbox
-                            checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                            onCheckedChange={() => toggleAll()}
-                            aria-label="Select all"
-                          />
-                        </th>
-                      )}
+                      <th
+                        className="w-[44px] px-3 py-2 border-b border-n200 bg-n50 sticky left-0 z-30"
+                      >
+                        <Checkbox
+                          checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                          onCheckedChange={() => toggleAll()}
+                          aria-label="Select all"
+                        />
+                      </th>
                       {visibleCols.map((c) => (
                         <th
                           key={c.key}
@@ -715,7 +730,7 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
                             "px-3 py-2 text-[12px] font-medium text-n600 whitespace-nowrap border-b border-n200 bg-n50",
                             c.minW,
                             c.align === "center" ? "text-center" : "text-left",
-                            c.key === "company" && !readOnly && "sticky left-[44px] z-30",
+                            c.key === "company" && "sticky left-[44px] z-30",
                           )}
                         >
                           {c.label}
@@ -735,21 +750,19 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
                           }}
                           className={cn("group cursor-pointer", checked && "bg-orange-50/40")}
                         >
-                          {!readOnly && (
-                            <td
-                              onClick={(e) => e.stopPropagation()}
-                              className={cn(
-                                "w-[44px] px-3 py-2.5 border-b border-n100 align-middle bg-card sticky left-0 z-10",
-                                checked && "bg-orange-50/60",
-                              )}
-                            >
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={() => toggleOne(r.id)}
-                                aria-label={`Select ${r.company ?? "row"}`}
-                              />
-                            </td>
-                          )}
+                          <td
+                            onClick={(e) => e.stopPropagation()}
+                            className={cn(
+                              "w-[44px] px-3 py-2.5 border-b border-n100 align-middle bg-card sticky left-0 z-10",
+                              checked && "bg-orange-50/60",
+                            )}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggleOne(r.id)}
+                              aria-label={`Select ${r.company ?? "row"}`}
+                            />
+                          </td>
                           {visibleCols.map((c) => (
                             <td
                               key={c.key}
@@ -757,7 +770,7 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
                                 "px-3 py-2.5 border-b border-n100 align-middle bg-card group-hover:bg-orange-50/50",
                                 c.minW,
                                 c.align === "center" ? "text-center" : "text-left",
-                                c.key === "company" && !readOnly && "sticky left-[44px] z-10",
+                                c.key === "company" && "sticky left-[44px] z-10",
                                 checked && "bg-orange-50/40",
                               )}
                             >
@@ -775,7 +788,7 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!readOnly && confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedIds.size} LMP{selectedIds.size > 1 ? "s" : ""}?</AlertDialogTitle>
@@ -798,3 +811,4 @@ export function ViewAllLmpsModal({ open, onOpenChange, readOnly = false }: { ope
     </TooltipProvider>
   );
 }
+

@@ -47,6 +47,7 @@ export const DB_TO_SHEET: Record<string, string> = {
   // Columns added after initial sheet layout — resolved dynamically so they
   // write only when the actual header exists in the live sheet.
   prep_doc_link: "Prep Doc Link",
+  feedback_by_outreach: "Feedback by outreach",
   comments: "Comments",
 };
 

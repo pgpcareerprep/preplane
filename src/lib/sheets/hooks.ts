@@ -267,6 +267,7 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
     nextExpectedType: row.next_progress_type || row.next_progress_reminder_type || "",
     mentorSelected: row.mentor_selected || "",
     mentorRating: row.mentor_rating ?? undefined,
+    feedbackByOutreach: row.feedback_by_outreach || "",
     documents: (() => {
       const raw = row.prep_doc || "";
       if (!String(raw).trim()) return [];
