@@ -54,12 +54,14 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
   return useMemo(() => {
     const ownership: LmpOwnership = lmp ?? {};
     const actorName = user.pocProfileName || user.name;
-    const accessLevel = getLmpAccessLevel(role, actorName, ownership);
+    // Prefer UUID-based identity — only falls back to name when pocProfileId is absent
+    const pocId = user.pocProfileId ?? null;
+    const accessLevel = getLmpAccessLevel(role, actorName, ownership, pocId);
     const isPrivileged = role === "admin" || role === "allocator";
     const isReadOnly = isPrivileged ? false : accessLevel === "summary";
     const canManage = canManageLmp(role);
-    const canOperate = canOperateLmp(actorName, ownership);
-    const canView = canViewLmp(role, actorName, ownership);
+    const canOperate = canOperateLmp(actorName, ownership, pocId);
+    const canView = canViewLmp(role, actorName, ownership, pocId);
 
     return {
       accessLevel,
@@ -69,7 +71,7 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
       canViewLmp: canView,
       canEdit: canManage && canPerform(role, "edit_lmp"),
       canEditField: (field: LmpField) =>
-        canEditFieldFinal(role, field, actorName, ownership),
+        canEditFieldFinal(role, field, actorName, ownership, pocId),
       canChangeStatus: canOperate && canPerform(role, "change_status"),
       canAssignPoc: canManage && canPerform(role, "assign_poc"),
       canChangeDomain: canManage && canPerform(role, "change_domain"),
@@ -77,7 +79,7 @@ export function useLmpPermission(lmp?: LmpOwnership | null) {
       canRollback: (auditActorName: string) =>
         !isReadOnly && canRollback(role, actorName, auditActorName, ownership),
     };
-  }, [role, user.name, user.pocProfileName, lmp]);
+  }, [role, user.name, user.pocProfileName, user.pocProfileId, lmp]);
 }
 
 /**
@@ -89,8 +91,8 @@ export function useCopilotPermission() {
   return useMemo(
     () => ({
       check: (action: CopilotAction, targetLmpOwnership?: LmpOwnership) =>
-        canCopilotAction(role, action, user.name, targetLmpOwnership),
+        canCopilotAction(role, action, user.pocProfileName ?? user.name, targetLmpOwnership),
     }),
-    [role, user.name]
+    [role, user.name, user.pocProfileName]
   );
 }

@@ -74,20 +74,29 @@ function checkCell(raw: string, targetName: string): boolean {
   return splitPocNames(raw).some(n => namesMatch(n, targetName));
 }
 
-/** Check if a user (by name) is a POC on this record — handles split names & first-name matching */
-export function isUserPocOnRecord(rec: LmpRecord, userName: string): boolean {
-  if (!userName) return false;
-  if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
-  if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
-  if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
-  // deprecated compat
-  if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
-  if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
-  for (const p of rec.pocs || []) {
-    if (checkCell(p.name, userName)) return true;
+/** Check if a user (by poc_profiles ID or name) is a POC on this record */
+export function isUserPocOnRecord(rec: LmpRecord, userName: string, pocId?: string | null): boolean {
+  if (!userName && !pocId) return false;
+  // UUID-based check — authoritative when IDs are populated
+  if (pocId) {
+    if (rec.prepPocId && rec.prepPocId === pocId) return true;
+    if (rec.supportPocId && rec.supportPocId === pocId) return true;
+    if (Array.isArray(rec.outreachPocIds) && rec.outreachPocIds.includes(pocId)) return true;
   }
-  if (rec.allocator && checkCell(rec.allocator, userName)) return true;
-  if (rec.adminOwner && checkCell(rec.adminOwner, userName)) return true;
+  // Name-based fallback — handles legacy records and sheet-sourced data
+  if (userName) {
+    if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
+    if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
+    if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
+    // deprecated compat
+    if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
+    if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
+    for (const p of rec.pocs || []) {
+      if (checkCell(p.name, userName)) return true;
+    }
+    if (rec.allocator && checkCell(rec.allocator, userName)) return true;
+    if (rec.adminOwner && checkCell(rec.adminOwner, userName)) return true;
+  }
   return false;
 }
 
@@ -95,14 +104,23 @@ export function isUserPocOnRecord(rec: LmpRecord, userName: string): boolean {
  * Operational POC check — any explicitly assigned Prep, Support, or Outreach POC.
  * Allocator and admin ownership labels do not grant POC ownership.
  */
-export function isUserOperationalPoc(rec: LmpRecord, userName: string): boolean {
-  if (!userName) return false;
-  if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
-  if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
-  if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
-  // deprecated compat fields
-  if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
-  if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
+export function isUserOperationalPoc(rec: LmpRecord, userName: string, pocId?: string | null): boolean {
+  if (!userName && !pocId) return false;
+  // UUID-based check — authoritative when IDs are populated
+  if (pocId) {
+    if (rec.prepPocId && rec.prepPocId === pocId) return true;
+    if (rec.supportPocId && rec.supportPocId === pocId) return true;
+    if (Array.isArray(rec.outreachPocIds) && rec.outreachPocIds.includes(pocId)) return true;
+  }
+  // Name-based fallback
+  if (userName) {
+    if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
+    if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
+    if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
+    // deprecated compat fields
+    if (rec.domainPrepPoc?.name && checkCell(rec.domainPrepPoc.name, userName)) return true;
+    if (rec.behavioralPrepPoc?.name && checkCell(rec.behavioralPrepPoc.name, userName)) return true;
+  }
   return false;
 }
 
@@ -231,21 +249,22 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
 
   // View-as controls filtering only. Authority always comes from the real role.
   const matchName = user.pocProfileName ?? user.name;
+  const matchPocId = user.pocProfileId ?? null;
 
   const value = useMemo<Ctx>(() => {
     const filterFor = (rec: LmpRecord) => {
       if (target === "all") return true;
-      // "My LMPs" — filter to only records where the user is a POC
-      if (target === "me") return isUserPocOnRecord(rec, matchName);
-      // Specific POC name selected
+      // "My LMPs" — prefer UUID-based check, fall back to name
+      if (target === "me") return isUserPocOnRecord(rec, matchName, matchPocId);
+      // Specific POC name selected (viewing-as another user — name-based)
       return isPocOnRecord(rec, target);
     };
 
     const modeFor = (rec: LmpRecord): LmpInteractionMode =>
-      isUserOperationalPoc(rec, matchName) ? "action" : "summary";
+      isUserOperationalPoc(rec, matchName, matchPocId) ? "action" : "summary";
 
     return { target, setTarget, pocOptions, modeFor, filterFor, currentUserName: matchName };
-  }, [target, pocOptions, matchName, setTarget]);
+  }, [target, pocOptions, matchName, matchPocId, setTarget]);
 
   return <ViewingContext.Provider value={value}>{children}</ViewingContext.Provider>;
 }
