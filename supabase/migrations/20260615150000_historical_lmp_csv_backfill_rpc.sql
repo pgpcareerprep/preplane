@@ -67,12 +67,12 @@ BEGIN
       FROM public.lmp_processes
       WHERE lower(btrim(company)) = lower(v_company)
         AND lower(btrim(role)) = lower(v_role)
-        AND date = v_date;
+        AND date = v_date::text;
       SELECT * INTO v_existing
       FROM public.lmp_processes
       WHERE lower(btrim(company)) = lower(v_company)
         AND lower(btrim(role)) = lower(v_role)
-        AND date = v_date
+        AND date = v_date::text
       LIMIT 1;
     ELSE
       v_matches := 0;
@@ -130,7 +130,7 @@ BEGIN
     ELSE
       UPDATE public.lmp_processes
       SET
-        date = COALESCE(date, v_date),
+        date = COALESCE(NULLIF(date, ''), v_date::text),
         domain_raw = COALESCE(NULLIF(domain_raw, ''), NULLIF(v_patch->>'domain_raw', '')),
         status = COALESCE(NULLIF(status, ''), NULLIF(v_patch->>'status', '')),
         type = COALESCE(NULLIF(type, ''), NULLIF(v_patch->>'type', '')),
