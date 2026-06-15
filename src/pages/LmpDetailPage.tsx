@@ -57,6 +57,9 @@ export default function LmpDetailPage() {
     prep_poc: lmp.prepPoc?.name,
     support_poc: lmp.supportPoc?.name,
     outreach_poc: lmp.outreachPoc?.name,
+    prep_poc_id: lmp.prepPocId,
+    support_poc_id: lmp.supportPocId,
+    outreach_poc_ids: lmp.outreachPocIds,
   } : null);
   // Only treat as read-only once auth/role/POC profile have fully resolved.
   // Otherwise a Support POC would briefly see the read-only banner on every
