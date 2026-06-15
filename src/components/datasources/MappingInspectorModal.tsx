@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 import { SHEET_TO_DB, DB_TO_SHEET } from "@/lib/sheets/fieldMap";
 
 const ACTIVE_TAB = "LMP Tracker" as const;
-const CALCULATED_FIELDS = new Set(["r1_count", "r2_count", "r3_count", "mentor_feedback_avg"]);
+const CALCULATED_FIELDS = new Set([
+  "pool_count", "pool_names",
+  "r1_count", "r2_count", "r3_count",
+  "mentor_feedback_avg", "mentor_rating", "mentor_selected",
+]);
 
 type Registry = {
   id: string;
@@ -317,7 +321,12 @@ function CodeMapAudit({ registry }: { registry: Registry[] }) {
   const registryOnly = useMemo(() => {
     const codeDbCols = new Set(rows.map((r) => r.dbCol.toLowerCase()));
     return registry.filter(
-      (r) => r.app_field && !codeDbCols.has(r.app_field.toLowerCase()),
+      (r) =>
+        r.app_field &&
+        !codeDbCols.has(r.app_field.toLowerCase()) &&
+        // Exclude computed/calculated fields — they are wired via calcMap in the
+        // edge function, not via the canonical SHEET_TO_DB / DB_TO_SHEET maps.
+        r.sync_direction !== "computed",
     );
   }, [registry, rows]);
 
