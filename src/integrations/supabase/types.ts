@@ -1280,14 +1280,14 @@ export type Database = {
           closing_date: string | null
           comments: string | null
           company: string
-          convert_names: string | null
+          final_converted_names: string | null
           created_at: string
           created_by: string | null
           daily_progress: string | null
           date: string | null
           domain_id: string | null
           domain_raw: string | null
-          final_convert: string | null
+          final_converted_numbers: string | null
           historical_tag: string | null
           id: string
           is_archived: boolean | null
@@ -1323,9 +1323,9 @@ export type Database = {
           prep_poc: string | null
           prep_poc_id: string | null
           prep_progress: string | null
-          r1_shortlisted: string | null
-          r2_shortlisted: string | null
-          r3_shortlisted: string | null
+          r1_names: string | null
+          r2_names: string | null
+          r3_names: string | null
           remarks: string | null
           reminder_version: number | null
           role: string
@@ -1349,7 +1349,7 @@ export type Database = {
           closing_date?: string | null
           comments?: string | null
           company: string
-          convert_names?: string | null
+          final_converted_names?: string | null
           created_at?: string
           created_by?: string | null
           daily_progress?: string | null
@@ -1357,7 +1357,7 @@ export type Database = {
           domain_id?: string | null
           domain_raw?: string | null
           feedback_by_outreach?: string | null
-          final_convert?: string | null
+          final_converted_numbers?: string | null
           historical_tag?: string | null
           is_archived?: boolean | null
           id?: string
@@ -1393,9 +1393,9 @@ export type Database = {
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
-          r1_shortlisted?: string | null
-          r2_shortlisted?: string | null
-          r3_shortlisted?: string | null
+          r1_names?: string | null
+          r2_names?: string | null
+          r3_names?: string | null
           remarks?: string | null
           reminder_version?: number | null
           role: string
@@ -1418,7 +1418,7 @@ export type Database = {
           closing_date?: string | null
           comments?: string | null
           company?: string
-          convert_names?: string | null
+          final_converted_names?: string | null
           created_at?: string
           created_by?: string | null
           daily_progress?: string | null
@@ -1426,7 +1426,7 @@ export type Database = {
           domain_id?: string | null
           domain_raw?: string | null
           feedback_by_outreach?: string | null
-          final_convert?: string | null
+          final_converted_numbers?: string | null
           historical_tag?: string | null
           is_archived?: boolean | null
           id?: string
@@ -1462,9 +1462,9 @@ export type Database = {
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
-          r1_shortlisted?: string | null
-          r2_shortlisted?: string | null
-          r3_shortlisted?: string | null
+          r1_names?: string | null
+          r2_names?: string | null
+          r3_names?: string | null
           remarks?: string | null
           reminder_version?: number | null
           role?: string
@@ -2458,14 +2458,14 @@ export type Database = {
           closing_date: string | null
           comments: string | null
           company: string | null
-          convert_names: string | null
+          final_converted_names: string | null
           created_at: string | null
           created_date: string | null
           daily_log_count: number | null
           domain_id: string | null
           domain_raw: string | null
           feedback_by_outreach: string | null
-          final_convert: string | null
+          final_converted_numbers: string | null
           id: string | null
           jd_label: string | null
           jd_url: string | null
@@ -2481,11 +2481,11 @@ export type Database = {
           prep_doc: string | null
           prep_poc_names: string | null
           r1_count: number | null
-          r1_shortlisted: string | null
+          r1_names: string | null
           r2_count: number | null
-          r2_shortlisted: string | null
+          r2_names: string | null
           r3_count: number | null
-          r3_shortlisted: string | null
+          r3_names: string | null
           role: string | null
           status: string | null
           support_poc_names: string | null
@@ -2501,14 +2501,14 @@ export type Database = {
           closing_date?: string | null
           comments?: string | null
           company?: string | null
-          convert_names?: string | null
+          final_converted_names?: string | null
           created_at?: string | null
           created_date?: string | null
           daily_log_count?: never
           domain_id?: string | null
           domain_raw?: string | null
           feedback_by_outreach?: string | null
-          final_convert?: string | null
+          final_converted_numbers?: string | null
           id?: string | null
           jd_label?: string | null
           jd_url?: string | null
@@ -2524,11 +2524,11 @@ export type Database = {
           prep_doc?: string | null
           prep_poc_names?: never
           r1_count?: never
-          r1_shortlisted?: string | null
+          r1_names?: string | null
           r2_count?: never
-          r2_shortlisted?: string | null
+          r2_names?: string | null
           r3_count?: never
-          r3_shortlisted?: string | null
+          r3_names?: string | null
           role?: string | null
           status?: string | null
           support_poc_names?: never
@@ -2544,14 +2544,14 @@ export type Database = {
           closing_date?: string | null
           comments?: string | null
           company?: string | null
-          convert_names?: string | null
+          final_converted_names?: string | null
           created_at?: string | null
           created_date?: string | null
           daily_log_count?: never
           domain_id?: string | null
           domain_raw?: string | null
           feedback_by_outreach?: string | null
-          final_convert?: string | null
+          final_converted_numbers?: string | null
           id?: string | null
           jd_label?: string | null
           jd_url?: string | null
@@ -2567,11 +2567,11 @@ export type Database = {
           prep_doc?: string | null
           prep_poc_names?: never
           r1_count?: never
-          r1_shortlisted?: string | null
+          r1_names?: string | null
           r2_count?: never
-          r2_shortlisted?: string | null
+          r2_names?: string | null
           r3_count?: never
-          r3_shortlisted?: string | null
+          r3_names?: string | null
           role?: string | null
           status?: string | null
           support_poc_names?: never
@@ -2600,14 +2600,14 @@ export type Database = {
           candidate_count: number | null
           closing_date: string | null
           company: string | null
-          convert_names: string | null
+          final_converted_names: string | null
           created_at: string | null
           daily_progress: string | null
           date: string | null
           domain_id: string | null
           domain_name: string | null
           domain_raw: string | null
-          final_convert: string | null
+          final_converted_numbers: string | null
           id: string | null
           last_progress_updated_at: string | null
           lmp_code: string | null
@@ -2628,9 +2628,9 @@ export type Database = {
           prep_poc_id: string | null
           prep_poc_name: string | null
           prep_progress: string | null
-          r1_shortlisted: string | null
-          r2_shortlisted: string | null
-          r3_shortlisted: string | null
+          r1_names: string | null
+          r2_names: string | null
+          r3_names: string | null
           remarks: string | null
           reminder_version: number | null
           role: string | null

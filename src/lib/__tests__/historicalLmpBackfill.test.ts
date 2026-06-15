@@ -39,11 +39,11 @@ describe("historical LMP backfill planner", () => {
 
   it("maps CSV newline headers through the canonical field map", () => {
     const report = planHistoricalLmpBackfill(
-      csv('Date,Company,Role,"R1\nShortlisted","Converted\nName(s)"', '8 Jun 2026,BharatPe,Sales Excellence,"A, B",Aditi'),
+      csv('Date,Company,Role,"R1 - Names","Converted Names"', '8 Jun 2026,BharatPe,Sales Excellence,"A, B",Aditi'),
       [],
     );
-    expect(report.commitRows[0].patch.r1_shortlisted).toBe("A, B");
-    expect(report.commitRows[0].patch.convert_names).toBe("Aditi");
+    expect(report.commitRows[0].patch.r1_names).toBe("A, B");
+    expect(report.commitRows[0].patch.final_converted_names).toBe("Aditi");
   });
 
   it("does not plan blank CSV values over non-empty DB values", () => {

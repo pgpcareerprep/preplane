@@ -258,13 +258,13 @@ async function recomputeConvertNames(lmpId: string) {
     const finalNames = finalRows
       .map((r: any) => String(r.student_name || "").trim())
       .filter(Boolean);
-    const convert_names = finalNames.join(", ");
-    const final_convert = finalRows.length > 0 ? String(finalRows.length) : null;
+    const final_converted_names = finalNames.join(", ");
+    const final_converted_numbers = finalRows.length > 0 ? String(finalRows.length) : null;
     await supabase
       .from("lmp_processes")
       .update({
-        convert_names: convert_names || null,
-        final_convert,
+        final_converted_names: final_converted_names || null,
+        final_converted_numbers,
       })
       .eq("id", lmpId);
   } catch (e) {

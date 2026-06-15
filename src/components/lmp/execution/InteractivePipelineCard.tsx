@@ -71,10 +71,10 @@ function buildPipelineFromLmp(
   if (!lmp && dbCandidates.length === 0) return [];
 
   const sheetByIdx: string[][] = [
-    parseNames(lmp?.r1Shortlisted),
-    parseNames(lmp?.r2Shortlisted),
-    parseNames(lmp?.r3Shortlisted),
-    parseNames(lmp?.convertNames || lmp?.finalConvert),
+    parseNames(lmp?.r1Names),
+    parseNames(lmp?.r2Names),
+    parseNames(lmp?.r3Names),
+    parseNames(lmp?.finalConvertedNames || lmp?.finalConvertedNumbers),
   ];
 
   const itemsByRoundId: Record<string, PipelineItem[]> = { pool: [] };

@@ -1056,11 +1056,11 @@ function dbLmpRowToRecord(r: Record<string, unknown>): Record<string, string> {
     "Daily Progress": v(r.daily_progress),
     "Prep Progress": v(r.prep_progress),
     "Placement Progress": v(r.placement_progress),
-    "R1 Shortlisted": v(r.r1_shortlisted),
-    "R2 Shortlisted": v(r.r2_shortlisted),
-    "R3 Shortlisted": v(r.r3_shortlisted),
-    "Final Convert": v(r.final_convert),
-    "Convert Names": v(r.convert_names),
+    "R1 - Names": v(r.r1_names),
+    "R2 - Names": v(r.r2_names),
+    "R3 - Names": v(r.r3_names),
+    "Final Converted Numbers": v(r.final_converted_numbers),
+    "Converted Names": v(r.final_converted_names),
     "Remarks": v(r.remarks),
     "Last Updated": v(r.updated_at),
     "Last Progress Updated": v(r.last_progress_updated_at),
@@ -1106,7 +1106,7 @@ async function fetchLmpFromSupabase(): Promise<LmpFetch> {
   const { data, error } = await sb
     .from("lmp_processes")
     .select(
-      "id,company,role,domain_raw,status,type,date,prep_poc,support_poc,outreach_poc,lmp_code,daily_progress,final_convert,mentor_aligned,updated_at,closing_date,jd_url,jd_label,allocation_path",
+      "id,company,role,domain_raw,status,type,date,prep_poc,support_poc,outreach_poc,lmp_code,daily_progress,final_converted_numbers,mentor_aligned,updated_at,closing_date,jd_url,jd_label,allocation_path",
     )
     .limit(2000);
   if (error) throw new Error(`DB read (lmp_processes) failed: ${error.message}`);
@@ -1258,10 +1258,10 @@ const POC_WRITABLE_FIELDS_GUARD = new Set<string>([
   "next_progress_reminder_type","last_progress_updated_at",
   "remarks","mentor_aligned","prep_doc_shared","assignment_review",
   "one_to_one_mock","behavioral_status","status",
-  "r1_shortlisted","r2_shortlisted","r3_shortlisted","convert_names","prep_doc",
+  "r1_names","r2_names","r3_names","final_converted_names","prep_doc",
   "Daily Progress","Prep Progress","Placement Progress","Remarks",
   "Mentor Aligned","Prep Doc Shared","Assignment Review","One-to-one Mock",
-  "Status","R1 Shortlisted","R2 Shortlisted","R3 Shortlisted",
+  "Status","R1 - Names","R2 - Names","R3 - Names",
 ]);
 
 async function enforceWriteGuard(
@@ -1602,10 +1602,10 @@ async function executeTool(
             "next_progress_reminder_type","last_progress_updated_at",
             "remarks","mentor_aligned","prep_doc_shared","assignment_review",
             "one_to_one_mock","behavioral_status","status",
-            "r1_shortlisted","r2_shortlisted","r3_shortlisted","convert_names","prep_doc",
+            "r1_names","r2_names","r3_names","final_converted_names","prep_doc",
             "Daily Progress","Prep Progress","Placement Progress","Remarks",
             "Mentor Aligned","Prep Doc Shared","Assignment Review","One-to-one Mock",
-            "Status","R1 Shortlisted","R2 Shortlisted","R3 Shortlisted",
+            "Status","R1 - Names","R2 - Names","R3 - Names",
           ]);
           const fields = (payload.fields as Record<string, unknown>) || {};
           const offenders = Object.keys(fields).filter((f) => {

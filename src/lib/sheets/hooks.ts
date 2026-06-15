@@ -116,8 +116,8 @@ function parseSheetLmp(row: SheetLmpRow): LmpRecord {
     company: row["Company"] || "",
     domain: row["Domain"] || "",
     candidates: (() => {
-      const convertNames = (row["Convert\nName(s)"] || "").split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-      const r1Count = parseInt(row["R1\nShortlisted"] || "0") || 0;
+      const convertNames = (row["Converted Names"] || "").split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+      const r1Count = parseInt(row["Shortlisted (Pool) - Number"] || "0") || 0;
       return convertNames.length || r1Count || 0;
     })(),
     stage: "",
@@ -138,11 +138,11 @@ function parseSheetLmp(row: SheetLmpRow): LmpRecord {
     // Additional sheet columns
     type: row["Type"] || "",
     prepProgress: "",
-    r1Shortlisted: row["R1\nShortlisted"] || "",
-    r2Shortlisted: row["R2\nShortlisted"] || "",
-    r3Shortlisted: row["R3\nShortlisted"] || "",
-    finalConvert: row["Final\nConvert"] || "",
-    convertNames: row["Convert\nName(s)"] || "",
+    r1Names: row["Shortlisted (Pool) - Name(s)"] || "",
+    r2Names: row["R1 - Names"] || "",
+    r3Names: row["R2 - Names"] || "",
+    finalConvertedNumbers: row["Final Converted Numbers"] || "",
+    finalConvertedNames: row["Converted Names"] || "",
     prepDoc: row["Prep Doc"] || "",
     dailyProgress: row["Daily Progress"] || "",
     // Checklist columns (checkboxes — API returns "false"/"true"/"1"/""
@@ -252,11 +252,11 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
     jdMode: "FULL_SCORING" as JdMode,
     type: row.type || "",
     prepProgress: row.prep_progress || "",
-    r1Shortlisted: row.r1_shortlisted || "",
-    r2Shortlisted: row.r2_shortlisted || "",
-    r3Shortlisted: row.r3_shortlisted || "",
-    finalConvert: row.final_convert || "",
-    convertNames: row.convert_names || "",
+    r1Names: row.r1_names || "",
+    r2Names: row.r2_names || "",
+    r3Names: row.r3_names || "",
+    finalConvertedNumbers: row.final_converted_numbers || "",
+    finalConvertedNames: row.final_converted_names || "",
     prepDoc: row.prep_doc || "",
     dailyProgress: row.daily_progress || "",
     mentorAligned: parseBool(row.mentor_aligned),
@@ -437,11 +437,11 @@ export function useLmpMutation() {
       // field-protection trigger.
       // lastActivity: "Closing Date",  ← REMOVED
       type: "Type",
-      r1Shortlisted: "R1 Shortlisted",
-      r2Shortlisted: "R2 Shortlisted",
-      r3Shortlisted: "R3 Shortlisted",
-      finalConvert: "Converted Names",
-      convertNames: "Converted Name(s)",
+      r1Names: "Shortlisted (Pool) - Name(s)",
+      r2Names: "R1 - Names",
+      r3Names: "R2 - Names",
+      finalConvertedNumbers: "Final Converted Numbers",
+      finalConvertedNames: "Converted Names",
       prepDoc: "Prep Doc",
       prepDocLink: "Prep Doc Link",
       dailyProgress: "Daily Progress",

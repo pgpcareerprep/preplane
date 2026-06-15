@@ -821,9 +821,11 @@ Deno.serve(async (req: Request) => {
             // columns are ignored.
             const SHEET_TO_DB_INGEST: Record<string, string> = { ...SHEET_TO_DB };
             for (const k of [
-              "R1\nShortlisted", "R1 Shortlisted",
-              "R2\nShortlisted", "R2 Shortlisted",
-              "R3\nShortlisted", "R3 Shortlisted",
+              "Shortlisted (Pool) - Number", "Shortlisted (Pool) - Name(s)",
+              "R1 - Numbers", "R1 - Names",
+              "R2 - Numbers", "R2 - Names",
+              "R3 - Numbers",
+              "Final Converted Numbers", "Converted Names",
             ]) delete SHEET_TO_DB_INGEST[k];
             for (const [sheetCol, dbCol] of Object.entries(SHEET_TO_DB_INGEST)) {
               if (sheetCol in patch) dbPatch[dbCol] = coerceDbValue(dbCol, patch[sheetCol]);
@@ -1168,26 +1170,20 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: calc } = await serviceClient
             .from("lmp_full_view")
-            .select("r1_count, r2_count, r3_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
+            .select("r1_count, r2_count, r3_count, offer_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
             .eq("lmp_code", lmpCode)
             .maybeSingle();
           if (calc) {
-            // Prefer the explicit DB column value (lmp_processes.rN_shortlisted)
-            // when present — that's the canonical source. Fall back to the
-            // calculated count from lmp_full_view only when the DB column was
-            // not part of this patch / is empty. r1_shortlisted → Col N,
-            // r2_shortlisted → Col O, r3_shortlisted → Col P.
-            const rVal = (key: string, fallback: unknown) => {
-              const v = (dbPatch as Record<string, unknown>)[key];
-              return v !== undefined && v !== null && v !== "" ? v : fallback;
-            };
             const calcMap: Record<string, unknown> = {
-              "R1\nShortlisted": rVal("r1_shortlisted", calc.r1_count ?? 0),
-              "R1 Shortlisted": rVal("r1_shortlisted", calc.r1_count ?? 0),
-              "R2\nShortlisted": rVal("r2_shortlisted", calc.r2_count ?? 0),
-              "R2 Shortlisted": rVal("r2_shortlisted", calc.r2_count ?? 0),
-              "R3\nShortlisted": rVal("r3_shortlisted", calc.r3_count ?? 0),
-              "R3 Shortlisted": rVal("r3_shortlisted", calc.r3_count ?? 0),
+              "Shortlisted (Pool) - Number": calc.r1_count ?? 0,
+              "Shortlisted (Pool) - Name(s)": (dbPatch as Record<string, unknown>).r1_names ?? "",
+              "R1 - Numbers": calc.r2_count ?? 0,
+              "R1 - Names": (dbPatch as Record<string, unknown>).r2_names ?? "",
+              "R2 - Numbers": calc.r3_count ?? 0,
+              "R2 - Names": (dbPatch as Record<string, unknown>).r3_names ?? "",
+              "R3 - Numbers": calc.offer_count ?? 0,
+              "Final Converted Numbers": (dbPatch as Record<string, unknown>).final_converted_numbers ?? "",
+              "Converted Names": (dbPatch as Record<string, unknown>).final_converted_names ?? "",
               "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
                 ? Number(calc.mentor_feedback_avg).toFixed(1)
                 : "",
@@ -1379,7 +1375,7 @@ Deno.serve(async (req: Request) => {
         // Fetch calculated POC / mentor / shortlist counts from lmp_full_view
         const { data: calcRows } = await serviceClient
           .from("lmp_full_view")
-          .select("lmp_code,r1_count,r2_count,r3_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
+          .select("lmp_code,r1_count,r2_count,r3_count,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
           .not("lmp_code", "is", null);
         const calcByCode = new Map<string, any>(
           (calcRows ?? []).map((c: any) => [String(c.lmp_code).toLowerCase(), c])
@@ -1515,12 +1511,15 @@ Deno.serve(async (req: Request) => {
           }
           // Calculated / aggregated columns
           const calcOverrides: Record<string, unknown> = {
-            "R1 Shortlisted": lmp.r1_shortlisted ?? calc.r1_count ?? 0,
-            "R1\nShortlisted": lmp.r1_shortlisted ?? calc.r1_count ?? 0,
-            "R2 Shortlisted": lmp.r2_shortlisted ?? calc.r2_count ?? 0,
-            "R2\nShortlisted": lmp.r2_shortlisted ?? calc.r2_count ?? 0,
-            "R3 Shortlisted": lmp.r3_shortlisted ?? calc.r3_count ?? 0,
-            "R3\nShortlisted": lmp.r3_shortlisted ?? calc.r3_count ?? 0,
+            "Shortlisted (Pool) - Number": calc.r1_count ?? 0,
+            "Shortlisted (Pool) - Name(s)": lmp.r1_names ?? "",
+            "R1 - Numbers": calc.r2_count ?? 0,
+            "R1 - Names": lmp.r2_names ?? "",
+            "R2 - Numbers": calc.r3_count ?? 0,
+            "R2 - Names": lmp.r3_names ?? "",
+            "R3 - Numbers": calc.offer_count ?? 0,
+            "Final Converted Numbers": lmp.final_converted_numbers ?? "",
+            "Converted Names": lmp.final_converted_names ?? "",
             "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
               ? Number(calc.mentor_feedback_avg).toFixed(1) : (lmp.mentor_rating ?? ""),
             "Mentor Selected": calc.mentor_name ?? lmp.mentor_selected ?? "",

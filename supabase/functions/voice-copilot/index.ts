@@ -427,7 +427,7 @@ async function snapshotForPending(p: PendingAction): Promise<Record<string, any>
   const c = sb();
   const { data } = await c
     .from("lmp_processes")
-    .select("id,company,role,status,domain_raw,type,prep_poc,support_poc,outreach_poc,prep_progress,placement_progress,daily_progress,remarks,prep_doc,closing_date,r1_shortlisted,r2_shortlisted,r3_shortlisted,final_convert,convert_names")
+    .select("id,company,role,status,domain_raw,type,prep_poc,support_poc,outreach_poc,prep_progress,placement_progress,daily_progress,remarks,prep_doc,closing_date,r1_names,r2_names,r3_names,final_converted_numbers,final_converted_names")
     .ilike("company", `%${p.company}%`)
     .ilike("role", `%${p.role}%`)
     .limit(1)
@@ -558,8 +558,8 @@ async function executePending(
     if (p.action === "update_lmp_field") {
       const allowed = new Set([
         "domain_raw", "type", "prep_progress", "placement_progress", "daily_progress",
-        "remarks", "prep_doc", "closing_date", "r1_shortlisted", "r2_shortlisted",
-        "r3_shortlisted", "final_convert", "convert_names",
+        "remarks", "prep_doc", "closing_date", "r1_names", "r2_names",
+        "r3_names", "final_converted_numbers", "final_converted_names",
       ]);
       if (!allowed.has(p.field)) return { ok: false, error: `field ${p.field} not allowed` };
       const lmp = await findLmp();

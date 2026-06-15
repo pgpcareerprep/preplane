@@ -7,11 +7,11 @@ const FIELD_LABELS: Record<string, string> = {
   placementProgress: "Placement Progress",
   prepProgress: "Prep Progress %",
   closedReason: "Closed Reason",
-  r1Shortlisted: "R1 Shortlisted",
-  r2Shortlisted: "R2 Shortlisted",
-  r3Shortlisted: "R3 Shortlisted",
-  finalConvert: "Converted Names",
-  convertNames: "Convert Names",
+  r1Names: "R1 - Names",
+  r2Names: "R2 - Names",
+  r3Names: "R3 - Names",
+  finalConvertedNumbers: "Final Converted Numbers",
+  finalConvertedNames: "Converted Names",
 };
 
 /**

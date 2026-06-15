@@ -68,11 +68,11 @@ export type LmpRecord = {
   // Additional sheet columns
   type?: string;
   prepProgress?: string;
-  r1Shortlisted?: string;
-  r2Shortlisted?: string;
-  r3Shortlisted?: string;
-  finalConvert?: string;
-  convertNames?: string;
+  r1Names?: string;
+  r2Names?: string;
+  r3Names?: string;
+  finalConvertedNumbers?: string;
+  finalConvertedNames?: string;
   prepDoc?: string;
   dailyProgress?: string;
   // Checklist columns (checkboxes in sheet)

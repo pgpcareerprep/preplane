@@ -27,11 +27,11 @@ export const DB_TO_SHEET: Record<string, string> = {
   one_to_one_mock: "1:1 mock completed",
   next_progress_date: "Next Progress Date",
   next_progress_type: "Next Progress Type",
-  r1_shortlisted: "R1 Shortlisted",
-  r2_shortlisted: "R2 Shortlisted",
-  r3_shortlisted: "R3 Shortlisted",
-  final_convert: "Offer",
-  convert_names: "Converted Name(s)",
+  r1_names: "R1 - Names",
+  r2_names: "R2 - Names",
+  r3_names: "R3 - Names",
+  final_converted_numbers: "Final Converted Numbers",
+  final_converted_names: "Converted Names",
   // prep_doc: "Prep Doc" — REMOVED: "Prep Doc" column no longer exists in the
   // canonical sheet layout (col S is now "Prep Doc Link"). The prep_doc JSON
   // array is stored in the DB only; prep_doc_link mirrors the human-readable

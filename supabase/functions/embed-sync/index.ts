@@ -51,7 +51,7 @@ function buildEmbedText(table: string, row: Row): string {
         `Allocation: ${s(row.allocation_path)} | LMP ID: ${s(row.lmp_code)}`,
         row.prep_doc ? `Prep Doc: ${s(row.prep_doc)}` : "",
         row.closing_date ? `Closing: ${s(row.closing_date)}` : "",
-        row.final_convert ? `Converted: ${s(row.convert_names, "yes")}` : "",
+        row.final_converted_numbers ? `Converted: ${s(row.final_converted_names, "yes")}` : "",
       ].filter(Boolean).join("\n");
 
     case "students":

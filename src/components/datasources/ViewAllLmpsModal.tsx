@@ -525,19 +525,19 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
         return <span className="text-[12px] text-n500">{r.next_progress_type || "—"}</span>;
       // Pool (was R1) — candidates shortlisted for first stage
       case "pool_num": return <CountCell count={Number(r.r1_count) || 0} lmpId={r.id} round="r1" />;
-      case "pool_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r1_shortlisted || ""}>{r.r1_shortlisted || "—"}</span>;
+      case "pool_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r1_names || ""}>{r.r1_names || "—"}</span>;
       // R1 (was R2)
       case "r1_num": return <CountCell count={Number(r.r2_count) || 0} lmpId={r.id} round="r2" />;
-      case "r1_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r2_shortlisted || ""}>{r.r2_shortlisted || "—"}</span>;
+      case "r1_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r2_names || ""}>{r.r2_names || "—"}</span>;
       // R2 (was R3)
       case "r2_num": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
-      case "r2_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_shortlisted || ""}>{r.r3_shortlisted || "—"}</span>;
+      case "r2_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_names || ""}>{r.r3_names || "—"}</span>;
       // R3 (was Offer)
       case "r3_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
-      case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.final_convert || ""}>{r.final_convert || "—"}</span>;
+      case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.final_converted_numbers || ""}>{r.final_converted_numbers || "—"}</span>;
       // Final converted
       case "final_convert_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
-      case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.convert_names || ""}>{r.convert_names || "—"}</span>;
+      case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.final_converted_names || ""}>{r.final_converted_names || "—"}</span>;
       case "prep_doc_link": return <LinkIconCell href={r.prep_doc} label="Prep doc" icon={Paperclip} />;
       case "prep_poc": return <PocAvatarsCell names={r.prep_poc_names} />;
       case "support_poc": return <PocAvatarsCell names={r.support_poc_names} />;

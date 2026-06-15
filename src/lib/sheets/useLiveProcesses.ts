@@ -21,11 +21,11 @@ export const UNMAPPABLE_FIELDS = [
   "placementProgress",
   "prepProgress",
   "closedReason",
-  "r1Shortlisted",
-  "r2Shortlisted",
-  "r3Shortlisted",
-  "finalConvert",
-  "convertNames",
+  "r1Names",
+  "r2Names",
+  "r3Names",
+  "finalConvertedNumbers",
+  "finalConvertedNames",
 ] as const;
 
 export type UnmappableField = typeof UNMAPPABLE_FIELDS[number];
@@ -145,7 +145,7 @@ function lmpToProcess(r: LmpRecord): Process {
   let finalConvert = "";
   if (status === "Converted") {
     offerOutcome = "Accepted";
-    finalConvert = r.convertNames || r.company;
+    finalConvert = r.finalConvertedNames || r.company;
   } else if (r.status === "not-converted") {
     offerOutcome = "Rejected";
   }
@@ -153,9 +153,9 @@ function lmpToProcess(r: LmpRecord): Process {
   // ⚠ Placement progress: INFERRED from status — no round tracking data
   let placementProgress: Process["placementProgress"] = "Not Started";
   if (r.prepDoc) placementProgress = "Prep";
-  if (r.r1Shortlisted) placementProgress = "R1";
-  if (r.r2Shortlisted) placementProgress = "R2";
-  if (r.r3Shortlisted) placementProgress = "R3";
+  if (r.r1Names) placementProgress = "R1";
+  if (r.r2Names) placementProgress = "R2";
+  if (r.r3Names) placementProgress = "R3";
   if (status === "Converted") placementProgress = "Converted";
 
   // ⚠ Prep progress: ESTIMATED percentage
@@ -181,11 +181,11 @@ function lmpToProcess(r: LmpRecord): Process {
     offerOutcome,                          // ⚠ UNMAPPABLE — inferred
     prepProgress: progressMap[placementProgress] ?? 10, // ⚠ UNMAPPABLE — estimated
     placementProgress,                     // ⚠ UNMAPPABLE — inferred from status
-    r1Shortlisted: r.r1Shortlisted || "", // ⚠ ALL EMPTY in current sheet
-    r2Shortlisted: r.r2Shortlisted || "", // ⚠ ALL EMPTY in current sheet
-    r3Shortlisted: r.r3Shortlisted || "", // ⚠ ALL EMPTY in current sheet
-    finalConvert,                          // ⚠ ALL EMPTY in current sheet
-    convertNames: r.convertNames || "",   // ⚠ ALL EMPTY in current sheet
+    r1Shortlisted: r.r1Names || "", // ⚠ ALL EMPTY in current sheet
+    r2Shortlisted: r.r2Names || "", // ⚠ ALL EMPTY in current sheet
+    r3Shortlisted: r.r3Names || "", // ⚠ ALL EMPTY in current sheet
+    finalConvert,                    // ⚠ ALL EMPTY in current sheet
+    convertNames: r.finalConvertedNames || "", // ⚠ ALL EMPTY in current sheet
     prepDoc: r.prepDoc ? "Sent" : "",
     mentorAligned: r.mentorAligned ? "Yes" : "No",
     mockDoneByPoc: !!r.mockDoneByPoc,

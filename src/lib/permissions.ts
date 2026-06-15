@@ -167,8 +167,8 @@ export type LmpField =
   | "company" | "role" | "domain" | "status" | "type" | "date" | "closing_date"
   | "admin_owner" | "allocator" | "prep_poc" | "support_poc" | "outreach_poc"
   | "daily_progress" | "prep_progress" | "placement_progress"
-  | "r1_shortlisted" | "r2_shortlisted" | "r3_shortlisted"
-  | "final_convert" | "convert_names" | "prep_doc"
+  | "r1_names" | "r2_names" | "r3_names"
+  | "final_converted_numbers" | "final_converted_names" | "prep_doc"
   | "remarks" | "mentor_aligned" | "assignment_review"
   | "one_to_one_mock" | "behavioral_status";
 
@@ -194,11 +194,11 @@ const FIELD_PERMISSIONS: Record<LmpField, FieldPermission> = {
   daily_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   prep_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   placement_progress: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  r1_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  r2_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  r3_shortlisted: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  final_convert: { editable: ["admin", "allocator"], requiresOwnership: true },
-  convert_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r1_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r2_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  r3_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
+  final_converted_numbers: { editable: ["admin", "allocator"], requiresOwnership: true },
+  final_converted_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   prep_doc: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   remarks: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   mentor_aligned: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
