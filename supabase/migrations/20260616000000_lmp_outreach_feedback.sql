@@ -21,18 +21,12 @@ create policy "admin_allocator_full_access_outreach_feedback"
   for all
   to authenticated
   using (
-    exists (
-      select 1 from public.poc_profiles p
-      where p.user_id = auth.uid()
-        and p.role in ('admin', 'allocator')
-    )
+    public.has_role(auth.uid(), 'admin'::public.app_role)
+    or public.has_role(auth.uid(), 'allocator'::public.app_role)
   )
   with check (
-    exists (
-      select 1 from public.poc_profiles p
-      where p.user_id = auth.uid()
-        and p.role in ('admin', 'allocator')
-    )
+    public.has_role(auth.uid(), 'admin'::public.app_role)
+    or public.has_role(auth.uid(), 'allocator'::public.app_role)
   );
 
 -- POCs assigned to the LMP: view feedback
@@ -41,17 +35,8 @@ create policy "poc_view_outreach_feedback"
   for select
   to authenticated
   using (
-    exists (
-      select 1 from public.poc_profiles p
-      join   public.lmp_processes lp on lp.id = lmp_outreach_feedback.lmp_id
-      where  p.user_id = auth.uid()
-        and  p.role = 'poc'
-        and  (
-          lp.prep_poc_id = p.id
-          or lp.support_poc_id = p.id
-          or p.id = any(lp.outreach_poc_ids)
-        )
-    )
+    public.has_role(auth.uid(), 'poc'::public.app_role)
+    and public.is_assigned_to_lmp(lmp_id)
   );
 
 -- POCs assigned to the LMP: insert feedback
@@ -60,30 +45,18 @@ create policy "poc_insert_outreach_feedback"
   for insert
   to authenticated
   with check (
-    exists (
-      select 1 from public.poc_profiles p
-      join   public.lmp_processes lp on lp.id = lmp_outreach_feedback.lmp_id
-      where  p.user_id = auth.uid()
-        and  p.role = 'poc'
-        and  (
-          lp.prep_poc_id = p.id
-          or lp.support_poc_id = p.id
-          or p.id = any(lp.outreach_poc_ids)
-        )
-    )
+    public.has_role(auth.uid(), 'poc'::public.app_role)
+    and public.is_assigned_to_lmp(lmp_id)
   );
 
 -- ─── 4. Refresh lmp_full_view to expose feedback_by_outreach ────────────────
--- We read the current definition and recreate the view with the new column
--- injected. The EXCEPTION block ensures a regex failure won't abort the migration.
+-- Read the current definition dynamically so we don't hard-code a possibly
+-- stale view body. Injects the new column just before the top-level FROM.
 do $$
 declare
   v_def      text;
   v_new_col  text := ',
     lmp_processes.feedback_by_outreach';
-  -- If the view uses an alias "p", the last SELECT column ends before "FROM public.lmp_processes p"
-  -- or "FROM public.lmp_processes". We inject just before the top-level FROM.
-  -- pg_get_viewdef (pretty=true) returns the canonical SQL for the SELECT body.
   v_new_def  text;
 begin
   select pg_get_viewdef('public.lmp_full_view'::regclass, true)
@@ -99,9 +72,6 @@ begin
     return;
   end if;
 
-  -- The canonical form ends the column list with something just before
-  -- "   FROM public.lmp_processes". We match the first top-level FROM clause.
-  -- Using a greedy match up to "FROM public.lmp_processes" handles aliases too.
   v_new_def := regexp_replace(
     v_def,
     '(\n\s+FROM\s+public\.lmp_processes)',
@@ -113,5 +83,7 @@ begin
   raise notice 'lmp_full_view updated with feedback_by_outreach';
 
 exception when others then
-  raise notice 'Could not auto-update lmp_full_view (%), run manually: alter view public.lmp_full_view add column feedback_by_outreach', sqlerrm;
+  raise notice 'Could not auto-update lmp_full_view (%), please add feedback_by_outreach manually', sqlerrm;
 end $$;
+
+notify pgrst, 'reload schema';
