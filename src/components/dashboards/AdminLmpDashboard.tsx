@@ -10,7 +10,7 @@ import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs, usePrepPocOptions } from "./filters/useLmpFilters";
 import { useRole } from "@/lib/rolesContext";
 import {
-  DOMAINS, domainBreakdown, isConverted, isDormant, offerCounts, pocLoad, statusCounts,
+  DOMAINS, domainBreakdown, isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
   POC_OVERLOAD_THRESHOLD,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
@@ -18,6 +18,7 @@ import {
 import { resolveDomainName } from "@/lib/domainAlias";
 
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
+import { useLmpRows } from "@/lib/sheets/hooks";
 import { useDomains } from "@/lib/hooks/useDbData";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
@@ -35,7 +36,26 @@ import {
   lmpsByStatus, lmpsForDomain, lmpsForPoc,
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
 } from "@/lib/dashboardDrill";
-import type { ProcessStatus } from "@/lib/lmpProcessQueries";
+import { STATUSES, STATUS_META, type LmpStatus } from "@/lib/lmpTypes";
+
+type ActiveLmpStatus = Exclude<LmpStatus, "ongoing" | "dormant" | "closed" | "converted-na" | "offer-received">;
+
+const STATUS_ACCENT: Record<ActiveLmpStatus, LxAccent> = {
+  "not-started": "neutral",
+  "prep-ongoing": "info",
+  "prep-done": "sky",
+  hold: "ai",
+  converted: "success",
+  "not-converted": "neutral",
+  "other-reasons": "risk",
+};
+
+function canonicalStatus(status: LmpStatus): ActiveLmpStatus {
+  if (status === "ongoing") return "prep-ongoing";
+  if (status === "offer-received") return "converted";
+  if (status === "dormant" || status === "closed" || status === "converted-na") return "other-reasons";
+  return status;
+}
 
 export function AdminLmpDashboard() {
   const { user } = useRole();
@@ -105,8 +125,14 @@ export function AdminLmpDashboard() {
     ["students_roster_full"],
   ]);
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
+  const { data: lmpRecords = [] } = useLmpRows();
   const { data: domainRows = [] } = useDomains();
   const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined });
+  const filteredIds = useMemo(() => new Set(filtered.map((row) => row.processId)), [filtered]);
+  const filteredRecords = useMemo(
+    () => lmpRecords.filter((row) => filteredIds.has(row.id)),
+    [filteredIds, lmpRecords],
+  );
 
   /* ─────── KPIs ─────── */
   const total = filtered.length || 1;
@@ -121,6 +147,16 @@ export function AdminLmpDashboard() {
 
   /* ─────── Status + Offer ─────── */
   const sc = statusCounts(filtered);
+  const lsc = lmpStatusCounts(filteredRecords);
+  const liveStatusSegments = STATUSES.map((rawStatus) => {
+    const status = canonicalStatus(rawStatus);
+    return {
+      status,
+      label: STATUS_META[status].label,
+      value: lsc[status],
+      accent: STATUS_ACCENT[status],
+    };
+  });
   const oc = offerCounts(filtered);
 
   /* ─────── Domains ─────── */
@@ -430,8 +466,18 @@ export function AdminLmpDashboard() {
   // ── Drill openers ──
   const openLmps = (rows: typeof filtered, title: string, subtitle?: string) =>
     setDrill({ kind: "lmps", title, subtitle, rows });
-  const openStatus = (st: ProcessStatus) =>
-    openLmps(lmpsByStatus(filtered, st), `${st} LMPs`, `${filtered.length} in current view`);
+  const openStatus = (status: ActiveLmpStatus) => {
+    const ids = new Set(
+      filteredRecords
+        .filter((row) => canonicalStatus(row.status) === status)
+        .map((row) => row.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      `${STATUS_META[status].label} LMPs`,
+      `${filtered.length} in current view`,
+    );
+  };
   const openSnapshot = (kind: "active" | "high" | Parameters<typeof snapshotDrill>[0]) => {
     const { rows, title } = snapshotDrill(kind as any, filtered, todaySet);
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
@@ -490,7 +536,7 @@ export function AdminLmpDashboard() {
             {
               label: "In current view",
               value: filtered.length.toLocaleString(),
-              sub: `${converted} converted · ${ongoing} ongoing`,
+              sub: `${lsc["prep-ongoing"]} prep ongoing · ${lsc.converted} converted`,
               info: info("admin.hero.in-view"),
               onClick: () => openLmps(filtered, "LMPs in current view", `${filtered.length} of ${all.length} total`),
             },
@@ -513,28 +559,14 @@ export function AdminLmpDashboard() {
           rightSlot={
             <StatusMiniDonut
               total={filtered.length}
-              segments={[
-                { label: "Ongoing",        value: sc.Ongoing,           accent: "info"    },
-                { label: "Offer Received", value: sc["Offer Received"], accent: "yellow"  },
-                { label: "Converted",      value: sc.Converted,         accent: "success" },
-                { label: "On Hold",        value: sc["On Hold"],        accent: "ai"      },
-                { label: "Dormant",        value: sc.Dormant,           accent: "orange"  },
-                { label: "Closed",         value: sc.Closed,            accent: "risk"    },
-              ]}
+              segments={liveStatusSegments}
             />
           }
           footer={
             <StatusStrip
               total={filtered.length}
-              onSegmentClick={(s) => openStatus(s.label as ProcessStatus)}
-              segments={[
-                { label: "Ongoing",        value: sc.Ongoing,           accent: "info"    },
-                { label: "Offer Received", value: sc["Offer Received"], accent: "yellow"  },
-                { label: "Converted",      value: sc.Converted,         accent: "success" },
-                { label: "On Hold",        value: sc["On Hold"],        accent: "ai"      },
-                { label: "Dormant",        value: sc.Dormant,           accent: "orange"  },
-                { label: "Closed",         value: sc.Closed,            accent: "risk"    },
-              ]}
+              onSegmentClick={(s) => openStatus(s.status)}
+              segments={liveStatusSegments}
             />
           }
         />
@@ -803,11 +835,18 @@ export function AdminLmpDashboard() {
   );
 }
 
+type StatusSegment = {
+  status: ActiveLmpStatus;
+  label: string;
+  value: number;
+  accent: LxAccent;
+};
+
 function StatusMiniDonut({
   total, segments,
 }: {
   total: number;
-  segments: { label: string; value: number; accent: LxAccent }[];
+  segments: StatusSegment[];
 }) {
   const safe = segments.reduce((s, x) => s + x.value, 0) || 1;
   let cursor = 0;
@@ -841,12 +880,12 @@ function StatusStrip({
   total, segments, onSegmentClick,
 }: {
   total: number;
-  segments: { label: string; value: number; accent: LxAccent }[];
-  onSegmentClick?: (s: { label: string; value: number; accent: LxAccent }) => void;
+  segments: StatusSegment[];
+  onSegmentClick?: (s: StatusSegment) => void;
 }) {
   const safe = total || 1;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
       {segments.map((s) => {
         const pct = (s.value / safe) * 100;
         const color = LX_HEX[s.accent];

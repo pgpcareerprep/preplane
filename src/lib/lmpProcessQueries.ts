@@ -3,6 +3,7 @@
  * Data now comes from Google Sheets via useLiveProcesses().
  * This file provides types and utility functions only.
  */
+import type { LmpRecord } from "@/lib/lmpTypes";
 
 export type ProcessStatus =
   | "Ongoing"
@@ -121,6 +122,21 @@ export function statusCounts(rows: Process[]) {
     "On Hold": rows.filter((r) => r.status === "On Hold").length,
     Dormant: rows.filter(isDormant).length,
     Closed: rows.filter((r) => r.status === "Closed").length,
+  };
+}
+
+/** Count live LMP rows using the seven canonical product status buckets. */
+export function lmpStatusCounts(rows: LmpRecord[]) {
+  return {
+    "not-started": rows.filter((r) => r.status === "not-started").length,
+    "prep-ongoing": rows.filter((r) => r.status === "prep-ongoing" || r.status === "ongoing").length,
+    "prep-done": rows.filter((r) => r.status === "prep-done").length,
+    hold: rows.filter((r) => r.status === "hold").length,
+    converted: rows.filter((r) => r.status === "converted" || r.status === "offer-received").length,
+    "not-converted": rows.filter((r) => r.status === "not-converted").length,
+    "other-reasons": rows.filter(
+      (r) => r.status === "other-reasons" || r.status === "dormant" || r.status === "closed" || r.status === "converted-na",
+    ).length,
   };
 }
 
