@@ -54,6 +54,9 @@ export function ExpandedLmpView({
     support_poc: rec.supportPoc?.name,
     outreach_poc: rec.outreachPoc?.name,
     allocator: rec.allocator,
+    prep_poc_id: rec.prepPocId,
+    support_poc_id: rec.supportPocId,
+    outreach_poc_ids: rec.outreachPocIds,
   });
   const canReassignAll = canManageLmp;
   const canReassignAny = canManageLmp;

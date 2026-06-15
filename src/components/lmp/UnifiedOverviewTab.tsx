@@ -42,6 +42,9 @@ export function UnifiedOverviewTab({
     prep_poc: lmp.prepPoc?.name,
     support_poc: lmp.supportPoc?.name,
     outreach_poc: lmp.outreachPoc?.name,
+    prep_poc_id: lmp.prepPocId,
+    support_poc_id: lmp.supportPocId,
+    outreach_poc_ids: lmp.outreachPocIds,
   });
   const operationalReadOnly = readOnly || !canOperateLmp;
 

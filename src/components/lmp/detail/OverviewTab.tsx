@@ -43,6 +43,9 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
     support_poc: lmp?.supportPoc?.name ?? req.supportPoc?.name,
     outreach_poc: lmp?.outreachPoc?.name ?? req.outreachPoc?.name,
     allocator: lmp?.allocator,
+    prep_poc_id: lmp?.prepPocId,
+    support_poc_id: lmp?.supportPocId,
+    outreach_poc_ids: lmp?.outreachPocIds,
   });
 
   // Resolve DB UUID via LMP code first (stable), then UUID, then company+role.
