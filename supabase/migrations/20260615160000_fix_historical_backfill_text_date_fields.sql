@@ -9,15 +9,17 @@ BEGIN
   SELECT pg_get_functiondef('public.import_historical_lmp_backfill(jsonb)'::regprocedure)
   INTO v_definition;
 
-  v_corrected := replace(
+  v_corrected := regexp_replace(
     v_definition,
-    'NULLIF(v_patch ->> ''next_progress_date''::text, ''''::text)::date',
-    'NULLIF(v_patch ->> ''next_progress_date''::text, ''''::text)'
+    E'(NULLIF\\([^\\)]*next_progress_date[^\\)]*\\))::date',
+    E'\\1',
+    'g'
   );
-  v_corrected := replace(
+  v_corrected := regexp_replace(
     v_corrected,
-    'NULLIF(v_patch ->> ''closing_date''::text, ''''::text)::date',
-    'NULLIF(v_patch ->> ''closing_date''::text, ''''::text)'
+    E'(NULLIF\\([^\\)]*closing_date[^\\)]*\\))::date',
+    E'\\1',
+    'g'
   );
 
   IF v_corrected = v_definition THEN
