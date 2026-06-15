@@ -28,6 +28,7 @@ import { exportTableToCsv, exportLmpProcessesCsv, dateStamp } from "@/lib/export
 import AuditLogPageContent from "@/pages/AuditLogPage";
 import AiUsagePage from "@/pages/AiUsagePage";
 import { MappingInspectorModal } from "@/components/datasources/MappingInspectorModal";
+import { HistoricalLmpBackfillModal } from "@/components/datasources/HistoricalLmpBackfillModal";
 
 
 const ALL_TABS = [
@@ -46,6 +47,7 @@ type ModalState =
 export default function DataSourcesPage() {
   const { role } = useRole();
   const isAdmin = role === "admin";
+  const canBackfillLmp = role === "admin" || role === "allocator";
   const isReadOnly = !isAdmin;
   const TABS = isAdmin ? ALL_TABS : ALL_TABS.filter((t) => t.key === "sources");
 
@@ -125,6 +127,7 @@ export default function DataSourcesPage() {
 
   const [modal, setModal] = useState<ModalState>(null);
   const [mappingOpen, setMappingOpen] = useState(false);
+  const [historicalBackfillOpen, setHistoricalBackfillOpen] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -315,6 +318,7 @@ export default function DataSourcesPage() {
               onSync={isAdmin ? () => smartLmpSync.mutate() : undefined}
               syncing={smartLmpSync.isPending}
               onInspectMapping={isAdmin ? () => setMappingOpen(true) : undefined}
+              onHistoricalBackfill={canBackfillLmp ? () => setHistoricalBackfillOpen(true) : undefined}
               onExport={() => exportLmpProcessesCsv(`lmp_processes_${dateStamp()}.csv`)}
             />
 
@@ -384,6 +388,7 @@ export default function DataSourcesPage() {
       {activeTab === "copilot-insights" && <AiUsagePage />}
 
       <MappingInspectorModal open={mappingOpen} onOpenChange={setMappingOpen} />
+      <HistoricalLmpBackfillModal open={historicalBackfillOpen} onOpenChange={setHistoricalBackfillOpen} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
-import { Eye, History as HistoryIcon, RefreshCw, Loader2, Map as MapIcon, Download } from "lucide-react";
+import { Eye, History as HistoryIcon, RefreshCw, Loader2, Map as MapIcon, Download, FileUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type StatusKind = "synced" | "awaiting_first_sync" | "failed";
@@ -38,6 +38,7 @@ export function DbSourceCard({
   syncing,
   onInspectMapping,
   onExport,
+  onHistoricalBackfill,
   showHistory = true,
 }: {
   index?: number;
@@ -57,6 +58,7 @@ export function DbSourceCard({
   syncing?: boolean;
   onInspectMapping?: () => void;
   onExport?: () => void;
+  onHistoricalBackfill?: () => void;
   showHistory?: boolean;
 }) {
   const hasData = count > 0;
@@ -132,6 +134,15 @@ export function DbSourceCard({
             )}
           >
             <Download className="h-3.5 w-3.5" /> Export CSV
+          </button>
+        )}
+        {onHistoricalBackfill && (
+          <button
+            onClick={onHistoricalBackfill}
+            title="Dry-run and import historical LMP CSV rows into the database"
+            className="inline-flex items-center gap-1.5 text-[13px] rounded-md px-2.5 py-2 border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors duration-150"
+          >
+            <FileUp className="h-3.5 w-3.5" /> Historical Backfill
           </button>
         )}
         {onInspectMapping && (
