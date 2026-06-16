@@ -363,7 +363,15 @@ function CountCell({ count, lmpId, round }: { count: number; lmpId: string; roun
 }
 
 // ── Main modal ───────────────────────────────────────────────────
-export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function ViewAllLmpsModal({
+  open,
+  onOpenChange,
+  readOnly = false,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  readOnly?: boolean;
+}) {
   const navigate = useNavigate();
   const { data: rawRows, isLoading } = useLmpFullView();
   const { names: domainOptions, display: domainDisplay, matches: domainMatches } = useResolveDomain();
