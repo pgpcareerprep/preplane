@@ -824,7 +824,7 @@ Deno.serve(async (req: Request) => {
               "Shortlisted (Pool) - Number", "Shortlisted (Pool) - Name(s)",
               "R1 - Numbers", "R1 - Names",
               "R2 - Numbers", "R2 - Names",
-              "R3 - Numbers",
+              "R3 - Numbers", "R3 - Names",
               "Final Converted Numbers", "Converted Names",
             ]) delete SHEET_TO_DB_INGEST[k];
             for (const [sheetCol, dbCol] of Object.entries(SHEET_TO_DB_INGEST)) {
@@ -1176,18 +1176,19 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: calc } = await serviceClient
             .from("lmp_full_view")
-            .select("r1_count, r2_count, r3_count, offer_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
+            .select("pool_count, r1_count, r2_count, r3_count, offer_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
             .eq("lmp_code", lmpCode)
             .maybeSingle();
           if (calc) {
             const calcMap: Record<string, unknown> = {
-              "Shortlisted (Pool) - Number": calc.r1_count ?? 0,
-              "Shortlisted (Pool) - Name(s)": (dbPatch as Record<string, unknown>).r1_names ?? "",
-              "R1 - Numbers": calc.r2_count ?? 0,
-              "R1 - Names": (dbPatch as Record<string, unknown>).r2_names ?? "",
-              "R2 - Numbers": calc.r3_count ?? 0,
-              "R2 - Names": (dbPatch as Record<string, unknown>).r3_names ?? "",
-              "R3 - Numbers": calc.offer_count ?? 0,
+              "Shortlisted (Pool) - Number": calc.pool_count ?? 0,
+              "Shortlisted (Pool) - Name(s)": (dbPatch as Record<string, unknown>).pool_names ?? "",
+              "R1 - Numbers": calc.r1_count ?? 0,
+              "R1 - Names": (dbPatch as Record<string, unknown>).r1_names ?? "",
+              "R2 - Numbers": calc.r2_count ?? 0,
+              "R2 - Names": (dbPatch as Record<string, unknown>).r2_names ?? "",
+              "R3 - Numbers": calc.r3_count ?? 0,
+              "R3 - Names": (dbPatch as Record<string, unknown>).r3_names ?? "",
               "Final Converted Numbers": (dbPatch as Record<string, unknown>).final_converted_numbers ?? "",
               "Converted Names": (dbPatch as Record<string, unknown>).final_converted_names ?? "",
               "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
@@ -1381,7 +1382,7 @@ Deno.serve(async (req: Request) => {
         // Fetch calculated POC / mentor / shortlist counts from lmp_full_view
         const { data: calcRows } = await serviceClient
           .from("lmp_full_view")
-          .select("lmp_code,r1_count,r2_count,r3_count,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
+          .select("lmp_code,pool_count,r1_count,r2_count,r3_count,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
           .not("lmp_code", "is", null);
         const calcByCode = new Map<string, any>(
           (calcRows ?? []).map((c: any) => [String(c.lmp_code).toLowerCase(), c])
@@ -1517,13 +1518,14 @@ Deno.serve(async (req: Request) => {
           }
           // Calculated / aggregated columns
           const calcOverrides: Record<string, unknown> = {
-            "Shortlisted (Pool) - Number": calc.r1_count ?? 0,
-            "Shortlisted (Pool) - Name(s)": lmp.r1_names ?? "",
-            "R1 - Numbers": calc.r2_count ?? 0,
-            "R1 - Names": lmp.r2_names ?? "",
-            "R2 - Numbers": calc.r3_count ?? 0,
-            "R2 - Names": lmp.r3_names ?? "",
-            "R3 - Numbers": calc.offer_count ?? 0,
+            "Shortlisted (Pool) - Number": calc.pool_count ?? 0,
+            "Shortlisted (Pool) - Name(s)": lmp.pool_names ?? "",
+            "R1 - Numbers": calc.r1_count ?? 0,
+            "R1 - Names": lmp.r1_names ?? "",
+            "R2 - Numbers": calc.r2_count ?? 0,
+            "R2 - Names": lmp.r2_names ?? "",
+            "R3 - Numbers": calc.r3_count ?? 0,
+            "R3 - Names": lmp.r3_names ?? "",
             "Final Converted Numbers": lmp.final_converted_numbers ?? "",
             "Converted Names": lmp.final_converted_names ?? "",
             "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0

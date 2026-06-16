@@ -227,7 +227,7 @@ export function AddCandidatesModal({
             onChange={(e) => setRoundId(e.target.value)}
             className="h-8 rounded-md border bg-background px-2 text-[12.5px] text-foreground focus:outline-none focus:border-orange-400"
           >
-            <option value="pool">Pool — Newly added</option>
+            <option value="pool">Shortlisted Pool</option>
             {roundOptions.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
             ))}
@@ -421,7 +421,7 @@ export function AddCandidatesModal({
         <div className="px-5 py-3 border-t bg-muted/30 flex items-center justify-between">
           <span className="text-[12px] text-muted-foreground">
             {total > 0
-              ? `${total} candidate${total === 1 ? "" : "s"} ready to add to ${roundId === "pool" ? "Pool" : (roundOptions.find((r) => r.id === roundId)?.name ?? "round")}`
+              ? `${total} candidate${total === 1 ? "" : "s"} ready to add to ${roundId === "pool" ? "Shortlisted Pool" : (roundOptions.find((r) => r.id === roundId)?.name ?? "round")}`
               : "Nothing selected yet"}
           </span>
           <div className="flex items-center gap-2">

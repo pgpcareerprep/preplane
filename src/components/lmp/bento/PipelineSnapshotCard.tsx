@@ -53,16 +53,13 @@ export function PipelineSnapshotCard({
 }
 
 function realBreakdown(rounds: Round[], candidates: Candidate[], rec: LmpRecord) {
+  void rec;
   const pool = candidates.filter((c) => !c.roundId || c.roundId === "pool").length;
   const perRound = rounds.map((r) => ({
     label: shortLabel(r.name),
     count: candidates.filter((c) => c.roundId === r.id).length,
   }));
-  const items = [{ label: "Pool", count: pool }, ...perRound];
-  if (rec.status === "converted" && !rounds.some((r) => r.id === "offer")) {
-    items.push({ label: "Offer", count: 1 });
-  }
-  return items;
+  return [{ label: "Pool", count: pool }, ...perRound];
 }
 
 function shortLabel(name: string) {
