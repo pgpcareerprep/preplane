@@ -247,12 +247,10 @@ export function useLmpCandidateCounts() {
 }
 
 /**
- * Recompute `lmp_processes.convert_names` from the candidates currently
- * sitting in the Converted/Converted column for the given LMP. Called after
- * any add / move / delete so the LMP-level Converted Names column stays
- * in sync with the pipeline UI.
+ * Recompute the LMP-level pipeline fields that mirror to the sheet columns:
+ * Pool N/O, R1 P/Q, R2 R/S, R3 T/U, Converted V/W.
  */
-async function recomputeConvertNames(lmpId: string) {
+async function recomputePipelineStageFields(lmpId: string) {
   if (!lmpId) return;
   try {
     const { data, error } = await supabase
@@ -260,25 +258,46 @@ async function recomputeConvertNames(lmpId: string) {
       .select("student_name, pipeline_stage, offer_status")
       .eq("lmp_id", lmpId);
     if (error) throw error;
-    const finalRows = (data ?? []).filter((r: any) => {
-      const s = String(r.pipeline_stage ?? "").trim().toLowerCase();
-      const o = String(r.offer_status ?? "").trim();
-      return s === "final" || s === "offer" || s === "converted" || o !== "";
-    });
-    const finalNames = finalRows
-      .map((r: any) => String(r.student_name || "").trim())
-      .filter(Boolean);
-    const final_converted_names = finalNames.join(", ");
-    const final_converted_numbers = finalRows.length > 0 ? String(finalRows.length) : null;
+
+    const buckets: Record<"pool" | "r1" | "r2" | "r3" | "converted", string[]> = {
+      pool: [],
+      r1: [],
+      r2: [],
+      r3: [],
+      converted: [],
+    };
+
+    for (const row of data ?? []) {
+      const name = String((row as any).student_name || "").trim();
+      if (!name) continue;
+      const stage = String((row as any).pipeline_stage ?? "").trim().toLowerCase();
+      const hasOffer = String((row as any).offer_status ?? "").trim() !== "";
+      const target =
+        hasOffer || ["converted", "offer", "final", "accepted"].includes(stage) ? "converted" :
+        ["r3", "r3_shortlisted", "round_3", "round3"].includes(stage) ? "r3" :
+        ["r2", "r2_shortlisted", "round_2", "round2"].includes(stage) ? "r2" :
+        ["r1", "r1_shortlisted", "round_1", "round1"].includes(stage) ? "r1" :
+        "pool";
+      buckets[target].push(name);
+    }
+
+    for (const names of Object.values(buckets)) {
+      names.sort((a, b) => a.localeCompare(b));
+    }
+
     await supabase
       .from("lmp_processes")
       .update({
-        final_converted_names: final_converted_names || null,
-        final_converted_numbers,
+        pool_names: buckets.pool.join(", ") || null,
+        r1_names: buckets.r1.join(", ") || null,
+        r2_names: buckets.r2.join(", ") || null,
+        r3_names: buckets.r3.join(", ") || null,
+        final_converted_names: buckets.converted.join(", ") || null,
+        final_converted_numbers: buckets.converted.length > 0 ? String(buckets.converted.length) : null,
       })
       .eq("id", lmpId);
   } catch (e) {
-    console.warn("[recomputeConvertNames] failed", e);
+    console.warn("[recomputePipelineStageFields] failed", e);
   }
 }
 
@@ -333,12 +352,13 @@ export function useAddLmpCandidates() {
       qc.invalidateQueries({ queryKey: ["lmp_candidates_live"] });
       if (lmpId) qc.invalidateQueries({ queryKey: ["lmp_candidates_live", lmpId] });
       qc.refetchQueries({ queryKey: ["db-lmp-candidate-counts"] });
-      if (lmpId) void syncLmpCountsToSheet(lmpId);
-      if (lmpId) await recomputeConvertNames(lmpId);
+      if (lmpId) {
+        await recomputePipelineStageFields(lmpId);
+        void syncLmpCountsToSheet(lmpId);
+      }
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["poc-directory"] });
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
-      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');
       const total = variables.length;
@@ -380,14 +400,15 @@ export function useDeleteLmpCandidate() {
       qc.invalidateQueries({ queryKey: ["lmp_candidates_live"] });
       if (variables.lmp_id) qc.invalidateQueries({ queryKey: ["lmp_candidates_live", variables.lmp_id] });
       qc.refetchQueries({ queryKey: ["db-lmp-candidate-counts"] });
-      if (variables.lmp_id) void syncLmpCountsToSheet(variables.lmp_id);
-      if (variables.lmp_id) await recomputeConvertNames(variables.lmp_id);
+      if (variables.lmp_id) {
+        await recomputePipelineStageFields(variables.lmp_id);
+        void syncLmpCountsToSheet(variables.lmp_id);
+      }
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["poc-directory"] });
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');
-      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       toast({ title: "Candidate removed", description: "Unlinked from this LMP process." });
     },
     onError: (e: Error) => {
@@ -411,18 +432,18 @@ export function useUpdateLmpCandidateStage() {
       clearCachePrefix('["db-lmp-candidates');
       if (variables.lmp_id) {
         qc.invalidateQueries({ queryKey: ["db-lmp-candidates", variables.lmp_id] });
-        qc.invalidateQueries({ queryKey: ["db-lmp-candidates-by-process", variables.lmp_id] });
         await qc.refetchQueries({ queryKey: ["db-lmp-candidates", variables.lmp_id] });
       }
       qc.invalidateQueries({ queryKey: ["db-lmp-candidates"] });
       qc.invalidateQueries({ queryKey: ["lmp_candidates_live"] });
       if (variables.lmp_id) qc.invalidateQueries({ queryKey: ["lmp_candidates_live", variables.lmp_id] });
-      if (variables.lmp_id) void syncLmpCountsToSheet(variables.lmp_id);
-      if (variables.lmp_id) await recomputeConvertNames(variables.lmp_id);
+      if (variables.lmp_id) {
+        await recomputePipelineStageFields(variables.lmp_id);
+        void syncLmpCountsToSheet(variables.lmp_id);
+      }
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["poc-directory"] });
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
-      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       clearCachePrefix('["db-lmp-processes');
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');

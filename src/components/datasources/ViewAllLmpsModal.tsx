@@ -559,8 +559,8 @@ export function ViewAllLmpsModal({
       case "r3_num": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
       case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_names || ""}>{r.r3_names || "—"}</span>;
       // Final converted
-      case "final_convert_num": return <CountCell count={Number(r.converted_count) || 0} lmpId={r.id} round="converted" />;
-      case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.converted_names || ""}>{r.converted_names || "—"}</span>;
+      case "final_convert_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="converted" />;
+      case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.final_converted_names || ""}>{r.final_converted_names || "—"}</span>;
       case "prep_doc_link": return <LinkIconCell href={r.prep_doc} label="Prep doc" icon={Paperclip} />;
       case "prep_poc": return <PocAvatarsCell names={r.prep_poc_names} />;
       case "support_poc": return <PocAvatarsCell names={r.support_poc_names} />;

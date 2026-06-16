@@ -27,6 +27,7 @@ export const DB_TO_SHEET: Record<string, string> = {
   one_to_one_mock: "1:1 mock completed",
   next_progress_date: "Next Progress Date",
   next_progress_type: "Next Progress Type",
+  pool_names: "Shortlisted (Pool) - Name(s)",
   r1_names: "R1 - Names",
   r2_names: "R2 - Names",
   r3_names: "R3 - Names",

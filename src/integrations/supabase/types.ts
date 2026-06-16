@@ -1394,6 +1394,7 @@ export type Database = {
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
+          pool_names?: string | null
           r1_names?: string | null
           r2_names?: string | null
           r3_names?: string | null
@@ -1463,6 +1464,7 @@ export type Database = {
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
+          pool_names?: string | null
           r1_names?: string | null
           r2_names?: string | null
           r3_names?: string | null
@@ -2478,13 +2480,10 @@ export type Database = {
           next_progress_date: string | null
           next_progress_type: string | null
           offer_count: number | null
-          converted_count: number | null
-          converted_names: string | null
+          outreach_poc_names: string | null
           pool_count: number | null
           pool_names: string | null
-          outreach_poc_names: string | null
           prep_doc: string | null
-          prep_doc_link: string | null
           prep_poc_names: string | null
           r1_count: number | null
           r1_names: string | null
@@ -2527,6 +2526,8 @@ export type Database = {
           next_progress_type?: string | null
           offer_count?: never
           outreach_poc_names?: never
+          pool_count?: never
+          pool_names?: string | null
           prep_doc?: string | null
           prep_poc_names?: never
           r1_count?: never
@@ -2570,6 +2571,8 @@ export type Database = {
           next_progress_type?: string | null
           offer_count?: never
           outreach_poc_names?: never
+          pool_count?: never
+          pool_names?: string | null
           prep_doc?: string | null
           prep_poc_names?: never
           r1_count?: never
