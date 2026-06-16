@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { parseBlocks } from "@/lib/copilotBlocks";
-import { BlockRenderer } from "@/components/copilot/BlockRenderer";
+const BlockRenderer = lazy(() => import("@/components/copilot/BlockRenderer").then((m) => ({ default: m.BlockRenderer })));
 import {
   Sparkles, ArrowUp, Paperclip, AtSign, Mic, ChevronDown,
   CheckCircle2, AlertTriangle, ShieldCheck, ListChecks,
@@ -1080,11 +1080,13 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction }: { c
 
         {hasBlocks && (
           <div className="flex flex-col gap-4">
-            {blocks.map((block, idx) => (
-              <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: idx * 0.06 }}>
-                <BlockRenderer block={block} onFollowUp={onFollowUp} onAction={onAction} />
-              </motion.div>
-            ))}
+            <Suspense fallback={null}>
+              {blocks.map((block, idx) => (
+                <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: idx * 0.06 }}>
+                  <BlockRenderer block={block} onFollowUp={onFollowUp} onAction={onAction} />
+                </motion.div>
+              ))}
+            </Suspense>
           </div>
         )}
 

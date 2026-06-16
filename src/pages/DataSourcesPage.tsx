@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -27,7 +27,7 @@ import {
 import { exportTableToCsv, exportLmpProcessesCsv, dateStamp } from "@/lib/exportCsv";
 
 import AuditLogPageContent from "@/pages/AuditLogPage";
-import AiUsagePage from "@/pages/AiUsagePage";
+const AiUsagePage = lazy(() => import("@/pages/AiUsagePage"));
 import { MappingInspectorModal } from "@/components/datasources/MappingInspectorModal";
 import { HistoricalLmpBackfillModal } from "@/components/datasources/HistoricalLmpBackfillModal";
 
@@ -386,7 +386,11 @@ function DataSourcesPageInner() {
 
       
       {activeTab === "audit-log" && <AuditLogPageContent />}
-      {activeTab === "copilot-insights" && <AiUsagePage />}
+      {activeTab === "copilot-insights" && (
+        <Suspense fallback={<div className="flex items-center justify-center py-12 text-sm text-n500">Loading…</div>}>
+          <AiUsagePage />
+        </Suspense>
+      )}
 
       <MappingInspectorModal open={mappingOpen} onOpenChange={setMappingOpen} />
       <HistoricalLmpBackfillModal open={historicalBackfillOpen} onOpenChange={setHistoricalBackfillOpen} />

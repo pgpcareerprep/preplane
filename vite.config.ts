@@ -20,5 +20,23 @@ export default defineConfig(({ mode: _mode }) => ({
   },
   build: {
     chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Keep Recharts, es-toolkit, and d3 in one stable chunk so the
+          // es-toolkit iteratee/comparator references resolve at the same
+          // evaluation time. Splitting them across dynamic chunks causes
+          // "t is not a function" in minified Recharts 3.x builds.
+          if (
+            id.includes("recharts") ||
+            id.includes("es-toolkit") ||
+            id.includes("/d3-") ||
+            id.includes("/d3/")
+          ) {
+            return "charts-vendor";
+          }
+        },
+      },
+    },
   },
 }));

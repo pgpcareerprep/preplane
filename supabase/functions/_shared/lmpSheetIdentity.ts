@@ -2,10 +2,11 @@ export type LmpSheetRowLookup = {
   rowIndex: number;
   lmpIdColumn: number;
   matches: number[];
+  /** Column index where "LMP ID" was actually found when it differs from LMP_ID_COLUMN_INDEX. */
+  lmpIdColumnActual?: number;
   error?:
     | "MISSING_LMP_ID_HEADER"
     | "DUPLICATE_LMP_ID_HEADERS"
-    | "MISALIGNED_LMP_ID_HEADER"
     | "MISALIGNED_LMP_TRACKER_HEADERS"
     | "DUPLICATE_LMP_ID_ROWS";
 };
@@ -42,20 +43,20 @@ export function getLmpTrackerHeaderDrift(headers: unknown[]) {
   });
 }
 
-export function validateLmpTrackerHeaders(headers: unknown[]): Pick<LmpSheetRowLookup, "lmpIdColumn" | "matches" | "error"> {
+export function validateLmpTrackerHeaders(headers: unknown[]): Pick<LmpSheetRowLookup, "lmpIdColumn" | "matches" | "error" | "lmpIdColumnActual"> {
   const matches = headers
     .map((header, index) => normalized(header) === "lmp id" ? index : -1)
     .filter((index) => index !== -1);
   if (matches.length === 0) return { lmpIdColumn: -1, matches, error: "MISSING_LMP_ID_HEADER" };
   if (matches.length > 1) return { lmpIdColumn: -1, matches, error: "DUPLICATE_LMP_ID_HEADERS" };
+  // "LMP ID" found but at a column other than the canonical AA (index 26).
+  // This is non-fatal: extra columns inserted before "LMP ID" shift its position
+  // but the header is unique and we know exactly where it is. Use the actual
+  // position for all identity lookups and writes; record it in lmpIdColumnActual
+  // so callers can log drift without blocking writes.
   if (matches[0] !== LMP_ID_COLUMN_INDEX) {
-    return { lmpIdColumn: matches[0], matches, error: "MISALIGNED_LMP_ID_HEADER" };
+    return { lmpIdColumn: matches[0], lmpIdColumnActual: matches[0], matches };
   }
-  // Display labels may legitimately differ from the canonical registry
-  // (for example line breaks, "Prep Doc Link", or a legacy Comment column).
-  // Identity safety depends on one unique LMP ID column at AA, not every
-  // visible label being byte-identical. Report drift separately without
-  // blocking DB-to-Sheet writes.
   return { lmpIdColumn: matches[0], matches };
 }
 

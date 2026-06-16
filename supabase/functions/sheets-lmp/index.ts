@@ -906,6 +906,9 @@ Deno.serve(async (req: Request) => {
           if (tab === "LMP Tracker") {
             const validation = validateLmpTrackerHeaders(headers);
             if (validation.error) return jsonError(validation.error, 409);
+            if (validation.lmpIdColumnActual != null) {
+              console.warn("[delete] LMP ID column at index", validation.lmpIdColumnActual, "instead of canonical", LMP_ID_COLUMN_INDEX);
+            }
             if (!lmpIdHint) return jsonError("LMP_ID_REQUIRED", 400);
             exactLmpRows = findLmpSheetRowIndexes(headers, allRows, lmpIdHint)
               .map((index) => headerRow + index);
@@ -1104,6 +1107,9 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        if (lookup.lmpIdColumnActual != null) {
+          console.warn("[sync-db-to-sheet] LMP ID column drift: found at index", lookup.lmpIdColumnActual, "instead of canonical", LMP_ID_COLUMN_INDEX, "— proceeding with actual position");
+        }
         if (lookup.error) {
           console.error("[sheets-lmp] unsafe LMP Tracker headers", {
             operation: op,
