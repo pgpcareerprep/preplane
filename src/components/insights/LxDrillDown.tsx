@@ -30,12 +30,19 @@ function downloadCsv(filename: string, csv: string) {
 
 /* ─────────── Status pill (mirrors the dashboards) ─────────── */
 const STATUS_COLOR: Record<string, string> = {
+  // Legacy ProcessStatus bucket labels (kept for backward compat)
   Ongoing: LX_HEX.info,
   "Offer Received": LX_HEX.yellow,
   Converted: LX_HEX.success,
   "On Hold": LX_HEX.ai,
   Dormant: LX_HEX.orange,
   Closed: LX_HEX.risk,
+  // Canonical display labels (from Process.displayStatus)
+  "Not Started": LX_HEX.neutral,
+  "Prep Ongoing": LX_HEX.info,
+  "Prep Done": LX_HEX.teal,
+  "Not Converted": LX_HEX.risk,
+  "Other Reasons": LX_HEX.orange,
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -95,7 +102,7 @@ export function LxDrillDown({
       return {
         ...state,
         rows: state.rows.filter((r) => {
-          const hay = `${r.company} ${r.role} ${r.r1Shortlisted} ${r.r2Shortlisted} ${r.r3Shortlisted} ${r.convertNames} ${r.finalConvert} ${r.prepPoc} ${r.outreachPoc} ${r.domain} ${r.status}`.toLowerCase();
+          const hay = `${r.company} ${r.role} ${r.r1Shortlisted} ${r.r2Shortlisted} ${r.r3Shortlisted} ${r.convertNames} ${r.finalConvert} ${r.prepPoc} ${r.outreachPoc} ${r.domain} ${r.displayStatus ?? r.status}`.toLowerCase();
           return hay.includes(needle);
         }),
       };
@@ -151,6 +158,7 @@ export function LxDrillDown({
                     ];
                     const rows = (filtered.rows as LmpDrillRow[]).map((r) => ({
                       ...r,
+                      status: r.displayStatus ?? r.status,
                       student: (r.convertNames || r.finalConvert || r.r3Shortlisted || r.r2Shortlisted || r.r1Shortlisted || "").split(/[,/]/)[0]?.trim() ?? "",
                       lastUpdated: r.lastUpdated ? new Date(r.lastUpdated).toLocaleDateString() : "",
                     }));
@@ -243,7 +251,7 @@ function LmpTable({ rows, onClose }: { rows: LmpDrillRow[]; onClose: () => void 
               <td className="px-3 py-2 truncate max-w-[160px]" style={{ color: "var(--lx-text)" }}>{r.company || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[160px]" style={{ color: "var(--lx-text-2)" }}>{r.role || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[140px]" style={{ color: "var(--lx-text-2)" }}>{student || "—"}</td>
-              <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
+              <td className="px-3 py-2"><StatusBadge status={r.displayStatus ?? r.status} /></td>
               <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.prepPoc || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.outreachPoc || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[140px]" style={{ color: "var(--lx-text-2)" }}>{r.domain || "—"}</td>

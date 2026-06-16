@@ -83,6 +83,27 @@ const STATUS_MAP: Record<string, ProcessStatus> = {
   "offer received": "Offer Received",
 };
 
+/** Maps DB slugs (and legacy raw strings) → correct human-readable label for display in drill-down tables. */
+const DISPLAY_STATUS_MAP: Record<string, string> = {
+  "not-started":    "Not Started",
+  "prep-ongoing":   "Prep Ongoing",
+  "ongoing":        "Prep Ongoing",
+  "prep-done":      "Prep Done",
+  "hold":           "On Hold",
+  "on hold":        "On Hold",
+  "converted":      "Converted",
+  "offer-received": "Offer Received",
+  "offer received": "Offer Received",
+  "not-converted":  "Not Converted",
+  "not converted":  "Not Converted",
+  "other-reasons":  "Other Reasons",
+  "other reasons":  "Other Reasons",
+  "dormant":        "Dormant",
+  "closed":         "Closed",
+  "converted-na":   "Converted",
+  "converted na":   "Converted",
+};
+
 function normalizeStatus(raw: string): ProcessStatus {
   const key = (raw || "").toLowerCase().trim();
   return STATUS_MAP[key] || "Ongoing";
@@ -170,6 +191,8 @@ function lmpToProcess(r: LmpRecord): Process {
   const closingDate = r.lastActivity && (status === "Closed" || status === "Converted")
     ? lastUpdated : "";
 
+  const displayStatus = DISPLAY_STATUS_MAP[r.status] ?? DISPLAY_STATUS_MAP[r.status?.toLowerCase()] ?? status;
+
   return {
     processId: r.id,
     dateCreated,
@@ -197,6 +220,7 @@ function lmpToProcess(r: LmpRecord): Process {
     closingDate,
     closedReason: "",                      // ⚠ UNMAPPABLE — no column
     lastProgressUpdatedAt: r.lastProgressUpdatedAt || "",
+    displayStatus,
   };
 }
 

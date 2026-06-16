@@ -55,6 +55,8 @@ export type Process = {
   closingDate: string;       // ISO (may be future) or ""
   closedReason: string;
   lastProgressUpdatedAt?: string;
+  /** Human-readable status label derived from the DB slug. Used for display only — do not use for filtering/counting. */
+  displayStatus: string;
 };
 
 export const DOMAINS: Domain[] = [
