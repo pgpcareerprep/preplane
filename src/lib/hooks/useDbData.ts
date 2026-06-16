@@ -328,6 +328,7 @@ export function useAddLmpCandidates() {
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["poc-directory"] });
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');
       const total = variables.length;
@@ -376,6 +377,7 @@ export function useDeleteLmpCandidate() {
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');
+      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       toast({ title: "Candidate removed", description: "Unlinked from this LMP process." });
     },
     onError: (e: Error) => {
@@ -399,6 +401,7 @@ export function useUpdateLmpCandidateStage() {
       clearCachePrefix('["db-lmp-candidates');
       if (variables.lmp_id) {
         qc.invalidateQueries({ queryKey: ["db-lmp-candidates", variables.lmp_id] });
+        qc.invalidateQueries({ queryKey: ["db-lmp-candidates-by-process", variables.lmp_id] });
         await qc.refetchQueries({ queryKey: ["db-lmp-candidates", variables.lmp_id] });
       }
       qc.invalidateQueries({ queryKey: ["db-lmp-candidates"] });
@@ -409,6 +412,7 @@ export function useUpdateLmpCandidateStage() {
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["poc-directory"] });
       qc.invalidateQueries({ queryKey: ["db-all-poc-profiles"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       clearCachePrefix('["db-lmp-processes');
       clearCachePrefix('["poc-directory');
       clearCachePrefix('["db-all-poc-profiles');

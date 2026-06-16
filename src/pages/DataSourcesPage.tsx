@@ -72,6 +72,12 @@ function DataSourcesPageInner() {
     ["db-poc-live-loads"],
     ["db-all-poc-profiles"],
   ]);
+  useRealtimeInvalidate("lmp_candidates", [
+    ["db-lmp-full-view"],
+    ["db-lmp-candidates-by-process"],
+    ["db-lmp-candidates"],
+    ["db-lmp-candidate-counts"],
+  ]);
   useRealtimeInvalidate("poc_profiles", [
     ["db-all-poc-profiles"],
     ["db-poc-live-loads"],
