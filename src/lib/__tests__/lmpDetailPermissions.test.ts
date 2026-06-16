@@ -35,7 +35,7 @@ describe("LMP detailed-view operational permissions", () => {
     const pipeline = read("src/components/lmp/execution/InteractivePipelineCard.tsx");
     const sessions = read("src/components/lmp/detail/SessionsLiveTab.tsx");
 
-    expect(pipeline).toContain("whitespace-normal break-words");
+    expect(pipeline).toContain("truncate whitespace-nowrap");
     expect(pipeline).toContain("title={item.name}");
     expect(pipeline).toContain("if (readOnly) return");
     expect(sessions).toContain("Only an assigned POC can update sessions.");

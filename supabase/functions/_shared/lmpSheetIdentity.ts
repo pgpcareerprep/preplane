@@ -7,6 +7,7 @@ export type LmpSheetRowLookup = {
   error?:
     | "MISSING_LMP_ID_HEADER"
     | "DUPLICATE_LMP_ID_HEADERS"
+    | "MISALIGNED_LMP_ID_HEADER"
     | "MISALIGNED_LMP_TRACKER_HEADERS"
     | "DUPLICATE_LMP_ID_ROWS";
 };
@@ -49,13 +50,13 @@ export function validateLmpTrackerHeaders(headers: unknown[]): Pick<LmpSheetRowL
     .filter((index) => index !== -1);
   if (matches.length === 0) return { lmpIdColumn: -1, matches, error: "MISSING_LMP_ID_HEADER" };
   if (matches.length > 1) return { lmpIdColumn: -1, matches, error: "DUPLICATE_LMP_ID_HEADERS" };
-  // "LMP ID" found but at a column other than the canonical AA (index 26).
-  // This is non-fatal: extra columns inserted before "LMP ID" shift its position
-  // but the header is unique and we know exactly where it is. Use the actual
-  // position for all identity lookups and writes; record it in lmpIdColumnActual
-  // so callers can log drift without blocking writes.
   if (matches[0] !== LMP_ID_COLUMN_INDEX) {
-    return { lmpIdColumn: matches[0], lmpIdColumnActual: matches[0], matches };
+    return {
+      lmpIdColumn: -1,
+      lmpIdColumnActual: matches[0],
+      matches,
+      error: "MISALIGNED_LMP_ID_HEADER",
+    };
   }
   return { lmpIdColumn: matches[0], matches };
 }
