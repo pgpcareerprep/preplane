@@ -162,20 +162,27 @@ export function usePocSwitcherList() {
     queryKey,
     queryFn: async () =>
       withCache(queryKey, async () => {
+        // Only fetch operational roles (prep/support/outreach).
+        // Allocator and admin_owner text columns must not appear here.
         const { data, error } = await (supabase as any)
           .from("lmp_poc_links")
-          .select("role, poc:poc_profiles!inner(id, name)")
+          .select("lmp_id, role, poc:poc_profiles!inner(id, name)")
           .eq("is_active", true)
+          .in("role", ["prep", "support", "outreach"])
           .limit(10000);
         if (error) throw error;
 
-        const map = new Map<string, { primary: number; secondary: number; outreach: number; total: number }>();
+        // Deduplicate by lmp_id per POC so a person holding both prep and
+        // support on the same LMP counts as one LMP in total.
+        type PocEntry = { primary: number; secondary: number; outreach: number; lmpIds: Set<string> };
+        const map = new Map<string, PocEntry>();
         for (const row of (data as any[]) || []) {
           const name: string | undefined = row.poc?.name;
-          if (!name) continue;
-          if (!map.has(name)) map.set(name, { primary: 0, secondary: 0, outreach: 0, total: 0 });
+          const lmpId: string | undefined = row.lmp_id;
+          if (!name || !lmpId) continue;
+          if (!map.has(name)) map.set(name, { primary: 0, secondary: 0, outreach: 0, lmpIds: new Set() });
           const entry = map.get(name)!;
-          entry.total++;
+          entry.lmpIds.add(lmpId);
           if (row.role === "prep") entry.primary++;
           else if (row.role === "support") entry.secondary++;
           else if (row.role === "outreach") entry.outreach++;
@@ -184,7 +191,10 @@ export function usePocSwitcherList() {
         return [...map.entries()].map(([name, counts]) => ({
           name,
           initials: name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2),
-          ...counts,
+          primary: counts.primary,
+          secondary: counts.secondary,
+          outreach: counts.outreach,
+          total: counts.lmpIds.size,  // distinct LMP count, not row count
         })).sort((a, b) => a.name.localeCompare(b.name));
       }),
     staleTime: 60_000,

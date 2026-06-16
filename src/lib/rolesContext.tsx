@@ -21,6 +21,8 @@ export type ApprovedUser = {
   name: string;
   email: string;
   role: Role;
+  /** poc_profiles.id — used for UUID-based filtering in view-as mode */
+  pocId?: string | null;
 };
 
 type RoleContextValue = {
@@ -281,14 +283,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           // so the Viewing As dropdown always matches the POC Domain database.
           const emails = validUsers.map((u) => (u.email as string).toLowerCase());
           const pocNameByEmail: Map<string, string> = new Map();
+          const pocIdByEmail: Map<string, string> = new Map();
           if (emails.length > 0) {
             const { data: pocRows } = await supabase
               .from("poc_profiles")
-              .select("email, name")
+              .select("email, name, id")
               .not("email", "is", null)
               .in("email", emails);
             for (const p of pocRows ?? []) {
               if (p.email && p.name) pocNameByEmail.set(p.email.toLowerCase(), p.name as string);
+              if (p.email && p.id) pocIdByEmail.set(p.email.toLowerCase(), p.id as string);
             }
           }
           setApprovedUsers(
@@ -296,6 +300,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
               name: (pocNameByEmail.get((u.email as string).toLowerCase()) ?? u.display_name) as string,
               email: u.email as string,
               role: u.role as Role,
+              pocId: pocIdByEmail.get((u.email as string).toLowerCase()) ?? null,
             })),
           );
         }
