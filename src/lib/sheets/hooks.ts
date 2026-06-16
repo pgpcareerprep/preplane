@@ -10,6 +10,7 @@ import { useLmpProcesses, useLmpProcessById, clearCachePrefix } from "@/lib/hook
 import { usePocCapabilityList } from "@/lib/hooks/usePocCapabilityLive";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/lib/rolesContext";
+import type { PocCapability } from "@/lib/pocCapability";
 
 // Canonical sheet ↔ DB column map. Edits go in src/lib/sheets/fieldMap.ts
 // (and the Deno mirror at supabase/functions/_shared/fieldMap.ts).
@@ -184,6 +185,96 @@ function makePoc(name: string, color: string, role: LmpPoc["role"], matchType: L
   };
 }
 
+function normalizePocKey(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function buildCanonicalPocMaps(pocs?: PocCapability[]) {
+  const byId = new Map<string, PocCapability>();
+  const byName = new Map<string, PocCapability>();
+  const byFirstName = new Map<string, PocCapability | null>();
+
+  for (const poc of pocs ?? []) {
+    const id = normalizePocKey(poc.id);
+    const name = normalizePocKey(poc.name);
+    const first = name.split(/\s+/)[0] || "";
+    if (id) byId.set(id, poc);
+    if (name) byName.set(name, poc);
+    if (first) byFirstName.set(first, byFirstName.has(first) ? null : poc);
+  }
+
+  return { byId, byName, byFirstName };
+}
+
+function resolveCanonicalPoc(
+  maps: ReturnType<typeof buildCanonicalPocMaps>,
+  name?: string | null,
+  id?: string | null,
+): PocCapability | undefined {
+  const idMatch = id ? maps.byId.get(normalizePocKey(id)) : undefined;
+  if (idMatch) return idMatch;
+
+  const nameKey = normalizePocKey(name);
+  if (!nameKey) return undefined;
+  const exact = maps.byName.get(nameKey);
+  if (exact) return exact;
+
+  // Legacy rows may still carry first-name-only values. Use poc_profiles only
+  // when that first name is unique, so we avoid displaying the wrong POC.
+  const first = nameKey.split(/\s+/)[0] || "";
+  return maps.byFirstName.get(first) ?? undefined;
+}
+
+function canonicalizePocObject(
+  poc: LmpPoc | undefined,
+  maps: ReturnType<typeof buildCanonicalPocMaps>,
+  id?: string | null,
+): LmpPoc | undefined {
+  const canonical = resolveCanonicalPoc(maps, poc?.name, id);
+  if (!poc && !canonical) return undefined;
+  const name = canonical?.name ?? poc?.name ?? "";
+  if (!name.trim()) return undefined;
+  return {
+    ...(poc ?? makePoc(name, "bg-orange-200 text-orange-600", "Prep")),
+    name,
+    initials: canonical?.initials ?? poc?.initials ?? name.split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 2),
+    color: canonical?.color ?? poc?.color ?? "bg-orange-200 text-orange-600",
+  };
+}
+
+function enrichRecordWithCanonicalPocs(rec: LmpRecord, pocs?: PocCapability[]): LmpRecord {
+  const maps = buildCanonicalPocMaps(pocs);
+  const prepPoc = canonicalizePocObject(rec.prepPoc, maps, rec.prepPocId);
+  const supportPoc = canonicalizePocObject(rec.supportPoc, maps, rec.supportPocId);
+  const outreachId = Array.isArray(rec.outreachPocIds) ? rec.outreachPocIds[0] : null;
+  const outreachPoc = canonicalizePocObject(rec.outreachPoc, maps, outreachId);
+  const nextPocs = [prepPoc, supportPoc, outreachPoc].filter(Boolean) as LmpPoc[];
+
+  return {
+    ...rec,
+    pocs: nextPocs.length ? nextPocs : rec.pocs,
+    prepPoc,
+    domainPrepPoc: prepPoc,
+    supportPoc,
+    behavioralPrepPoc: supportPoc,
+    outreachPoc,
+  };
+}
+
+type UserDomainContext = { primary: string[]; secondary: string[] } | null;
+
+function applyUserDomainTags(rec: LmpRecord, domains: UserDomainContext): LmpRecord {
+  if (!rec.domain || !domains) return rec;
+  const domainLower = rec.domain.toLowerCase().trim();
+  const isPrimary = domains.primary.some(d => d.toLowerCase().trim() === domainLower);
+  const isSecondary = !isPrimary && domains.secondary.some(d => d.toLowerCase().trim() === domainLower);
+  const domainTag: AllocationTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
+  const otherTags = (rec.allocationTags ?? []).filter(
+    t => t !== "In-Domain" && t !== "Cross-Domain" && t !== "Secondary Domain",
+  );
+  return { ...rec, allocationTags: [domainTag, ...otherTags] };
+}
+
 function normalizeStatus(raw: unknown): LmpStatus {
   const key = String(raw ?? "").toLowerCase().trim();
   const statusMap: Record<string, LmpStatus> = {
@@ -297,7 +388,8 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
 
 export function useLmpRows() {
   const dbQuery = useLmpProcesses({ includeArchived: true });
-  const { data: pocCapabilities } = usePocCapabilityList();
+  const { list: pocCapabilities = [] } = usePocCapabilityList();
+  const pocList = pocCapabilities;
   const { user, viewAsUser } = useRole();
 
   // When an admin impersonates a POC via "View As", use that POC's identity.
@@ -325,7 +417,7 @@ export function useLmpRows() {
   const pocDomainMap = useMemo(() => {
     const byName = new Map<string, { primary: string[]; secondary: string[] }>();
     const byEmail = new Map<string, { primary: string[]; secondary: string[] }>();
-    for (const p of pocCapabilities ?? []) {
+    for (const p of pocCapabilities) {
       const nameKey = (p.name ?? "").toLowerCase().trim();
       const emailKey = ((p as any).email ?? "").toLowerCase().trim();
       const domains = { primary: p.primaryDomains ?? [], secondary: p.secondaryDomains ?? [] };
@@ -353,32 +445,14 @@ export function useLmpRows() {
       ?? null;
   }, [myPocProfile, pocDomainMap, effectiveEmail, effectiveName]);
 
-  const hasPocData = (pocCapabilities?.length ?? 0) > 0;
-
   return {
     ...dbQuery,
     data: useMemo(() => {
       return ((dbQuery.data ?? []) as Record<string, any>[]).map(row => {
-        const rec = dbLmpToRecord(row);
-        if (!rec.domain) return rec;
-
-        const domainLower = rec.domain.toLowerCase().trim();
-
-        if (!resolvedUserDomains) {
-          // No domain profile found for the current user — show no tag.
-          return rec;
-        }
-
-        const isPrimary = resolvedUserDomains.primary.some(d => d.toLowerCase().trim() === domainLower);
-        const isSecondary = !isPrimary && resolvedUserDomains.secondary.some(d => d.toLowerCase().trim() === domainLower);
-        const domainTag: AllocationTag = isPrimary ? "In-Domain" : isSecondary ? "Secondary Domain" : "Cross-Domain";
-
-        const otherTags = (rec.allocationTags ?? []).filter(
-          t => t !== "In-Domain" && t !== "Cross-Domain" && t !== "Secondary Domain",
-        );
-        return { ...rec, allocationTags: [domainTag, ...otherTags] };
+        const rec = enrichRecordWithCanonicalPocs(dbLmpToRecord(row), pocList);
+        return applyUserDomainTags(rec, resolvedUserDomains);
       });
-    }, [dbQuery.data, resolvedUserDomains]),
+    }, [dbQuery.data, resolvedUserDomains, pocList]),
   };
 }
 
@@ -390,8 +464,57 @@ export function useLmpById(id: string) {
   const directId = UUID_RE.test(id) ? id : "";
   const directQuery = useLmpProcessById(directId);
   const { data: allRows, isLoading: listLoading } = useLmpRows();
+  const { list: pocCapabilities = [] } = usePocCapabilityList();
+  const { user, viewAsUser } = useRole();
+  const effectiveEmail = ((viewAsUser?.email ?? user.email) ?? "").toLowerCase().trim();
+  const effectiveName = ((viewAsUser?.name ?? user.pocProfileName ?? user.name) ?? "").toLowerCase().trim();
+  const pocList = pocCapabilities;
+  const pocDomainMap = useMemo(() => {
+    const byName = new Map<string, { primary: string[]; secondary: string[] }>();
+    const byEmail = new Map<string, { primary: string[]; secondary: string[] }>();
+    for (const p of pocList) {
+      const nameKey = (p.name ?? "").toLowerCase().trim();
+      const emailKey = ((p as any).email ?? "").toLowerCase().trim();
+      const domains = { primary: p.primaryDomains ?? [], secondary: p.secondaryDomains ?? [] };
+      if (nameKey) byName.set(nameKey, domains);
+      if (emailKey) byEmail.set(emailKey, domains);
+    }
+    return { byName, byEmail };
+  }, [pocList]);
+  const { data: myPocProfile } = useQuery({
+    enabled: !!effectiveEmail,
+    queryKey: ["poc-profile-domains", effectiveEmail],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("poc_profiles")
+        .select("primary_domain, domain_tags")
+        .eq("email", effectiveEmail)
+        .maybeSingle();
+      return data as { primary_domain: string | null; domain_tags: string[] | null } | null;
+    },
+  });
+  const resolvedUserDomains = useMemo((): UserDomainContext => {
+    if (myPocProfile) {
+      const primaryDomains = myPocProfile.primary_domain ? [myPocProfile.primary_domain] : [];
+      const allDomains: string[] = Array.isArray(myPocProfile.domain_tags) && myPocProfile.domain_tags.length
+        ? myPocProfile.domain_tags : primaryDomains;
+      const secondaryDomains = allDomains.filter(d => d !== myPocProfile.primary_domain);
+      if (primaryDomains.length > 0 || secondaryDomains.length > 0) {
+        return { primary: primaryDomains, secondary: secondaryDomains };
+      }
+    }
+    return (effectiveEmail ? pocDomainMap.byEmail.get(effectiveEmail) : undefined)
+      ?? (effectiveName ? pocDomainMap.byName.get(effectiveName) : undefined)
+      ?? null;
+  }, [myPocProfile, pocDomainMap, effectiveEmail, effectiveName]);
   const fromList = allRows?.find((r) => r.id === id || r.id.toLowerCase() === id?.toLowerCase());
-  const fromDirect = directQuery.data ? dbLmpToRecord(directQuery.data as Record<string, any>) : undefined;
+  const fromDirect = directQuery.data
+    ? applyUserDomainTags(
+        enrichRecordWithCanonicalPocs(dbLmpToRecord(directQuery.data as Record<string, any>), pocList),
+        resolvedUserDomains,
+      )
+    : undefined;
   return {
     // Prefer fromList: it has computed domain tags (In-Domain / Cross-Domain)
     // based on the logged-in user's domains. fromDirect uses dbLmpToRecord()

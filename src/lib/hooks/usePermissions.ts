@@ -5,6 +5,7 @@
 
 import { useMemo } from "react";
 import { useRole } from "@/lib/rolesContext";
+import type { LmpRecord } from "@/lib/lmpTypes";
 import {
   canPerform,
   canManageLmp,
@@ -30,6 +31,23 @@ type LmpOwnership = {
   outreach_poc_ids?: string[] | null;
 };
 
+type LmpPermissionInput = LmpOwnership | LmpRecord | null | undefined;
+
+export function normalizeLmpOwnership(lmp?: LmpPermissionInput): LmpOwnership {
+  if (!lmp) return {};
+  const row = lmp as LmpRecord & LmpOwnership;
+  return {
+    prep_poc: row.prep_poc ?? row.prepPoc?.name ?? null,
+    support_poc: row.support_poc ?? row.supportPoc?.name ?? null,
+    outreach_poc: row.outreach_poc ?? row.outreachPoc?.name ?? null,
+    allocator: row.allocator ?? null,
+    admin_owner: row.admin_owner ?? row.adminOwner ?? null,
+    prep_poc_id: row.prep_poc_id ?? row.prepPocId ?? null,
+    support_poc_id: row.support_poc_id ?? row.supportPocId ?? null,
+    outreach_poc_ids: row.outreach_poc_ids ?? row.outreachPocIds ?? null,
+  };
+}
+
 /**
  * Hook for checking action-level permissions based on current role.
  */
@@ -48,11 +66,11 @@ export function useActionPermission() {
  * Hook for LMP-specific permissions (field-level, record-level).
  * Pass the LMP ownership data to get context-aware permissions.
  */
-export function useLmpPermission(lmp?: LmpOwnership | null) {
+export function useLmpPermission(lmp?: LmpPermissionInput) {
   const { role, user } = useRole();
 
   return useMemo(() => {
-    const ownership: LmpOwnership = lmp ?? {};
+    const ownership = normalizeLmpOwnership(lmp);
     const actorName = user.pocProfileName || user.name;
     // Prefer UUID-based identity — only falls back to name when pocProfileId is absent
     const pocId = user.pocProfileId ?? null;

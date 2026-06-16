@@ -29,7 +29,7 @@ import { MentionDropdown, type MentionEntity } from "@/components/copilot/Mentio
 import { ScopeSelector, type CopilotScope } from "@/components/copilot/ScopeSelector";
 import { ContextRail, type ActiveContext } from "@/components/copilot/ContextRail";
 import { useVoiceDictation, VoiceMicButton, VoiceIndicator, VoiceConversationOverlay } from "@/components/copilot/VoiceDictation";
-import Papa from "papaparse";
+import * as Papa from "papaparse";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useCopilotThreads } from "@/hooks/useCopilotThreads";
 import { CopilotUsageStrip, CopilotUsageMini } from "@/components/copilot/CopilotQuotaBar";

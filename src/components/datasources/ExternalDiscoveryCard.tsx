@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Globe, AlertTriangle, Upload, Trash2, FlaskConical, Save, FileText, Settings } from "lucide-react";
-import Papa from "papaparse";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -101,7 +100,7 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
     }
   };
 
-  const onUpload = (file: File) => {
+  const onUpload = async (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
     const finalize = (records: Array<Record<string, unknown>>) => {
       if (records.length === 0) {
@@ -128,6 +127,7 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
       return;
     }
     if (ext === "csv") {
+      const Papa = await import("papaparse");
       Papa.parse<Record<string, string>>(file, {
         header: true,
         skipEmptyLines: true,

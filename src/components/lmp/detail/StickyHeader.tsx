@@ -291,7 +291,7 @@ function PocOwner({ label, poc }: { label: string; poc: { name: string; initials
       </span>
       <span className="text-[12.5px] text-n700">
         <span className="text-n400">{label}: </span>
-        <span className="text-n800 font-medium">{poc.name.split(" ")[0]}</span>
+        <span className="text-n800 font-medium">{poc.name}</span>
       </span>
     </span>
   );

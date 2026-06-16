@@ -1,4 +1,4 @@
-import Papa from "papaparse";
+import * as Papa from "papaparse";
 import { DB_TO_SHEET } from "@/lib/sheets/fieldMap";
 import { SHEET_STATUS_TO_DB } from "../../supabase/functions/_shared/fieldMap";
 

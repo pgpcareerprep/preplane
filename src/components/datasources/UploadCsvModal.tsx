@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo } from "react";
-import Papa from "papaparse";
+import * as Papa from "papaparse";
 import { Upload, X, ArrowRight, Loader2, CheckCircle2, AlertCircle, AlertTriangle, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";

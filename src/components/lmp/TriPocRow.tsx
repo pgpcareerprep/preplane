@@ -147,8 +147,8 @@ function PocCircle({
         </span>
       </span>
       {showName && (
-        <span className="text-[11.5px] text-n700 truncate">
-          <span className="text-n800 font-medium">{poc.name.split(" ")[0]}</span>
+        <span className="text-[11.5px] text-n700 min-w-0">
+          <span className="text-n800 font-medium whitespace-normal break-words">{poc.name}</span>
         </span>
       )}
     </span>
