@@ -42,78 +42,197 @@ const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-
 // Grok/xAI — middle fallback (api.x.ai, GROK_API_KEY)
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
-// Resolved per-request in the handler; module-load defaults are overwritten each request.
+// ─── Per-request provider configuration (request-local, set in handler) ──────
+// These are set once at the start of each request and represent the SELECTED
+// (primary) provider for tool-calling. All AI calls use REQUEST_PROVIDERS for
+// cross-provider fallback, so concurrent-request state bleed is not a concern
+// in Deno's single-threaded event loop.
 let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
 let TOOL_MODEL = GEMINI_TOOL_MODEL;
 let TOOL_FALLBACK_MODELS: string[] = [...GEMINI_TOOL_FALLBACK_MODELS];
-const SYNTHESIS_MODELS: string[] = [...GEMINI_SYNTHESIS_MODELS];
 let AI_EXTRA_HEADERS: Record<string, string> = {};
-let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
+let AI_KEY_FOR_CHAT = "";
 
-/** Try each model in SYNTHESIS_MODELS until one succeeds.
- *  Logs provider/model/status/body for every failure.
- *  Retries same model once on 429; all other errors immediately try next model. */
-// Retryable status codes — try next model/provider on these
+// Ordered list of ALL available providers for this request.
+// callSynthesis and callToolModel walk this list in order with cross-provider fallback.
+interface ProviderConfig {
+  name: string;
+  url: string;
+  key: string;
+  toolModel: string;
+  toolFallbacks: readonly string[];
+  synthesisModels: readonly string[];
+  extraHeaders: Record<string, string>;
+}
+let REQUEST_PROVIDERS: ProviderConfig[] = [];
+
+function buildProviderList(
+  geminiKey: string | undefined,
+  openrouterKey: string | undefined,
+  grokKey: string | undefined,
+): ProviderConfig[] {
+  const list: ProviderConfig[] = [];
+  if (geminiKey) list.push({
+    name: "Gemini", url: GEMINI_DIRECT_URL, key: geminiKey,
+    toolModel: GEMINI_TOOL_MODEL, toolFallbacks: GEMINI_TOOL_FALLBACK_MODELS,
+    synthesisModels: GEMINI_SYNTHESIS_MODELS, extraHeaders: {},
+  });
+  if (openrouterKey) list.push({
+    name: "OpenRouter", url: OPENROUTER_URL, key: openrouterKey,
+    toolModel: OPENROUTER_TOOL_MODEL, toolFallbacks: OPENROUTER_SYNTHESIS_MODELS,
+    synthesisModels: OPENROUTER_SYNTHESIS_MODELS,
+    extraHeaders: { "HTTP-Referer": getAppOrigin(), "X-Title": "Preplane LMP Copilot" },
+  });
+  if (grokKey) list.push({
+    name: "Grok", url: GROK_URL, key: grokKey,
+    toolModel: GROK_TOOL_MODEL, toolFallbacks: GROK_SYNTHESIS_MODELS,
+    synthesisModels: GROK_SYNTHESIS_MODELS, extraHeaders: {},
+  });
+  return list;
+}
+
+// Retryable HTTP status codes — advance to next model/provider on these
 const RETRYABLE_HTTP = new Set([408, 429, 500, 502, 503, 504]);
 
+/**
+ * Try synthesis across all configured providers in priority order.
+ * Gemini → OpenRouter → Grok. Each provider's models are tried in sequence.
+ * Returns the first successful Response.
+ */
 async function callSynthesis(
-  _key: string, // kept for signature compat; actual key comes from AI_KEY_FOR_CHAT
+  _legacyKey: string, // kept for call-site compat
   body: Record<string, unknown>,
   timeoutMs = 20_000,
 ): Promise<{ resp: Response; model: string }> {
-  const key = AI_KEY_FOR_CHAT;
-  const provider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
-    : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
+  const providers = REQUEST_PROVIDERS;
+  if (!providers.length) throw new Error("No AI provider configured. Set GEMINI_API_KEY, OPENROUTER_API_KEY, or GROK_API_KEY in Edge Function secrets.");
 
-  // Skip if circuit is open for this provider
-  if (isCircuitOpen(provider)) {
-    throw new Error(`${provider} circuit is open (too many recent failures). Automatic fallback in progress.`);
+  let lastFailMsg = "all providers unavailable";
+
+  for (const prov of providers) {
+    if (isCircuitOpen(prov.name)) {
+      console.warn(`[synthesis] ${prov.name} circuit open — skipping to next provider`);
+      continue;
+    }
+
+    for (const model of prov.synthesisModels) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let resp: Response;
+        try {
+          resp = await fetch(prov.url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${prov.key}`, "Content-Type": "application/json", ...prov.extraHeaders },
+            signal: AbortSignal.timeout(timeoutMs),
+            body: JSON.stringify({ ...body, model }),
+          });
+        } catch (e) {
+          const n = (e as { name?: string })?.name ?? "";
+          lastFailMsg = `${prov.name}/${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
+          console.warn(`[synthesis] ${lastFailMsg}`);
+          recordFailure(prov.name);
+          break; // network/timeout → try next model in same provider
+        }
+
+        if (resp.ok) {
+          recordSuccess(prov.name);
+          return { resp, model };
+        }
+
+        const errBody = await resp.text().catch(() => "");
+        lastFailMsg = `${prov.name}/${model} HTTP ${resp.status}: ${errBody.slice(0, 300)}`;
+        console.warn(`[synthesis] ${lastFailMsg}`);
+
+        if (RETRYABLE_HTTP.has(resp.status)) {
+          recordFailure(prov.name);
+          if (resp.status === 429 && attempt === 0) {
+            console.warn(`[synthesis] ${prov.name}/${model} 429 — waiting 2s then retrying`);
+            await new Promise((r) => setTimeout(r, 2000));
+            continue; // one retry for 429
+          }
+          break; // other retryable → try next model
+        }
+        // Non-retryable (401, 400, etc.) — skip remaining models for this provider
+        break;
+      }
+    }
   }
 
-  let lastFailMsg = `${provider}: all synthesis models exhausted`;
+  console.error(`[synthesis] exhausted all providers: ${lastFailMsg}`);
+  throw new Error(`AI services temporarily unavailable (tried all providers: ${providers.map(p => p.name).join(" → ")}). Please retry in a moment.`);
+}
 
-  for (const model of SYNTHESIS_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+/**
+ * Call the tool-capable model with cross-provider fallback.
+ * Used in the main tool-calling loop. Returns the raw fetch Response.
+ */
+async function callToolModel(
+  body: Record<string, unknown>,
+  timeoutMs = 15_000,
+): Promise<{ resp: Response; model: string; provider: string }> {
+  const providers = REQUEST_PROVIDERS;
+  if (!providers.length) throw new Error("No AI provider configured.");
+
+  let lastFailMsg = "all providers unavailable";
+
+  for (const prov of providers) {
+    if (isCircuitOpen(prov.name)) {
+      console.warn(`[tool-model] ${prov.name} circuit open — skipping`);
+      continue;
+    }
+
+    const modelsToTry = [prov.toolModel, ...prov.toolFallbacks.filter(m => m !== prov.toolModel)];
+
+    for (const model of modelsToTry) {
       let resp: Response;
       try {
-        resp = await fetch(AI_GATEWAY_URL, {
+        resp = await fetch(prov.url, {
           method: "POST",
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...AI_EXTRA_HEADERS },
+          headers: { Authorization: `Bearer ${prov.key}`, "Content-Type": "application/json", ...prov.extraHeaders },
           signal: AbortSignal.timeout(timeoutMs),
           body: JSON.stringify({ ...body, model }),
         });
       } catch (e) {
         const n = (e as { name?: string })?.name ?? "";
-        if (n === "TimeoutError" || n === "AbortError") throw e;
-        lastFailMsg = `${provider}/${model} network error: ${(e as Error).message}`;
-        console.warn(`[synthesis] ${lastFailMsg}`);
-        recordFailure(provider);
-        break; // network error → try next model
+        lastFailMsg = `${prov.name}/${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
+        console.warn(`[tool-model] ${lastFailMsg}`);
+        recordFailure(prov.name);
+        break;
       }
 
       if (resp.ok) {
-        recordSuccess(provider);
-        return { resp, model };
+        recordSuccess(prov.name);
+        // Sync module-level vars so existing telemetry references stay accurate
+        AI_GATEWAY_URL = prov.url;
+        AI_KEY_FOR_CHAT = prov.key;
+        AI_EXTRA_HEADERS = prov.extraHeaders;
+        TOOL_MODEL = model;
+        return { resp, model, provider: prov.name };
       }
 
-      // Log exact failure: provider, model, HTTP status, body excerpt (no key)
+      const status = resp.status;
       const errBody = await resp.text().catch(() => "");
-      lastFailMsg = `${provider}/${model} ${resp.status}: ${errBody.slice(0, 300)}`;
-      console.warn(`[synthesis] ${lastFailMsg}`);
+      lastFailMsg = `${prov.name}/${model} HTTP ${status}: ${errBody.slice(0, 300)}`;
+      console.warn(`[tool-model] ${lastFailMsg}`);
 
-      if (RETRYABLE_HTTP.has(resp.status)) {
-        recordFailure(provider);
-        if (resp.status === 429 && attempt === 0) {
-          console.warn(`[synthesis] ${provider}/${model} 429 — waiting 2s then retrying once`);
-          await new Promise((r) => setTimeout(r, 2000));
-          continue; // retry same model once
+      if (RETRYABLE_HTTP.has(status)) {
+        recordFailure(prov.name);
+        if (status === 429) {
+          await new Promise(r => setTimeout(r, 3000));
         }
+        // continue to next model in same provider
+      } else if (status === 401 || status === 403) {
+        // Auth failure — don't try more models for this provider, try next provider
+        console.warn(`[tool-model] ${prov.name} auth failure (${status}) — trying next provider`);
+        break;
+      } else {
+        break; // non-retryable
       }
-      break; // non-retryable or second attempt → try next model
     }
   }
-  console.error(`[synthesis] exhausted all configured models: ${lastFailMsg}`);
-  throw new Error("AI gateway is temporarily unavailable after trying all configured models. Please retry in a moment.");
+
+  const providerNames = providers.map(p => p.name).join(" → ");
+  console.error(`[tool-model] exhausted all providers (${providerNames}): ${lastFailMsg}`);
+  throw new Error(`AI gateway unavailable after trying ${providerNames}. Last error: ${lastFailMsg}`);
 }
 
 type SupabaseLike = ReturnType<typeof createClient>;
@@ -957,6 +1076,7 @@ type RequestContext = {
   isImpersonating: boolean;
   viewAsName: string | null;
   intent: string;
+  activeProviderName: string | null;
 };
 
 type CopilotRequestState = {
@@ -972,7 +1092,7 @@ function createRequestState(req: Request): CopilotRequestState {
     cache: {},
     context: {
       role: "poc", userId: null, actorName: null, plan: null, pocId: null,
-      isImpersonating: false, viewAsName: null, intent: "unknown",
+      isImpersonating: false, viewAsName: null, intent: "unknown", activeProviderName: null,
     },
     log: createLogger("copilot-ai", req),
   };
@@ -2962,54 +3082,43 @@ async function handleRequest(req: Request) {
   await ensureVaultLoaded();
 
   // ─── Provider selection: Gemini (primary) → OpenRouter → Grok ───────────
-  // Priority order corrected: Gemini must be primary per architecture spec.
-  // The previous order (OpenRouter first) was a deployment bug — now fixed.
+  // Build an ORDERED list of all configured providers. All AI calls walk this
+  // list with genuine cross-provider fallback — if Gemini fails, OpenRouter is
+  // tried automatically, then Grok. The first provider in the list also sets
+  // the module-level shortcut vars used by existing telemetry references.
   const GEMINI_API_KEY    = getEnv("GEMINI_API_KEY");
   const OPENROUTER_API_KEY = getEnv("OPENROUTER_API_KEY");
   const GROK_API_KEY      = getEnv("GROK_API_KEY");
 
-  if (GEMINI_API_KEY) {
-    AI_KEY_FOR_CHAT = GEMINI_API_KEY;
-    AI_GATEWAY_URL = GEMINI_DIRECT_URL;
-    TOOL_MODEL = GEMINI_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...GEMINI_TOOL_FALLBACK_MODELS];
-    SYNTHESIS_MODELS.length = 0;
-    SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
-    AI_EXTRA_HEADERS = {};
-  } else if (OPENROUTER_API_KEY) {
-    AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
-    AI_GATEWAY_URL = OPENROUTER_URL;
-    TOOL_MODEL = OPENROUTER_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...OPENROUTER_SYNTHESIS_MODELS];
-    SYNTHESIS_MODELS.length = 0;
-    SYNTHESIS_MODELS.push(...OPENROUTER_SYNTHESIS_MODELS);
-    AI_EXTRA_HEADERS = {
-      "HTTP-Referer": getAppOrigin(),
-      "X-Title": "Preplane LMP Copilot",
-    };
-  } else if (GROK_API_KEY) {
-    AI_KEY_FOR_CHAT = GROK_API_KEY;
-    AI_GATEWAY_URL = GROK_URL;
-    TOOL_MODEL = GROK_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...GROK_SYNTHESIS_MODELS];
-    SYNTHESIS_MODELS.length = 0;
-    SYNTHESIS_MODELS.push(...GROK_SYNTHESIS_MODELS);
-    AI_EXTRA_HEADERS = {};
-  } else {
-    return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 500);
+  REQUEST_PROVIDERS = buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY);
+
+  if (!REQUEST_PROVIDERS.length) {
+    return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 503);
   }
+
+  // Initialise module-level shortcut vars from the primary (first) provider
+  // so all existing telemetry references remain accurate.
+  const primaryProvider = REQUEST_PROVIDERS[0];
+  AI_KEY_FOR_CHAT = primaryProvider.key;
+  AI_GATEWAY_URL = primaryProvider.url;
+  TOOL_MODEL = primaryProvider.toolModel;
+  TOOL_FALLBACK_MODELS = [...primaryProvider.toolFallbacks];
+  AI_EXTRA_HEADERS = primaryProvider.extraHeaders;
+  requestState().context.activeProviderName = primaryProvider.name;
 
   // ─── Intent-based model override ─────────────────────────────────────────
-  // For heavy analysis intents, override the tool model to use the analysis tier.
-  // This runs AFTER provider selection so it only applies within the selected provider.
   const intentFromReq = requestState().context.intent ?? "";
   const tier = getTaskTier(intentFromReq);
-  if (tier === "analysis" && AI_GATEWAY_URL === GEMINI_DIRECT_URL) {
+  if (tier === "analysis" && primaryProvider.name === "Gemini") {
     TOOL_MODEL = GEMINI_ANALYSIS_MODEL;
+    // Also override the first provider's toolModel in REQUEST_PROVIDERS
+    REQUEST_PROVIDERS[0] = { ...REQUEST_PROVIDERS[0], toolModel: GEMINI_ANALYSIS_MODEL };
   }
 
-  console.log("[copilot-ai] provider=Gemini→OpenRouter→Grok, selected=", AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter" : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini");
-  console.log("[copilot-ai] intent-tier", { intent: intentFromReq, tier, toolModel: TOOL_MODEL });
+  console.log(
+    `[copilot-ai] providers configured: ${REQUEST_PROVIDERS.map(p => p.name).join(" → ")}`,
+    `| primary=${primaryProvider.name} | intent=${intentFromReq} | tier=${tier} | toolModel=${TOOL_MODEL}`,
+  );
 
   let body: {
     messages?: { role: string; content: string }[];
@@ -3459,93 +3568,28 @@ async function handleRequest(req: Request) {
         });
       }
 
-      // Tool-call rounds always use the fast model (low latency, cheap)
-      const chatKey = AI_KEY_FOR_CHAT;
-      const chatExtraHeaders = AI_EXTRA_HEADERS;
+      // Tool-call rounds: try all providers in order via callToolModel.
+      // Gemini → OpenRouter → Grok with per-model retries on retryable errors.
       let aiResponse: Response;
       try {
-        aiResponse = await fetch(AI_GATEWAY_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${chatKey}`,
-            "Content-Type": "application/json",
-            ...chatExtraHeaders,
-          },
-          signal: AbortSignal.timeout(15_000),
-          body: JSON.stringify({
-            model: TOOL_MODEL,
-            messages: aiMessages,
-            tools: TOOLS,
-            stream: false,
-          }),
+        const toolResult = await callToolModel({
+          messages: aiMessages,
+          tools: TOOLS,
+          stream: false,
         });
-      } catch (e) {
-        console.warn(`[tool-loop] primary model network/timeout error: ${(e as Error).message}`);
-        aiResponse = new Response(JSON.stringify({ error: "primary model timed out" }), { status: 598 });
-      }
-
-      // On any non-ok response, try each TOOL_FALLBACK_MODEL before giving up.
-      // 429 → short delay; 401/403/404 → immediate retry with next model.
-      // lastErrBody tracks the most recent error so we read the body only once per response.
-      if (!aiResponse.ok) {
-        const toolProvider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
-          : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
-        let lastErrStatus = aiResponse.status;
-        let lastErrBody = await aiResponse.text().catch(() => "");
-        console.warn(`[tool-loop] ${toolProvider}/${TOOL_MODEL} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);
-
-        const fallbacks = TOOL_FALLBACK_MODELS.filter((m) => m !== TOOL_MODEL);
-        for (const fallbackModel of fallbacks) {
-          if (lastErrStatus === 429) {
-            await new Promise((r) => setTimeout(r, 3000));
-          }
-          console.warn(`[tool-loop] trying fallback: ${toolProvider}/${fallbackModel}`);
-          try {
-            aiResponse = await fetch(AI_GATEWAY_URL, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${chatKey}`, "Content-Type": "application/json", ...chatExtraHeaders },
-              signal: AbortSignal.timeout(15_000),
-              body: JSON.stringify({ model: fallbackModel, messages: aiMessages, tools: TOOLS, stream: false }),
-            });
-            if (aiResponse.ok) {
-              telemetry.model = fallbackModel;
-              break;
-            }
-            lastErrStatus = aiResponse.status;
-            lastErrBody = await aiResponse.text().catch(() => "");
-            console.warn(`[tool-loop] ${toolProvider}/${fallbackModel} ${lastErrStatus}: ${lastErrBody.slice(0, 300)}`);
-          } catch (retryErr) {
-            lastErrStatus = 598;
-            lastErrBody = (retryErr as Error).message;
-            continue;
-          }
-        }
-
-        if (!aiResponse.ok) {
-          const toolProvider2 = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
-            : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
-          if (lastErrStatus === 429) {
-            void logTurn({ status: "rate_limited", error_message: "429" });
-            return new Response(JSON.stringify({ error: "AI provider quota is temporarily exhausted. Please retry after 60 seconds or ask a simpler query." }), {
-              status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          if (lastErrStatus === 402) {
-            void logTurn({ status: "credits_exhausted", error_message: "402" });
-            return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-              status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          if (lastErrStatus === 401) {
-            requestState().log.error("ai_gateway_auth", null, { provider: toolProvider2, status: 401, body: lastErrBody.slice(0, 300) });
-            void logTurn({ status: "ai_gateway_error", error_message: `401 auth: ${lastErrBody.slice(0, 100)}` });
-            return jsonError(`AI gateway auth failed: ${toolProvider2} 401 — check OPENROUTER_API_KEY / GROK_API_KEY / GEMINI_API_KEY in Edge Function secrets`, 500);
-          }
-          requestState().log.error("ai_gateway_error", null, { provider: toolProvider2, status: lastErrStatus, body: lastErrBody.slice(0, 300) });
-          console.error(`[tool-loop] ${toolProvider2} ${lastErrStatus}: ${lastErrBody}`);
-          void logTurn({ status: "ai_gateway_error", error_message: `${lastErrStatus}: ${lastErrBody.slice(0, 200)}` });
-          return jsonError("AI gateway is temporarily unavailable after trying all configured models. Please retry in a moment.", 503);
-        }
+        aiResponse = toolResult.resp;
+        telemetry.model = toolResult.model;
+        requestState().context.activeProviderName = toolResult.provider;
+      } catch (toolModelErr) {
+        const errMsg = (toolModelErr as Error).message;
+        requestState().log.error("ai_gateway_exhausted", toolModelErr, { round });
+        void logTurn({ status: "ai_gateway_error", error_message: errMsg });
+        return new Response(JSON.stringify({
+          error: true,
+          code: "ALL_AI_PROVIDERS_UNAVAILABLE",
+          message: "AI services are temporarily unavailable. Please retry in a moment.",
+          detail: errMsg,
+        }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const aiResult = await aiResponse.json();

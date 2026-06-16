@@ -640,8 +640,29 @@ export function VoiceConversationOverlay({
           ...identityPayload,
         }),
       });
-      const data = await resp.json();
-      const spoken = stripForVoice(data.spoken || "Sorry, I didn't catch that.");
+
+      let data: any = {};
+      try { data = await resp.json(); } catch { /* non-json body */ }
+
+      // Map structured backend error codes to friendly spoken messages
+      let spoken: string;
+      if (!resp.ok || data?.error) {
+        const code = data?.code ?? "";
+        if (resp.status === 429 || code === "AI_DAILY_BUDGET_EXHAUSTED") {
+          spoken = "Your daily AI budget is used up. It resets at midnight.";
+        } else if (resp.status === 503 || code === "ALL_AI_PROVIDERS_UNAVAILABLE") {
+          spoken = "AI services are temporarily unavailable. Please try again in a moment.";
+        } else if (resp.status === 401 || resp.status === 403) {
+          spoken = "I couldn't verify your identity. Please sign in again.";
+        } else if (typeof data?.spoken === "string" && data.spoken) {
+          spoken = stripForVoice(data.spoken);
+        } else {
+          spoken = "I had trouble reaching the assistant. Please try again.";
+        }
+      } else {
+        spoken = stripForVoice(data.spoken || "Sorry, I didn't catch that.");
+      }
+
       if (data.pendingAction) pendingActionRef.current = data.pendingAction;
       messagesRef.current.push({ role: "assistant", content: spoken });
       setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken, blocks: data.blocks || [] }]);
@@ -660,7 +681,7 @@ export function VoiceConversationOverlay({
       if ((err as any)?.name !== "AbortError") {
         console.error("voice copilot error", err);
         setThinking(false);
-        await speak("Sorry, I had trouble reaching the assistant.");
+        await speak("I had trouble reaching the assistant. Please check your connection and try again.");
       } else {
         setThinking(false);
       }
