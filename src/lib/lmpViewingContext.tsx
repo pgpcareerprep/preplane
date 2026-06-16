@@ -104,16 +104,17 @@ export function isUserPocOnRecord(rec: LmpRecord, userName: string, pocId?: stri
  * Operational POC check — any explicitly assigned Prep, Support, or Outreach POC.
  * Allocator and admin ownership labels do not grant POC ownership.
  */
-// UUID-only: edit mode is granted only when the current user's poc_profiles.id
-// matches an assigned *_poc_id on the record. Name-based comparison removed
-// because first-name-only values (e.g. "Sonali" vs "Sonali Awasthi") caused
-// inconsistent edit access. The DB migration (20260615100000) backfills all
-// *_poc_id values and a trigger keeps them current on future writes.
-export function isUserOperationalPoc(rec: LmpRecord, _userName: string, pocId?: string | null): boolean {
-  if (!pocId) return false;
-  if (rec.prepPocId && rec.prepPocId === pocId) return true;
-  if (rec.supportPocId && rec.supportPocId === pocId) return true;
-  if (Array.isArray(rec.outreachPocIds) && rec.outreachPocIds.includes(pocId)) return true;
+export function isUserOperationalPoc(rec: LmpRecord, userName: string, pocId?: string | null): boolean {
+  if (pocId) {
+    if (rec.prepPocId && rec.prepPocId === pocId) return true;
+    if (rec.supportPocId && rec.supportPocId === pocId) return true;
+    if (Array.isArray(rec.outreachPocIds) && rec.outreachPocIds.includes(pocId)) return true;
+  }
+  if (userName) {
+    if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
+    if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
+    if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
+  }
   return false;
 }
 
@@ -253,6 +254,7 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       return isPocOnRecord(rec, target);
     };
 
+    // Name-only fallback equivalent: isUserOperationalPoc(rec, matchName) ? "action" : "summary"
     const modeFor = (rec: LmpRecord): LmpInteractionMode =>
       isUserOperationalPoc(rec, matchName, matchPocId) ? "action" : "summary";
 

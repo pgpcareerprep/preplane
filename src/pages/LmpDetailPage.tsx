@@ -16,7 +16,7 @@ import { MentorsTab } from "@/components/lmp/detail/MentorsTab";
 import { SessionsLiveTab } from "@/components/lmp/detail/SessionsLiveTab";
 import { FeedbackTab } from "@/components/lmp/detail/FeedbackTab";
 import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
-import { useLmpMode } from "@/lib/lmpViewingContext";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { useRole } from "@/lib/rolesContext";
 import { Eye } from "lucide-react";
 import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
@@ -53,13 +53,13 @@ export default function LmpDetailPage() {
 
   // IMPORTANT: call all hooks before any early return so hook order stays stable
   // across renders (e.g. after the LMP is deleted and `lmp` flips to undefined).
-  const mode = useLmpMode((lmp ?? {}) as any);
+  const { canOperateLmp } = useLmpPermission(lmp);
   const { isLoading: isRoleLoading, user, role } = useRole();
   // Only treat as read-only once auth/role/POC profile have fully resolved.
   // Otherwise a Support POC would briefly see the read-only banner on every
   // page load while `pocProfileName` is still being fetched.
   const pocProfileReady = role === "admin" || !!user.pocProfileName || !!user.name;
-  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && mode === "summary";
+  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
 
   const backHref = from === "kanban" ? "/lmp" : "/lmp?view=cards";
 

@@ -242,30 +242,50 @@ export type LmpOwnership = {
   outreach_poc_ids?: string[] | null;
 };
 
-// All ownership checks are UUID-only. Name-based comparison has been removed to
-// prevent partial/first-name values from creating inconsistent edit permissions.
-// The DB migration (20260615100000) normalizes text fields and backfills all
-// *_poc_id columns; a BEFORE INSERT OR UPDATE trigger keeps them consistent on
-// future writes, including reconcile writes from the Google Sheet edge function.
+function splitOwnerNames(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .replace(/\s+and\s+/gi, "/")
+    .split(/[/,&+]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function ownerNamesMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+  const target = String(right ?? "").trim().toLowerCase();
+  if (!target) return false;
+  return splitOwnerNames(left).some((candidate) => {
+    const value = candidate.toLowerCase();
+    if (value === target) return true;
+    const valueFirst = value.split(/\s+/)[0];
+    const targetFirst = target.split(/\s+/)[0];
+    return valueFirst.length >= 3 && valueFirst === targetFirst;
+  });
+}
 
 export function isLmpOwner(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (!pocId) return false;
-  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
-  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-  if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
-  return false;
+  if (pocId) {
+    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
+    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
+    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
+  }
+  return ownerNamesMatch(lmp.prep_poc, _userName)
+    || ownerNamesMatch(lmp.support_poc, _userName)
+    || ownerNamesMatch(lmp.outreach_poc, _userName);
 }
 
 export function isLmpPrepPoc(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (!pocId) return false;
-  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
-  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-  return false;
+  if (pocId) {
+    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
+    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
+  }
+  return ownerNamesMatch(lmp.prep_poc, _userName)
+    || ownerNamesMatch(lmp.support_poc, _userName);
 }
 
 export function isLmpOutreachPoc(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (!pocId) return false;
-  return Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId);
+  if (pocId && Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
+  return ownerNamesMatch(lmp.outreach_poc, _userName);
 }
 
 /**
@@ -401,10 +421,12 @@ export function canCopilotAction(
 export type PocSubRole = "prep_poc" | "outreach_poc" | "support_poc" | "none";
 
 export function getPocSubRole(_userName: string, lmp: LmpOwnership, pocId?: string | null): PocSubRole {
-  if (!pocId) return "none";
-  if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return "prep_poc";
-  if (lmp.support_poc_id && lmp.support_poc_id === pocId) return "support_poc";
-  if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return "outreach_poc";
+  if (pocId && lmp.prep_poc_id && lmp.prep_poc_id === pocId) return "prep_poc";
+  if (pocId && lmp.support_poc_id && lmp.support_poc_id === pocId) return "support_poc";
+  if (pocId && Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return "outreach_poc";
+  if (ownerNamesMatch(lmp.prep_poc, _userName)) return "prep_poc";
+  if (ownerNamesMatch(lmp.support_poc, _userName)) return "support_poc";
+  if (ownerNamesMatch(lmp.outreach_poc, _userName)) return "outreach_poc";
   return "none";
 }
 
