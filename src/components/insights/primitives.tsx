@@ -291,12 +291,14 @@ function LxRing({ pct }: { pct: number }) {
 
 /* ─────────────── Compact KPI ─────────────── */
 export function LxKpi({
-  label, value, sub, accent = "neutral", span = 3, delay = 0, info, onClick,
+  label, value, sub, accent = "neutral", span = 3, delay = 0, info, onClick, className: outerClassName,
 }: {
   label: string; value: ReactNode; sub?: string;
   accent?: LxAccent; span?: 2 | 3 | 4 | 6; delay?: number;
   info?: string;
   onClick?: () => void;
+  /** Extra classes applied to the card root — use for grid-span overrides (e.g. "!col-span-1"). */
+  className?: string;
 }) {
   const dotColor = LX_HEX[accent];
   const clickable = !!onClick;
@@ -307,6 +309,7 @@ export function LxKpi({
       className={cn(
         "flex flex-col gap-3 relative overflow-hidden group",
         clickable && "cursor-pointer transition-shadow hover:shadow-md focus-within:shadow-md",
+        outerClassName,
       )}
     >
       <span

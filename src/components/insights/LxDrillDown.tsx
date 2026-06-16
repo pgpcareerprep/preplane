@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, ExternalLink, Download } from "lucide-react";
+import { Search, ExternalLink, Download, ChevronUp, ChevronDown } from "lucide-react";
 import type { Process } from "@/lib/lmpProcessQueries";
 import { LX_HEX } from "./primitives";
 
@@ -78,11 +78,30 @@ export type PocDrillRow = {
   primaryDomain?: string;
 };
 
+export type ConvertedStudentDrillRow = {
+  studentName: string;
+  cohort: string;
+  primaryDomain: string;
+  company: string;
+  role: string;
+  lmpDomain: string;
+  processType: string;
+  lmpStatus: string;
+  displayStatus: string;
+  prepPoc: string;
+  outreachPoc: string;
+  closingDate: string;
+  lmpCode: string;
+  lmpId: string;
+  matchStatus: "matched" | "ambiguous" | "not_matched";
+};
+
 export type DrillState =
-  | { kind: "lmps";     title: string; subtitle?: string; rows: LmpDrillRow[] }
-  | { kind: "students"; title: string; subtitle?: string; rows: StudentDrillRow[] }
-  | { kind: "pocs";     title: string; subtitle?: string; rows: PocDrillRow[] }
-  | { kind: "domains";  title: string; subtitle?: string; rows: { name: string; value: number; sub?: string }[] };
+  | { kind: "lmps";               title: string; subtitle?: string; rows: LmpDrillRow[] }
+  | { kind: "students";           title: string; subtitle?: string; rows: StudentDrillRow[] }
+  | { kind: "pocs";               title: string; subtitle?: string; rows: PocDrillRow[] }
+  | { kind: "domains";            title: string; subtitle?: string; rows: { name: string; value: number; sub?: string }[] }
+  | { kind: "converted-students"; title: string; subtitle?: string; rows: ConvertedStudentDrillRow[] };
 
 /* ─────────── Modal ─────────── */
 export function LxDrillDown({
@@ -93,6 +112,14 @@ export function LxDrillDown({
   onClose: () => void;
 }) {
   const [q, setQ] = useState("");
+  // Sorting for converted-students table
+  const [sortKey, setSortKey] = useState<"studentName" | "company" | "closingDate" | "cohort">("studentName");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const toggleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
 
   const filtered = useMemo(() => {
     if (!state) return null;
@@ -120,6 +147,15 @@ export function LxDrillDown({
         ...state,
         rows: state.rows.filter((r) =>
           `${r.name} ${r.role ?? ""} ${(r.domains ?? []).join(" ")}`.toLowerCase().includes(needle),
+        ),
+      };
+    }
+    if (state.kind === "converted-students") {
+      return {
+        ...state,
+        rows: state.rows.filter((r) =>
+          `${r.studentName} ${r.cohort} ${r.company} ${r.role} ${r.lmpDomain} ${r.primaryDomain} ${r.prepPoc} ${r.outreachPoc} ${r.lmpCode}`
+            .toLowerCase().includes(needle),
         ),
       };
     }
@@ -178,6 +214,28 @@ export function LxDrillDown({
                         { key: "domains", label: "Domains" },
                       ],
                     );
+                  } else if (filtered.kind === "converted-students") {
+                    csv = toCsv(
+                      (filtered.rows as ConvertedStudentDrillRow[]).map((r) => ({
+                        ...r,
+                        closingDate: r.closingDate && r.closingDate !== "—"
+                          ? new Date(r.closingDate).toLocaleDateString() : r.closingDate,
+                      })),
+                      [
+                        { key: "studentName",  label: "Student Name" },
+                        { key: "cohort",       label: "Cohort" },
+                        { key: "primaryDomain",label: "Primary Domain" },
+                        { key: "company",      label: "Company" },
+                        { key: "role",         label: "Role" },
+                        { key: "lmpDomain",    label: "LMP Domain" },
+                        { key: "processType",  label: "Process Type" },
+                        { key: "displayStatus",label: "LMP Status" },
+                        { key: "prepPoc",      label: "Prep POC" },
+                        { key: "outreachPoc",  label: "Outreach POC" },
+                        { key: "closingDate",  label: "Closing Date" },
+                        { key: "lmpCode",      label: "LMP ID" },
+                      ],
+                    );
                   } else {
                     csv = toCsv(filtered.rows, [
                       { key: "name", label: "Name" }, { key: "value", label: "Value" }, { key: "sub", label: "Detail" },
@@ -193,7 +251,13 @@ export function LxDrillDown({
               </button>
               <div className="text-[11px] font-medium px-2.5 py-1 rounded-full"
                 style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }}>
-                {filtered?.rows.length ?? 0} {state?.kind === "students" ? "students" : state?.kind === "pocs" ? "POCs" : state?.kind === "domains" ? "domains" : "LMPs"}
+                {filtered?.rows.length ?? 0} {
+                  state?.kind === "students" ? "students" :
+                  state?.kind === "pocs" ? "POCs" :
+                  state?.kind === "domains" ? "domains" :
+                  state?.kind === "converted-students" ? "records" :
+                  "LMPs"
+                }
               </div>
             </div>
           </div>
@@ -219,6 +283,14 @@ export function LxDrillDown({
             <StudentTable rows={filtered.rows} />
           ) : filtered.kind === "pocs" ? (
             <PocTable rows={filtered.rows} />
+          ) : filtered.kind === "converted-students" ? (
+            <ConvertedStudentTable
+              rows={filtered.rows}
+              onClose={onClose}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+            />
           ) : (
             <DomainList rows={filtered.rows} />
           )}
@@ -327,6 +399,115 @@ function PocTable({ rows }: { rows: PocDrillRow[] }) {
               <td className="px-3 py-2 font-mono tabular-nums" style={{ color: "var(--lx-text-3)" }}>{r.threshold ?? "—"}</td>
               <td className="px-3 py-2 truncate max-w-[260px]" style={{ color: "var(--lx-text-2)" }}>
                 {(r.domains ?? (r.primaryDomain ? [r.primaryDomain] : [])).join(", ") || "—"}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function ConvertedStudentTable({
+  rows, onClose, sortKey, sortDir, onSort,
+}: {
+  rows: ConvertedStudentDrillRow[];
+  onClose: () => void;
+  sortKey: "studentName" | "company" | "closingDate" | "cohort";
+  sortDir: "asc" | "desc";
+  onSort: (k: "studentName" | "company" | "closingDate" | "cohort") => void;
+}) {
+  const sorted = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const av = a[sortKey] ?? "";
+      const bv = b[sortKey] ?? "";
+      const cmp = sortKey === "closingDate"
+        ? (new Date(av || 0).getTime() - new Date(bv || 0).getTime())
+        : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [rows, sortKey, sortDir]);
+
+  const SortIcon = ({ col }: { col: typeof sortKey }) => {
+    if (sortKey !== col) return <span className="opacity-20 inline-block w-3">↕</span>;
+    return sortDir === "asc"
+      ? <ChevronUp className="h-3 w-3 inline-block" />
+      : <ChevronDown className="h-3 w-3 inline-block" />;
+  };
+
+  const sortableTh = (label: string, col: typeof sortKey) => (
+    <th
+      className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium cursor-pointer select-none hover:opacity-70 transition-opacity"
+      style={{ color: "var(--lx-text-3)" }}
+      onClick={() => onSort(col)}
+    >
+      <span className="inline-flex items-center gap-1">{label} <SortIcon col={col} /></span>
+    </th>
+  );
+
+  return (
+    <table className="w-full text-[12.5px]">
+      <thead className="sticky top-0 z-10" style={{ background: "var(--lx-surface, white)" }}>
+        <tr style={{ borderBottom: "1px solid var(--lx-border, rgba(0,0,0,0.06))" }}>
+          {sortableTh("Student Name", "studentName")}
+          {sortableTh("Cohort", "cohort")}
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Primary Domain</th>
+          {sortableTh("Company", "company")}
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Role</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>LMP Domain</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Type</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>LMP Status</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Prep POC</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Outreach POC</th>
+          {sortableTh("Closing Date", "closingDate")}
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>LMP ID</th>
+          <th className="px-3 py-2" />
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((r, i) => {
+          const unmatched = r.matchStatus !== "matched";
+          return (
+            <tr
+              key={`${r.studentName}--${r.lmpId}--${i}`}
+              className="border-b last:border-0 hover:bg-[var(--lx-soft)] transition-colors"
+              style={{ borderColor: "var(--lx-border, rgba(0,0,0,0.04))" }}
+            >
+              <td className="px-3 py-2 font-medium truncate max-w-[150px]" style={{ color: "var(--lx-text)" }}>
+                {r.studentName || "—"}
+              </td>
+              <td className="px-3 py-2 truncate max-w-[100px]"
+                style={{ color: unmatched ? "var(--lx-text-3)" : "var(--lx-text-2)", fontStyle: unmatched ? "italic" : undefined }}>
+                {r.cohort || "—"}
+              </td>
+              <td className="px-3 py-2 truncate max-w-[120px]"
+                style={{ color: unmatched ? "var(--lx-text-3)" : "var(--lx-text-2)", fontStyle: unmatched ? "italic" : undefined }}>
+                {r.primaryDomain || "—"}
+              </td>
+              <td className="px-3 py-2 truncate max-w-[130px]" style={{ color: "var(--lx-text)" }}>{r.company || "—"}</td>
+              <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.role || "—"}</td>
+              <td className="px-3 py-2 truncate max-w-[100px]" style={{ color: "var(--lx-text-2)" }}>{r.lmpDomain || "—"}</td>
+              <td className="px-3 py-2 truncate max-w-[80px]" style={{ color: "var(--lx-text-2)" }}>{r.processType || "—"}</td>
+              <td className="px-3 py-2"><StatusBadge status={r.displayStatus || r.lmpStatus} /></td>
+              <td className="px-3 py-2 truncate max-w-[110px]" style={{ color: "var(--lx-text-2)" }}>{r.prepPoc || "—"}</td>
+              <td className="px-3 py-2 truncate max-w-[110px]" style={{ color: "var(--lx-text-2)" }}>{r.outreachPoc || "—"}</td>
+              <td className="px-3 py-2 font-mono tabular-nums text-[11.5px]" style={{ color: "var(--lx-text-3)" }}>
+                {r.closingDate && r.closingDate !== "—"
+                  ? (() => { try { return new Date(r.closingDate).toLocaleDateString(); } catch { return r.closingDate; } })()
+                  : "—"}
+              </td>
+              <td className="px-3 py-2 font-mono text-[11px]" style={{ color: "var(--lx-text-3)" }}>
+                {r.lmpCode || r.lmpId.slice(0, 8)}
+              </td>
+              <td className="px-3 py-2 text-right">
+                <Link
+                  to={`/lmp/${r.lmpId}`}
+                  onClick={onClose}
+                  className="inline-flex items-center gap-1 text-[11.5px] font-medium"
+                  style={{ color: "var(--lx-accent, #4A8EE8)" }}
+                >
+                  Open <ExternalLink className="h-3 w-3" />
+                </Link>
               </td>
             </tr>
           );
