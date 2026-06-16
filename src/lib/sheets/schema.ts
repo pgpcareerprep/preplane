@@ -64,7 +64,7 @@ export function getHeaderRow(tab: TabName): number {
 }
 
 // ─── LMP Tracker headers (actual sheet columns, row 14 headers) ───
-// Canonical layout matches the live tracker (27 columns, A–AA).
+// Canonical layout matches the live tracker (33 columns, A–AG).
 // Sheet headers are never mutated automatically. An ambiguous or misaligned
 // identity column blocks writes until an admin repairs the sheet manually.
 export const LMP_TRACKER_HEADERS = [
@@ -81,20 +81,26 @@ export const LMP_TRACKER_HEADERS = [
   /* K */ "1:1 mock completed",
   /* L */ "Next Progress Date",
   /* M */ "Next Progress Type",
-  /* N */ "R1 Shortlisted",
-  /* O */ "R2 Shortlisted",
-  /* P */ "R3 Shortlisted",
-  /* Q */ "Offer",
-  /* R */ "Converted Name(s)",
-  /* S */ "Prep Doc Link",
-  /* T */ "Prep POC",
-  /* U */ "Support POC",
-  /* V */ "Outreach POC",
-  /* W */ "Closing Date",
-  /* X */ "Mentor Selected",
-  /* Y */ "Mentor Rating",
-  /* Z */ "Comments",
-  /* AA */ "LMP ID",
+  /* N */ "Shortlisted (Pool) - Number",
+  /* O */ "Shortlisted (Pool) - Name(s)",
+  /* P */ "R1 - Numbers",
+  /* Q */ "R1 - Names",
+  /* R */ "R2 - Numbers",
+  /* S */ "R2 - Names",
+  /* T */ "R3 - Numbers",
+  /* U */ "R3 - Names",
+  /* V */ "Final Converted Numbers",
+  /* W */ "Converted Names",
+  /* X */ "Prep Doc Link",
+  /* Y */ "Prep POC",
+  /* Z */ "Support POC",
+  /* AA */ "Outreach POC",
+  /* AB */ "Closing Date",
+  /* AC */ "Mentor Selected",
+  /* AD */ "Mentor Rating",
+  /* AE */ "Feedback by outreach",
+  /* AF */ "Comments",
+  /* AG */ "LMP ID",
 ] as const;
 
 // ─── Mastersheet headers (read-only reference) ───

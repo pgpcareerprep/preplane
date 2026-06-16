@@ -14,14 +14,16 @@ export type LmpSheetRowLookup = {
 
 export const LMP_TRACKER_HEADER_ROW = 14;
 export const LMP_TRACKER_FIRST_DATA_ROW = 15;
-export const LMP_ID_COLUMN_INDEX = 26; // AA
+export const LMP_ID_COLUMN_INDEX = 32; // AG
 export const CANONICAL_LMP_TRACKER_HEADERS = [
   "Date", "Company", "Role", "Domain", "Status", "Type", "Daily Progress",
   "Prep Doc Shared", "Mentor Aligned", "Assignment Review", "1:1 mock completed",
-  "Next Progress Date", "Next Progress Type", "R1 Shortlisted", "R2 Shortlisted",
-  "R3 Shortlisted", "Offer", "Converted Name(s)", "Prep Doc Link", "Prep POC",
+  "Next Progress Date", "Next Progress Type", "Shortlisted (Pool) - Number",
+  "Shortlisted (Pool) - Name(s)", "R1 - Numbers", "R1 - Names",
+  "R2 - Numbers", "R2 - Names", "R3 - Numbers", "R3 - Names",
+  "Final Converted Numbers", "Converted Names", "Prep Doc Link", "Prep POC",
   "Support POC", "Outreach POC", "Closing Date", "Mentor Selected",
-  "Mentor Rating", "Comments", "LMP ID",
+  "Mentor Rating", "Feedback by outreach", "Comments", "LMP ID",
 ] as const;
 
 function normalized(value: unknown): string {

@@ -111,7 +111,7 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
           lmp_id: dbLmpId,
           student_name: c.name,
           student_id: studentId,
-          pipeline_stage: (c.roundId || "shortlisted") as string,
+          pipeline_stage: (c.roundId || "pool") as string,
         });
       }
 

@@ -305,15 +305,15 @@ function MentorCell({ name, rating }: { name: string | null; rating: number | nu
 }
 
 const NAMED_STAGES = [
-  'r1','r1_shortlisted','shortlisted','round1','round_1',
+  'r1','r1_shortlisted','round1','round_1',
   'r2','r2_shortlisted','round2','round_2',
   'r3','r3_shortlisted','round3','round_3',
   'offer','converted','final','accepted',
 ] as const;
 
 const STAGE_VALUES: Record<"pool" | "r1" | "r2" | "r3" | "converted", string[]> = {
-  pool:      [],
-  r1:        ['r1','r1_shortlisted','shortlisted','round1','round_1'],
+  pool:      ['pool','shortlisted','shortlisted_pool','shortlisted-pool'],
+  r1:        ['r1','r1_shortlisted','round1','round_1'],
   r2:        ['r2','r2_shortlisted','round2','round_2'],
   r3:        ['r3','r3_shortlisted','round3','round_3'],
   converted: ['offer','converted','final','accepted'],

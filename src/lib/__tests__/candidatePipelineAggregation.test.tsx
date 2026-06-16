@@ -16,7 +16,7 @@ import { ViewAllLmpsModal } from "@/components/datasources/ViewAllLmpsModal";
 // Candidate fixtures that match the acceptance criteria for "Test — Brand" LMP
 const POOL_CANDIDATES = [
   { id: "c1", student_name: "Aagrah Nigam", roll_no: "R001", pipeline_stage: "pool",        lmp_id: "lmp-1", r1_status: null, r2_status: null, r3_status: null, offer_status: null },
-  { id: "c2", student_name: "Aarushi",      roll_no: "R002", pipeline_stage: "newly_added",  lmp_id: "lmp-1", r1_status: null, r2_status: null, r3_status: null, offer_status: null },
+  { id: "c2", student_name: "Aarushi",      roll_no: "R002", pipeline_stage: "shortlisted",  lmp_id: "lmp-1", r1_status: null, r2_status: null, r3_status: null, offer_status: null },
 ];
 const R1_CANDIDATES = [
   { id: "c3", student_name: "Aayush",       roll_no: "R003", pipeline_stage: "r1",           lmp_id: "lmp-1", r1_status: null, r2_status: null, r3_status: null, offer_status: null },
@@ -123,9 +123,9 @@ describe("Candidate pipeline aggregation – renderCell column mapping", () => {
 });
 
 describe("CandidatePopoverList – pipeline_stage filtering", () => {
-  it("pool round includes candidates with null/pool/newly_added pipeline_stage", () => {
+  it("pool round includes candidates with null/pool/shortlisted pipeline_stage", () => {
     const NAMED_STAGES = [
-      'r1','r1_shortlisted','shortlisted','round1','round_1',
+      'r1','r1_shortlisted','round1','round_1',
       'r2','r2_shortlisted','round2','round_2',
       'r3','r3_shortlisted','round3','round_3',
       'offer','converted','final','accepted',
@@ -138,8 +138,8 @@ describe("CandidatePopoverList – pipeline_stage filtering", () => {
     expect(poolCandidates.map((c) => c.student_name).sort()).toEqual(["Aagrah Nigam", "Aarushi"]);
   });
 
-  it("r1 round includes only candidates with pipeline_stage = r1", () => {
-    const r1Values = ['r1','r1_shortlisted','shortlisted','round1','round_1'];
+  it("r1 round includes only candidates with R1 stage aliases", () => {
+    const r1Values = ['r1','r1_shortlisted','round1','round_1'];
     const r1Candidates = ALL_CANDIDATES.filter((c) =>
       r1Values.includes((c.pipeline_stage ?? '').toLowerCase().trim())
     );
@@ -165,7 +165,7 @@ describe("CandidatePopoverList – pipeline_stage filtering", () => {
     expect(oldBugResult).toHaveLength(0); // confirms old code was wrong
 
     const newResult = ALL_CANDIDATES.filter((c) =>
-      ['r1','r1_shortlisted','shortlisted','round1','round_1'].includes(
+      ['r1','r1_shortlisted','round1','round_1'].includes(
         (c.pipeline_stage ?? '').toLowerCase().trim()
       )
     );

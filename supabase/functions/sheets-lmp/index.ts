@@ -3,6 +3,11 @@ import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
 import {
+  buildLmpPipelineSheetPatch,
+  LMP_PIPELINE_SHEET_HEADERS,
+  normalizePipelineSheetValue,
+} from "../_shared/lmpSheetPipeline.ts";
+import {
   buildLmpSheetIntegrityReport,
   findCompactableLmpBlankRows,
   findLmpSheetRow,
@@ -631,7 +636,7 @@ Deno.serve(async (req: Request) => {
 
         let rowIndex = -1;
 
-        // ── Primary lookup: LMP ID (column AA). Immutable per-process key
+        // ── Primary lookup: LMP ID (canonical column AG). Immutable per-process key
         //    so updates target the exact row even when multiple rows share
         //    the same Company + Role.
         const lmpIdCol = headers.indexOf("LMP ID");
@@ -1153,6 +1158,34 @@ Deno.serve(async (req: Request) => {
           if (headers.indexOf(col) !== -1) return col;
           return headerLookup[normalize(col)] ?? null;
         };
+        const verifyPipelineCells = async (rowNumber: number, expectedPatch: Record<string, unknown>) => {
+          const expected: Record<string, string> = {};
+          const actual: Record<string, string> = {};
+          const mismatches: Array<{ header: string; expected: string; actual: string }> = [];
+
+          rangeCache.clear();
+          const rowResult = await batchGet([`'${tab}'!A${rowNumber}:ZZ${rowNumber}`]);
+          const rowValues = (Object.values(rowResult)[0] || [])[0] || [];
+
+          for (const canonicalHeader of LMP_PIPELINE_SHEET_HEADERS) {
+            const actualHeader = resolveHeader(canonicalHeader);
+            const expectedValue = normalizePipelineSheetValue(expectedPatch[actualHeader ?? canonicalHeader] ?? expectedPatch[canonicalHeader] ?? "");
+            expected[canonicalHeader] = expectedValue;
+            if (!actualHeader) {
+              actual[canonicalHeader] = "<missing header>";
+              mismatches.push({ header: canonicalHeader, expected: expectedValue, actual: "<missing header>" });
+              continue;
+            }
+            const columnIndex = headers.indexOf(actualHeader);
+            const actualValue = normalizePipelineSheetValue(columnIndex === -1 ? "" : rowValues[columnIndex]);
+            actual[canonicalHeader] = actualValue;
+            if (actualValue !== expectedValue) {
+              mismatches.push({ header: canonicalHeader, expected: expectedValue, actual: actualValue });
+            }
+          }
+
+          return { ok: mismatches.length === 0, rowNumber, expected, actual, mismatches };
+        };
 
         const sheetPatch: Record<string, unknown> = {};
         for (const [dbCol, val] of Object.entries(dbPatch)) {
@@ -1176,21 +1209,12 @@ Deno.serve(async (req: Request) => {
         try {
           const { data: calc } = await serviceClient
             .from("lmp_full_view")
-            .select("pool_count, r1_count, r2_count, r3_count, offer_count, mentor_feedback_avg, mentor_name, prep_poc_names, support_poc_names, outreach_poc_names")
+            .select("pool_count,pool_names,r1_count,r1_names,r2_count,r2_names,r3_count,r3_names,converted_count,converted_names,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
             .eq("lmp_code", lmpCode)
             .maybeSingle();
           if (calc) {
             const calcMap: Record<string, unknown> = {
-              "Shortlisted (Pool) - Number": calc.pool_count ?? 0,
-              "Shortlisted (Pool) - Name(s)": (dbPatch as Record<string, unknown>).pool_names ?? "",
-              "R1 - Numbers": calc.r1_count ?? 0,
-              "R1 - Names": (dbPatch as Record<string, unknown>).r1_names ?? "",
-              "R2 - Numbers": calc.r2_count ?? 0,
-              "R2 - Names": (dbPatch as Record<string, unknown>).r2_names ?? "",
-              "R3 - Numbers": calc.r3_count ?? 0,
-              "R3 - Names": (dbPatch as Record<string, unknown>).r3_names ?? "",
-              "Final Converted Numbers": (dbPatch as Record<string, unknown>).final_converted_numbers ?? "",
-              "Converted Names": (dbPatch as Record<string, unknown>).final_converted_names ?? "",
+              ...buildLmpPipelineSheetPatch(calc),
               "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
                 ? Number(calc.mentor_feedback_avg).toFixed(1)
                 : "",
@@ -1266,7 +1290,7 @@ Deno.serve(async (req: Request) => {
 
           // Persist the new sheet row number on lmp_processes so future
           // sync-db-to-sheet calls can find the row by sheet_row_id even
-          // before col AA (LMP ID) is populated.
+          // before the canonical LMP ID column is populated.
           if (lmpCode && Number.isFinite(insertedRowNumber) && insertedRowNumber > 0) {
             try {
               await serviceClient
@@ -1276,6 +1300,20 @@ Deno.serve(async (req: Request) => {
             } catch (e) {
               console.warn("[sync-db-to-sheet] failed to persist sheet_row_id:", e);
             }
+          }
+          const pipelineVerification = await verifyPipelineCells(insertedRowNumber, sheetPatch);
+          if (!pipelineVerification.ok) {
+            const details = {
+              code: "SHEET_PIPELINE_VERIFICATION_FAILED",
+              lmp_code: lmpCode,
+              rowNumber: insertedRowNumber,
+              pipelineVerification,
+            };
+            console.error("[sheets-lmp] pipeline verification failed after insert", details);
+            return new Response(JSON.stringify({ ok: false, error: "SHEET_PIPELINE_VERIFICATION_FAILED", ...details }), {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
           }
           logSyncEvent({
             tab_name: tab, direction: "app_to_sheet", operation: "insert",
@@ -1289,7 +1327,7 @@ Deno.serve(async (req: Request) => {
             sheet_row: insertedRowNumber,
             columns_updated: Object.keys(sheetPatch),
           });
-          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, compactedRows, sheetRowFound: false, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch) });
+          return jsonOk({ inserted: true, company, role, lmp_code: lmpCode, rowNumber: insertedRowNumber, compactedRows, sheetRowFound: true, columnsUpdated: Object.keys(sheetPatch), fieldsUpdated: Object.keys(sheetPatch), pipelineVerified: true, pipelineVerification });
         }
 
         const existingRow = allRows[rowIndex];
@@ -1326,6 +1364,20 @@ Deno.serve(async (req: Request) => {
         if (updates.length > 0) {
           await batchUpdate(updates);
         }
+        const pipelineVerification = await verifyPipelineCells(actualSheetRow, sheetPatch);
+        if (!pipelineVerification.ok) {
+          const details = {
+            code: "SHEET_PIPELINE_VERIFICATION_FAILED",
+            lmp_code: lmpCode,
+            rowNumber: actualSheetRow,
+            pipelineVerification,
+          };
+          console.error("[sheets-lmp] pipeline verification failed after update", details);
+          return new Response(JSON.stringify({ ok: false, error: "SHEET_PIPELINE_VERIFICATION_FAILED", ...details }), {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
         logSyncEvent({
           tab_name: tab, direction: "app_to_sheet", operation: "sync-db-to-sheet",
@@ -1343,13 +1395,13 @@ Deno.serve(async (req: Request) => {
           sheet_row: actualSheetRow,
           columns_updated: columnsUpdated,
         });
-        return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range) });
+        return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range), pipelineVerified: true, pipelineVerification });
       }
 
 
       case "lmp-reconcile": {
         // Full DB↔Sheet reconciliation for LMP Tracker:
-        //   1. Dedup sheet rows by LMP ID (column AA) — keep richest
+        //   1. Dedup sheet rows by LMP ID (canonical column AG) — keep richest
         //   2. Delete orphan sheet rows not present in DB
         //   3. Delete blank rows between LMP rows
         //   4. Insert missing DB LMPs as blank rows at top
@@ -1382,7 +1434,7 @@ Deno.serve(async (req: Request) => {
         // Fetch calculated POC / mentor / shortlist counts from lmp_full_view
         const { data: calcRows } = await serviceClient
           .from("lmp_full_view")
-          .select("lmp_code,pool_count,r1_count,r2_count,r3_count,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
+          .select("lmp_code,pool_count,pool_names,r1_count,r1_names,r2_count,r2_names,r3_count,r3_names,converted_count,converted_names,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
           .not("lmp_code", "is", null);
         const calcByCode = new Map<string, any>(
           (calcRows ?? []).map((c: any) => [String(c.lmp_code).toLowerCase(), c])
@@ -1518,16 +1570,7 @@ Deno.serve(async (req: Request) => {
           }
           // Calculated / aggregated columns
           const calcOverrides: Record<string, unknown> = {
-            "Shortlisted (Pool) - Number": calc.pool_count ?? 0,
-            "Shortlisted (Pool) - Name(s)": lmp.pool_names ?? "",
-            "R1 - Numbers": calc.r1_count ?? 0,
-            "R1 - Names": lmp.r1_names ?? "",
-            "R2 - Numbers": calc.r2_count ?? 0,
-            "R2 - Names": lmp.r2_names ?? "",
-            "R3 - Numbers": calc.r3_count ?? 0,
-            "R3 - Names": lmp.r3_names ?? "",
-            "Final Converted Numbers": lmp.final_converted_numbers ?? "",
-            "Converted Names": lmp.final_converted_names ?? "",
+            ...buildLmpPipelineSheetPatch(calc),
             "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
               ? Number(calc.mentor_feedback_avg).toFixed(1) : (lmp.mentor_rating ?? ""),
             "Mentor Selected": calc.mentor_name ?? lmp.mentor_selected ?? "",

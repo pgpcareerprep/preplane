@@ -202,7 +202,7 @@ export default function CreateLmpPage() {
           lmp_id: created.id,
           student_name: c.name,
           student_id: c.studentId,
-          pipeline_stage: "shortlisted",
+          pipeline_stage: "pool",
         }));
         const { error } = await supabase
           .from("lmp_candidates")

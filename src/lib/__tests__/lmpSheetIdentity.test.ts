@@ -14,7 +14,7 @@ const row = (company: string, role: string, lmpId: string) => {
   const values = Array(headers.length).fill("");
   values[1] = company;
   values[2] = role;
-  values[26] = lmpId;
+  values[32] = lmpId;
   return values;
 };
 
@@ -70,20 +70,20 @@ describe("findLmpSheetRow", () => {
 
   it("blocks a misplaced LMP ID header instead of appending", () => {
     const misplaced = [...headers];
-    misplaced[26] = "JD";
-    misplaced[27] = "LMP ID";
+    misplaced[32] = "Comments";
+    misplaced[33] = "LMP ID";
     expect(validateLmpTrackerHeaders(misplaced).error).toBe("MISALIGNED_LMP_ID_HEADER");
   });
 
   it("reports harmless display-label drift without blocking ID-based writes", () => {
     const drifted = [...headers];
-    drifted[13] = "R1\nShortlisted";
-    drifted[18] = "Prep Doc Link";
-    drifted[25] = "Comment";
+    drifted[13] = "Shortlisted Pool Number";
+    drifted[24] = "Prep POC";
+    drifted[31] = "Comment";
     expect(validateLmpTrackerHeaders(drifted).error).toBeUndefined();
     expect(getLmpTrackerHeaderDrift(drifted)).toEqual([
-      { column: 14, expected: "R1 Shortlisted", actual: "R1\nShortlisted" },
-      { column: 26, expected: "Comments", actual: "Comment" },
+      { column: 14, expected: "Shortlisted (Pool) - Number", actual: "Shortlisted Pool Number" },
+      { column: 32, expected: "Comments", actual: "Comment" },
     ]);
   });
 

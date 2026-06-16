@@ -173,8 +173,16 @@ Deno.serve(async (req: Request) => {
       // queued no-op). Treat as success, not as failure or rate-limit.
       const benignSkip = body?.skipped === true && !rateLimited;
       const explicitError = body && (body.ok === false || (typeof body.error === "string" && body.error.length > 0));
+      const targetedLmpSync = row.tab_name === "LMP Tracker" && row.operation === "sync-db-to-sheet";
+      const validRowNumber = Number.isFinite(Number(body?.rowNumber)) && Number(body?.rowNumber) >= 15;
+      const pipelineVerified = body?.pipelineVerified === true || body?.pipelineVerification?.ok === true;
+      const missingPipelineProof = targetedLmpSync && !benignSkip && !rowAlreadyGone && (
+        body?.sheetRowFound !== true ||
+        !validRowNumber ||
+        !pipelineVerified
+      );
 
-      if (res.ok && !rateLimited && !explicitError) {
+      if (res.ok && !rateLimited && !explicitError && !missingPipelineProof) {
         const reason = benignSkip ? (body?.reason || "skipped_no_op")
           : rowAlreadyGone ? "row_already_gone" : null;
         await sb.from("sheet_write_queue")
@@ -191,14 +199,24 @@ Deno.serve(async (req: Request) => {
         results.push({ id: row.id, status: reason ?? "done" });
       } else {
         const attempts = row.attempts + 1;
-        const errMsg = body?.error || body?.message || body?.reason || `HTTP ${res.status}`;
+        const errMsg = missingPipelineProof
+          ? "SHEET_PIPELINE_VERIFICATION_MISSING"
+          : body?.error || body?.message || body?.reason || `HTTP ${res.status}`;
         // DUPLICATE_LMP_ID_ROWS is retryable — the edge function's auto-dedup
         // handles it on retry. Only structural header errors are truly fatal.
-        const unsafeSheetIdentity = /^(MISSING_LMP_ID_HEADER|DUPLICATE_LMP_ID_HEADERS|MISALIGNED_LMP_TRACKER_HEADERS|LMP_ID_REQUIRED)/.test(String(errMsg));
+        const unsafeSheetIdentity = /^(MISSING_LMP_ID_HEADER|DUPLICATE_LMP_ID_HEADERS|MISALIGNED_LMP_ID_HEADER|MISALIGNED_LMP_TRACKER_HEADERS|LMP_ID_REQUIRED)/.test(String(errMsg));
         const giveUp = unsafeSheetIdentity || attempts >= MAX_ATTEMPTS;
         await sb.from("sheet_write_queue").update({
           status: giveUp ? "failed" : "pending",
-          last_error: errMsg.toString().slice(0, 500),
+          last_error: (body?.pipelineVerification
+            ? `${errMsg}: ${JSON.stringify({
+                lmp_code: lmpCode,
+                rowNumber: body?.rowNumber,
+                mismatches: body.pipelineVerification.mismatches,
+                expected: body.pipelineVerification.expected,
+                actual: body.pipelineVerification.actual,
+              })}`
+            : errMsg.toString()).slice(0, 500),
           next_retry_at: new Date(Date.now() + backoffSeconds(attempts) * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         }).eq("id", row.id);

@@ -44,11 +44,17 @@ describe("DB_TO_SHEET field map", () => {
 });
 
 describe("canonical LMP Tracker layout", () => {
-  it("uses row 14 headers and the exact A:AA contract", () => {
+  it("uses row 14 headers and the exact A:AG contract", () => {
     expect(getHeaderRow(TABS.LMP_TRACKER)).toBe(14);
-    expect(LMP_TRACKER_HEADERS).toHaveLength(27);
-    expect(LMP_TRACKER_HEADERS[25]).toBe("Comments");
-    expect(LMP_TRACKER_HEADERS[26]).toBe("LMP ID");
+    expect(LMP_TRACKER_HEADERS).toHaveLength(33);
+    expect(LMP_TRACKER_HEADERS[13]).toBe("Shortlisted (Pool) - Number");
+    expect(LMP_TRACKER_HEADERS[14]).toBe("Shortlisted (Pool) - Name(s)");
+    expect(LMP_TRACKER_HEADERS[15]).toBe("R1 - Numbers");
+    expect(LMP_TRACKER_HEADERS[16]).toBe("R1 - Names");
+    expect(LMP_TRACKER_HEADERS[21]).toBe("Final Converted Numbers");
+    expect(LMP_TRACKER_HEADERS[22]).toBe("Converted Names");
+    expect(LMP_TRACKER_HEADERS[31]).toBe("Comments");
+    expect(LMP_TRACKER_HEADERS[32]).toBe("LMP ID");
   });
 });
 

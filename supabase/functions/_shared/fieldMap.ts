@@ -3,7 +3,7 @@
  *
  * SINGLE SOURCE OF TRUTH consumed by Deno Edge Functions and the frontend.
  *
- * LMP Tracker sync is DB → Sheet for the canonical A:AA layout. Sheet headers
+ * LMP Tracker sync is DB → Sheet for the canonical A:AG layout. Sheet headers
  * are not created or moved automatically.
  */
 export const SHEET_TO_DB: Record<string, string> = {
