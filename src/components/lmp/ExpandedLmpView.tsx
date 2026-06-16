@@ -7,6 +7,7 @@ import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
 import { useAddLmpCandidates, useLmpCandidates, usePocProfiles, useLmpProcesses } from "@/lib/hooks/useDbData";
@@ -26,6 +27,7 @@ import { resolveStageToRoundId } from "@/lib/pipelineStage";
 import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { supabase } from "@/integrations/supabase/client";
+import type { Mentor } from "@/lib/mentor";
 import { cn } from "@/lib/utils";
 import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
 import { OutreachFeedbackHistoryModal } from "./OutreachFeedbackHistoryModal";
@@ -57,6 +59,7 @@ export function ExpandedLmpView({
   const { role } = useRole();
   const canReassignAll = canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
+  const queryClient = useQueryClient();
   // rounds resolved after dbLmpId below
   const { update: updateMutation } = useLmpMutation();
   const saveNextDateDb = useSaveNextProgressDate();
@@ -176,17 +179,24 @@ export function ExpandedLmpView({
     });
   }, [rec]);
 
-  // Mentor alignment — writes to sheet column V ("Mentor Selected")
-  const handleAlignMentor = useCallback((mentorName: string) => {
-    updateMutation.mutate({
-      id: rec.id,
-      patch: {
-        mentorSelected: mentorName,
-        mentorAligned: true,
-      },
+  // Mentor alignment — routes through align_mentor_to_lmp RPC so lmp_mentors is
+  // kept in sync and the trigger-driven recompute updates mentor_selected correctly.
+  const handleAlignMentor = useCallback(async (mentor: Mentor, replace = false) => {
+    if (!dbLmpId) return;
+    const { error } = await (supabase as any).rpc("align_mentor_to_lmp", {
+      p_lmp_id: dbLmpId,
+      p_mentor: mentor,
+      p_match_score: null,
+      p_replace: replace,
     });
-    toast.success(`Mentor aligned: ${mentorName}`);
-  }, [rec.id, updateMutation]);
+    if (error) {
+      toast.error(`Couldn't align mentor: ${error.message}`);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["lmp-mentors-live", dbLmpId] });
+    queryClient.invalidateQueries({ queryKey: ["db-lmp-process", dbLmpId] });
+    toast.success(`${replace ? "Replaced with" : "Aligned:"} ${mentor.name}`);
+  }, [dbLmpId, queryClient]);
 
   // Documents — single JSON array on lmp_processes.documents. Each entry has
   // a stable id + source_type so checklist-linked and general documents share

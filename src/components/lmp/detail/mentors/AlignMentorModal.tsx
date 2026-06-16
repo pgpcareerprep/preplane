@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, Star, UserPlus, X } from "lucide-react";
+import { Search, Star, UserPlus, X, RefreshCw, PlusCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Mentor, MentorSource } from "@/lib/mentor";
@@ -76,13 +76,15 @@ export function AlignMentorModal({
   role,
   company,
   assignedIds,
+  existingAssignedCount = 0,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onAlign: (mentor: Mentor) => void | Promise<void>;
+  onAlign: (mentor: Mentor, replace: boolean) => void | Promise<void>;
   role?: string;
   company?: string;
   assignedIds?: Set<string>;
+  existingAssignedCount?: number;
 }) {
   const { data: muMentors = [] } = useAllMentors();
   const { mentors: alumniMentors } = useAlumniMentors();
@@ -93,6 +95,7 @@ export function AlignMentorModal({
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [minRating, setMinRating] = useState<number>(0);
   const [aligningId, setAligningId] = useState<string | null>(null);
+  const [replaceMode, setReplaceMode] = useState(false);
 
   const allMentors: Mentor[] = useMemo(() => {
     const mu = (muMentors as any[]).map(muRowToMentor);
@@ -139,7 +142,7 @@ export function AlignMentorModal({
   const handleAlign = async (m: Mentor) => {
     setAligningId(m.id);
     try {
-      await onAlign(m);
+      await onAlign(m, replaceMode);
       onOpenChange(false);
     } finally {
       setAligningId(null);
@@ -157,6 +160,41 @@ export function AlignMentorModal({
             </p>
           )}
         </DialogHeader>
+
+        {/* Add vs Replace toggle — only shown when at least one mentor is already assigned */}
+        {existingAssignedCount > 0 && (
+          <div className="px-6 py-2.5 border-b border-n100 bg-amber-50/60">
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] text-amber-800 font-medium">
+                {existingAssignedCount} mentor{existingAssignedCount > 1 ? "s" : ""} already aligned:
+              </span>
+              <div className="flex rounded-lg overflow-hidden border border-amber-200 text-[12px]">
+                <button
+                  onClick={() => setReplaceMode(false)}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-3 py-1.5 font-medium transition-colors",
+                    !replaceMode
+                      ? "bg-orange-500 text-white"
+                      : "bg-card text-n600 hover:bg-n50",
+                  )}
+                >
+                  <PlusCircle className="h-3 w-3" /> Add to existing
+                </button>
+                <button
+                  onClick={() => setReplaceMode(true)}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-3 py-1.5 font-medium transition-colors",
+                    replaceMode
+                      ? "bg-orange-500 text-white"
+                      : "bg-card text-n600 hover:bg-n50",
+                  )}
+                >
+                  <RefreshCw className="h-3 w-3" /> Replace all
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="px-6 py-3 border-b border-n100 bg-n50/40 space-y-3">
