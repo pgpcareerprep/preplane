@@ -6,7 +6,6 @@ import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-ki
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { pushMentorSelectedToSheet } from "./mentors/pushMentorSelected";
 import { useToast } from "@/hooks/use-toast";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { cn } from "@/lib/utils";
@@ -698,34 +697,29 @@ function MentorsTabImpl({
           .delete()
           .eq("lmp_id", reqId)
           .eq("mentor_id", target.mentor.id);
+        // lmp_processes.mentor_selected is recomputed automatically by the
+        // lmp_mentors_recompute trigger when the row above is deleted.
       }
-      // Recompute mentor_selected: pick any remaining assigned mentor, or clear.
-      const { data: remaining } = await supabase
-        .from("lmp_mentors")
-        .select("mentors:mentors!inner(name)")
-        .eq("lmp_id", reqId)
-        .order("assigned_at", { ascending: false })
-        .limit(1);
-      const nextName = (remaining?.[0] as any)?.mentors?.name ?? null;
-      await supabase
-        .from("lmp_processes")
-        .update({ mentor_selected: nextName } as any)
-        .eq("id", reqId);
-      void pushMentorSelectedToSheet(reqId, nextName);
       queryClient.invalidateQueries({ queryKey: ["lmp-mentors", reqId] });
       queryClient.invalidateQueries({ queryKey: ["create-session-mentors", reqId] });
     }
     toast("Assignment removed");
   };
 
+  const existingAssignedCount = useMemo(
+    () => dbLmpMentors.filter((r) => r.status === "assigned").length,
+    [dbLmpMentors],
+  );
+
   // Direct align (manual mentor pick) — upserts to lmp_mentors and pushes into shortlisted
   // so the empty state cannot re-appear after refresh.
-  const alignMentorDirect = async (mentor: Mentor) => {
+  const alignMentorDirect = async (mentor: Mentor, replace = false) => {
     if (readOnly) return;
     const { data, error: upErr } = await (supabase as any).rpc("align_mentor_to_lmp", {
       p_lmp_id: reqId,
       p_mentor: mentor,
       p_match_score: mentor.score ?? null,
+      p_replace: replace,
     });
     if (upErr) {
       toast.error(`Couldn't align mentor: ${upErr.message}`);
@@ -782,6 +776,7 @@ function MentorsTabImpl({
           onAlign={alignMentorDirect}
           role={role}
           company={company}
+          existingAssignedCount={existingAssignedCount}
         />
       </>
     );
@@ -1156,6 +1151,7 @@ function MentorsTabImpl({
         onAlign={alignMentorDirect}
         role={role}
         company={company}
+        existingAssignedCount={existingAssignedCount}
         assignedIds={new Set([
           ...shortlisted.map((s) => s.mentor.id),
           ...assignments.map((a) => a.mentor.id),

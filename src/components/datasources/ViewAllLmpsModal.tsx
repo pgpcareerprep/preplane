@@ -304,12 +304,27 @@ function MentorCell({ name, rating }: { name: string | null; rating: number | nu
   );
 }
 
-function CandidatePopoverList({ lmpId, round }: { lmpId: string; round: "r1" | "r2" | "r3" | "offer" }) {
+const NAMED_STAGES = [
+  'r1','r1_shortlisted','shortlisted','round1','round_1',
+  'r2','r2_shortlisted','round2','round_2',
+  'r3','r3_shortlisted','round3','round_3',
+  'offer','converted','final','accepted',
+] as const;
+
+const STAGE_VALUES: Record<"pool" | "r1" | "r2" | "r3" | "converted", string[]> = {
+  pool:      [],
+  r1:        ['r1','r1_shortlisted','shortlisted','round1','round_1'],
+  r2:        ['r2','r2_shortlisted','round2','round_2'],
+  r3:        ['r3','r3_shortlisted','round3','round_3'],
+  converted: ['offer','converted','final','accepted'],
+};
+
+function CandidatePopoverList({ lmpId, round }: { lmpId: string; round: "pool" | "r1" | "r2" | "r3" | "converted" }) {
   const { data, isLoading } = useLmpCandidatesByProcess(lmpId, true);
   const filtered = (data ?? []).filter((c: any) => {
-    const key = round === "offer" ? "offer_status" : `${round}_status`;
-    const v = c[key];
-    return v !== null && v !== undefined && String(v).trim() !== "";
+    const stage = (c.pipeline_stage ?? '').toLowerCase().trim();
+    if (round === 'pool') return !(NAMED_STAGES as readonly string[]).includes(stage);
+    return STAGE_VALUES[round].includes(stage);
   });
   if (isLoading) return <div className="p-3 text-[12px] text-n500">Loading…</div>;
   if (filtered.length === 0) return <div className="p-3 text-[12px] text-n500">No candidates</div>;
@@ -334,7 +349,7 @@ function CandidatePopoverList({ lmpId, round }: { lmpId: string; round: "r1" | "
   );
 }
 
-function CountCell({ count, lmpId, round }: { count: number; lmpId: string; round: "r1" | "r2" | "r3" | "offer" }) {
+function CountCell({ count, lmpId, round }: { count: number; lmpId: string; round: "pool" | "r1" | "r2" | "r3" | "converted" }) {
   const [open, setOpen] = useState(false);
   if (!count) return <span className="text-n400">0</span>;
   return (
@@ -363,7 +378,15 @@ function CountCell({ count, lmpId, round }: { count: number; lmpId: string; roun
 }
 
 // ── Main modal ───────────────────────────────────────────────────
-export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function ViewAllLmpsModal({
+  open,
+  onOpenChange,
+  readOnly = false,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  readOnly?: boolean;
+}) {
   const navigate = useNavigate();
   const { data: rawRows, isLoading } = useLmpFullView();
   const { names: domainOptions, display: domainDisplay, matches: domainMatches } = useResolveDomain();
@@ -523,20 +546,20 @@ export function ViewAllLmpsModal({ open, onOpenChange }: { open: boolean; onOpen
         return <span className="text-[12px] text-n600">{formatDate(r.next_progress_date)}</span>;
       case "next_progress_type":
         return <span className="text-[12px] text-n500">{r.next_progress_type || "—"}</span>;
-      // Pool (was R1) — candidates shortlisted for first stage
-      case "pool_num": return <CountCell count={Number(r.r1_count) || 0} lmpId={r.id} round="r1" />;
-      case "pool_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r1_names || ""}>{r.r1_names || "—"}</span>;
-      // R1 (was R2)
-      case "r1_num": return <CountCell count={Number(r.r2_count) || 0} lmpId={r.id} round="r2" />;
-      case "r1_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r2_names || ""}>{r.r2_names || "—"}</span>;
-      // R2 (was R3)
-      case "r2_num": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
-      case "r2_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_names || ""}>{r.r3_names || "—"}</span>;
-      // R3 (was Offer)
-      case "r3_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
-      case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.final_converted_numbers || ""}>{r.final_converted_numbers || "—"}</span>;
+      // Pool — candidates not yet in any interview round
+      case "pool_num": return <CountCell count={Number(r.pool_count) || 0} lmpId={r.id} round="pool" />;
+      case "pool_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.pool_names || ""}>{r.pool_names || "—"}</span>;
+      // R1
+      case "r1_num": return <CountCell count={Number(r.r1_count) || 0} lmpId={r.id} round="r1" />;
+      case "r1_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r1_names || ""}>{r.r1_names || "—"}</span>;
+      // R2
+      case "r2_num": return <CountCell count={Number(r.r2_count) || 0} lmpId={r.id} round="r2" />;
+      case "r2_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r2_names || ""}>{r.r2_names || "—"}</span>;
+      // R3
+      case "r3_num": return <CountCell count={Number(r.r3_count) || 0} lmpId={r.id} round="r3" />;
+      case "r3_names": return <span className="text-[12px] text-n700 truncate block max-w-[160px]" title={r.r3_names || ""}>{r.r3_names || "—"}</span>;
       // Final converted
-      case "final_convert_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="offer" />;
+      case "final_convert_num": return <CountCell count={Number(r.offer_count) || 0} lmpId={r.id} round="converted" />;
       case "convert_names": return <span className="text-[12px] text-n700 truncate block max-w-[180px]" title={r.final_converted_names || ""}>{r.final_converted_names || "—"}</span>;
       case "prep_doc_link": return <LinkIconCell href={r.prep_doc} label="Prep doc" icon={Paperclip} />;
       case "prep_poc": return <PocAvatarsCell names={r.prep_poc_names} />;

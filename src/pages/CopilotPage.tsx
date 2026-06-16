@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { parseBlocks } from "@/lib/copilotBlocks";
-import { BlockRenderer } from "@/components/copilot/BlockRenderer";
+const BlockRenderer = lazy(() => import("@/components/copilot/BlockRenderer").then((m) => ({ default: m.BlockRenderer })));
 import {
   Sparkles, ArrowUp, Paperclip, AtSign, Mic, ChevronDown,
   CheckCircle2, AlertTriangle, ShieldCheck, ListChecks,
@@ -29,7 +29,6 @@ import { MentionDropdown, type MentionEntity } from "@/components/copilot/Mentio
 import { ScopeSelector, type CopilotScope } from "@/components/copilot/ScopeSelector";
 import { ContextRail, type ActiveContext } from "@/components/copilot/ContextRail";
 import { useVoiceDictation, VoiceMicButton, VoiceIndicator, VoiceConversationOverlay } from "@/components/copilot/VoiceDictation";
-import * as Papa from "papaparse";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useCopilotThreads } from "@/hooks/useCopilotThreads";
 import { CopilotUsageStrip, CopilotUsageMini } from "@/components/copilot/CopilotQuotaBar";
@@ -498,8 +497,11 @@ function CopilotPageInner() {
         let content = "";
         if (file.name.endsWith(".csv")) {
           const text = await file.text();
-          const result = Papa.parse(text, { header: true });
-          content = JSON.stringify(result.data.slice(0, 50), null, 2);
+          const mod = await import("papaparse");
+          const parse = mod.parse ?? (mod as any).default?.parse;
+          if (!parse) throw new Error("PapaParse parser unavailable");
+          const result = parse(text, { header: true });
+          content = JSON.stringify((result as any).data.slice(0, 50), null, 2);
         } else if (file.type.startsWith("text/") || file.name.endsWith(".json") || file.name.endsWith(".md")) {
           content = await file.text();
         } else if (file.type.startsWith("image/")) {
@@ -1078,11 +1080,13 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction }: { c
 
         {hasBlocks && (
           <div className="flex flex-col gap-4">
-            {blocks.map((block, idx) => (
-              <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: idx * 0.06 }}>
-                <BlockRenderer block={block} onFollowUp={onFollowUp} onAction={onAction} />
-              </motion.div>
-            ))}
+            <Suspense fallback={null}>
+              {blocks.map((block, idx) => (
+                <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: idx * 0.06 }}>
+                  <BlockRenderer block={block} onFollowUp={onFollowUp} onAction={onAction} />
+                </motion.div>
+              ))}
+            </Suspense>
           </div>
         )}
 

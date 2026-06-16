@@ -288,6 +288,13 @@ Deno.serve(async (req) => {
     const content = buildEmbedText(table, record);
     const metadata = buildMetadata(table, record);
 
+    // Resolve owner_user_id for private source tables (copilot_messages).
+    let ownerUserId: string | null = null;
+    if (table === "copilot_messages" && record.thread_id) {
+      const { data: thread } = await sb.from("copilot_threads").select("user_id").eq("id", record.thread_id).maybeSingle();
+      ownerUserId = (thread as { user_id?: string } | null)?.user_id ?? null;
+    }
+
     try {
       const embedding = await getEmbedding(content);
       const { error } = await sb.from("rag_embeddings").upsert({
@@ -298,6 +305,7 @@ Deno.serve(async (req) => {
         metadata,
         embedding: JSON.stringify(embedding),
         source_updated_at: (record.updated_at as string) ?? new Date().toISOString(),
+        owner_user_id: ownerUserId,
       }, { onConflict: "source_table,source_id,chunk_index" });
       if (error) throw new Error(error.message);
     } catch (e) {
@@ -314,17 +322,31 @@ Deno.serve(async (req) => {
 
     for (const table of EMBED_TABLES) {
       if (onlyTables && !onlyTables.includes(table)) continue;
-      const { data: rows, error } = await sb.from(table).select("*").limit(perTableLimit);
-      if (error) {
-        results[table] = { embedded: 0, errors: 1 };
-        continue;
+
+      // copilot_messages: join with threads to get owner for RAG ACL
+      type BulkRow = Row & { _owner_user_id?: string | null };
+      let rows: BulkRow[] = [];
+      if (table === "copilot_messages") {
+        const { data, error } = await (sb as any).from("copilot_messages")
+          .select("*, copilot_threads!inner(user_id)")
+          .limit(perTableLimit);
+        if (error) { results[table] = { embedded: 0, errors: 1 }; continue; }
+        rows = (data ?? []).map((r: any) => ({
+          ...r,
+          _owner_user_id: r.copilot_threads?.user_id ?? null,
+        }));
+      } else {
+        const { data, error } = await sb.from(table).select("*").limit(perTableLimit);
+        if (error) { results[table] = { embedded: 0, errors: 1 }; continue; }
+        rows = (data ?? []) as BulkRow[];
       }
+
       let embedded = 0;
       let errors = 0;
-      for (const row of (rows ?? []) as Row[]) {
+      for (const row of rows) {
         try {
-          const content = buildEmbedText(table, row);
-          const metadata = buildMetadata(table, row);
+          const content = buildEmbedText(table, row as Row);
+          const metadata = buildMetadata(table, row as Row);
           const embedding = await getEmbedding(content);
           await sb.from("rag_embeddings").upsert({
             source_table: table,
@@ -334,6 +356,7 @@ Deno.serve(async (req) => {
             metadata,
             embedding: JSON.stringify(embedding),
             source_updated_at: (row.updated_at as string) ?? new Date().toISOString(),
+            owner_user_id: row._owner_user_id ?? null,
           }, { onConflict: "source_table,source_id,chunk_index" });
           embedded++;
           await new Promise((r) => setTimeout(r, 110));

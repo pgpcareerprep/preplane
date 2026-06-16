@@ -55,6 +55,8 @@ export type Process = {
   closingDate: string;       // ISO (may be future) or ""
   closedReason: string;
   lastProgressUpdatedAt?: string;
+  /** Human-readable status label derived from the DB slug. Used for display only — do not use for filtering/counting. */
+  displayStatus: string;
 };
 
 export const DOMAINS: Domain[] = [
@@ -83,6 +85,17 @@ export const STATUS_LIST: ProcessStatus[] = [
 
 export { SLA_DORMANT_DAYS, POC_OVERLOAD_THRESHOLD } from "@/lib/config/thresholds";
 import { SLA_DORMANT_DAYS } from "@/lib/config/thresholds";
+
+/**
+ * Outcome-based conversion rate: Converted / (Converted + Not Converted).
+ * Excludes active statuses (Not Started, Prep Ongoing, Prep Done, On Hold,
+ * Other Reasons) from the denominator. Returns 0 when no terminal outcome exists.
+ */
+export function calculateOutcomeConversionRate(convertedCount: number, notConvertedCount: number): number {
+  const denominator = convertedCount + notConvertedCount;
+  if (denominator === 0) return 0;
+  return (convertedCount / denominator) * 100;
+}
 
 export function daysSince(iso: string): number {
   if (!iso) return Infinity;
@@ -168,19 +181,21 @@ export function funnelStages(rows: Process[]) {
   ];
 }
 
-export function domainBreakdown(rows: Process[]) {
+export function domainBreakdown(rows: LmpRecord[]) {
   return DOMAINS.map((d) => {
     const list = rows.filter((r) => r.domain === d);
     const total = list.length;
+    const convertedCount = list.filter((r) => r.status === "converted").length;
+    const notConvertedCount = list.filter((r) => r.status === "not-converted").length;
     return {
       domain: d,
       total,
-      ongoing: list.filter((r) => r.status === "Ongoing").length,
-      offer: list.filter((r) => r.status === "Offer Received").length,
-      converted: list.filter(isConverted).length,
-      risk: list.filter((r) => r.status === "On Hold" || isDormant(r) || r.status === "Closed").length,
-      conversionRate: total ? (list.filter(isConverted).length / total) * 100 : 0,
-      offerRate: total ? (list.filter(hasOffer).length / total) * 100 : 0,
+      ongoing: list.filter((r) => r.status === "prep-ongoing" || r.status === "ongoing" || r.status === "prep-done").length,
+      offer: list.filter((r) => r.status === "offer-received").length,
+      converted: convertedCount,
+      risk: list.filter((r) => r.status === "hold" || r.status === "not-converted" || r.status === "other-reasons" || r.status === "closed" || r.status === "dormant").length,
+      conversionRate: calculateOutcomeConversionRate(convertedCount, notConvertedCount),
+      offerRate: total ? (list.filter((r) => r.status === "offer-received" || r.status === "converted").length / total) * 100 : 0,
     };
   });
 }

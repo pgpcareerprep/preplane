@@ -38,7 +38,8 @@ export type RemarkEntry = {
 export const DEFAULT_ROUNDS: Round[] = [
   { id: "r1", name: "R1", type: "" },
   { id: "r2", name: "R2", type: "" },
-  { id: "final", name: "Converted ", type: "Offer" },
+  { id: "r3", name: "R3", type: "" },
+  { id: "converted", name: "Converted", type: "Offer" },
 ];
 
 export const ROUND_TYPES = [

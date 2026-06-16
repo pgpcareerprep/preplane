@@ -1,4 +1,4 @@
-import { UserPlus, ExternalLink, Eye, Play, Settings2, Megaphone, UserCog, MessageSquare } from "lucide-react";
+import { UserPlus, ExternalLink, Eye, Play, Megaphone, UserCog, MessageSquare } from "lucide-react";
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
 import { canPerform } from "@/lib/permissions";
@@ -7,12 +7,12 @@ import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
 import { useAddLmpCandidates, useLmpCandidates, usePocProfiles, useLmpProcesses } from "@/lib/hooks/useDbData";
 import { resolvePocEmail } from "@/lib/poc/resolvePocEmail";
 import { useDbLmpId } from "@/lib/hooks/useDbLmpId";
-import { useLmpRounds, useSaveLmpRounds } from "@/lib/hooks/useLmpRounds";
 import { type LmpRecord } from "@/lib/lmpTypes";
 import { DailyProgressCard } from "./bento/DailyProgressCard";
 import { PipelineSnapshotCard } from "./bento/PipelineSnapshotCard";
@@ -20,12 +20,11 @@ import { MentorSnapshotCard } from "./bento/MentorSnapshotCard";
 import { ChecklistCard } from "./bento/ChecklistCard";
 import { DocumentsCard, normalizeDocuments, type DocumentLink, type DocumentAddContext } from "./bento/DocumentsCard";
 import type { DocumentLinkInput } from "./bento/DocumentLinkModal";
-import { RoundConfigModal } from "./detail/RoundConfigModal";
-import { DEFAULT_ROUNDS } from "@/lib/lmpProcessMutations";
-import { resolveStageToRoundId } from "@/lib/pipelineStage";
+import { FIXED_PIPELINE_ROUNDS, resolveStageToRoundId } from "@/lib/pipelineStage";
 import { useLmpMode } from "@/lib/lmpViewingContext";
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { supabase } from "@/integrations/supabase/client";
+import type { Mentor } from "@/lib/mentor";
 import { cn } from "@/lib/utils";
 import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
 import { OutreachFeedbackHistoryModal } from "./OutreachFeedbackHistoryModal";
@@ -49,7 +48,6 @@ export function ExpandedLmpView({
   const mode = useLmpMode(rec);
   const summary = mode === "summary";
   const [addOpen, setAddOpen] = useState(false);
-  const [roundsOpen, setRoundsOpen] = useState(false);
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const [feedbackHistoryOpen, setFeedbackHistoryOpen] = useState(false);
@@ -57,8 +55,9 @@ export function ExpandedLmpView({
   const { role } = useRole();
   const canReassignAll = canPerform(role, "reassign_poc");
   const canReassignAny = canReassignAll;
+const queryClient = useQueryClient();
   // rounds resolved after dbLmpId below
-  const { update: updateMutation } = useLmpMutation();
+const { update: updateMutation } = useLmpMutation();
   const saveNextDateDb = useSaveNextProgressDate();
   const { data: pocProfiles = [] } = usePocProfiles();
   const { data: dbProcesses = [] } = useLmpProcesses();
@@ -103,8 +102,6 @@ export function ExpandedLmpView({
 
   const dbLmpId = useDbLmpId({ id: rec.id, company: rec.company, role: rec.role });
 
-  const { data: rounds = DEFAULT_ROUNDS } = useLmpRounds(dbLmpId);
-  const saveRoundsMutation = useSaveLmpRounds(dbLmpId);
   const { data: existingCandidates = [] } = useLmpCandidates(dbLmpId);
 
   const handleSaveProgress = async (text: string) => {
@@ -176,17 +173,24 @@ export function ExpandedLmpView({
     });
   }, [rec]);
 
-  // Mentor alignment — writes to sheet column V ("Mentor Selected")
-  const handleAlignMentor = useCallback((mentorName: string) => {
-    updateMutation.mutate({
-      id: rec.id,
-      patch: {
-        mentorSelected: mentorName,
-        mentorAligned: true,
-      },
+  // Mentor alignment — routes through align_mentor_to_lmp RPC so lmp_mentors is
+  // kept in sync and the trigger-driven recompute updates mentor_selected correctly.
+  const handleAlignMentor = useCallback(async (mentor: Mentor, replace = false) => {
+    if (!dbLmpId) return;
+    const { error } = await (supabase as any).rpc("align_mentor_to_lmp", {
+      p_lmp_id: dbLmpId,
+      p_mentor: mentor,
+      p_match_score: null,
+      p_replace: replace,
     });
-    toast.success(`Mentor aligned: ${mentorName}`);
-  }, [rec.id, updateMutation]);
+    if (error) {
+      toast.error(`Couldn't align mentor: ${error.message}`);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["lmp-mentors-live", dbLmpId] });
+    queryClient.invalidateQueries({ queryKey: ["db-lmp-process", dbLmpId] });
+    toast.success(`${replace ? "Replaced with" : "Aligned:"} ${mentor.name}`);
+  }, [dbLmpId, queryClient]);
 
   // Documents — single JSON array on lmp_processes.documents. Each entry has
   // a stable id + source_type so checklist-linked and general documents share
@@ -319,14 +323,6 @@ export function ExpandedLmpView({
               <button
                 type="button"
                 disabled={summary}
-                onClick={() => setRoundsOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Settings2 className="h-3.5 w-3.5" /> Configure Rounds
-              </button>
-              <button
-                type="button"
-                disabled={summary}
                 onClick={() => setOutreachOpen(true)}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 title={rec.outreachPoc?.name ? `Outreach POC: ${rec.outreachPoc.name}` : "Assign Outreach POC"}
@@ -426,7 +422,7 @@ export function ExpandedLmpView({
         <PipelineSnapshotCard
           rec={rec}
           mode={mode}
-          rounds={rounds}
+          rounds={FIXED_PIPELINE_ROUNDS}
           candidates={(existingCandidates as any[]).map((c) => ({
             id: c.id,
             studentId: c.student_id || undefined,
@@ -434,7 +430,7 @@ export function ExpandedLmpView({
             initials: "",
             color: "",
             cohort: c.pipeline_stage || "Pool",
-            roundId: resolveStageToRoundId(c.pipeline_stage, rounds),
+            roundId: resolveStageToRoundId(c.pipeline_stage, FIXED_PIPELINE_ROUNDS),
           }))}
         />
       </div>
@@ -448,22 +444,7 @@ export function ExpandedLmpView({
           role={rec.role}
           dbLmpId={dbLmpId}
           existingStudentIds={(existingCandidates as any[]).map((c) => c.student_id).filter(Boolean) as string[]}
-          rounds={rounds}
-        />
-      )}
-
-      {roundsOpen && (
-        <RoundConfigModal
-          open={roundsOpen}
-          onOpenChange={setRoundsOpen}
-          rounds={rounds}
-          hasCandidates={(rec.candidates ?? 0) > 0}
-          onSave={(next) => {
-            saveRoundsMutation.mutate(next, {
-              onSuccess: () => toast.success("Interview rounds updated."),
-              onError: () => toast.error("Could not save rounds. Please try again."),
-            });
-          }}
+          rounds={FIXED_PIPELINE_ROUNDS}
         />
       )}
 
@@ -519,6 +500,7 @@ function AddCandidatesModalPersist({
       onOpenChange={onOpenChange}
       existingIds={existingStudentIds}
       rounds={rounds}
+      defaultRoundId="pool"
       onAdd={(newCandidates) => {
         if (newCandidates.length === 0 || !dbLmpId) return;
         addMutation.mutate(
@@ -526,7 +508,7 @@ function AddCandidatesModalPersist({
             lmp_id: dbLmpId,
             student_name: c.name,
             student_id: c.studentId,
-            pipeline_stage: c.roundId || "shortlisted",
+            pipeline_stage: c.roundId || "pool",
           })),
         );
       }}

@@ -1,5 +1,4 @@
 import { useRef, useState, useMemo } from "react";
-import * as Papa from "papaparse";
 import { Upload, X, ArrowRight, Loader2, CheckCircle2, AlertCircle, AlertTriangle, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -191,9 +190,12 @@ export function UploadCsvModal({
     const isCsv = /\.csv$/i.test(f.name);
     const isXlsx = /\.xlsx$/i.test(f.name);
     if (isCsv) {
-      Papa.parse<MentorCsvRow>(f, {
+      const mod = await import("papaparse");
+      const parse = mod.parse ?? (mod as any).default?.parse;
+      if (!parse) { toast.error("CSV parser unavailable"); return; }
+      parse<MentorCsvRow>(f, {
         header: true, skipEmptyLines: true,
-        complete: (res) => applyParsed(res.meta.fields || [], res.data),
+        complete: (res: any) => applyParsed(res.meta.fields || [], res.data),
         error: () => toast.error("Failed to parse CSV"),
       });
     } else if (isXlsx) {

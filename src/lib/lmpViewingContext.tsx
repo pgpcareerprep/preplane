@@ -167,6 +167,8 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
   };
 
   const [target, setTargetState] = useState<ViewingTarget>(defaultTarget);
+  // UUID of the person currently being viewed (null = self or all)
+  const [targetPocId, setTargetPocId] = useState<string | null>(null);
 
   // When user/role resolves, hydrate from localStorage or fall back to default
   useEffect(() => {
@@ -180,8 +182,12 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
   }, [user.id, role, ownName]);
 
   // Sync: when Topbar viewAsUser changes (admin impersonation), update local target
+  // and carry the selected person's poc_profiles.id for UUID-based filtering.
   useEffect(() => {
-    if (viewAsUser) setTargetState(viewAsUser.name);
+    if (viewAsUser) {
+      setTargetState(viewAsUser.name);
+      setTargetPocId((viewAsUser as any).pocId ?? null);
+    }
   }, [viewAsUser]);
 
   const setTarget = useCallback((t: ViewingTarget) => {
@@ -190,20 +196,24 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       try { window.localStorage.setItem(storageKey, t); } catch { /* ignore */ }
     }
     if (t === "me" || t === "all") {
+      setTargetPocId(null);
       setViewAsUser(null);
     }
   }, [setViewAsUser, storageKey]);
+
   const { data: lmpRecords = [] } = useLmpRows();
   const { data: dbPocList } = usePocSwitcherList();
 
-  // Use DB-based POC list (individual names) if available, else fallback to sheet parsing
+  // Use DB-based POC list (individual names) if available, else fallback to sheet parsing.
+  // pocOptions.total comes directly from usePocSwitcherList (distinct lmp_id count per POC)
+  // and must NOT be recalculated using isPocOnRecord, which includes allocator/adminOwner.
   const pocOptions: PocOption[] = useMemo(() => {
     if (dbPocList && dbPocList.length > 0) {
       return dbPocList.map((p, i) => ({
         name: p.name,
         initials: p.initials,
         color: POC_COLORS[i % POC_COLORS.length],
-        total: lmpRecords.filter(r => isPocOnRecord(r, p.name)).length,
+        total: p.total,  // distinct active lmp_poc_links count (no allocator inflation)
         primary: p.primary,
         secondary: p.secondary,
         outreach: p.outreach,
@@ -213,7 +223,6 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
     // Fallback: parse from sheet data, splitting combined names
     const map = new Map<string, PocOption>();
     for (const r of lmpRecords) {
-      // Extract all POC names from record and split combined cells
       const allNames: string[] = [];
       if (r.prepPoc?.name) allNames.push(...splitPocNames(r.prepPoc.name));
       if (r.supportPoc?.name) allNames.push(...splitPocNames(r.supportPoc.name));
@@ -248,18 +257,18 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(() => {
     const filterFor = (rec: LmpRecord) => {
       if (target === "all") return true;
-      // "My LMPs" — prefer UUID-based check, fall back to name
-      if (target === "me") return isUserPocOnRecord(rec, matchName, matchPocId);
-      // Specific POC name selected (viewing-as another user — name-based)
-      return isPocOnRecord(rec, target);
+      // "My LMPs" and specific-person view both use operational-only check.
+      // allocator and adminOwner text fields must not make an LMP visible here.
+      if (target === "me") return isUserOperationalPoc(rec, matchName, matchPocId);
+      // Specific POC selected: UUID check preferred, name-based fallback for legacy records
+      return isUserOperationalPoc(rec, target, targetPocId);
     };
 
-    // Name-only fallback equivalent: isUserOperationalPoc(rec, matchName) ? "action" : "summary"
     const modeFor = (rec: LmpRecord): LmpInteractionMode =>
       isUserOperationalPoc(rec, matchName, matchPocId) ? "action" : "summary";
 
     return { target, setTarget, pocOptions, modeFor, filterFor, currentUserName: matchName };
-  }, [target, pocOptions, matchName, matchPocId, setTarget]);
+  }, [target, targetPocId, pocOptions, matchName, matchPocId, setTarget]);
 
   return <ViewingContext.Provider value={value}>{children}</ViewingContext.Provider>;
 }

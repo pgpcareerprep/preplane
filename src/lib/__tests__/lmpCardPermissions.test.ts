@@ -43,7 +43,7 @@ describe("LMP card edit and delete permissions", () => {
     expect(card).toContain("const { canEdit, canDelete, canAssignPoc, canChangeStatus }");
     expect(hook).toContain('canEdit: canManage && canPerform(role, "edit_lmp")');
     expect(hook).toContain("const isReadOnly = isPrivileged ? false : accessLevel === \"summary\"");
-    expect(read("src/lib/lmpViewingContext.tsx")).toContain('isUserOperationalPoc(rec, matchName) ? "action" : "summary"');
+    expect(read("src/lib/lmpViewingContext.tsx")).toContain('isUserOperationalPoc(rec, matchName, matchPocId) ? "action" : "summary"');
   });
 
   it("removes assigned-POC LMP delete RLS and preserves Sheet delete queue wiring", () => {

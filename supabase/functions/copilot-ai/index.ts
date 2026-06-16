@@ -9,13 +9,17 @@ import {
 } from "./intentRouter.ts";
 import {
   GEMINI_TOOL_MODEL,
+  GEMINI_ANALYSIS_MODEL,
   GEMINI_TOOL_FALLBACK_MODELS,
   GEMINI_SYNTHESIS_MODELS,
   OPENROUTER_TOOL_MODEL,
   OPENROUTER_SYNTHESIS_MODELS,
   GROK_TOOL_MODEL,
   GROK_SYNTHESIS_MODELS,
+  getTaskTier,
 } from "./modelConfig.ts";
+import { isCircuitOpen, recordSuccess, recordFailure } from "../_shared/circuitBreaker.ts";
+import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
 import { checkPermission } from "../_shared/rbac.ts";
 import { POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts";
 import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
@@ -49,6 +53,9 @@ let AI_KEY_FOR_CHAT = ""; // set in handler after env is available
 /** Try each model in SYNTHESIS_MODELS until one succeeds.
  *  Logs provider/model/status/body for every failure.
  *  Retries same model once on 429; all other errors immediately try next model. */
+// Retryable status codes — try next model/provider on these
+const RETRYABLE_HTTP = new Set([408, 429, 500, 502, 503, 504]);
+
 async function callSynthesis(
   _key: string, // kept for signature compat; actual key comes from AI_KEY_FOR_CHAT
   body: Record<string, unknown>,
@@ -57,6 +64,12 @@ async function callSynthesis(
   const key = AI_KEY_FOR_CHAT;
   const provider = AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter"
     : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini";
+
+  // Skip if circuit is open for this provider
+  if (isCircuitOpen(provider)) {
+    throw new Error(`${provider} circuit is open (too many recent failures). Automatic fallback in progress.`);
+  }
+
   let lastFailMsg = `${provider}: all synthesis models exhausted`;
 
   for (const model of SYNTHESIS_MODELS) {
@@ -74,22 +87,29 @@ async function callSynthesis(
         if (n === "TimeoutError" || n === "AbortError") throw e;
         lastFailMsg = `${provider}/${model} network error: ${(e as Error).message}`;
         console.warn(`[synthesis] ${lastFailMsg}`);
+        recordFailure(provider);
         break; // network error → try next model
       }
 
-      if (resp.ok) return { resp, model };
+      if (resp.ok) {
+        recordSuccess(provider);
+        return { resp, model };
+      }
 
       // Log exact failure: provider, model, HTTP status, body excerpt (no key)
       const errBody = await resp.text().catch(() => "");
       lastFailMsg = `${provider}/${model} ${resp.status}: ${errBody.slice(0, 300)}`;
       console.warn(`[synthesis] ${lastFailMsg}`);
 
-      if (resp.status === 429 && attempt === 0) {
-        console.warn(`[synthesis] ${provider}/${model} 429 — waiting 2s then retrying once`);
-        await new Promise((r) => setTimeout(r, 2000));
-        continue; // retry same model once
+      if (RETRYABLE_HTTP.has(resp.status)) {
+        recordFailure(provider);
+        if (resp.status === 429 && attempt === 0) {
+          console.warn(`[synthesis] ${provider}/${model} 429 — waiting 2s then retrying once`);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue; // retry same model once
+        }
       }
-      break; // any other error (401/402/403/404/5xx) or second 429 → try next model
+      break; // non-retryable or second attempt → try next model
     }
   }
   console.error(`[synthesis] exhausted all configured models: ${lastFailMsg}`);
@@ -145,13 +165,15 @@ async function retrieveRAGContext(
   userMessage: string,
   sb: SupabaseLike,
   filterTables?: string[] | null,
-  opts?: { limit?: number; threshold?: number },
+  opts?: { limit?: number; threshold?: number; userId?: string | null },
 ): Promise<string> {
   try {
     const key = getEnv("GEMINI_API_KEY");
     if (!key || !userMessage || !userMessage.trim()) return "";
     const limit = opts?.limit ?? 6;
     const threshold = opts?.threshold ?? 0.68;
+    // ACL: pass requesting_user_id so copilot_messages are scoped to the caller.
+    const requestingUserId = opts?.userId ?? null;
 
     const embedRes = await fetch(`${EMBED_URL}?key=${key}`, {
       method: "POST",
@@ -172,6 +194,7 @@ async function retrieveRAGContext(
       match_threshold: threshold,
       match_count: limit,
       filter_tables: filterTables ?? null,
+      requesting_user_id: requestingUserId,
     });
 
     const rows = (results ?? []) as Array<{ source_table: string; content: string; similarity: number }>;
@@ -933,6 +956,7 @@ type RequestContext = {
   pocId: string | null;
   isImpersonating: boolean;
   viewAsName: string | null;
+  intent: string;
 };
 
 type CopilotRequestState = {
@@ -948,7 +972,7 @@ function createRequestState(req: Request): CopilotRequestState {
     cache: {},
     context: {
       role: "poc", userId: null, actorName: null, plan: null, pocId: null,
-      isImpersonating: false, viewAsName: null,
+      isImpersonating: false, viewAsName: null, intent: "unknown",
     },
     log: createLogger("copilot-ai", req),
   };
@@ -1340,7 +1364,7 @@ async function executeTool(
           Deno.env.get("SUPABASE_URL")!,
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
         );
-        const block = await retrieveRAGContext(query, supa, tables, { limit, threshold });
+        const block = await retrieveRAGContext(query, supa, tables, { limit, threshold, userId: requestState().context.userId });
         return JSON.stringify({
           query,
           searched_tables: tables ?? "all",
@@ -2937,11 +2961,22 @@ async function handleRequest(req: Request) {
   // Load Vault secrets once per cold start; getEnv() checks Deno.env first then Vault.
   await ensureVaultLoaded();
 
+  // ─── Provider selection: Gemini (primary) → OpenRouter → Grok ───────────
+  // Priority order corrected: Gemini must be primary per architecture spec.
+  // The previous order (OpenRouter first) was a deployment bug — now fixed.
+  const GEMINI_API_KEY    = getEnv("GEMINI_API_KEY");
   const OPENROUTER_API_KEY = getEnv("OPENROUTER_API_KEY");
-  const GROK_API_KEY = getEnv("GROK_API_KEY");
-  const GEMINI_API_KEY = getEnv("GEMINI_API_KEY");
+  const GROK_API_KEY      = getEnv("GROK_API_KEY");
 
-  if (OPENROUTER_API_KEY) {
+  if (GEMINI_API_KEY) {
+    AI_KEY_FOR_CHAT = GEMINI_API_KEY;
+    AI_GATEWAY_URL = GEMINI_DIRECT_URL;
+    TOOL_MODEL = GEMINI_TOOL_MODEL;
+    TOOL_FALLBACK_MODELS = [...GEMINI_TOOL_FALLBACK_MODELS];
+    SYNTHESIS_MODELS.length = 0;
+    SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
+    AI_EXTRA_HEADERS = {};
+  } else if (OPENROUTER_API_KEY) {
     AI_KEY_FOR_CHAT = OPENROUTER_API_KEY;
     AI_GATEWAY_URL = OPENROUTER_URL;
     TOOL_MODEL = OPENROUTER_TOOL_MODEL;
@@ -2960,27 +2995,21 @@ async function handleRequest(req: Request) {
     SYNTHESIS_MODELS.length = 0;
     SYNTHESIS_MODELS.push(...GROK_SYNTHESIS_MODELS);
     AI_EXTRA_HEADERS = {};
-  } else if (GEMINI_API_KEY) {
-    AI_KEY_FOR_CHAT = GEMINI_API_KEY;
-    AI_GATEWAY_URL = GEMINI_DIRECT_URL;
-    TOOL_MODEL = GEMINI_TOOL_MODEL;
-    TOOL_FALLBACK_MODELS = [...GEMINI_TOOL_FALLBACK_MODELS];
-    SYNTHESIS_MODELS.length = 0;
-    SYNTHESIS_MODELS.push(...GEMINI_SYNTHESIS_MODELS);
-    AI_EXTRA_HEADERS = {};
   } else {
-    return jsonError("No AI API key configured. Set OPENROUTER_API_KEY (or GROK_API_KEY, GEMINI_API_KEY) in Supabase Edge Function secrets.", 500);
+    return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 500);
   }
 
-  console.log("[copilot-ai] deployed version: resilient-openrouter-free-router-v3");
-  console.log("[copilot-ai] provider config", {
-    hasOpenRouter: Boolean(OPENROUTER_API_KEY),
-    hasGrok: Boolean(GROK_API_KEY),
-    hasGemini: Boolean(GEMINI_API_KEY),
-    selectedGateway: AI_GATEWAY_URL,
-    toolModel: TOOL_MODEL,
-    synthesisModels: SYNTHESIS_MODELS,
-  });
+  // ─── Intent-based model override ─────────────────────────────────────────
+  // For heavy analysis intents, override the tool model to use the analysis tier.
+  // This runs AFTER provider selection so it only applies within the selected provider.
+  const intentFromReq = requestState().context.intent ?? "";
+  const tier = getTaskTier(intentFromReq);
+  if (tier === "analysis" && AI_GATEWAY_URL === GEMINI_DIRECT_URL) {
+    TOOL_MODEL = GEMINI_ANALYSIS_MODEL;
+  }
+
+  console.log("[copilot-ai] provider=Gemini→OpenRouter→Grok, selected=", AI_GATEWAY_URL.includes("openrouter") ? "OpenRouter" : AI_GATEWAY_URL.includes("x.ai") ? "Grok" : "Gemini");
+  console.log("[copilot-ai] intent-tier", { intent: intentFromReq, tier, toolModel: TOOL_MODEL });
 
   let body: {
     messages?: { role: string; content: string }[];
@@ -3139,6 +3168,7 @@ async function handleRequest(req: Request) {
   const lastUserMessage =
     [...messages].reverse().find(m => m?.role === "user")?.content ?? "";
   const intent = classifyIntent(lastUserMessage);
+  requestState().context.intent = intent; // used for model tier selection below
   const userName =
     typeof (body as Record<string, unknown>).userName === "string"
       ? ((body as Record<string, unknown>).userName as string)
@@ -3400,7 +3430,7 @@ async function handleRequest(req: Request) {
       ? await retrieveRAGContext(lastUserMessage, createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      ))
+      ), null, { userId: requestState().context.userId })
       : "";
     const systemPrompt = baseSystemPrompt + ragContext;
     let aiMessages: { role: string; content?: string; tool_calls?: any[]; tool_call_id?: string; name?: string }[] = [
@@ -3673,6 +3703,59 @@ async function handleRequest(req: Request) {
       }
 
       // No tool calls — final synthesis. Use best available model (hybrid fallback).
+      // Analysis-tier intents: use non-streaming so we can validate and repair the output.
+      const _finalIntent = requestState().context.intent ?? "";
+      const _finalTier = getTaskTier(_finalIntent);
+      if (_finalTier === "analysis") {
+        let analysisText = "";
+        try {
+          const { resp: nonStreamResp, model: nsModel } = await callSynthesis("", {
+            messages: aiMessages,
+            stream: false,
+          });
+          telemetry.model = nsModel;
+          if (nonStreamResp.ok) {
+            const nsJson = await nonStreamResp.json().catch(() => null);
+            analysisText = nsJson?.choices?.[0]?.message?.content ?? nsJson?.choices?.[0]?.text ?? "";
+          }
+        } catch (e) {
+          console.warn("[copilot-ai] analysis non-stream synthesis failed:", (e as Error).message);
+        }
+
+        if (analysisText) {
+          // Validate and optionally repair the structured response
+          const { data: _validData, wasRepaired, wasFallback } = await validateAiResponse({
+            rawText: analysisText,
+            intent: _finalIntent,
+            callRepair: async (repairPrompt) => {
+              const repairMessages = [...aiMessages, { role: "user" as const, content: repairPrompt }];
+              const { resp: rResp } = await callSynthesis("", { messages: repairMessages, stream: false });
+              if (!rResp.ok) throw new Error(`repair call failed: ${rResp.status}`);
+              const rJson = await rResp.json();
+              return rJson?.choices?.[0]?.message?.content ?? "";
+            },
+          });
+
+          if (wasRepaired) console.log(`[copilot-ai] analysis response was repaired for intent: ${_finalIntent}`);
+          if (wasFallback)  console.warn(`[copilot-ai] analysis validation fell back for intent: ${_finalIntent}`);
+
+          const sseBody = `data: ${JSON.stringify({ choices: [{ delta: { content: analysisText } }] })}\n\ndata: [DONE]\n\n`;
+          if (cacheable && cKey && !usedWriteTool && analysisText.trim()) {
+            void writeCache(cKey, analysisText, ANALYTICAL_TTL);
+          }
+          void logTurn({ status: "ok_analysis", response_chars: analysisText.length });
+          return new Response(sseBody, {
+            headers: {
+              ...corsHeaders, "Content-Type": "text/event-stream",
+              "X-Copilot-Tier": "analysis",
+              ...(wasRepaired ? { "X-Copilot-Repaired": "1" } : {}),
+              ...(wasFallback  ? { "X-Copilot-Fallback": "validation-fallback" } : {}),
+            },
+          });
+        }
+        // Fall through to streaming if non-streaming synthesis failed
+      }
+
       let streamResponse: Response;
       let synthModel = TOOL_MODEL;
       try {

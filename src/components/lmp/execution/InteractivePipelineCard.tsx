@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Settings2, UserPlus, X, GripVertical } from "lucide-react";
+import { UserPlus, X, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord } from "@/lib/lmpTypes";
 import {
@@ -16,13 +16,10 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
-import { RoundConfigModal } from "@/components/lmp/detail/RoundConfigModal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { DEFAULT_ROUNDS, type Round } from "@/lib/lmpProcessMutations";
 import { useAddLmpCandidates, useLmpCandidates, useDeleteLmpCandidate, useUpdateLmpCandidateStage } from "@/lib/hooks/useDbData";
 import { useDbLmpId } from "@/lib/hooks/useDbLmpId";
-import { useLmpRounds, useSaveLmpRounds } from "@/lib/hooks/useLmpRounds";
-import { resolveStageToRoundId, sheetIndexToRoundId } from "@/lib/pipelineStage";
+import { FIXED_PIPELINE_COLUMNS, FIXED_PIPELINE_ROUNDS, resolveStageToRoundId, sheetIndexToRoundId } from "@/lib/pipelineStage";
 import { toast } from "sonner";
 
 /**
@@ -65,22 +62,21 @@ type PipelineColumn = {
 
 function buildPipelineFromLmp(
   lmp: LmpRecord | undefined,
-  rounds: Round[],
   dbCandidates: Array<{ id?: string; student_name: string; pipeline_stage?: string | null }> = [],
 ): PipelineColumn[] {
-  if (!lmp && dbCandidates.length === 0) return [];
-
   const sheetByIdx: string[][] = [
+    parseNames(lmp?.poolNames),
     parseNames(lmp?.r1Names),
     parseNames(lmp?.r2Names),
     parseNames(lmp?.r3Names),
     parseNames(lmp?.finalConvertedNames || lmp?.finalConvertedNumbers),
   ];
 
-  const itemsByRoundId: Record<string, PipelineItem[]> = { pool: [] };
-  for (const r of rounds) itemsByRoundId[r.id] = [];
-  ([0, 1, 2, 3] as const).forEach((idx) => {
-    const targetId = sheetIndexToRoundId(idx, rounds);
+  const itemsByRoundId: Record<string, PipelineItem[]> = Object.fromEntries(
+    FIXED_PIPELINE_COLUMNS.map((stage) => [stage.id, [] as PipelineItem[]]),
+  );
+  ([0, 1, 2, 3, 4] as const).forEach((idx) => {
+    const targetId = sheetIndexToRoundId(idx);
     if (!itemsByRoundId[targetId]) itemsByRoundId[targetId] = [];
     for (const name of sheetByIdx[idx]) {
       itemsByRoundId[targetId].push({ name, source: "sheet" });
@@ -90,7 +86,7 @@ function buildPipelineFromLmp(
   for (const c of dbCandidates) {
     const name = (c.student_name || "").trim();
     if (!name) continue;
-    const target = resolveStageToRoundId(c.pipeline_stage, rounds);
+    const target = resolveStageToRoundId(c.pipeline_stage, FIXED_PIPELINE_ROUNDS);
     if (!itemsByRoundId[target]) itemsByRoundId[target] = [];
     itemsByRoundId[target].push({ name, id: c.id, source: "db" });
   }
@@ -109,14 +105,11 @@ function buildPipelineFromLmp(
     return Array.from(byKey.values());
   };
 
-  return [
-    { id: "pool", label: "Pool — Newly added", items: dedupe(itemsByRoundId.pool || []) },
-    ...rounds.map((r) => ({
-      id: r.id,
-      label: r.name,
-      items: dedupe(itemsByRoundId[r.id] || []),
-    })),
-  ];
+  return FIXED_PIPELINE_COLUMNS.map((stage) => ({
+    id: stage.id,
+    label: stage.label,
+    items: dedupe(itemsByRoundId[stage.id] || []),
+  }));
 }
 
 // ── DnD sub-components ──────────────────────────────────────────────────────
@@ -153,7 +146,6 @@ function DraggableCard({ id, children }: { id: string; children: (dragHandleProp
 
 export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManage = false }: { lmpId: string; lmp?: LmpRecord; readOnly?: boolean; canManage?: boolean }) {
   const [addOpen, setAddOpen] = useState(false);
-  const [configOpen, setConfigOpen] = useState(false);
   const addMutation = useAddLmpCandidates();
   const deleteMutation = useDeleteLmpCandidate();
   const stageMutation = useUpdateLmpCandidateStage();
@@ -162,8 +154,6 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
   const [activeItem, setActiveItem] = useState<(PipelineItem & { colorIdx: number }) | null>(null);
   const dbLmpId = useDbLmpId({ id: lmp?.id, company: lmp?.company, role: lmp?.role });
 
-  const { data: rounds = DEFAULT_ROUNDS } = useLmpRounds(dbLmpId);
-  const saveRoundsMutation = useSaveLmpRounds(dbLmpId);
   const { data: existingCandidates = [] } = useLmpCandidates(dbLmpId);
   const existingStudentIds = useMemo(
     () => (existingCandidates as any[]).map((c) => c.student_id).filter(Boolean) as string[],
@@ -171,8 +161,8 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
   );
 
   const columns = useMemo(
-    () => buildPipelineFromLmp(lmp, rounds, existingCandidates as any[]),
-    [lmp, rounds, existingCandidates],
+    () => buildPipelineFromLmp(lmp, existingCandidates as any[]),
+    [lmp, existingCandidates],
   );
   const hasAnyData = columns.some((c) => c.items.length > 0);
 
@@ -228,24 +218,14 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
           >
             <UserPlus className="h-3.5 w-3.5" /> Add Candidate
           </button>
-          <button
-            onClick={() => setConfigOpen(true)}
-            disabled={!canManage}
-            title={!canManage ? "Only admin or allocator can configure rounds" : undefined}
-            className="inline-flex items-center gap-1.5 rounded-md bg-card border border-n300 hover:bg-n100 text-n800 text-[12.5px] font-medium px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"
-          >
-            <Settings2 className="h-3.5 w-3.5" /> Configure Rounds
-          </button>
         </div>
       </div>
 
-      {!hasAnyData ? (
-        <div className="rounded-xl border border-n200 bg-n50/50 py-10 grid place-items-center">
-          <p className="text-[12.5px] text-n400 italic">
-            No pipeline data yet. Add candidates or move them through rounds.
-          </p>
-        </div>
-      ) : (
+      {!hasAnyData && (
+        <p className="mb-3 text-[12.5px] text-n400 italic">
+          No pipeline data yet. Add candidates or move them through rounds.
+        </p>
+      )}
         <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}
@@ -311,8 +291,8 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                                 aria-label={`Move ${item.name} to another round`}
                                 title="Move to round"
                               >
-                                <option value="pool">Pool</option>
-                                {rounds.map((r) => (
+                                <option value="pool">Shortlisted Pool</option>
+                                {FIXED_PIPELINE_ROUNDS.map((r) => (
                                   <option key={r.id} value={r.id}>{r.name}</option>
                                 ))}
                               </select>
@@ -373,8 +353,8 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                                 aria-label={`Move ${item.name} to another round`}
                                 title="Move to round"
                               >
-                                <option value="pool">Pool</option>
-                                {rounds.map((r) => (
+                                <option value="pool">Shortlisted Pool</option>
+                                {FIXED_PIPELINE_ROUNDS.map((r) => (
                                   <option key={r.id} value={r.id}>{r.name}</option>
                                 ))}
                               </select>
@@ -410,7 +390,6 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
             )}
           </DragOverlay>
         </DndContext>
-      )}
 
       {lmp?.stage && (
         <div className="mt-3 pt-3 border-t border-n200/70 flex items-center gap-2 text-[11.5px] text-n600">
@@ -423,7 +402,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
         open={addOpen && !readOnly}
         onOpenChange={setAddOpen}
         existingIds={existingStudentIds}
-        rounds={rounds}
+        rounds={FIXED_PIPELINE_ROUNDS}
         defaultRoundId="pool"
         onAdd={(newCandidates) => {
           if (newCandidates.length === 0) return;
@@ -442,14 +421,6 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
             }))
           );
         }}
-      />
-
-      <RoundConfigModal
-        open={configOpen && canManage}
-        onOpenChange={setConfigOpen}
-        rounds={rounds}
-        hasCandidates={hasAnyData}
-        onSave={(rs) => { if (canManage) saveRoundsMutation.mutate(rs); }}
       />
 
       <ConfirmDialog

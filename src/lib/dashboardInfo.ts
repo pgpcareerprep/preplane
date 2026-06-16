@@ -54,6 +54,7 @@ export const DASHBOARD_INFO = {
   "admin.students.inactive":       "Students with zero active LMPs.",
   "admin.students.cohort":         "Per-cohort split of students by active-LMP count.",
   "admin.students.by-domain":      "Unique students grouped by their PRIMARY domain preference (resolved to canonical domain names). Click a row to list those students.",
+  "admin.students.converted":      "Unique students listed under Converted Names across LMPs in the selected dashboard scope. A student appearing in multiple LMPs is counted once.",
 
   // ── Admin · Attention strip
   "attention.highest-risk-domain": "Domain with the largest combined count of On Hold + Dormant + Closed LMPs.",

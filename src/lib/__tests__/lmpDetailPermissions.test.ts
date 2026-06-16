@@ -18,10 +18,15 @@ describe("LMP detailed-view operational permissions", () => {
   it("passes operational read-only state into active detailed tabs", () => {
     const page = read("src/pages/LmpDetailPage.tsx");
     const overview = read("src/components/lmp/UnifiedOverviewTab.tsx");
+    // Sessions are now consolidated under MentorsTab → Assigned sub-tab (Phase 6
+    // of the mentor rebuild), so SessionsLiveTab no longer appears as a top-level
+    // tab in LmpDetailPage but is still rendered inside MentorsTab.
+    const mentorsTab = read("src/components/lmp/detail/MentorsTab.tsx");
 
     expect(page).toContain("<MentorsTab");
-    expect(page).toContain("<SessionsLiveTab");
+    expect(page).not.toContain("<SessionsLiveTab");
     expect(page).toContain("<FeedbackTab");
+    expect(mentorsTab).toContain("<SessionsLiveTab");
     expect(overview).toContain("const operationalReadOnly = readOnly || !canOperateLmp");
     expect(overview).toContain("readOnly={operationalReadOnly}");
   });

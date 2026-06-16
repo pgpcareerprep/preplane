@@ -523,12 +523,15 @@ const NEGATE = /\b(no|nope|cancel|stop|don't|do not|never mind|nevermind|nahi|na
 
 export function VoiceConversationOverlay({
   open, onClose, userName, role, userId, userEmail, viewAsUserName, viewAsRole,
+  threadId, onPersistMessage,
 }: VoiceConversationOverlayProps) {
   const [transcript, setTranscript] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [lastSpoken, setLastSpoken] = useState("");
   const [muted, setMuted] = useState(false);
+  // alwaysListen: when true, mic restarts automatically after each turn
+  const [alwaysListen, setAlwaysListen] = useState(true);
   const [visibleMessages, setVisibleMessages] = useState<VoiceMessage[]>([]);
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<VoiceMessage[]>([]);
@@ -536,6 +539,9 @@ export function VoiceConversationOverlay({
   const autoListenRef = useRef(true);
   const pendingActionRef = useRef<PendingAction | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Keep ref in sync with state so async callbacks see the latest value
+  useEffect(() => { autoListenRef.current = alwaysListen; }, [alwaysListen]);
 
   const stripForVoice = useCallback((s: string) => stripMarkdown(s).slice(0, 600), []);
 
@@ -611,8 +617,18 @@ export function VoiceConversationOverlay({
       pendingActionRef.current = null;
     }
 
+    const userMsgTs = Date.now();
     messagesRef.current = [...messagesRef.current, { role: "user", content: userText }];
     setVisibleMessages(prev => [...prev, { role: "user", content: userText }]);
+    // Persist user turn to the shared thread (no-op if threadId is local-)
+    if (threadId && onPersistMessage) {
+      void onPersistMessage(threadId, {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: userText,
+        ts: userMsgTs,
+      });
+    }
     setThinking(true);
     try {
       const resp = await fetch(VOICE_COPILOT_URL, {
@@ -629,6 +645,15 @@ export function VoiceConversationOverlay({
       if (data.pendingAction) pendingActionRef.current = data.pendingAction;
       messagesRef.current.push({ role: "assistant", content: spoken });
       setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken, blocks: data.blocks || [] }]);
+      // Persist assistant turn to the shared thread
+      if (threadId && onPersistMessage) {
+        void onPersistMessage(threadId, {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content: `🎤 ${spoken}`,
+          ts: Date.now(),
+        });
+      }
       setThinking(false);
       await speak(spoken);
     } catch (err) {
@@ -642,7 +667,7 @@ export function VoiceConversationOverlay({
     } finally {
       window.clearTimeout(timeout);
     }
-  }, [identityPayload, speak, stripForVoice]);
+  }, [threadId, onPersistMessage, identityPayload, speak, stripForVoice]);
 
   const { listening, status, errorMsg, start, stop } = useVoiceDictation({
     onTranscript: async (text) => {
@@ -665,13 +690,20 @@ export function VoiceConversationOverlay({
     },
   });
 
-  // Greet on open
+  // Greet on open — preserve conversation history across re-opens
   useEffect(() => {
     if (!open) return;
-    messagesRef.current = [];
     setLastSpoken("");
     setTranscript("");
-    setVisibleMessages([]);
+    // Only greet + clear history on the very first open (no prior messages)
+    const isFirstOpen = messagesRef.current.length === 0;
+    if (!isFirstOpen) {
+      // Resume: just restart mic without greeting
+      if (autoListenRef.current) {
+        window.setTimeout(() => { try { start(); } catch { /* noop */ } }, 200);
+      }
+      return;
+    }
     const greet = "Hi! I'm listening. What would you like to do?";
     setLastSpoken(greet);
     setVisibleMessages([{ role: "assistant", content: greet }]);
@@ -809,6 +841,21 @@ export function VoiceConversationOverlay({
             {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
 
+          {/* Always-listen toggle */}
+          <button
+            onClick={() => setAlwaysListen(v => !v)}
+            title={alwaysListen ? "Auto-listen on (tap to disable)" : "Auto-listen off (tap to enable)"}
+            className={cn(
+              "h-10 px-3 rounded-xl text-[12px] font-medium transition-colors flex items-center gap-1.5",
+              alwaysListen
+                ? "bg-green-100 text-green-700 ring-1 ring-green-300"
+                : "bg-n100 text-n500 hover:bg-n200",
+            )}
+          >
+            <span className={cn("h-2 w-2 rounded-full inline-block", alwaysListen ? "bg-green-500" : "bg-n400")} />
+            Auto
+          </button>
+
           <button
             onClick={() => {
               setMuted(m => {
@@ -833,6 +880,20 @@ export function VoiceConversationOverlay({
             >Stop</button>
           )}
         </div>
+
+        {/* Clear conversation history */}
+        {visibleMessages.length > 1 && (
+          <button
+            onClick={() => {
+              messagesRef.current = [];
+              setVisibleMessages([]);
+              pendingActionRef.current = null;
+            }}
+            className="text-[11px] text-n400 hover:text-n600 transition-colors mt-1"
+          >
+            Clear conversation
+          </button>
+        )}
       </motion.div>
     </motion.div>
   );

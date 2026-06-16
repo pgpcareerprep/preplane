@@ -4,10 +4,11 @@ import {
   UserCog,
   Search,
   CheckCircle2,
-  X,
   ExternalLink,
   Star,
   Users2,
+  PlusCircle,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -126,29 +127,38 @@ export function MentorSnapshotCard({
 }: {
   rec: LmpRecord;
   mode?: "action" | "summary";
-  onAlignMentor?: (mentorName: string) => void;
+  onAlignMentor?: (mentor: Mentor, replace: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "MU" | "ALU" | "EXT">("ALL");
+  const [replaceMode, setReplaceMode] = useState(false);
 
   const { data: dbMentors = [] } = useAllMentors();
   const mentors = useMemo<Mentor[]>(() => (dbMentors as any[]).map(mapDbMentor), [dbMentors]);
 
-  const mentorName = (rec as any).mentorSelected || "";
-  const aligned = !!mentorName;
+  // Parse comma-separated mentor names from mentor_selected
+  const mentorNames = useMemo(() => {
+    const raw = (rec as any).mentorSelected || "";
+    return raw ? (raw as string).split(/,\s*/).filter(Boolean) : [];
+  }, [rec]);
+
+  const aligned = mentorNames.length > 0;
   const isSummary = mode === "summary";
 
-  const alignedMentor = useMemo(
+  // Resolve each name to a Mentor object for linkedin/role display
+  const alignedMentors = useMemo(
     () =>
-      aligned
-        ? mentors.find(
-            (m) => m.name.toLowerCase() === mentorName.toLowerCase()
-          ) ?? null
-        : null,
-    [aligned, mentorName, mentors]
+      mentorNames.map(
+        (name) =>
+          mentors.find((m) => m.name.toLowerCase() === name.toLowerCase()) ?? null,
+      ),
+    [mentorNames, mentors],
   );
 
+  // Keep legacy single-mentor helpers for the first entry
+  const mentorName = mentorNames[0] ?? "";
+  const alignedMentor = alignedMentors[0] ?? null;
   const avatarColor = alignedMentor?.color ?? "bg-teal-200 text-teal-600";
   const initials = mentorName
     .split(/\s+/)
@@ -175,11 +185,12 @@ export function MentorSnapshotCard({
     return [...list].sort((a, b) => b.score - a.score);
   }, [search, sourceFilter, mentors]);
 
-  const handleSelect = (m: Mentor) => {
-    onAlignMentor?.(m.name);
+  const handleSelect = async (m: Mentor) => {
+    await onAlignMentor?.(m, replaceMode);
     setOpen(false);
     setSearch("");
     setSourceFilter("ALL");
+    setReplaceMode(false);
   };
 
   const handleOpen = () => setOpen(true);
@@ -203,55 +214,58 @@ export function MentorSnapshotCard({
 
         {aligned ? (
           <div className="space-y-2">
-            {/* Avatar + name */}
-            <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
-                  avatarColor
-                )}
-              >
-                {initials}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[12.5px] font-medium text-n900 truncate">
-                    {mentorName}
-                  </span>
-                  {alignedMentor?.linkedin && (
-                    <a
-                      href={linkedinHref(alignedMentor.linkedin)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-n400 hover:text-primary transition-colors"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-                {alignedMentor && (
-                  <div className="text-[11px] text-n500">
-                    {alignedMentor.role} · {alignedMentor.company}
+            {/* All aligned mentors */}
+            <div className="space-y-1.5">
+              {mentorNames.map((name, i) => {
+                const m = alignedMentors[i];
+                const col = m?.color ?? "bg-teal-200 text-teal-600";
+                const ini = name.split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                return (
+                  <div key={name} className="flex items-center gap-2">
+                    <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold", col)}>
+                      {ini}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[12px] font-medium text-n900 truncate">{name}</span>
+                        {m?.linkedin && (
+                          <a href={linkedinHref(m.linkedin)} target="_blank" rel="noopener noreferrer" className="text-n400 hover:text-primary">
+                            <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        )}
+                      </div>
+                      {m && <div className="text-[10.5px] text-n500 truncate">{m.role} · {m.company}</div>}
+                    </div>
                   </div>
-                )}
-              </div>
+                );
+              })}
             </div>
 
             {/* Status line */}
             <div className="flex items-center gap-1.5 text-[11px] text-green-600">
               <CalendarClock className="h-3 w-3" />
-              Mentor aligned ✓
+              {mentorNames.length === 1 ? "Mentor aligned ✓" : `${mentorNames.length} mentors aligned ✓`}
             </div>
 
-            {/* Change button */}
-            {!isSummary && (
-              <button
-                type="button"
-                onClick={handleOpen}
-                className="mt-1 text-[11.5px] text-primary hover:text-primary/80 transition-colors"
-              >
-                Change
-              </button>
+            {/* Action buttons */}
+            {!isSummary && onAlignMentor && (
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleOpen}
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                >
+                  <PlusCircle className="h-3 w-3" /> Add another
+                </button>
+                <span className="text-n300">·</span>
+                <button
+                  type="button"
+                  onClick={() => { setReplaceMode(true); handleOpen(); }}
+                  className="inline-flex items-center gap-1 text-[11px] text-n500 hover:text-n800 transition-colors"
+                >
+                  <RefreshCw className="h-3 w-3" /> Replace
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -274,7 +288,7 @@ export function MentorSnapshotCard({
       </div>
 
       {/* ── Search modal ── */}
-      <Dialog open={open} onOpenChange={(v) => { if (!v) { setOpen(false); setSearch(""); setSourceFilter("ALL"); } }}>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) { setOpen(false); setSearch(""); setSourceFilter("ALL"); setReplaceMode(false); } }}>
         <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
@@ -294,6 +308,29 @@ export function MentorSnapshotCard({
               className="w-full rounded-lg border border-n200 bg-background py-2 pl-9 pr-3 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
+
+          {/* Add vs Replace toggle — only when mentors are already aligned */}
+          {aligned && onAlignMentor && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11.5px] text-n600 font-medium">Mode:</span>
+              <div className="flex rounded-lg overflow-hidden border border-n200 text-[11.5px]">
+                <button
+                  type="button"
+                  onClick={() => setReplaceMode(false)}
+                  className={cn("inline-flex items-center gap-1 px-2.5 py-1 font-medium transition-colors", !replaceMode ? "bg-orange-500 text-white" : "bg-card text-n600 hover:bg-n50")}
+                >
+                  <PlusCircle className="h-3 w-3" /> Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplaceMode(true)}
+                  className={cn("inline-flex items-center gap-1 px-2.5 py-1 font-medium transition-colors", replaceMode ? "bg-orange-500 text-white" : "bg-card text-n600 hover:bg-n50")}
+                >
+                  <RefreshCw className="h-3 w-3" /> Replace
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Source filter pills */}
           <div className="flex items-center gap-1.5 flex-wrap">

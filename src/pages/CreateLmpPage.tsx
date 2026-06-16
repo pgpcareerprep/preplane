@@ -217,8 +217,20 @@ export default function CreateLmpPage() {
         try { await deleteDraft(draftId); } catch { /* non-fatal */ }
       }
 
+      // Optimistically add the new LMP to every active db-lmp-processes cache
+      // slice so the board shows it immediately without waiting for refetch.
+      queryClient.setQueriesData<any[]>(
+        { queryKey: ["db-lmp-processes"], type: "all" },
+        (old) => (old ? [created, ...old.filter((r) => r.id !== created.id)] : [created])
+      );
+
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["lmp_rows"] }),
         queryClient.invalidateQueries({ queryKey: ["db-lmp-processes"] }),
+        queryClient.invalidateQueries({ queryKey: ["db-lmp-full-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-kpis"] }),
+        queryClient.invalidateQueries({ queryKey: ["poc-profile-domains"] }),
+        queryClient.invalidateQueries({ queryKey: ["poc_profiles_registry"] }),
         queryClient.invalidateQueries({ queryKey: ["db-poc-assignments"] }),
         queryClient.invalidateQueries({ queryKey: ["db-poc-switcher-list"] }),
         queryClient.invalidateQueries({ queryKey: ["db-lmp-candidates"] }),

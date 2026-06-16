@@ -20,8 +20,41 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions";
+const GROK_URL        = "https://api.x.ai/v1/chat/completions";
 const MAX_ROUNDS = 4;
+
+// Provider fallback order: Gemini → OpenRouter → Grok
+// Configured per-request via voiceProviderStorage to prevent concurrency bleed.
+import { GROK_TOOL_MODEL, OPENROUTER_TOOL_MODEL } from "../copilot-ai/modelConfig.ts";
+
+type VoiceProviderState = { url: string; key: string; models: string[]; name: string };
+const voiceProviderStorage = new AsyncLocalStorage<{ provider: VoiceProviderState | null }>();
+
+// Retryable HTTP status codes — any other failure is non-retryable
+const VOICE_RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+
+// Vault secrets cache (per cold start)
+const _voiceVault = new Map<string, string>();
+let _voiceVaultLoaded = false;
+async function loadVoiceVault(): Promise<void> {
+  if (_voiceVaultLoaded) return;
+  _voiceVaultLoaded = true;
+  try {
+    const sbUrl = Deno.env.get("SUPABASE_URL")!;
+    const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const { createClient: cc } = await import("npm:@supabase/supabase-js@2");
+    const vaultSb = cc(sbUrl, sbKey, { db: { schema: "vault" }, auth: { persistSession: false } });
+    const { data } = await vaultSb.from("decrypted_secrets").select("name,decrypted_secret");
+    for (const row of (data ?? []) as any[]) {
+      if (row.name && row.decrypted_secret) _voiceVault.set(row.name, row.decrypted_secret.trim());
+    }
+  } catch { /* non-fatal */ }
+}
+function voiceEnv(name: string): string | undefined {
+  return Deno.env.get(name)?.trim() || _voiceVault.get(name) || undefined;
+}
 
 type VoiceRequestState = {
   viewAs: { impersonating: boolean; name: string | null };
@@ -600,73 +633,99 @@ async function executePending(
   }
 }
 
-// ─── LLM ───────────────────────────────────────────────────────────────────
+// ─── LLM — multi-provider with Gemini→OpenRouter→Grok fallback ────────────────
 async function callModel(messages: any[], forceTool = false) {
-  const key = Deno.env.get("GEMINI_API_KEY");
-  if (!key) throw new Error("GEMINI_API_KEY not configured");
   const t0 = Date.now();
-  const promptText = messages.map((m: any) => typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "")).join("\n");
-  let resp: Response | null = null;
-  let usedModel = GEMINI_TOOL_FALLBACK_MODELS[0];
-  let lastError: Error | null = null;
-  for (const model of GEMINI_TOOL_FALLBACK_MODELS) {
-    usedModel = model;
-    try {
-      resp = await fetch(AI_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(15_000),
-        body: JSON.stringify({
+  const promptText = messages.map((m: any) =>
+    typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "")
+  ).join("\n");
+
+  // Provider catalogue — skipped if key unavailable
+  const PROVIDERS: Array<{ name: string; url: string; keyName: string; models: string[]; extraHeaders?: Record<string,string> }> = [
+    {
+      name: "Gemini", url: GEMINI_URL, keyName: "GEMINI_API_KEY",
+      models: [...GEMINI_TOOL_FALLBACK_MODELS],
+    },
+    {
+      name: "OpenRouter", url: OPENROUTER_URL, keyName: "OPENROUTER_API_KEY",
+      models: [OPENROUTER_TOOL_MODEL, "meta-llama/llama-3.3-70b-instruct:free"],
+      extraHeaders: { "HTTP-Referer": "https://preplane.mastersunion.org", "X-Title": "PrepLane Voice" },
+    },
+    {
+      name: "Grok", url: GROK_URL, keyName: "GROK_API_KEY",
+      models: [GROK_TOOL_MODEL],
+    },
+  ];
+
+  let lastFailReason = "all providers unavailable";
+
+  for (const provider of PROVIDERS) {
+    const key = voiceEnv(provider.keyName);
+    if (!key) continue;
+
+    for (const model of provider.models) {
+      let resp: Response;
+      try {
+        resp = await fetch(provider.url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+            ...(provider.extraHeaders ?? {}),
+          },
+          signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({
+            model,
+            messages,
+            tools,
+            tool_choice: forceTool ? "required" : "auto",
+            temperature: 0.3,
+            max_tokens: 600,
+          }),
+        });
+      } catch (e) {
+        const eName = (e as { name?: string })?.name ?? "";
+        if (eName === "TimeoutError" || eName === "AbortError") {
+          lastFailReason = `${provider.name}/${model}: timeout`;
+          continue; // try next model/provider
+        }
+        lastFailReason = `${provider.name}/${model}: network error`;
+        continue;
+      }
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const usage = data?.usage ?? {};
+        const pt = Number(usage.prompt_tokens) || estimateTokens(promptText);
+        const rt = Number(usage.completion_tokens) || estimateTokens(JSON.stringify(data?.choices?.[0]?.message ?? ""));
+        logAiUsage({
+          userId: voiceRequestState().userId,
+          feature: `voice-${provider.name.toLowerCase()}`,
           model,
-          messages,
-          tools,
-          tool_choice: forceTool ? "required" : "auto",
-          temperature: 0.3,
-          max_tokens: 600,
-        }),
+          promptTokens: pt, responseTokens: rt,
+          totalTokens: Number(usage.total_tokens) || (pt + rt),
+          latencyMs: Date.now() - t0, status: "ok",
+        });
+        return data;
+      }
+
+      const status = resp.status;
+      const errText = await resp.text().catch(() => "");
+      lastFailReason = `${provider.name}/${model} HTTP ${status}`;
+      logAiUsage({
+        userId: voiceRequestState().userId, feature: `voice-${provider.name.toLowerCase()}`, model,
+        promptTokens: estimateTokens(promptText), latencyMs: Date.now() - t0,
+        status: status === 429 ? "rate_limited" : "error",
+        errorMessage: errText.slice(0, 200),
       });
-      if (resp.ok || resp.status === 429) break;
-    } catch (e) {
-      lastError = e as Error;
+
+      // Non-retryable errors — don't try other models for this provider
+      if (!VOICE_RETRYABLE.has(status)) break;
+      // Retryable — try next model in same provider, then next provider
     }
   }
-  if (!resp) {
-    const e = lastError || new Error("AI gateway unavailable");
-    logAiUsage({
-      userId: voiceRequestState().userId, feature: "voice-gemini", model: usedModel,
-      promptTokens: estimateTokens(promptText),
-      latencyMs: Date.now() - t0, status: "error",
-      errorMessage: (e as Error).message,
-    });
-    const name = (e as { name?: string })?.name ?? "";
-    if (name === "TimeoutError" || name === "AbortError") {
-      throw new Error("AI took too long. Please try again.");
-    }
-    throw e;
-  }
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    logAiUsage({
-      userId: voiceRequestState().userId, feature: "voice", model: usedModel,
-      promptTokens: estimateTokens(promptText),
-      latencyMs: Date.now() - t0,
-      status: resp.status === 429 ? "rate_limited" : "error",
-      errorMessage: errText.slice(0, 200),
-    });
-    if (resp.status === 429) throw new Error("Rate limited. Please retry in a moment.");
-    throw new Error(`AI ${resp.status}: ${errText}`);
-  }
-  const data = await resp.json();
-  const usage = data?.usage ?? {};
-  const pt = Number(usage.prompt_tokens) || estimateTokens(promptText);
-  const rt = Number(usage.completion_tokens) || estimateTokens(JSON.stringify(data?.choices?.[0]?.message ?? ""));
-  logAiUsage({
-    userId: voiceRequestState().userId, feature: "voice-gemini", model: usedModel,
-    promptTokens: pt, responseTokens: rt,
-    totalTokens: Number(usage.total_tokens) || (pt + rt),
-    latencyMs: Date.now() - t0, status: "ok",
-  });
-  return data;
+
+  throw new Error(`Voice AI unavailable: ${lastFailReason}. Please try again.`);
 }
 
 
@@ -717,6 +776,8 @@ import { createLogger } from "../_shared/logger.ts";
 async function handleVoiceRequest(req: Request) {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Load vault secrets once per cold start so all providers can use them
+  await loadVoiceVault();
   const log = createLogger("voice-copilot", req);
   const t0 = performance.now();
   const auth = await requireAuth(req, corsHeaders);

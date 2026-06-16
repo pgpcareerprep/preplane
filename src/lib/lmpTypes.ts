@@ -68,6 +68,7 @@ export type LmpRecord = {
   // Additional sheet columns
   type?: string;
   prepProgress?: string;
+  poolNames?: string;
   r1Names?: string;
   r2Names?: string;
   r3Names?: string;
@@ -179,4 +180,3 @@ export function slaChip(days: number) {
   if (days <= 30) return { cls: "bg-yellow-50 text-yellow-600 border-yellow-200", label: `${days}d` };
   return { cls: "bg-coral-50 text-coral-600 border-coral-200", label: `${days}d` };
 }
-

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,7 +27,7 @@ import {
 import { exportTableToCsv, exportLmpProcessesCsv, dateStamp } from "@/lib/exportCsv";
 
 import AuditLogPageContent from "@/pages/AuditLogPage";
-import AiUsagePage from "@/pages/AiUsagePage";
+const AiUsagePage = lazy(() => import("@/pages/AiUsagePage"));
 import { MappingInspectorModal } from "@/components/datasources/MappingInspectorModal";
 import { HistoricalLmpBackfillModal } from "@/components/datasources/HistoricalLmpBackfillModal";
 
@@ -44,7 +45,7 @@ type ModalState =
   | { source: "domain_db" | "lmp_db" | "lmp_mentors_db"; kind: "viewAll" | "history" }
   | null;
 
-export default function DataSourcesPage() {
+function DataSourcesPageInner() {
   const { role } = useRole();
   const isAdmin = role === "admin";
   const canBackfillLmp = role === "admin" || role === "allocator";
@@ -70,6 +71,12 @@ export default function DataSourcesPage() {
     ["db-mapped-poc-counts"],
     ["db-poc-live-loads"],
     ["db-all-poc-profiles"],
+  ]);
+  useRealtimeInvalidate("lmp_candidates", [
+    ["db-lmp-full-view"],
+    ["db-lmp-candidates-by-process"],
+    ["db-lmp-candidates"],
+    ["db-lmp-candidate-counts"],
   ]);
   useRealtimeInvalidate("poc_profiles", [
     ["db-all-poc-profiles"],
@@ -385,10 +392,22 @@ export default function DataSourcesPage() {
 
       
       {activeTab === "audit-log" && <AuditLogPageContent />}
-      {activeTab === "copilot-insights" && <AiUsagePage />}
+      {activeTab === "copilot-insights" && (
+        <Suspense fallback={<div className="flex items-center justify-center py-12 text-sm text-n500">Loading…</div>}>
+          <AiUsagePage />
+        </Suspense>
+      )}
 
       <MappingInspectorModal open={mappingOpen} onOpenChange={setMappingOpen} />
       <HistoricalLmpBackfillModal open={historicalBackfillOpen} onOpenChange={setHistoricalBackfillOpen} />
     </div>
+  );
+}
+
+export default function DataSourcesPage() {
+  return (
+    <ErrorBoundary fallbackTitle="Data sources unavailable">
+      <DataSourcesPageInner />
+    </ErrorBoundary>
   );
 }

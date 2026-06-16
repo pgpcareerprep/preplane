@@ -13,7 +13,6 @@ import { useLmpCandidatesLive } from "@/lib/hooks/useLmpCandidatesLive";
 import { useIsLmpSyncPending } from "@/lib/hooks/useIsLmpSyncPending";
 import { StickyHeader } from "@/components/lmp/detail/StickyHeader";
 import { MentorsTab } from "@/components/lmp/detail/MentorsTab";
-import { SessionsLiveTab } from "@/components/lmp/detail/SessionsLiveTab";
 import { FeedbackTab } from "@/components/lmp/detail/FeedbackTab";
 import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
 import { normalizeLmpOwnership, useLmpPermission } from "@/lib/hooks/usePermissions";
@@ -21,7 +20,7 @@ import { useRole } from "@/lib/rolesContext";
 import { Eye } from "lucide-react";
 import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
 
-const TABS = ["Overview", "Mentors", "Sessions", "Feedback"] as const;
+const TABS = ["Overview", "Mentors", "Feedback"] as const;
 type Tab = typeof TABS[number];
 
 export default function LmpDetailPage() {
@@ -132,13 +131,10 @@ export default function LmpDetailPage() {
             realtime subscriptions and local component state persist across
             tab switches (prevents candidate list / mentor shortlist flicker). */}
         <div hidden={tab !== "Overview"}>
-          <UnifiedOverviewTab lmp={lmp} onOpenSessionsTab={() => setTab("Sessions")} readOnly={readOnly} />
+          <UnifiedOverviewTab lmp={lmp} onOpenSessionsTab={() => setTab("Mentors")} readOnly={readOnly} />
         </div>
         <div hidden={tab !== "Mentors"}>
           <MentorsTab reqId={lmpId} role={lmp.role} company={lmp.company} domain={lmp.domain} industry={lmp.domain} candidates={candidates} readOnly={readOnly} />
-        </div>
-        <div hidden={tab !== "Sessions"}>
-          <SessionsLiveTab lmpId={dbLmpId || lmpId} readOnly={readOnly} />
         </div>
         <div hidden={tab !== "Feedback"}>
           <FeedbackTab reqId={lmpId} readOnly={readOnly} />

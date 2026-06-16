@@ -138,7 +138,9 @@ export function planHistoricalLmpBackfill(
   csvText: string,
   existingRows: HistoricalLmpExisting[],
 ): HistoricalLmpDryRun {
-  const parsed = Papa.parse<Record<string, unknown>>(csvText, {
+  const parse = Papa.parse ?? (Papa as any).default?.parse;
+  if (!parse) throw new Error("PapaParse parser unavailable");
+  const parsed = parse<Record<string, unknown>>(csvText, {
     header: true,
     skipEmptyLines: true,
   });

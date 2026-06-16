@@ -11,7 +11,7 @@ import { useLmpFilters, uniquePocs, usePrepPocOptions } from "./filters/useLmpFi
 import { useRole } from "@/lib/rolesContext";
 import {
   DOMAINS, domainBreakdown, isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
-  POC_OVERLOAD_THRESHOLD,
+  POC_OVERLOAD_THRESHOLD, calculateOutcomeConversionRate,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
@@ -30,13 +30,32 @@ import { useTodayDailyLogIds } from "@/lib/hooks/useTodayDailyLogIds";
 import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
 import { RecentActivityCard } from "./sections/RecentActivityCard";
-import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
+import { LxDrillDown, type DrillState, type ConvertedStudentDrillRow } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
 import {
   lmpsByStatus, lmpsForDomain, lmpsForPoc,
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
 } from "@/lib/dashboardDrill";
 import { STATUSES, STATUS_META, type LmpStatus } from "@/lib/lmpTypes";
+
+/* ─── Converted-name parsing ───────────────────────────────────────────────
+ * Splits a raw final_converted_names string into individual names.
+ * Separators: comma, newline, semicolon.
+ * Filters out: empty, "-", "NA", "N/A", and common placeholder values.
+ */
+const CONVERTED_NAME_JUNK = new Set(["", "-", "--", "na", "n/a", "nil", "none", "tbd", "n.a."]);
+
+export function parseConvertedNames(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,\n;]+/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter((s) => s.length > 0 && !CONVERTED_NAME_JUNK.has(s.toLowerCase()));
+}
+
+export function normalizeConvertedName(name: string): string {
+  return name.replace(/\s+/g, " ").trim().toLowerCase();
+}
 
 type ActiveLmpStatus = Exclude<LmpStatus, "ongoing" | "dormant" | "closed" | "converted-na" | "offer-received">;
 
@@ -135,9 +154,10 @@ export function AdminLmpDashboard() {
   );
 
   /* ─────── KPIs ─────── */
-  const total = filtered.length || 1;
-  const converted = filtered.filter(isConverted).length;
-  const conversionRate = (converted / total) * 100;
+  const convertedCount = filteredRecords.filter((r) => r.status === "converted").length;
+  const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
+  const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
+  const converted = convertedCount;
   const ongoing = filtered.filter((r) => r.status === "Ongoing").length;
   const offerReceived = filtered.filter((r) => r.status === "Offer Received").length;
   const risk =
@@ -160,7 +180,7 @@ export function AdminLmpDashboard() {
   const oc = offerCounts(filtered);
 
   /* ─────── Domains ─────── */
-  const domains = useMemo(() => domainBreakdown(filtered), [filtered]);
+  const domains = useMemo(() => domainBreakdown(filteredRecords), [filteredRecords]);
   const sortedByLoad = [...domains].sort((a, b) => b.ongoing - a.ongoing);
   const highestLoad = sortedByLoad[0];
   const highestRisk = [...domains].sort((a, b) => b.risk - a.risk)[0];
@@ -459,6 +479,58 @@ export function AdminLmpDashboard() {
     };
   }, [filtered, studentRoster, domainRows]);
 
+  /* ─────── Converted students KPI ─────── */
+  const convertedStudentsData = useMemo(() => {
+    const uniqueNames = new Set<string>();
+    const seenNameLmp = new Set<string>();
+    const rows: ConvertedStudentDrillRow[] = [];
+
+    for (const rec of filteredRecords) {
+      const names = parseConvertedNames(rec.finalConvertedNames);
+
+      for (const name of names) {
+        const key = normalizeConvertedName(name);
+        if (!key) continue;
+
+        uniqueNames.add(key);
+
+        const dedupKey = `${key}::${rec.id}`;
+        if (!seenNameLmp.has(dedupKey)) {
+          seenNameLmp.add(dedupKey);
+
+          const matches = studentRoster.filter((s) => normalizeConvertedName(s.name) === key);
+          const matchStatus: ConvertedStudentDrillRow["matchStatus"] =
+            matches.length === 0 ? "not_matched" : matches.length === 1 ? "matched" : "ambiguous";
+          const student = matchStatus === "matched" ? matches[0] : null;
+
+          rows.push({
+            studentName: name,
+            cohort: matchStatus === "matched" ? (student!.cohort || "—") : matchStatus === "ambiguous" ? "Ambiguous" : "Not matched",
+            primaryDomain: matchStatus === "matched" ? (student!.primaryDomain || "—") : matchStatus === "ambiguous" ? "Ambiguous" : "Not matched",
+            company: rec.company,
+            role: rec.role,
+            lmpDomain: rec.domain,
+            processType: rec.type || "—",
+            lmpStatus: rec.status,
+            displayStatus: STATUS_META[rec.status]?.label || rec.status,
+            prepPoc: rec.prepPoc?.name || rec.domainPrepPoc?.name || "—",
+            outreachPoc: rec.outreachPoc?.name || "—",
+            closingDate: rec.closingDate || "—",
+            lmpCode: rec.lmpCode || rec.id.slice(0, 8),
+            lmpId: rec.id,
+            matchStatus,
+          });
+        }
+      }
+    }
+
+    return {
+      uniqueCount: uniqueNames.size,
+      recordCount: rows.length,
+      rows,
+    };
+  }, [filteredRecords, studentRoster]);
+
   const [domainPrefMode, setDomainPrefMode] = useState<"total" | "active">("total");
   const todaySet = useTodayDailyLogIds();
   const [drill, setDrill] = useState<DrillState | null>(null);
@@ -685,26 +757,34 @@ export function AdminLmpDashboard() {
         info={info("admin.students.in-process")}
       />
 
-      {/* Row 1 — metrics strip */}
-      <LxGrid>
-        <LxKpi span={2} label="Total students"        accent="info"    value={totalStudentsDb}
+      {/* Row 1 — metrics strip (7 cards, responsive 1→2→4→7 columns) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        <LxKpi span={2} className="!col-span-1" label="Total students"        accent="info"    value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
-        <LxKpi span={2} label="In current view"       accent="teal"    value={studentStats.totalStudents}
+        <LxKpi span={2} className="!col-span-1" label="In current view"       accent="teal"    value={studentStats.totalStudents}
           sub="Unique in selected scope" info={info("admin.students.in-view")} />
-        <LxKpi span={2} label="In Process (Unique)"   accent="success" value={studentStats.activeStudents}
+        <LxKpi span={2} className="!col-span-1" label="In Process (Unique)"   accent="success" value={studentStats.activeStudents}
           sub="At least 1 process" info={info("admin.students.in-process")}
           onClick={() => setDrill({ kind: "students", title: "Students in process", subtitle: "≥ 1 active LMP", rows: studentsInBucket(studentRoster, { bucket: "active" }) })} />
-        <LxKpi span={2} label="Single Process"        accent="success" value={studentStats.singleProcess}
+        <LxKpi span={2} className="!col-span-1" label="Single Process"        accent="success" value={studentStats.singleProcess}
           sub="Exactly 1 process" info={info("admin.students.single")}
           onClick={() => setDrill({ kind: "students", title: "Students with a single process", rows: studentsInBucket(studentRoster, { bucket: "single" }) })} />
-        <LxKpi span={2} label="Multiple Processes"    accent="ai"      value={studentStats.multipleProcesses}
+        <LxKpi span={2} className="!col-span-1" label="Multiple Processes"    accent="ai"      value={studentStats.multipleProcesses}
           sub="2+ processes" info={info("admin.students.multiple")}
           onClick={() => setDrill({ kind: "students", title: "Students with multiple processes", rows: studentsInBucket(studentRoster, { bucket: "multiple" }) })} />
-        <LxKpi span={2} label="Inactive (0 Process)"  accent="risk"    value={studentStats.inactiveStudents}
+        <LxKpi span={2} className="!col-span-1" label="Inactive (0 Process)"  accent="risk"    value={studentStats.inactiveStudents}
           sub="Zero processes" info={info("admin.students.inactive")}
           onClick={() => setDrill({ kind: "students", title: "Inactive students", subtitle: "Zero active LMPs", rows: studentsInBucket(studentRoster, { bucket: "inactive" }) })} />
-      </LxGrid>
+        <LxKpi span={2} className="!col-span-1" label="Total Students Converted" accent="success" value={convertedStudentsData.uniqueCount}
+          sub="Unique in selected scope" info={info("admin.students.converted")}
+          onClick={() => setDrill({
+            kind: "converted-students",
+            title: "Converted Students",
+            subtitle: `${convertedStudentsData.uniqueCount} unique student${convertedStudentsData.uniqueCount === 1 ? "" : "s"} · ${convertedStudentsData.recordCount} conversion record${convertedStudentsData.recordCount === 1 ? "" : "s"}`,
+            rows: convertedStudentsData.rows,
+          })} />
+      </div>
 
       {/* Row 2 — cohort distribution */}
       <LxGrid>

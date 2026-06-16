@@ -89,12 +89,17 @@ export function Topbar() {
     return acc;
   }, { admin: [], allocator: [], poc: [] });
 
-  // LMP count: prefer poc_profiles.active_load; fall back to sheet-derived pocOptions
+  // LMP count: use total_assigned_lmp_count from poc_lmp_assignment_counts view
+  // (via usePocDirectory → countByEmail) which counts distinct active operational
+  // links regardless of LMP status. Never use active_load — it excludes hold/converted.
+  // Fall back to pocOptions (parsed from lmp_poc_links) when the email is not in countByEmail.
   const countFor = (fullName: string, email: string): number => {
-    const dbCount = countByEmail[email.toLowerCase()] ?? 0;
-    if (dbCount > 0) return dbCount;
-    const first = fullName.split(/\s+/)[0]?.toLowerCase() ?? "";
+    const emailKey = email.toLowerCase();
+    // countByEmail now comes from total_assigned_lmp_count, zero is a valid count
+    if (emailKey in countByEmail) return countByEmail[emailKey];
+    // Fallback: name-match against pocOptions (operational link counts, no allocator)
     const full = fullName.toLowerCase();
+    const first = fullName.split(/\s+/)[0]?.toLowerCase() ?? "";
     const match = pocOptions.find(p => {
       const pn = p.name.toLowerCase();
       return pn === full || pn === first || (first.length >= 3 && pn.startsWith(first));
