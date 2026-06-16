@@ -280,7 +280,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           // Enrich: prefer poc_profiles.name (canonical full name) over profiles.display_name
           // so the Viewing As dropdown always matches the POC Domain database.
           const emails = validUsers.map((u) => (u.email as string).toLowerCase());
-          let pocNameByEmail: Map<string, string> = new Map();
+          const pocNameByEmail: Map<string, string> = new Map();
           if (emails.length > 0) {
             const { data: pocRows } = await supabase
               .from("poc_profiles")
