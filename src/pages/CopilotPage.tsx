@@ -315,10 +315,20 @@ function CopilotPageInner() {
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Request failed" }));
-        const raw = err.error || `Error ${resp.status}`;
-        const msg = /signal timed out|took too long|timeout/i.test(raw)
-          ? "The AI provider timed out before completing this request. Try again or use a quick report."
-          : raw;
+        const code = err.code ?? "";
+        const raw = err.error || err.message || `Error ${resp.status}`;
+        let msg: string;
+        if (resp.status === 503 || code === "ALL_AI_PROVIDERS_UNAVAILABLE") {
+          msg = "AI services are temporarily unavailable. Please retry in a moment.";
+        } else if (resp.status === 429 || code === "AI_DAILY_BUDGET_EXHAUSTED") {
+          msg = "Your daily AI budget is used up. It resets at midnight UTC.";
+        } else if (resp.status === 401 || resp.status === 403) {
+          msg = "Authentication failed. Please sign in again.";
+        } else if (/signal timed out|took too long|timeout/i.test(raw)) {
+          msg = "The AI provider timed out before completing this request. Try again or simplify your request.";
+        } else {
+          msg = raw;
+        }
         toast.error(msg);
         replaceAssistantWithError(msg);
         return;

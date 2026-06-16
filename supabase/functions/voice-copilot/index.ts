@@ -977,10 +977,19 @@ async function handleVoiceRequest(req: Request) {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    const errMsg = (err as Error).message ?? "unknown error";
     userLog.error("turn_failed", err, { ms: Math.round(performance.now() - t0) });
+    const isProviderErr = /unavailable|provider|timeout|network|quota|exhausted/i.test(errMsg);
     return new Response(
-      JSON.stringify({ spoken: "Sorry, something went wrong.", error: (err as Error).message }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({
+        spoken: isProviderErr
+          ? "AI services are temporarily unavailable. Please try again in a moment."
+          : "Sorry, something went wrong. Please try again.",
+        error: true,
+        code: isProviderErr ? "ALL_AI_PROVIDERS_UNAVAILABLE" : "VOICE_INTERNAL_ERROR",
+        message: errMsg,
+      }),
+      { status: isProviderErr ? 503 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 }
