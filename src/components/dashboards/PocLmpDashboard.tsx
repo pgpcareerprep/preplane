@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
   LxHero, LxKpi, LxStackedBar, LxAttentionStrip, LX_HEX,
@@ -8,7 +8,7 @@ import { useLmpFilters } from "./filters/useLmpFilters";
 import { useRole } from "@/lib/rolesContext";
 import { motion } from "framer-motion";
 import {
-  isConverted, isDormant, statusCounts, type Process, type ProcessStatus,
+  isConverted, isDormant, statusCounts, calculateOutcomeConversionRate, type Process, type ProcessStatus,
 } from "@/lib/lmpProcessQueries";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
@@ -60,10 +60,14 @@ export function PocLmpDashboard() {
   const pocName = (user.pocProfileName ?? user.name ?? user.email ?? "").trim();
 
   const { filtered, filters, set } = useLmpFilters({ role: "poc", userName: pocName, data: liveProcesses.length ? liveProcesses : undefined });
+  const { data: lmpRows = [] } = useLmpRows();
+  const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
+  const filteredRecords = useMemo(() => lmpRows.filter((r) => filteredIds.has(r.id)), [filteredIds, lmpRows]);
 
-  const total = filtered.length || 1;
-  const converted = filtered.filter(isConverted).length;
-  const conversionRate = (converted / total) * 100;
+  const convertedCount = filteredRecords.filter((r) => r.status === "converted").length;
+  const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
+  const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
+  const converted = convertedCount;
   const ongoing = filtered.filter((r) => r.status === "Ongoing").length;
   const offer = filtered.filter((r) => r.status === "Offer Received").length;
   const risk =
@@ -96,7 +100,6 @@ export function PocLmpDashboard() {
   ];
 
   // Domain & assignment breakdown (user-specific via allocationTags)
-  const { data: lmpRows = [] } = useLmpRows();
   const myLmpRowById = new Map(
     lmpRows.filter(r => isUserPocOnRecord(r, pocName)).map(r => [r.id, r])
   );

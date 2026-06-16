@@ -7,16 +7,18 @@ import {
 } from "@/lib/domainAllocation";
 import { usePocPrimaryDomainMap } from "@/lib/hooks/usePocPrimaryDomainMap";
 import type { Process } from "@/lib/lmpProcessQueries";
+import type { LmpRecord } from "@/lib/lmpTypes";
 
 type Props = {
   rows: Process[];
   pocName?: string;
+  records?: LmpRecord[];
 };
 
-export function DomainAllocationSection({ rows, pocName }: Props) {
+export function DomainAllocationSection({ rows, pocName, records }: Props) {
   const { map } = usePocPrimaryDomainMap();
-  const alloc = useMemo(() => domainAllocation(rows, map).filter((d) => d.total > 0), [rows, map]);
-  const purity = useMemo(() => pocPurityMatrix(rows, map), [rows, map]);
+  const alloc = useMemo(() => domainAllocation(rows, map, records).filter((d) => d.total > 0), [rows, map, records]);
+  const purity = useMemo(() => pocPurityMatrix(rows, map, records), [rows, map, records]);
 
   const IN = LX_HEX.success;
   const CR = LX_HEX.orange;

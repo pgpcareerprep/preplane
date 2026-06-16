@@ -1,4 +1,5 @@
-import { type Domain, type Process, isConverted } from "@/lib/lmpProcessQueries";
+import { type Domain, type Process, isConverted, calculateOutcomeConversionRate } from "@/lib/lmpProcessQueries";
+import type { LmpRecord } from "@/lib/lmpTypes";
 
 /**
  * POC → primary domain map, built at call time from live `poc_profiles`
@@ -36,14 +37,22 @@ export type DomainAllocation = {
 export function domainAllocation(
   rows: Process[],
   map: PocPrimaryDomainMap,
+  records?: LmpRecord[],
 ): DomainAllocation[] {
+  const statusMap = records ? new Map(records.map((r) => [r.id, r.status])) : null;
   const domains = Array.from(new Set(rows.map((r) => r.domain).filter(Boolean))) as Domain[];
   return domains.map((d) => {
     const list = rows.filter((r) => r.domain === d);
     const inD = list.filter((r) => !isCrossDomain(r, map));
     const crD = list.filter((r) => isCrossDomain(r, map));
-    const pct = (arr: Process[]) =>
-      arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+    const pct = (arr: Process[]) => {
+      if (statusMap) {
+        const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
+        const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
+        return calculateOutcomeConversionRate(c, nc);
+      }
+      return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+    };
     return {
       domain: d,
       total: list.length,
@@ -67,7 +76,9 @@ export type PocPurityRow = {
 export function pocPurityMatrix(
   rows: Process[],
   map: PocPrimaryDomainMap,
+  records?: LmpRecord[],
 ): PocPurityRow[] {
+  const statusMap = records ? new Map(records.map((r) => [r.id, r.status])) : null;
   const names = new Set<string>();
   rows.forEach((r) => { if (r.prepPoc) names.add(r.prepPoc); });
   const result: PocPurityRow[] = [];
@@ -77,8 +88,14 @@ export function pocPurityMatrix(
     const owned = rows.filter((r) => r.prepPoc === name);
     const inD = owned.filter((r) => r.domain === primary);
     const crD = owned.filter((r) => r.domain !== primary);
-    const conv = (arr: Process[]) =>
-      arr.length ? +((arr.filter(isConverted).length / arr.length) * 100).toFixed(0) : 0;
+    const conv = (arr: Process[]) => {
+      if (statusMap) {
+        const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
+        const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
+        return +calculateOutcomeConversionRate(c, nc).toFixed(0);
+      }
+      return arr.length ? +((arr.filter(isConverted).length / arr.length) * 100).toFixed(0) : 0;
+    };
     result.push({
       poc: name,
       primaryDomain: primary as Domain,
@@ -91,24 +108,31 @@ export function pocPurityMatrix(
   return result.sort((a, b) => b.inDomainCount + b.crossCount - (a.inDomainCount + a.crossCount));
 }
 
-export function allocationKpis(rows: Process[], map: PocPrimaryDomainMap) {
+export function allocationKpis(rows: Process[], map: PocPrimaryDomainMap, records?: LmpRecord[]) {
+  const statusMap = records ? new Map(records.map((r) => [r.id, r.status])) : null;
   const total = rows.length;
   const cross = rows.filter((r) => isCrossDomain(r, map)).length;
   const crossPct = total ? (cross / total) * 100 : 0;
   const inD = rows.filter((r) => !isCrossDomain(r, map));
   const crD = rows.filter((r) => isCrossDomain(r, map));
-  const conv = (arr: Process[]) =>
-    arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+  const conv = (arr: Process[]) => {
+    if (statusMap) {
+      const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
+      const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
+      return calculateOutcomeConversionRate(c, nc);
+    }
+    return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
+  };
   const inDomainConv = conv(inD);
   const crossConv = conv(crD);
   const gap = inDomainConv - crossConv;
 
-  const alloc = domainAllocation(rows, map);
+  const alloc = domainAllocation(rows, map, records);
   const mostMis = [...alloc]
     .filter((d) => d.total > 0)
     .sort((a, b) => (b.cross / Math.max(1, b.total)) - (a.cross / Math.max(1, a.total)))[0];
 
-  const purity = pocPurityMatrix(rows, map);
+  const purity = pocPurityMatrix(rows, map, records);
   const bestCross = [...purity]
     .filter((p) => p.crossCount >= 2)
     .sort((a, b) => b.crossConvPct - a.crossConvPct)[0];

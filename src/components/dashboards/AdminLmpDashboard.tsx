@@ -11,7 +11,7 @@ import { useLmpFilters, uniquePocs, usePrepPocOptions } from "./filters/useLmpFi
 import { useRole } from "@/lib/rolesContext";
 import {
   DOMAINS, domainBreakdown, isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
-  POC_OVERLOAD_THRESHOLD,
+  POC_OVERLOAD_THRESHOLD, calculateOutcomeConversionRate,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
@@ -135,9 +135,10 @@ export function AdminLmpDashboard() {
   );
 
   /* ─────── KPIs ─────── */
-  const total = filtered.length || 1;
-  const converted = filtered.filter(isConverted).length;
-  const conversionRate = (converted / total) * 100;
+  const convertedCount = filteredRecords.filter((r) => r.status === "converted").length;
+  const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
+  const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
+  const converted = convertedCount;
   const ongoing = filtered.filter((r) => r.status === "Ongoing").length;
   const offerReceived = filtered.filter((r) => r.status === "Offer Received").length;
   const risk =
@@ -160,7 +161,7 @@ export function AdminLmpDashboard() {
   const oc = offerCounts(filtered);
 
   /* ─────── Domains ─────── */
-  const domains = useMemo(() => domainBreakdown(filtered), [filtered]);
+  const domains = useMemo(() => domainBreakdown(filteredRecords), [filteredRecords]);
   const sortedByLoad = [...domains].sort((a, b) => b.ongoing - a.ongoing);
   const highestLoad = sortedByLoad[0];
   const highestRisk = [...domains].sort((a, b) => b.risk - a.risk)[0];
