@@ -145,13 +145,15 @@ async function retrieveRAGContext(
   userMessage: string,
   sb: SupabaseLike,
   filterTables?: string[] | null,
-  opts?: { limit?: number; threshold?: number },
+  opts?: { limit?: number; threshold?: number; userId?: string | null },
 ): Promise<string> {
   try {
     const key = getEnv("GEMINI_API_KEY");
     if (!key || !userMessage || !userMessage.trim()) return "";
     const limit = opts?.limit ?? 6;
     const threshold = opts?.threshold ?? 0.68;
+    // ACL: pass requesting_user_id so copilot_messages are scoped to the caller.
+    const requestingUserId = opts?.userId ?? null;
 
     const embedRes = await fetch(`${EMBED_URL}?key=${key}`, {
       method: "POST",
@@ -172,6 +174,7 @@ async function retrieveRAGContext(
       match_threshold: threshold,
       match_count: limit,
       filter_tables: filterTables ?? null,
+      requesting_user_id: requestingUserId,
     });
 
     const rows = (results ?? []) as Array<{ source_table: string; content: string; similarity: number }>;
@@ -1340,7 +1343,7 @@ async function executeTool(
           Deno.env.get("SUPABASE_URL")!,
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
         );
-        const block = await retrieveRAGContext(query, supa, tables, { limit, threshold });
+        const block = await retrieveRAGContext(query, supa, tables, { limit, threshold, userId: requestState().context.userId });
         return JSON.stringify({
           query,
           searched_tables: tables ?? "all",
@@ -3400,7 +3403,7 @@ async function handleRequest(req: Request) {
       ? await retrieveRAGContext(lastUserMessage, createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      ))
+      ), null, { userId: requestState().context.userId })
       : "";
     const systemPrompt = baseSystemPrompt + ragContext;
     let aiMessages: { role: string; content?: string; tool_calls?: any[]; tool_call_id?: string; name?: string }[] = [

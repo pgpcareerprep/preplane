@@ -523,6 +523,7 @@ const NEGATE = /\b(no|nope|cancel|stop|don't|do not|never mind|nevermind|nahi|na
 
 export function VoiceConversationOverlay({
   open, onClose, userName, role, userId, userEmail, viewAsUserName, viewAsRole,
+  threadId, onPersistMessage,
 }: VoiceConversationOverlayProps) {
   const [transcript, setTranscript] = useState("");
   const [speaking, setSpeaking] = useState(false);
@@ -611,8 +612,18 @@ export function VoiceConversationOverlay({
       pendingActionRef.current = null;
     }
 
+    const userMsgTs = Date.now();
     messagesRef.current = [...messagesRef.current, { role: "user", content: userText }];
     setVisibleMessages(prev => [...prev, { role: "user", content: userText }]);
+    // Persist user turn to the shared thread (no-op if threadId is local-)
+    if (threadId && onPersistMessage) {
+      void onPersistMessage(threadId, {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: userText,
+        ts: userMsgTs,
+      });
+    }
     setThinking(true);
     try {
       const resp = await fetch(VOICE_COPILOT_URL, {
@@ -629,6 +640,15 @@ export function VoiceConversationOverlay({
       if (data.pendingAction) pendingActionRef.current = data.pendingAction;
       messagesRef.current.push({ role: "assistant", content: spoken });
       setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken, blocks: data.blocks || [] }]);
+      // Persist assistant turn to the shared thread
+      if (threadId && onPersistMessage) {
+        void onPersistMessage(threadId, {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content: `🎤 ${spoken}`,
+          ts: Date.now(),
+        });
+      }
       setThinking(false);
       await speak(spoken);
     } catch (err) {
@@ -642,7 +662,7 @@ export function VoiceConversationOverlay({
     } finally {
       window.clearTimeout(timeout);
     }
-  }, [identityPayload, speak, stripForVoice]);
+  }, [threadId, onPersistMessage, identityPayload, speak, stripForVoice]);
 
   const { listening, status, errorMsg, start, stop } = useVoiceDictation({
     onTranscript: async (text) => {
