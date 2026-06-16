@@ -276,7 +276,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                     col.items.map((item, i) => {
                       const isDb = item.source === "db" && !!item.id;
                       const card = (
-                        <div className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm">
+                        <div className="group relative w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 pr-8 shadow-sm">
                           {isDb && !readOnly ? (
                             <span
                               className="cursor-grab active:cursor-grabbing text-n300 hover:text-n600 shrink-0 h-4 w-4 flex items-center justify-center"
@@ -296,7 +296,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                             {initialsFrom(item.name)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={item.name}>{item.name}</div>
+                            <div className="truncate whitespace-nowrap text-[12.5px] font-medium text-n800" title={item.name}>{item.name}</div>
                           </div>
                           {isDb && !readOnly ? (
                             <>
@@ -307,7 +307,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                                   if (next === col.id || !dbLmpId) return;
                                   stageMutation.mutate({ id: item.id!, pipeline_stage: next, lmp_id: dbLmpId });
                                 }}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 text-[11px] rounded border border-n200 bg-card text-n700 px-1 shrink-0"
+                                className="absolute right-8 top-1/2 h-6 max-w-[112px] -translate-y-1/2 rounded border border-n200 bg-card px-1 text-[11px] text-n700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus:opacity-100"
                                 aria-label={`Move ${item.name} to another round`}
                                 title="Move to round"
                               >
@@ -319,7 +319,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                               <button
                                 type="button"
                                 onClick={() => setPendingDelete({ id: item.id!, name: item.name })}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-5 w-5 grid place-items-center rounded text-n400 hover:text-coral-600 hover:bg-coral-50 shrink-0"
+                                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-n400 opacity-0 transition-opacity hover:bg-coral-50 hover:text-coral-600 group-hover:opacity-100 focus:opacity-100"
                                 aria-label={`Remove ${item.name}`}
                                 title="Remove from this round"
                               >
@@ -328,7 +328,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                             </>
                           ) : (
                             <span
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-n400 italic shrink-0"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] italic text-n400 opacity-0 transition-opacity group-hover:opacity-100"
                               title="From sheet — edit in source"
                             >
                               sheet
@@ -343,7 +343,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                       return (
                         <DraggableCard key={`${col.id}-${i}-${item.id}`} id={item.id!}>
                           {(dragHandleProps) => (
-                            <div className="group w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 shadow-sm">
+                            <div className="group relative w-full flex items-center gap-2 rounded-md border border-n200 bg-card px-2 py-1.5 pr-8 shadow-sm">
                               <span
                                 className="cursor-grab active:cursor-grabbing text-n300 hover:text-n600 shrink-0 h-4 w-4 flex items-center justify-center"
                                 title="Drag to move"
@@ -360,7 +360,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                                 {initialsFrom(item.name)}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={item.name}>{item.name}</div>
+                                <div className="truncate whitespace-nowrap text-[12.5px] font-medium text-n800" title={item.name}>{item.name}</div>
                               </div>
                               <select
                                 value={col.id}
@@ -369,7 +369,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                                   if (next === col.id || !dbLmpId) return;
                                   stageMutation.mutate({ id: item.id!, pipeline_stage: next, lmp_id: dbLmpId });
                                 }}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 text-[11px] rounded border border-n200 bg-card text-n700 px-1 shrink-0"
+                                className="absolute right-8 top-1/2 h-6 max-w-[112px] -translate-y-1/2 rounded border border-n200 bg-card px-1 text-[11px] text-n700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus:opacity-100"
                                 aria-label={`Move ${item.name} to another round`}
                                 title="Move to round"
                               >
@@ -381,7 +381,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                               <button
                                 type="button"
                                 onClick={() => setPendingDelete({ id: item.id!, name: item.name })}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-5 w-5 grid place-items-center rounded text-n400 hover:text-coral-600 hover:bg-coral-50 shrink-0"
+                                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-n400 opacity-0 transition-opacity hover:bg-coral-50 hover:text-coral-600 group-hover:opacity-100 focus:opacity-100"
                                 aria-label={`Remove ${item.name}`}
                                 title="Remove"
                               >
@@ -405,7 +405,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
                 <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0", CANDIDATE_COLORS[activeItem.colorIdx])}>
                   {initialsFrom(activeItem.name)}
                 </div>
-                <span className="text-[12.5px] text-n800 font-medium whitespace-normal break-words" title={activeItem.name}>{activeItem.name}</span>
+                <span className="truncate whitespace-nowrap text-[12.5px] font-medium text-n800" title={activeItem.name}>{activeItem.name}</span>
               </div>
             )}
           </DragOverlay>
