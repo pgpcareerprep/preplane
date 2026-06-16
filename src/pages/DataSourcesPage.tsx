@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -44,7 +45,7 @@ type ModalState =
   | { source: "domain_db" | "lmp_db" | "lmp_mentors_db"; kind: "viewAll" | "history" }
   | null;
 
-export default function DataSourcesPage() {
+function DataSourcesPageInner() {
   const { role } = useRole();
   const isAdmin = role === "admin";
   const canBackfillLmp = role === "admin" || role === "allocator";
@@ -390,5 +391,13 @@ export default function DataSourcesPage() {
       <MappingInspectorModal open={mappingOpen} onOpenChange={setMappingOpen} />
       <HistoricalLmpBackfillModal open={historicalBackfillOpen} onOpenChange={setHistoricalBackfillOpen} />
     </div>
+  );
+}
+
+export default function DataSourcesPage() {
+  return (
+    <ErrorBoundary fallbackTitle="Data sources unavailable">
+      <DataSourcesPageInner />
+    </ErrorBoundary>
   );
 }

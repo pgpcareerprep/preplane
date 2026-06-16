@@ -29,7 +29,6 @@ import { MentionDropdown, type MentionEntity } from "@/components/copilot/Mentio
 import { ScopeSelector, type CopilotScope } from "@/components/copilot/ScopeSelector";
 import { ContextRail, type ActiveContext } from "@/components/copilot/ContextRail";
 import { useVoiceDictation, VoiceMicButton, VoiceIndicator, VoiceConversationOverlay } from "@/components/copilot/VoiceDictation";
-import * as Papa from "papaparse";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useCopilotThreads } from "@/hooks/useCopilotThreads";
 import { CopilotUsageStrip, CopilotUsageMini } from "@/components/copilot/CopilotQuotaBar";
@@ -498,8 +497,11 @@ function CopilotPageInner() {
         let content = "";
         if (file.name.endsWith(".csv")) {
           const text = await file.text();
-          const result = Papa.parse(text, { header: true });
-          content = JSON.stringify(result.data.slice(0, 50), null, 2);
+          const mod = await import("papaparse");
+          const parse = mod.parse ?? (mod as any).default?.parse;
+          if (!parse) throw new Error("PapaParse parser unavailable");
+          const result = parse(text, { header: true });
+          content = JSON.stringify((result as any).data.slice(0, 50), null, 2);
         } else if (file.type.startsWith("text/") || file.name.endsWith(".json") || file.name.endsWith(".md")) {
           content = await file.text();
         } else if (file.type.startsWith("image/")) {

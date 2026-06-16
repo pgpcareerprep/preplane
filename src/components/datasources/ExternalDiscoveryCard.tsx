@@ -100,7 +100,7 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
     }
   };
 
-  const onUpload = async (file: File) => {
+  const onUpload = (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
     const finalize = (records: Array<Record<string, unknown>>) => {
       if (records.length === 0) {
@@ -127,13 +127,16 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
       return;
     }
     if (ext === "csv") {
-      const Papa = await import("papaparse");
-      Papa.parse<Record<string, string>>(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (res) => finalize(res.data || []),
-        error: () => toast.error("Could not parse CSV"),
-      });
+      import("papaparse").then((mod) => {
+        const parse = mod.parse ?? (mod as any).default?.parse;
+        if (!parse) { toast.error("CSV parser unavailable"); return; }
+        parse<Record<string, string>>(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (res: any) => finalize(res.data || []),
+          error: () => toast.error("Could not parse CSV"),
+        });
+      }).catch(() => toast.error("Could not load CSV parser"));
       return;
     }
     toast.error("Unsupported file — use .json or .csv");
