@@ -10,24 +10,29 @@ export type EligiblePrepPoc = {
   accessLevel: string;
   primaryDomain: string | null;
   domains: string[];
+  /** All linked LMP IDs (current + historical prep/support). Empty for zero-LMP POCs. */
   assignedLmpIds: string[];
+  /** May be 0 for domain-assigned POCs with no current/historical LMPs. */
   assignedLmpCount: number;
 };
 
 /**
  * Canonical eligible Prep POC directory.
  *
- * Eligibility rules (ALL must be satisfied):
- * 1. poc_profiles.status = "active"
- * 2. Has at least one valid domain (primary_domain OR a non-empty domain_tags entry)
- * 3. Has at least one active lmp_poc_links record with role "prep" or "support"
- *    (outreach-only users are excluded)
- * 4. All access levels are permitted (admin, allocator, poc all qualify)
+ * Eligibility — a POC appears when ALL of the following hold:
+ *   1. poc_profiles.status = "active"
+ *   2. NOT outreach-only (role_type ≠ "outreach_poc")
+ *   3. AT LEAST ONE of:
+ *      a. Has at least one valid domain (primary_domain OR non-empty domain_tags entry)
+ *      b. Has any current or historical lmp_poc_links record with role "prep" or "support"
+ *
+ * Critically, assignedLmpCount may be 0 — a domain-assigned POC with no LMP history
+ * is still shown in the dropdown. Selecting them produces an empty filtered result.
  *
  * Returns:
- * - `pocs`         — sorted eligible POC list
- * - `pocLmpIdsMap` — Map<poc_profiles.id → Set<lmp_processes.id>> for UUID-based filtering
- * - `selectOptions` — [{ value: "All", label: "All Prep POCs" }, ...pocs as options]
+ * - `pocs`          — sorted eligible POC list
+ * - `pocLmpIdsMap`  — Map<poc_profiles.id → Set<lmp_processes.id>> (all linked, not just active)
+ * - `selectOptions` — [{ value: "All", label: "All Prep POCs" }, ...pocs]
  */
 export function useEligiblePrepPocs(): {
   pocs: EligiblePrepPoc[];
@@ -44,46 +49,56 @@ export function useEligiblePrepPocs(): {
       const [pocsRes, linksRes] = await Promise.all([
         supabase
           .from("poc_profiles")
-          .select("id, name, email, access_level, primary_domain, domain_tags, status")
+          .select("id, name, email, access_level, role_type, primary_domain, domain_tags, status")
           .eq("status", "active"),
+        // Fetch ALL prep/support links — current AND historical (no is_active filter).
+        // Historical links qualify a POC for the dropdown even if they have no current LMPs.
         supabase
           .from("lmp_poc_links")
-          .select("poc_id, lmp_id, role, is_active")
-          .in("role", ["prep", "support"])
-          .eq("is_active", true),
+          .select("poc_id, lmp_id, role")
+          .in("role", ["prep", "support"]),
       ]);
 
       if (pocsRes.error) throw new Error(pocsRes.error.message);
       if (linksRes.error) throw new Error(linksRes.error.message);
 
-      // Build pocId → Set<lmpId> from active prep/support links
+      // Build pocId → Set<lmpId> from all prep/support links (current + historical).
       const linksByPoc = new Map<string, Set<string>>();
       for (const l of linksRes.data ?? []) {
         if (!l.poc_id || !l.lmp_id) continue;
-        const set = linksByPoc.get(l.poc_id) ?? new Set<string>();
-        set.add(l.lmp_id);
-        linksByPoc.set(l.poc_id, set);
+        const s = linksByPoc.get(l.poc_id) ?? new Set<string>();
+        s.add(l.lmp_id);
+        linksByPoc.set(l.poc_id, s);
       }
 
       const eligible: EligiblePrepPoc[] = [];
 
       for (const p of pocsRes.data ?? []) {
-        // Rule 2: must have at least one valid domain
+        // Exclude outreach-only POCs (role_type = "outreach_poc").
+        // A person with both Prep/Support AND Outreach responsibilities has
+        // role_type = "prep_poc" (or null/unset) and is NOT excluded here.
+        const roleType = (p.role_type as string | null) ?? "prep_poc";
+        if (roleType === "outreach_poc") continue;
+
         const primaryDomain = (p.primary_domain ?? "").trim() || null;
         const domainTags: string[] = Array.isArray(p.domain_tags)
           ? (p.domain_tags as string[]).filter((t) => t && t.trim())
           : [];
         const hasDomain = !!primaryDomain || domainTags.length > 0;
-        if (!hasDomain) continue;
 
-        // Rule 3: must have at least one active prep/support link
-        const assignedSet = linksByPoc.get(p.id as string);
-        if (!assignedSet || assignedSet.size === 0) continue;
+        // Any current or historical prep/support link qualifies as history.
+        const hasPrepOrSupportHistory = linksByPoc.has(p.id as string);
+
+        // Gate: must have a domain OR any prep/support history.
+        if (!hasDomain && !hasPrepOrSupportHistory) continue;
 
         const domains: string[] = [
           ...(primaryDomain ? [primaryDomain] : []),
           ...domainTags,
         ];
+
+        const assignedSet = linksByPoc.get(p.id as string);
+        const assignedLmpIds = assignedSet ? Array.from(assignedSet) : [];
 
         eligible.push({
           pocId: p.id as string,
@@ -92,14 +107,22 @@ export function useEligiblePrepPocs(): {
           accessLevel: (p.access_level as string | null) ?? "poc",
           primaryDomain,
           domains,
-          assignedLmpIds: Array.from(assignedSet),
-          assignedLmpCount: assignedSet.size,
+          assignedLmpIds,
+          assignedLmpCount: assignedLmpIds.length,
         });
       }
 
-      eligible.sort((a, b) => a.name.localeCompare(b.name));
+      // Deduplicate by pocId (poc_profiles.id is the canonical key).
+      const seen = new Set<string>();
+      const deduped = eligible.filter((p) => {
+        if (seen.has(p.pocId)) return false;
+        seen.add(p.pocId);
+        return true;
+      });
 
-      return { eligible, linksByPoc };
+      deduped.sort((a, b) => a.name.localeCompare(b.name));
+
+      return { eligible: deduped, linksByPoc };
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
