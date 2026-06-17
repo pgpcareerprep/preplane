@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { LmpRecord } from "@/lib/lmpTypes";
 
 const PAGE = 1000;
 
@@ -77,6 +78,88 @@ export async function exportTableToCsv(
 
 export function dateStamp(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Export the already-loaded, already-filtered board LmpRecord[] as CSV.
+ *
+ * This function NEVER runs a new database query — it operates on the records
+ * already authorised and scoped by the board (View As, board scope, domain/
+ * status/text/overdue filters all already applied).
+ *
+ * It is therefore safe to call during View As: it can only export what is
+ * currently visible, not the full lmp_processes table.
+ */
+const LMP_BOARD_CSV_HEADERS = [
+  "lmp_code", "company", "role", "domain", "status", "type",
+  "process_date", "closing_date",
+  "admin_owner", "allocator", "prep_poc", "support_poc", "outreach_poc",
+  "candidate_count",
+  "daily_progress", "prep_progress", "placement_progress",
+  "r1_names", "r2_names", "r3_names",
+  "final_converted_numbers", "final_converted_names",
+  "next_progress_date", "next_progress_type",
+  "jd_url",
+  "prep_doc_link",
+  "mentor_aligned",
+  "assignment_review",
+  "remarks",
+  "created_at",
+  "updated_at",
+];
+
+function sanitiseFilename(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+export function exportLmpBoardCsv(records: LmpRecord[], scopeLabel: string): void {
+  if (!records.length) {
+    toast.message("No records to export", { description: "The current filtered list is empty." });
+    return;
+  }
+
+  const firstDocUrl = (r: LmpRecord): string => {
+    if (!r.documents?.length) return typeof r.prepDoc === "string" && r.prepDoc.startsWith("http") ? r.prepDoc : "";
+    return r.documents[0]?.url ?? "";
+  };
+
+  const rows = records.map((r) => ({
+    lmp_code: r.lmpCode ?? r.reqId ?? "",
+    company: r.company ?? "",
+    role: r.role ?? "",
+    domain: r.domain ?? "",
+    status: r.status ?? "",
+    type: r.type ?? "",
+    process_date: r.createdAt ? r.createdAt.slice(0, 10) : "",
+    closing_date: r.closingDate ?? "",
+    admin_owner: r.adminOwner ?? "",
+    allocator: r.allocator ?? "",
+    prep_poc: r.prepPoc?.name ?? r.domainPrepPoc?.name ?? "",
+    support_poc: r.supportPoc?.name ?? r.behavioralPrepPoc?.name ?? "",
+    outreach_poc: r.outreachPoc?.name ?? "",
+    candidate_count: r.candidates ?? 0,
+    daily_progress: r.dailyProgress ?? "",
+    prep_progress: r.prepProgress ?? "",
+    placement_progress: r.placementProgress ?? "",
+    r1_names: r.r1Names ?? "",
+    r2_names: r.r2Names ?? "",
+    r3_names: r.r3Names ?? "",
+    final_converted_numbers: r.finalConvertedNumbers ?? "",
+    final_converted_names: r.finalConvertedNames ?? "",
+    next_progress_date: r.nextExpectedProgress ?? "",
+    next_progress_type: r.nextExpectedType ?? "",
+    jd_url: r.jdUrl ?? "",
+    prep_doc_link: firstDocUrl(r),
+    mentor_aligned: r.mentorAligned != null ? String(r.mentorAligned) : "",
+    assignment_review: r.assignmentReview != null ? String(r.assignmentReview) : "",
+    remarks: r.reason ?? "",
+    created_at: r.createdAt ?? "",
+    updated_at: r.lastActivity ?? "",
+  }));
+
+  const filename = `lmp_${sanitiseFilename(scopeLabel)}_${dateStamp()}.csv`;
+  downloadCsv(filename, rows, LMP_BOARD_CSV_HEADERS);
+  toast.success(`Exported ${rows.length.toLocaleString()} rows`);
 }
 
 // ---------- LMP Processes: cleaned export ----------

@@ -152,7 +152,7 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-[12px]">Role</Label>
+                  <Label className="text-[12px]">POC Type</Label>
                   <select
                     value={values.role_type}
                     onChange={(e) => set("role_type", e.target.value)}
@@ -164,7 +164,7 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
                   </select>
                 </div>
                 <div>
-                  <Label className="text-[12px]">Access</Label>
+                  <Label className="text-[12px]">Platform Role</Label>
                   <select
                     value={values.access_level ?? "poc"}
                     onChange={(e) => set("access_level", e.target.value as PocAccessLevel)}

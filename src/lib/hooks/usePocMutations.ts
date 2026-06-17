@@ -41,6 +41,9 @@ function invalidatePocs(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["poc_profiles"] });
   qc.invalidateQueries({ queryKey: ["poc_registry"] });
   qc.invalidateQueries({ queryKey: ["poc-directory"] });
+  // Profiles are synced bidirectionally — bust them too so User Management
+  // reflects the role change that was triggered by the poc access_level update.
+  qc.invalidateQueries({ queryKey: ["profiles"] });
 }
 
 function pocDisplayPayload(values: PocFormValues) {
@@ -62,22 +65,23 @@ export function useCreatePoc() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (values: PocFormValues) => {
-      const { data, error } = await supabase
-        .from("poc_profiles")
-        .insert({
-          name: values.name,
-          email: values.email || null,
-          role_type: values.role_type,
-          status: values.status,
-          primary_domain: values.primary_domain || null,
-          domain_tags: values.domain_tags ?? [],
-          access_level: values.access_level ?? "poc",
-          ...pocDisplayPayload(values),
-        })
-        .select()
-        .single();
+      const display = pocDisplayPayload(values);
+      const { data, error } = await supabase.rpc("upsert_poc_with_profile_sync", {
+        p_id:             null,
+        p_name:           values.name,
+        p_email:          values.email || null,
+        p_role_type:      values.role_type,
+        p_status:         values.status,
+        p_primary_domain: values.primary_domain || null,
+        p_domain_tags:    values.domain_tags ?? [],
+        p_max_threshold:  values.max_threshold,
+        p_access_level:   values.access_level ?? "poc",
+        p_initials:       display.initials,
+        p_label:          display.label,
+        p_color:          display.color,
+      });
       if (error) throw error;
-      return data;
+      return Array.isArray(data) ? data[0] : data;
     },
     onSuccess: () => {
       invalidatePocs(qc);
@@ -103,21 +107,23 @@ export function useUpdatePoc() {
       values: PocFormValues;
       previousName?: string;
     }) => {
-      const { error } = await supabase
-        .from("poc_profiles")
-        .update({
-          name: values.name,
-          email: values.email || null,
-          role_type: values.role_type,
-          status: values.status,
-          primary_domain: values.primary_domain || null,
-          domain_tags: values.domain_tags ?? [],
-          access_level: values.access_level ?? "poc",
-          ...pocDisplayPayload(values),
-        })
-        .eq("id", id);
-      if (error) throw error;
       void previousName;
+      const display = pocDisplayPayload(values);
+      const { error } = await supabase.rpc("upsert_poc_with_profile_sync", {
+        p_id:             id,
+        p_name:           values.name,
+        p_email:          values.email || null,
+        p_role_type:      values.role_type,
+        p_status:         values.status,
+        p_primary_domain: values.primary_domain || null,
+        p_domain_tags:    values.domain_tags ?? [],
+        p_max_threshold:  values.max_threshold,
+        p_access_level:   values.access_level ?? "poc",
+        p_initials:       display.initials,
+        p_label:          display.label,
+        p_color:          display.color,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       invalidatePocs(qc);

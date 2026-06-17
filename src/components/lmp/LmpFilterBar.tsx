@@ -10,12 +10,16 @@ export type LmpFilters = {
   poc: string;
   domain: string;
   status: string;
+  /** poc_profiles.id UUID or "". Used for admin/allocator Prep POC scoping. */
+  prepPocId: string;
 };
 
-export const EMPTY_LMP_FILTERS: LmpFilters = { q: "", company: "", role: "", poc: "", domain: "", status: "" };
+export const EMPTY_LMP_FILTERS: LmpFilters = {
+  q: "", company: "", role: "", poc: "", domain: "", status: "", prepPocId: "",
+};
 
 function activeCount(f: LmpFilters) {
-  return (f.domain ? 1 : 0) + (f.status ? 1 : 0);
+  return (f.domain ? 1 : 0) + (f.status ? 1 : 0) + (f.prepPocId ? 1 : 0);
 }
 
 export function LmpFilterBar({
@@ -23,14 +27,24 @@ export function LmpFilterBar({
   onChange,
   trailing,
   records = [],
+  role,
+  prepPocOptions,
 }: {
   value: LmpFilters;
   onChange: (v: LmpFilters) => void;
   trailing?: ReactNode;
   records?: LmpRecord[];
+  /** Current user's real role — controls visibility of admin-only filters. */
+  role?: string;
+  /** Eligible Prep POC options (admin/allocator only). UUID-based. */
+  prepPocOptions?: { value: string; label: string }[];
 }) {
-  const domains = useMemo(() => Array.from(new Set(records.map((r) => r.domain).filter(Boolean))).sort(), [records]);
+  const domains = useMemo(
+    () => Array.from(new Set(records.map((r) => r.domain).filter(Boolean))).sort(),
+    [records],
+  );
 
+  const showPrepPoc = (role === "admin" || role === "allocator") && !!prepPocOptions?.length;
   const count = activeCount(value);
   const set = <K extends keyof LmpFilters>(k: K, v: LmpFilters[K]) =>
     onChange({ ...value, [k]: v });
@@ -58,6 +72,21 @@ export function LmpFilterBar({
           valueMap={Object.fromEntries(STATUSES.map((s) => [STATUS_META[s].label, s]))}
           reverseMap={Object.fromEntries(STATUSES.map((s) => [s, STATUS_META[s].label]))}
         />
+
+        {showPrepPoc && (
+          <InlineSelect
+            value={value.prepPocId}
+            onChange={(v) => set("prepPocId", v)}
+            placeholder="All Prep POCs"
+            options={prepPocOptions!.filter((o) => o.value !== "All").map((o) => o.label)}
+            valueMap={Object.fromEntries(
+              prepPocOptions!.filter((o) => o.value !== "All").map((o) => [o.label, o.value]),
+            )}
+            reverseMap={Object.fromEntries(
+              prepPocOptions!.filter((o) => o.value !== "All").map((o) => [o.value, o.label]),
+            )}
+          />
+        )}
 
         {count > 0 && (
           <button

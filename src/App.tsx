@@ -6,6 +6,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RoleProvider } from "@/lib/rolesContext";
+import { ViewerProvider } from "@/lib/viewerContext";
 import { WorkspaceViewProvider } from "@/lib/workspaceViewContext";
 import { LmpViewingProvider } from "@/lib/lmpViewingContext";
 import { LmpChatProvider } from "@/lib/lmpChatContext";
@@ -62,6 +63,7 @@ const App = () => (
       <BrowserRouter>
         <ThemeProvider>
         <RoleProvider>
+          <ViewerProvider>
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
@@ -80,6 +82,7 @@ const App = () => (
               </AuthGate>
             } />
           </Routes>
+          </ViewerProvider>
         </RoleProvider>
         </ThemeProvider>
       </BrowserRouter>

@@ -23,6 +23,8 @@ export type ApprovedUser = {
   role: Role;
   /** poc_profiles.id — used for UUID-based filtering in view-as mode */
   pocId?: string | null;
+  /** poc_profiles.role_type — used to exclude outreach-only POCs from View As */
+  pocRoleType?: string | null;
 };
 
 type RoleContextValue = {
@@ -243,28 +245,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         avatarUrl: (profile as any)?.avatar_url ?? null,
       });
       setRole(resolvedRole);
-      // Hydrate persisted impersonation (admins) so session refreshes /
-      // tab navigation don't wipe the "Viewing as" selection.
-      let restoredViewAs: ApprovedUser | null = null;
-      if (resolvedRole === "admin" || resolvedRole === "allocator") {
-        try {
-          const stored = typeof window !== "undefined"
-            ? window.localStorage.getItem(`lmp_view_as_user_${uid}`)
-            : null;
-          if (stored) {
-            const parsed = JSON.parse(stored) as ApprovedUser;
-            if (parsed?.email && parsed?.name && parsed?.role) {
-              restoredViewAs = parsed;
-            }
-          }
-        } catch { /* ignore */ }
-      }
-      if (restoredViewAs) {
-        setViewAsUserState(restoredViewAs);
-        setViewAsRole(restoredViewAs.role);
-      } else {
-        setViewAsRole(resolvedRole);
-      }
+      // View As is never restored from localStorage, sessionStorage, or URL params.
+      // Each session starts with a clean slate (no persisted impersonation).
+      setViewAsRole(resolvedRole);
       setIsLoading(false);
 
       // Privileged roles can select a POC perspective without changing authority.
@@ -284,30 +267,100 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           const emails = validUsers.map((u) => (u.email as string).toLowerCase());
           const pocNameByEmail: Map<string, string> = new Map();
           const pocIdByEmail: Map<string, string> = new Map();
+          // role_type: "outreach_poc" means the person is outreach-only; exclude from View As.
+          const pocRoleTypeByEmail: Map<string, string> = new Map();
           if (emails.length > 0) {
             const { data: pocRows } = await supabase
               .from("poc_profiles")
-              .select("email, name, id")
+              .select("email, name, id, role_type, status")
               .not("email", "is", null)
               .in("email", emails);
             for (const p of pocRows ?? []) {
-              if (p.email && p.name) pocNameByEmail.set(p.email.toLowerCase(), p.name as string);
-              if (p.email && p.id) pocIdByEmail.set(p.email.toLowerCase(), p.id as string);
+              if (!p.email) continue;
+              const key = (p.email as string).toLowerCase();
+              if (p.name) pocNameByEmail.set(key, p.name as string);
+              if (p.id) pocIdByEmail.set(key, p.id as string);
+              if (p.role_type) pocRoleTypeByEmail.set(key, p.role_type as string);
             }
           }
-          setApprovedUsers(
-            validUsers.map((u) => ({
-              name: (pocNameByEmail.get((u.email as string).toLowerCase()) ?? u.display_name) as string,
+          const enriched: ApprovedUser[] = [];
+          for (const u of validUsers) {
+            const emailKey = (u.email as string).toLowerCase();
+            const pocRoleType = pocRoleTypeByEmail.get(emailKey) ?? null;
+            const profilesRole = u.role as Role;
+
+            // For POC users: require a matching poc_profiles record and exclude outreach-only.
+            if (profilesRole === "poc") {
+              if (!pocIdByEmail.has(emailKey)) continue; // no poc_profiles record — skip
+              if (pocRoleType === "outreach_poc") continue; // outreach-only — exclude
+            }
+
+            enriched.push({
+              name: (pocNameByEmail.get(emailKey) ?? u.display_name) as string,
               email: u.email as string,
-              role: u.role as Role,
-              pocId: pocIdByEmail.get((u.email as string).toLowerCase()) ?? null,
-            })),
-          );
+              role: profilesRole,
+              pocId: pocIdByEmail.get(emailKey) ?? null,
+              pocRoleType,
+            });
+          }
+          setApprovedUsers(enriched);
         }
       }
     })();
 
     return () => { cancelled = true; };
+  }, [session?.user?.id]);
+
+  // Subscribe to own profile row so role/access changes from User Management
+  // take effect immediately without requiring a page refresh.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+
+    const channel = supabase
+      .channel(`profile-live-${uid}`)
+      .on(
+        "postgres_changes" as never,
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `user_id=eq.${uid}`,
+        },
+        (payload: any) => {
+          const updated = payload.new as {
+            role?: string;
+            access_status?: string;
+            is_active?: boolean;
+          };
+          if (!updated) return;
+
+          const profileRole = ((updated.role as string | null) ?? "").trim().toLowerCase();
+          const hasValidRole = profileRole === "admin" || profileRole === "allocator" || profileRole === "poc";
+          const isApproved =
+            (updated.access_status == null || updated.access_status === "approved") &&
+            updated.is_active !== false &&
+            hasValidRole;
+
+          if (!isApproved) {
+            supabase.auth.signOut().then(() => {
+              setSession(null);
+              setUser(GUEST);
+              setRole("poc");
+              if (typeof window !== "undefined") {
+                window.location.replace("/login?error=not_approved");
+              }
+            });
+            return;
+          }
+
+          setRole(profileRole as Role);
+          setViewAsRole(profileRole as Role);
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id]);
 
   const logout = useCallback(async () => {
@@ -325,15 +378,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     } else {
       setViewAsRole(role);
     }
-    // Persist so navigation / session refresh doesn't reset impersonation.
-    try {
-      const uid = currentUserIdRef.current;
-      if (uid && typeof window !== "undefined") {
-        const key = `lmp_view_as_user_${uid}`;
-        if (u) window.localStorage.setItem(key, JSON.stringify(u));
-        else window.localStorage.removeItem(key);
-      }
-    } catch { /* ignore */ }
+    // View As is intentionally NOT persisted to localStorage.
+    // Each session / page load starts with the user's own perspective.
   }, [role]);
 
   const value = useMemo<RoleContextValue>(
