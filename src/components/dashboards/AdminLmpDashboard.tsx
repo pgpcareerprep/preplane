@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
-  LxHero, LxKpi, LxStackedBar, LxDonut, LxRankedBar, LxHeatmap, LxAttentionStrip,
+  LxHero, LxKpi, LxStackedBar, LxDonut, LxRankedBar, LxAttentionStrip,
   LxInsightTile, LX_HEX, type LxAccent,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
@@ -38,6 +38,7 @@ import {
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
 } from "@/lib/dashboardDrill";
 import { STATUSES, STATUS_META, type LmpStatus } from "@/lib/lmpTypes";
+import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
 
 /* ─── Converted-name parsing ───────────────────────────────────────────────
  * Splits a raw final_converted_names string into individual names.
@@ -130,7 +131,11 @@ export function AdminLmpDashboard() {
   useLmpCandidatesRealtime();
   // Invalidate the dashboard's custom queries on any underlying DB write so
   // the heatmap, attention strip, and student cards update instantly.
-  useRealtimeInvalidate("lmp_processes", [["prep_poc_capacity_live_v2"]]);
+  useRealtimeInvalidate("lmp_processes", [
+    ["prep_poc_capacity_live_v2"],
+    ["attention_pending_offers"],
+    ["attention_missing_prep_docs"],
+  ]);
   useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"]]);
   useRealtimeInvalidate("poc_profiles" as never, [
     ["prep_poc_capacity_live_v2"],
@@ -196,8 +201,8 @@ export function AdminLmpDashboard() {
   const overloaded = prepLoad.filter((p) => p.ongoing > POC_OVERLOAD_THRESHOLD).length
     + outreachLoad.filter((p) => p.ongoing > POC_OVERLOAD_THRESHOLD).length;
 
-  /* ─────── Capacity heatmap — fully live from POC DB + LMP DB ─────── */
-  const { data: prepPocCapacity = [], isLoading: capacityLoading } = useQuery({
+  /* ─────── Capacity data — used by attention strip for overloaded POC detection ─────── */
+  const { data: prepPocCapacity = [] } = useQuery({
     queryKey: ["prep_poc_capacity_live_v2"],
     queryFn: async () => {
       const [pocsRes, linksRes] = await Promise.all([
@@ -212,10 +217,8 @@ export function AdminLmpDashboard() {
       ]);
       if (pocsRes.error) throw new Error(pocsRes.error.message);
       if (linksRes.error) throw new Error(linksRes.error.message);
-
       const norm = (s: any) => String(s ?? "").trim().toLowerCase();
       const TERMINAL = new Set(["converted", "not-converted", "other-reasons", "closed", "rejected"]);
-
       type Link = { is_active: boolean; role: string; lmp_processes: any; lmp_id: string };
       const byPoc = new Map<string, Link[]>();
       (linksRes.data ?? []).forEach((l: any) => {
@@ -225,164 +228,28 @@ export function AdminLmpDashboard() {
         arr.push({ is_active: !!l.is_active, role: l.role, lmp_processes: l.lmp_processes, lmp_id: pid });
         byPoc.set(l.poc_id, arr);
       });
-
       return (pocsRes.data ?? [])
         .map((p: any) => {
           const links = byPoc.get(p.id) ?? [];
           const prepLinks = links.filter((l) => l.role === "prep");
-          const supportLinks = links.filter((l) => l.role === "support");
           const domainTags = Array.isArray(p.domain_tags) ? p.domain_tags.filter(Boolean) : [];
-          const domainCtx = new Set<string>(
-            [p.primary_domain, ...domainTags].filter(Boolean).map((d: string) => norm(d)),
-          );
-
-          const totalIds = new Set<string>();
+          const domainCtx = new Set<string>([p.primary_domain, ...domainTags].filter(Boolean).map((d: string) => norm(d)));
           const prepActiveIds = new Set<string>();
-          const supportActiveIds = new Set<string>();
-          const inDomainIds = new Set<string>();
-          const crossIds = new Set<string>();
-          const statusIds: Record<string, Set<string>> = {
-            notStarted: new Set(), prepOngoing: new Set(), prepDone: new Set(),
-            hold: new Set(), converted: new Set(), notConverted: new Set(), otherReasons: new Set(),
-          };
-
           prepLinks.forEach((l) => {
-            const id = l.lmp_id;
             const st = norm(l.lmp_processes?.status);
-            const dn = norm(l.lmp_processes?.domains?.name);
-            totalIds.add(id);
-            if (st === "not-started") statusIds.notStarted.add(id);
-            else if (st === "prep-ongoing") statusIds.prepOngoing.add(id);
-            else if (st === "prep-done") statusIds.prepDone.add(id);
-            else if (st === "hold") statusIds.hold.add(id);
-            else if (st === "converted") statusIds.converted.add(id);
-            else if (st === "not-converted") statusIds.notConverted.add(id);
-            else if (st === "other-reasons") statusIds.otherReasons.add(id);
-            if (l.is_active && !TERMINAL.has(st)) {
-              prepActiveIds.add(id);
-              if (domainCtx.size && dn && !domainCtx.has(dn)) crossIds.add(id);
-              else inDomainIds.add(id);
-            }
+            if (l.is_active && !TERMINAL.has(st)) prepActiveIds.add(l.lmp_id);
           });
-          supportLinks.forEach((l) => {
-            const id = l.lmp_id;
-            const st = norm(l.lmp_processes?.status);
-            // Include support LMPs in the total and status breakdown.
-            totalIds.add(id);
-            if (st === "not-started") statusIds.notStarted.add(id);
-            else if (st === "prep-ongoing") statusIds.prepOngoing.add(id);
-            else if (st === "prep-done") statusIds.prepDone.add(id);
-            else if (st === "hold") statusIds.hold.add(id);
-            else if (st === "converted") statusIds.converted.add(id);
-            else if (st === "not-converted") statusIds.notConverted.add(id);
-            else if (st === "other-reasons") statusIds.otherReasons.add(id);
-            if (l.is_active && !TERMINAL.has(st)) supportActiveIds.add(id);
-          });
-
-          return {
-            name: (p.name ?? "").trim(),
-            hasDomain: domainCtx.size > 0,
-            historical: totalIds.size,
-            active: prepActiveIds.size,
-            supportActive: supportActiveIds.size,
-            cross: crossIds.size,
-            inDomain: inDomainIds.size,
-            notStarted: statusIds.notStarted.size,
-            prepOngoing: statusIds.prepOngoing.size,
-            prepDone: statusIds.prepDone.size,
-            hold: statusIds.hold.size,
-            converted: statusIds.converted.size,
-            notConverted: statusIds.notConverted.size,
-            otherReasons: statusIds.otherReasons.size,
-            ids: {
-              total: totalIds,
-              prepActive: prepActiveIds,
-              supportActive: supportActiveIds,
-              inDomain: inDomainIds,
-              cross: crossIds,
-              ...statusIds,
-            },
-          };
+          return { name: (p.name ?? "").trim(), active: prepActiveIds.size, hasDomain: domainCtx.size > 0 };
         })
-        .filter((p) => p.name && (p.hasDomain || p.historical > 0 || p.supportActive > 0))
-        .sort((a, b) => (b.active - a.active) || (b.historical - a.historical));
-
-
+        .filter((p) => p.name && (p.hasDomain || p.active > 0));
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
 
-  // Intersect heatmap ID sets with filteredLmpIds so the map reflects current filters.
-  // When no filters are active (all = filtered), filteredLmpIds covers everything.
   const filteredCapacity = useMemo(() => {
-    const hasFilter = filteredIds.size < all.length || filteredIds.size === 0 && all.length > 0;
-    if (!hasFilter) return prepPocCapacity;
-    return prepPocCapacity
-      .map((p) => {
-        const intersect = (s: Set<string>) => {
-          const out = new Set<string>();
-          s.forEach((id) => { if (filteredIds.has(id)) out.add(id); });
-          return out;
-        };
-        const total = intersect(p.ids.total);
-        const prepActive = intersect(p.ids.prepActive);
-        const supportActive = intersect(p.ids.supportActive);
-        const inDomain = intersect(p.ids.inDomain);
-        const cross = intersect(p.ids.cross);
-        const notStarted = intersect(p.ids.notStarted);
-        const prepOngoing = intersect(p.ids.prepOngoing);
-        const prepDone = intersect(p.ids.prepDone);
-        const hold = intersect(p.ids.hold);
-        const converted = intersect(p.ids.converted);
-        const notConverted = intersect(p.ids.notConverted);
-        const otherReasons = intersect(p.ids.otherReasons);
-        return {
-          ...p,
-          historical: total.size,
-          active: prepActive.size,
-          supportActive: supportActive.size,
-          inDomain: inDomain.size,
-          cross: cross.size,
-          notStarted: notStarted.size,
-          prepOngoing: prepOngoing.size,
-          prepDone: prepDone.size,
-          hold: hold.size,
-          converted: converted.size,
-          notConverted: notConverted.size,
-          otherReasons: otherReasons.size,
-          ids: {
-            total, prepActive, supportActive, inDomain, cross,
-            notStarted, prepOngoing, prepDone, hold, converted, notConverted, otherReasons,
-          },
-        };
-      })
-      .filter((p) => p.historical > 0 || p.active > 0 || p.supportActive > 0)
-      .sort((a, b) => (b.active - a.active) || (b.historical - a.historical));
-  }, [prepPocCapacity, filteredIds, all.length]);
-
-  const capacityPocs = filteredCapacity.map((p) => p.name);
-  const capacityByName = useMemo(() => {
-    const m = new Map<string, typeof filteredCapacity[number]>();
-    filteredCapacity.forEach((p) => m.set(p.name, p));
-    return m;
-  }, [filteredCapacity]);
-  const heatmapMatrix = filteredCapacity.map((p) => [
-    p.historical,
-    p.active,
-    p.supportActive,
-    p.inDomain,
-    p.cross,
-    p.notStarted,
-    p.prepOngoing,
-    p.prepDone,
-    p.hold,
-    p.converted,
-    p.notConverted,
-    p.otherReasons,
-  ]);
-
-  const loadTotals = filteredCapacity.map((p) => p.active);
+    return prepPocCapacity; // Attention strip reads active counts directly; no filter intersection needed here
+  }, [prepPocCapacity]);
 
   /* ─────── Attention strip — computed from filtered scope ─────── */
   // Query POC thresholds only — not counts (counts come from filteredCapacity).
@@ -605,28 +472,6 @@ export function AdminLmpDashboard() {
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
-  // ── Heatmap cell drill (POC × LMP column) ──
-  // Uses the same lmp_poc_links-derived ID sets that produced each cell count,
-  // then resolves them to in-memory Process rows so the modal always matches.
-  const onHeatmapCell = (cell: { row: string; colIndex: number; col: string; value: number }) => {
-    const name = cell.row;
-    const subtitle = `${cell.col} · ${cell.value} LMPs`;
-    const cap = capacityByName.get(name);
-    const COL_TO_SET = [
-      "total", "prepActive", "supportActive", "inDomain", "cross",
-      "notStarted", "prepOngoing", "prepDone", "hold",
-      "converted", "notConverted", "otherReasons",
-    ] as const;
-    const setKey = COL_TO_SET[cell.colIndex];
-    const ids = cap?.ids?.[setKey] as Set<string> | undefined;
-    const rows = ids
-      ? all.filter((r) => ids.has(r.processId))
-      : lmpsForPoc(all, name, "prep");
-    openLmps(rows, `${name} · ${cell.col}`, subtitle);
-  };
-
-
-
   return (
     <LuminaShell>
       <LxPageHeader
@@ -697,46 +542,8 @@ export function AdminLmpDashboard() {
       {/* Live snapshot strip — flag counts across all in-scope LMPs */}
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
-      {/* ─────── SECTION 2: POC Operational Load ─────── */}
-      <LxSection eyebrow="People" title="Prep POC capacity map" info={info("admin.heatmap")} hint="Live from POC DB · every active Prep POC linked to any LMP via prep role." />
-      <LxGrid>
-        <LxCard span={12}>
-          <LxCardHeader
-            eyebrow="Prep POCs"
-            title="Prep POC × LMP workload"
-            hint="Live from POC DB + LMP DB · active Prep POCs only."
-            info={info("admin.heatmap")}
-            right={capacityLoading ? <span className="text-[11px]" style={{ color: "var(--lx-text-3)" }}>Loading…</span> : <LxLivePill />}
-          />
-          {capacityPocs.length === 0 && !capacityLoading ? (
-            <div className="px-4 py-8 text-center text-[12px]" style={{ color: "var(--lx-text-3)" }}>
-              No active Prep POCs found.
-            </div>
-          ) : (
-            <LxHeatmap
-              rowLabels={capacityPocs}
-              onCellClick={onHeatmapCell}
-              columns={[
-                { label: "Total LMP (till today)", accent: "teal",    info: info("admin.heatmap.col.total") },
-                { label: "Prep Load (Active)",     accent: "ai",      info: info("admin.heatmap.col.prep-load") },
-                { label: "Support Load (Active)",  accent: "info",    info: info("admin.heatmap.col.support") },
-                { label: "In-domain Load",         accent: "success", info: info("admin.heatmap.col.in-domain") },
-                { label: "Cross-domain Load",      accent: "orange",  info: info("admin.heatmap.col.cross") },
-                { label: "Not Started",            accent: "neutral", info: info("admin.heatmap.col.not-started") },
-                { label: "Prep Ongoing",           accent: "info",    info: info("admin.heatmap.col.prep-ongoing") },
-                { label: "Prep Done",              accent: "teal",    info: info("admin.heatmap.col.prep-done") },
-                { label: "Hold",                   accent: "yellow",  info: info("admin.heatmap.col.hold") },
-                { label: "Converted",              accent: "success", info: info("admin.heatmap.col.converted") },
-                { label: "Not Converted",          accent: "risk",    info: info("admin.heatmap.col.not-conv") },
-                { label: "Other Reasons",          accent: "orange",  info: info("admin.heatmap.col.other") },
-              ]}
-              values={heatmapMatrix}
-              loadTotals={loadTotals}
-              primaryIndex={1}
-            />
-          )}
-        </LxCard>
-      </LxGrid>
+      {/* ─────── SECTION 2: Prep POC Heatmap ─────── */}
+      <PrepPocHeatmapCard />
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
       <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Active load by domain — calculated from the current filtered scope." />
