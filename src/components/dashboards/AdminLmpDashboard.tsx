@@ -647,19 +647,6 @@ export function AdminLmpDashboard() {
       {/* Live snapshot strip — flag counts across all in-scope LMPs */}
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
-      {/* Action required (high-priority only) + Recent activity */}
-      <LxGrid>
-        <ActionRequiredCard
-          rows={filtered}
-          todaySet={todaySet}
-          title="High-priority action items"
-          eyebrow="Pending actions"
-          limit={25}
-          span={7}
-        />
-        <RecentActivityCard limit={20} span={5} />
-      </LxGrid>
-
       {/* ─────── SECTION 2: POC Operational Load ─────── */}
       <LxSection eyebrow="People" title="Prep POC capacity map" info={info("admin.heatmap")} hint="Live from POC DB · every active Prep POC linked to any LMP via prep role." />
       <LxGrid>
@@ -889,6 +876,19 @@ export function AdminLmpDashboard() {
             }}
           />
         </LxCard>
+      </LxGrid>
+
+      {/* Action required (high-priority only) + Recent activity */}
+      <LxGrid>
+        <ActionRequiredCard
+          rows={filtered}
+          todaySet={todaySet}
+          title="High-priority action items"
+          eyebrow="Pending actions"
+          limit={25}
+          span={7}
+        />
+        <RecentActivityCard limit={20} span={5} />
       </LxGrid>
 
       <LxAttentionStrip

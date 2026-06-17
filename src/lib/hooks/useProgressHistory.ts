@@ -4,6 +4,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/lib/rolesContext";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: string | undefined | null) => !!v && UUID_RE.test(v);
@@ -56,49 +57,61 @@ export function useProgressHistory(lmpId: string) {
 
 export function useUpdateProgressEntry() {
   const qc = useQueryClient();
+  const invalidateProgressSurfaces = (lmpId: string) => {
+    qc.invalidateQueries({ queryKey: ["lmp_progress_history", lmpId] });
+    qc.invalidateQueries({ queryKey: ["exec_progress", lmpId] });
+    qc.invalidateQueries({ queryKey: ["exec_timeline", lmpId] });
+    qc.invalidateQueries({ queryKey: ["lmp_timeline_recent"] });
+    qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+    qc.invalidateQueries({ queryKey: ["db-lmp-process", lmpId] });
+    qc.invalidateQueries({ queryKey: ["sheets", "LMP Tracker"] });
+  };
+
   return useMutation({
     mutationFn: async (params: { entryId: string; lmpId: string; text: string }) => {
       const trimmed = params.text.trim();
-      if (!trimmed) return;
-      const { data: row } = await (supabase as any)
-        .from("lmp_daily_logs")
-        .select("metadata")
-        .eq("id", params.entryId)
-        .maybeSingle();
-      const meta = (row?.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, any>;
-      const nextMeta = { ...meta, edited_at: new Date().toISOString() };
-      const { error } = await (supabase as any)
-        .from("lmp_daily_logs")
-        .update({ text: trimmed, metadata: nextMeta })
-        .eq("id", params.entryId);
-      if (error) console.warn("Failed to update progress entry:", error.message);
+      if (!trimmed) throw new Error("Progress text cannot be blank.");
+      const { data, error } = await (supabase as any).rpc("update_lmp_daily_progress_entry", {
+        p_entry_id: params.entryId,
+        p_text: trimmed,
+      });
+      if (error) throw error;
+      return data;
     },
     onSuccess: (_d, vars) => {
-      qc.invalidateQueries({ queryKey: ["lmp_progress_history", vars.lmpId] });
-      qc.invalidateQueries({ queryKey: ["exec_progress", vars.lmpId] });
+      invalidateProgressSurfaces(vars.lmpId);
     },
   });
 }
 
 export function useDeleteProgressEntry() {
   const qc = useQueryClient();
+  const invalidateProgressSurfaces = (lmpId: string) => {
+    qc.invalidateQueries({ queryKey: ["lmp_progress_history", lmpId] });
+    qc.invalidateQueries({ queryKey: ["exec_progress", lmpId] });
+    qc.invalidateQueries({ queryKey: ["exec_timeline", lmpId] });
+    qc.invalidateQueries({ queryKey: ["lmp_timeline_recent"] });
+    qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+    qc.invalidateQueries({ queryKey: ["db-lmp-process", lmpId] });
+    qc.invalidateQueries({ queryKey: ["sheets", "LMP Tracker"] });
+  };
+
   return useMutation({
     mutationFn: async (params: { entryId: string; lmpId: string }) => {
-      const { error } = await (supabase as any)
-        .from("lmp_daily_logs")
-        .delete()
-        .eq("id", params.entryId);
-      if (error) console.warn("Failed to delete progress entry:", error.message);
+      const { error } = await (supabase as any).rpc("delete_lmp_daily_progress_entry", {
+        p_entry_id: params.entryId,
+      });
+      if (error) throw error;
     },
     onSuccess: (_d, vars) => {
-      qc.invalidateQueries({ queryKey: ["lmp_progress_history", vars.lmpId] });
-      qc.invalidateQueries({ queryKey: ["exec_progress", vars.lmpId] });
+      invalidateProgressSurfaces(vars.lmpId);
     },
   });
 }
 
 export function useAddProgressEntry() {
   const qc = useQueryClient();
+  const { user } = useRole();
   return useMutation({
     mutationFn: async (entry: {
       lmpId: string;
@@ -109,24 +122,35 @@ export function useAddProgressEntry() {
       reminderTypeSnapshot?: string | null;
     }) => {
       if (!isUuid(entry.lmpId)) return;
+      const authorName = entry.createdBy || user.pocProfileName || user.name || "POC";
+      const authorEmail = user.email || null;
       const { error } = await (supabase as any).from("lmp_daily_logs").insert({
         lmp_id: entry.lmpId,
         entry_type: "progress",
         text: entry.progressText,
-        author_name: entry.createdBy || "POC",
+        author_name: authorName,
+        author_email: authorEmail,
         chips: entry.reminderTypeSnapshot ? [entry.reminderTypeSnapshot] : [],
         metadata: {
           progress_type: entry.progressType,
           next_progress_date: entry.nextProgressDateSnapshot || null,
           source: "ui",
+          author_name: authorName,
+          author_email: authorEmail,
+          author_user_id: user.id || null,
+          author_poc_id: user.pocProfileId || null,
         },
       });
-      if (error) {
-        console.warn("Failed to insert progress entry into lmp_daily_logs:", error.message);
-      }
+      if (error) throw error;
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["lmp_progress_history", vars.lmpId] });
+      qc.invalidateQueries({ queryKey: ["exec_progress", vars.lmpId] });
+      qc.invalidateQueries({ queryKey: ["exec_timeline", vars.lmpId] });
+      qc.invalidateQueries({ queryKey: ["lmp_timeline_recent"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-process", vars.lmpId] });
+      qc.invalidateQueries({ queryKey: ["sheets", "LMP Tracker"] });
     },
   });
 }

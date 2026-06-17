@@ -47,6 +47,7 @@ export function UnifiedOverviewTab({
     outreach_poc_ids: lmp.outreachPocIds,
   });
   const operationalReadOnly = readOnly || !canOperateLmp;
+  const canEditDocuments = !readOnly && (canManageLmp || canOperateLmp);
 
   const dbRow = useMemo(() => {
     return (dbProcesses as any[]).find(
@@ -262,7 +263,7 @@ export function UnifiedOverviewTab({
 
       {/* Documents */}
       <DocumentsCard
-        mode={canManageLmp ? "action" : "summary"}
+        mode={canEditDocuments ? "action" : "summary"}
         documents={currentDocs}
         onAdd={handleAddDocuments}
         onUpdate={handleUpdateDocument}

@@ -196,18 +196,6 @@ export function PocLmpDashboard() {
       {/* Live snapshot strip — counts of overdue / pending / stale items */}
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
-      {/* Action required + Recent activity */}
-      <LxGrid>
-        <ActionRequiredCard
-          rows={filtered}
-          todaySet={todaySet}
-          title="Your action items"
-          eyebrow="Pending actions"
-          span={7}
-        />
-        <RecentActivityCard lmpIds={filtered.map((r) => r.processId)} limit={12} span={5} />
-      </LxGrid>
-
       {/* SECTION 2 — Status distribution */}
       <LxSection eyebrow="My status" title="My process status distribution" info={info("poc.status-bar")} />
       <LxCard span={12}>
@@ -312,6 +300,18 @@ export function PocLmpDashboard() {
             </table>
           </div>
         </LxCard>
+      </LxGrid>
+
+      {/* Action required + Recent activity */}
+      <LxGrid>
+        <ActionRequiredCard
+          rows={filtered}
+          todaySet={todaySet}
+          title="Your action items"
+          eyebrow="Pending actions"
+          span={7}
+        />
+        <RecentActivityCard lmpIds={filtered.map((r) => r.processId)} limit={12} span={5} />
       </LxGrid>
 
 

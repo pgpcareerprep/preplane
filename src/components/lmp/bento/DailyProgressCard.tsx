@@ -45,6 +45,14 @@ type MergedEntry = {
   nextExpectedKind?: string;
 };
 
+const progressMutationMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  return fallback;
+};
+
 /**
  * Daily Progress card with DB-backed history, next progress date persistence,
  * and reminder status messages.
@@ -563,10 +571,10 @@ export function DailyProgressCard({
                         !entry.noUpdate &&
                         (role === "admin" ||
                           role === "allocator" ||
-                          (!!user?.email &&
+                          (effectiveMode === "action" &&
+                            !!user?.email &&
                             !!entry.authorEmail &&
-                            user.email.toLowerCase() === entry.authorEmail.toLowerCase()) ||
-                          (!!user?.name && entry.author === user.name))
+                            user.email.toLowerCase() === entry.authorEmail.toLowerCase()))
                       }
                     />
                   ))}
@@ -609,7 +617,8 @@ function ProgressEntryCard({
           setEditing(false);
           toast.success("Progress updated");
         },
-        onError: () => toast.error("Couldn't update entry"),
+        onError: (error) =>
+          toast.error(progressMutationMessage(error, "Couldn't update entry")),
       },
     );
   };
@@ -621,7 +630,8 @@ function ProgressEntryCard({
       { entryId: entry.id, lmpId },
       {
         onSuccess: () => toast.success("Progress deleted"),
-        onError: () => toast.error("Couldn't delete entry"),
+        onError: (error) =>
+          toast.error(progressMutationMessage(error, "Couldn't delete entry")),
       },
     );
   };

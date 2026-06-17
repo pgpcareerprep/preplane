@@ -138,19 +138,6 @@ export function AllocatorLmpDashboard() {
       {/* Snapshot strip — live flag counts */}
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
-      {/* Action required (allocation gaps focus) + Recent activity */}
-      <LxGrid>
-        <ActionRequiredCard
-          rows={filtered}
-          todaySet={todaySet}
-          title="Allocation gaps"
-          eyebrow="Pending actions"
-          limit={10}
-          span={7}
-        />
-        <RecentActivityCard limit={14} span={5} />
-      </LxGrid>
-
       {/* SECTION 3 — Compliance snapshot (full width now) */}
       <LxGrid>
         <LxCard span={12}>
@@ -256,6 +243,19 @@ export function AllocatorLmpDashboard() {
             }
           />
         </LxCard>
+      </LxGrid>
+
+      {/* Action required (allocation gaps focus) + Recent activity */}
+      <LxGrid>
+        <ActionRequiredCard
+          rows={filtered}
+          todaySet={todaySet}
+          title="Allocation gaps"
+          eyebrow="Pending actions"
+          limit={10}
+          span={7}
+        />
+        <RecentActivityCard limit={14} span={5} />
       </LxGrid>
 
       {/* Attention strip */}
