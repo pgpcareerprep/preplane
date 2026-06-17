@@ -16,6 +16,19 @@ import { usePocSwitcherList } from "./hooks/useDbData";
 export type ViewingTarget = "me" | "all" | string;
 export type LmpInteractionMode = "action" | "summary";
 
+/**
+ * Discriminated union that describes the board's data scope.
+ *
+ *  - { kind: "self" }  — only LMPs where the effective user is a Prep or Support POC
+ *  - { kind: "all" }   — all authorised records (admin/allocator in normal mode only)
+ *  - { kind: "poc"; pocId: string; pocName: string }
+ *                      — LMPs linked to a specific poc_profiles.id via active Prep/Support link
+ */
+export type LmpBoardScope =
+  | { kind: "self" }
+  | { kind: "all" }
+  | { kind: "poc"; pocId: string; pocName: string };
+
 type PocOption = {
   name: string;
   initials: string;

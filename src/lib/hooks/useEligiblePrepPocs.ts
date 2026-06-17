@@ -30,13 +30,17 @@ export type EligiblePrepPoc = {
  * is still shown in the dropdown. Selecting them produces an empty filtered result.
  *
  * Returns:
- * - `pocs`          — sorted eligible POC list
- * - `pocLmpIdsMap`  — Map<poc_profiles.id → Set<lmp_processes.id>> (all linked, not just active)
- * - `selectOptions` — [{ value: "All", label: "All Prep POCs" }, ...pocs]
+ * - `pocs`               — sorted eligible POC list
+ * - `pocLmpIdsMap`       — Map<poc_profiles.id → Set<lmp_processes.id>> (all links, eligibility)
+ * - `activePocLmpIdsMap` — Map<poc_profiles.id → Set<lmp_processes.id>> (active links only, for filtering)
+ * - `selectOptions`      — [{ value: "All", label: "All Prep POCs" }, ...pocs]
  */
 export function useEligiblePrepPocs(): {
   pocs: EligiblePrepPoc[];
+  /** All prep/support links (current + historical). Used for eligibility. */
   pocLmpIdsMap: Map<string, Set<string>>;
+  /** Active prep/support links only (is_active = true). Used for board filtering. */
+  activePocLmpIdsMap: Map<string, Set<string>>;
   selectOptions: { value: string; label: string }[];
   isLoading: boolean;
 } {
@@ -46,37 +50,50 @@ export function useEligiblePrepPocs(): {
   const { data, isLoading } = useQuery({
     queryKey: ["eligible_prep_pocs"],
     queryFn: async () => {
-      const [pocsRes, linksRes] = await Promise.all([
+      const [pocsRes, allLinksRes, activeLinksRes] = await Promise.all([
         supabase
           .from("poc_profiles")
           .select("id, name, email, access_level, role_type, primary_domain, domain_tags, status")
           .eq("status", "active"),
-        // Fetch ALL prep/support links — current AND historical (no is_active filter).
-        // Historical links qualify a POC for the dropdown even if they have no current LMPs.
+        // ALL prep/support links — current AND historical (for eligibility / dropdown).
         supabase
           .from("lmp_poc_links")
           .select("poc_id, lmp_id, role")
           .in("role", ["prep", "support"]),
+        // ACTIVE prep/support links only — for board filtering.
+        supabase
+          .from("lmp_poc_links")
+          .select("poc_id, lmp_id, role")
+          .in("role", ["prep", "support"])
+          .eq("is_active", true),
       ]);
 
       if (pocsRes.error) throw new Error(pocsRes.error.message);
-      if (linksRes.error) throw new Error(linksRes.error.message);
+      if (allLinksRes.error) throw new Error(allLinksRes.error.message);
+      if (activeLinksRes.error) throw new Error(activeLinksRes.error.message);
 
-      // Build pocId → Set<lmpId> from all prep/support links (current + historical).
+      // Build pocId → Set<lmpId> from ALL prep/support links (current + historical).
       const linksByPoc = new Map<string, Set<string>>();
-      for (const l of linksRes.data ?? []) {
+      for (const l of allLinksRes.data ?? []) {
         if (!l.poc_id || !l.lmp_id) continue;
         const s = linksByPoc.get(l.poc_id) ?? new Set<string>();
         s.add(l.lmp_id);
         linksByPoc.set(l.poc_id, s);
       }
 
+      // Build pocId → Set<lmpId> from ACTIVE prep/support links only.
+      const activeLinksByPoc = new Map<string, Set<string>>();
+      for (const l of activeLinksRes.data ?? []) {
+        if (!l.poc_id || !l.lmp_id) continue;
+        const s = activeLinksByPoc.get(l.poc_id) ?? new Set<string>();
+        s.add(l.lmp_id);
+        activeLinksByPoc.set(l.poc_id, s);
+      }
+
       const eligible: EligiblePrepPoc[] = [];
 
       for (const p of pocsRes.data ?? []) {
         // Exclude outreach-only POCs (role_type = "outreach_poc").
-        // A person with both Prep/Support AND Outreach responsibilities has
-        // role_type = "prep_poc" (or null/unset) and is NOT excluded here.
         const roleType = (p.role_type as string | null) ?? "prep_poc";
         if (roleType === "outreach_poc") continue;
 
@@ -122,7 +139,7 @@ export function useEligiblePrepPocs(): {
 
       deduped.sort((a, b) => a.name.localeCompare(b.name));
 
-      return { eligible: deduped, linksByPoc };
+      return { eligible: deduped, linksByPoc, activeLinksByPoc };
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
@@ -130,6 +147,7 @@ export function useEligiblePrepPocs(): {
 
   const pocs = useMemo(() => data?.eligible ?? [], [data]);
   const pocLmpIdsMap = useMemo(() => data?.linksByPoc ?? new Map<string, Set<string>>(), [data]);
+  const activePocLmpIdsMap = useMemo(() => data?.activeLinksByPoc ?? new Map<string, Set<string>>(), [data]);
 
   const selectOptions = useMemo(
     () => [
@@ -139,5 +157,5 @@ export function useEligiblePrepPocs(): {
     [pocs],
   );
 
-  return { pocs, pocLmpIdsMap, selectOptions, isLoading };
+  return { pocs, pocLmpIdsMap, activePocLmpIdsMap, selectOptions, isLoading };
 }

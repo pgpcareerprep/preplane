@@ -243,23 +243,27 @@ describe("Custom date range filter", () => {
   });
 });
 
-// ── Group 5: URL viewAs restore + RBAC authority preservation ─────────────────
+// ── Group 5: viewAs RBAC authority preservation ───────────────────────────────
+// Note: URL-param viewAs restore was intentionally removed (security regression fix).
+// View As is now session-only — no localStorage, sessionStorage, or URL persistence.
 
-describe("viewAs URL restore and RBAC", () => {
-  it("rejects non-UUID strings for viewAs URL parameter (validation guard is present in AppSidebar)", () => {
-    const source = read("src/components/layout/AppSidebar.tsx");
-    expect(source).toContain("UUID_RE.test(uuid)");
-    expect(source).toContain("if (!uuid || !UUID_RE.test(uuid)) return");
-  });
-
-  it("POC role cannot activate viewAs via URL — guard in AppSidebar blocks role=poc", () => {
-    const source = read("src/components/layout/AppSidebar.tsx");
-    expect(source).toContain('if (role === "poc" || approvedUsers.length === 0) return');
-  });
-
-  it("admin and allocator are permitted to use viewAs via URL (canViewAs guard)", () => {
+describe("viewAs RBAC", () => {
+  it("admin and allocator are permitted to use viewAs (canViewAs guard in AppSidebar)", () => {
     const source = read("src/components/layout/AppSidebar.tsx");
     expect(source).toContain('const canViewAs = role === "admin" || role === "allocator"');
+  });
+
+  it("View As is NOT restored from URL params (URL param restore was removed)", () => {
+    // The old UUID_RE.test(uuid) guard and role=poc block were part of URL-restore logic.
+    // Both have been intentionally removed — View As must not be restored from URL.
+    const source = read("src/components/layout/AppSidebar.tsx");
+    expect(source).not.toContain("UUID_RE.test(uuid)");
+    expect(source).not.toContain("searchParams.get(\"viewAs\")");
+  });
+
+  it("View As is NOT saved to localStorage (persistence was removed)", () => {
+    const source = read("src/lib/rolesContext.tsx");
+    expect(source).not.toContain("lmp_view_as_user_");
   });
 
   it("AdminLmpDashboard passes filteredIds to RecentActivityCard as lmpIds prop", () => {

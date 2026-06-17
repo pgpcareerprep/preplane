@@ -19,13 +19,15 @@ Deno.serve(async (req) => {
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;
 
-  let body: { query?: string; types?: string[]; limit?: number };
+  let body: { query?: string; types?: string[]; entity_types?: string[]; limit?: number };
   try { body = await req.json(); } catch { body = {}; }
 
   try {
+    // Accept both `entity_types` (sent by GlobalSearch) and `types` (legacy) as aliases.
+    const rawTypes = body.entity_types ?? body.types;
     const results = await searchEntities({
       query: String(body.query ?? ""),
-      types: Array.isArray(body.types) ? body.types.filter((t) => typeof t === "string") : undefined,
+      types: Array.isArray(rawTypes) ? rawTypes.filter((t) => typeof t === "string") : undefined,
       limit: body.limit,
     });
     const trimmed = results.map((r) => ({

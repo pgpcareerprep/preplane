@@ -3,13 +3,11 @@ import { useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { AppSidebar } from "./AppSidebar";
 import { Topbar } from "./Topbar";
-import { ViewAsBanner } from "./ViewAsBanner";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden bg-n50 text-n900 dark:bg-d-bg dark:text-d-text">
-      <ViewAsBanner />
       <Topbar />
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <AppSidebar />

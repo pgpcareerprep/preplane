@@ -1,6 +1,6 @@
 // Versioned permission contract consumed by both the frontend and Edge Functions.
-export const PERMISSION_CONTRACT_VERSION = "2026-06-11.4";
-export const VIEW_AS_READ_ONLY = false;
+export const PERMISSION_CONTRACT_VERSION = "2026-06-18.1";
+export const VIEW_AS_READ_ONLY = true;
 
 export type ContractRole = "admin" | "allocator" | "poc";
 

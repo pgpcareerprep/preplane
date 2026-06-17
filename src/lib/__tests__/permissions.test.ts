@@ -18,7 +18,7 @@ const assigned = {
 
 describe("canonical permission contract", () => {
   it("is versioned and drives frontend actions", () => {
-    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-11.4");
+    expect(PERMISSION_CONTRACT_VERSION).toBe("2026-06-18.1");
     expect(canPerform("allocator", "view_all_lmps")).toBe(true);
     expect(canPerform("poc", "delete_lmp")).toBe(false);
     expect(ACTION_MATRIX.delete_lmp).toEqual(["admin", "allocator"]);

@@ -1,10 +1,51 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Eye, Lock, RotateCcw } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { GlobalSearch, type GlobalSearchHandle } from "@/components/search/GlobalSearch";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/lib/themeContext";
+import { useRole } from "@/lib/rolesContext";
 import { cn } from "@/lib/utils";
+
+/**
+ * Compact View As badge shown in the Topbar when a privileged user has selected
+ * another person's perspective. Replaces the old full-width ViewAsBanner.
+ */
+function ViewAsBadge() {
+  const { role, viewAsUser, viewAsRole, setViewAsUser, setViewAsRole } = useRole();
+  const isViewingAsOther =
+    (role === "admin" || role === "allocator") && (viewAsRole !== role || !!viewAsUser);
+
+  if (!isViewingAsOther) return null;
+
+  const displayName = viewAsUser
+    ? viewAsUser.name
+    : viewAsRole.charAt(0).toUpperCase() + viewAsRole.slice(1);
+  const displayRole = viewAsUser ? viewAsUser.role : viewAsRole;
+
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-600 text-amber-900 dark:text-amber-200">
+      <Eye className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="text-[11.5px] font-medium whitespace-nowrap">
+        {displayName}
+        <span className="mx-1 opacity-60">·</span>
+        <span className="capitalize opacity-80">{displayRole}</span>
+        <span className="mx-1 opacity-60">·</span>
+        <Lock className="inline h-2.5 w-2.5 mb-px opacity-70" aria-label="Read-only" />
+        <span className="ml-0.5 opacity-70">Read-only</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => { setViewAsUser(null); setViewAsRole(role); }}
+        title="Restore my view"
+        className="ml-1 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 transition-colors"
+      >
+        <RotateCcw className="h-2.5 w-2.5" />
+        Restore
+      </button>
+    </div>
+  );
+}
 
 export function Topbar() {
   const { theme, toggle } = useTheme();
@@ -37,7 +78,7 @@ export function Topbar() {
       "sticky top-0 z-20 h-[52px] flex items-center justify-between px-gutter backdrop-blur-xl",
       "bg-background/80 supports-[backdrop-filter]:bg-background/70 border-b border-border",
     )}>
-      {/* Left: brand */}
+      {/* Left: brand + View As badge */}
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -49,6 +90,7 @@ export function Topbar() {
             PrepLane
           </span>
         </button>
+        <ViewAsBadge />
       </div>
 
       {/* Right: search, theme, notifications */}

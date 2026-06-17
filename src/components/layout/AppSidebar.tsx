@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   PlusCircle,
@@ -37,7 +37,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLE_ORDER: Role[] = ["admin", "allocator", "poc"];
 const ROLE_LABELS: Record<Role, string> = { admin: "Admins", allocator: "Allocators", poc: "POCs" };
 
@@ -112,7 +111,6 @@ export function AppSidebar() {
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("lumina:sidebar-collapsed") === "1";
@@ -122,41 +120,31 @@ export function AppSidebar() {
     try { window.localStorage.setItem("lumina:sidebar-collapsed", collapsed ? "1" : "0"); } catch { /* storage unavailable */ }
   }, [collapsed]);
 
-  // Restore view-as from URL param on load / when approvedUsers arrive.
-  // POCs cannot use this path — only admin/allocator.
-  useEffect(() => {
-    if (role === "poc" || approvedUsers.length === 0) return;
-    const uuid = searchParams.get("viewAs");
-    if (!uuid || !UUID_RE.test(uuid)) return;
-    // Only apply if not already viewing that user (avoids re-applying on every render).
-    if (viewAsUser?.pocId === uuid) return;
-    const matched = approvedUsers.find(u => u.pocId === uuid);
-    if (matched && matched.email !== user.email) {
-      setViewAsUser(matched);
-    }
-  }, [searchParams, approvedUsers, role]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const canViewAs = role === "admin" || role === "allocator";
   const effectiveRole = viewAsRole;
 
+  const [viewAsSearch, setViewAsSearch] = useState("");
+  const viewAsSearchRef = useRef<HTMLInputElement>(null);
+
   const selectViewAs = (au: ApprovedUser) => {
+    // No URL params written — View As is session-only, not URL-persisted.
     setViewAsUser(au);
-    const next = new URLSearchParams(searchParams);
-    if (au.pocId) next.set("viewAs", au.pocId);
-    else next.delete("viewAs");
-    setSearchParams(next, { replace: true });
   };
 
   const clearViewAs = () => {
     setViewAsUser(null);
     setViewAsRole(role);
-    const next = new URLSearchParams(searchParams);
-    next.delete("viewAs");
-    setSearchParams(next, { replace: true });
   };
 
+  const filteredApprovedUsers = viewAsSearch.trim()
+    ? approvedUsers.filter((u) =>
+        u.name.toLowerCase().includes(viewAsSearch.trim().toLowerCase()) ||
+        u.email.toLowerCase().includes(viewAsSearch.trim().toLowerCase()),
+      )
+    : approvedUsers;
+
   const grouped = ROLE_ORDER.reduce<Record<Role, ApprovedUser[]>>((acc, r) => {
-    acc[r] = approvedUsers.filter(u => u.role === r);
+    acc[r] = filteredApprovedUsers.filter(u => u.role === r);
     return acc;
   }, { admin: [], allocator: [], poc: [] });
 
@@ -308,7 +296,18 @@ export function AppSidebar() {
                     </span>
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-64 p-0">
-                    <ScrollArea className="max-h-[360px]">
+                    {/* Search input */}
+                    <div className="p-2 border-b border-n100 dark:border-d-border">
+                      <input
+                        ref={viewAsSearchRef}
+                        type="text"
+                        placeholder="Search by name…"
+                        value={viewAsSearch}
+                        onChange={(e) => setViewAsSearch(e.target.value)}
+                        className="w-full h-7 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface px-2 text-[12px] text-n800 dark:text-d-text placeholder:text-n400 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                      />
+                    </div>
+                    <ScrollArea className="h-[min(420px,70vh)]">
                       <div className="p-1">
                         {/* Reset to self */}
                         {viewAsUser && (

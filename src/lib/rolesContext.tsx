@@ -243,28 +243,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         avatarUrl: (profile as any)?.avatar_url ?? null,
       });
       setRole(resolvedRole);
-      // Hydrate persisted impersonation (admins) so session refreshes /
-      // tab navigation don't wipe the "Viewing as" selection.
-      let restoredViewAs: ApprovedUser | null = null;
-      if (resolvedRole === "admin" || resolvedRole === "allocator") {
-        try {
-          const stored = typeof window !== "undefined"
-            ? window.localStorage.getItem(`lmp_view_as_user_${uid}`)
-            : null;
-          if (stored) {
-            const parsed = JSON.parse(stored) as ApprovedUser;
-            if (parsed?.email && parsed?.name && parsed?.role) {
-              restoredViewAs = parsed;
-            }
-          }
-        } catch { /* ignore */ }
-      }
-      if (restoredViewAs) {
-        setViewAsUserState(restoredViewAs);
-        setViewAsRole(restoredViewAs.role);
-      } else {
-        setViewAsRole(resolvedRole);
-      }
+      // View As is never restored from localStorage, sessionStorage, or URL params.
+      // Each session starts with a clean slate (no persisted impersonation).
+      setViewAsRole(resolvedRole);
       setIsLoading(false);
 
       // Privileged roles can select a POC perspective without changing authority.
@@ -377,15 +358,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     } else {
       setViewAsRole(role);
     }
-    // Persist so navigation / session refresh doesn't reset impersonation.
-    try {
-      const uid = currentUserIdRef.current;
-      if (uid && typeof window !== "undefined") {
-        const key = `lmp_view_as_user_${uid}`;
-        if (u) window.localStorage.setItem(key, JSON.stringify(u));
-        else window.localStorage.removeItem(key);
-      }
-    } catch { /* ignore */ }
+    // View As is intentionally NOT persisted to localStorage.
+    // Each session / page load starts with the user's own perspective.
   }, [role]);
 
   const value = useMemo<RoleContextValue>(
