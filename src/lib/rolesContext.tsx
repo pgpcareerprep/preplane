@@ -310,6 +310,58 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [session?.user?.id]);
 
+  // Subscribe to own profile row so role/access changes from User Management
+  // take effect immediately without requiring a page refresh.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+
+    const channel = supabase
+      .channel(`profile-live-${uid}`)
+      .on(
+        "postgres_changes" as never,
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `user_id=eq.${uid}`,
+        },
+        (payload: any) => {
+          const updated = payload.new as {
+            role?: string;
+            access_status?: string;
+            is_active?: boolean;
+          };
+          if (!updated) return;
+
+          const profileRole = ((updated.role as string | null) ?? "").trim().toLowerCase();
+          const hasValidRole = profileRole === "admin" || profileRole === "allocator" || profileRole === "poc";
+          const isApproved =
+            (updated.access_status == null || updated.access_status === "approved") &&
+            updated.is_active !== false &&
+            hasValidRole;
+
+          if (!isApproved) {
+            supabase.auth.signOut().then(() => {
+              setSession(null);
+              setUser(GUEST);
+              setRole("poc");
+              if (typeof window !== "undefined") {
+                window.location.replace("/login?error=not_approved");
+              }
+            });
+            return;
+          }
+
+          setRole(profileRole as Role);
+          setViewAsRole(profileRole as Role);
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id]);
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);

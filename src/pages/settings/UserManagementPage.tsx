@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
+import { clearCachePrefix } from "@/lib/hooks/useDbData";
 
 type DbRole = "admin" | "allocator" | "poc";
 const ROLE_LABEL: Record<DbRole, string> = { admin: "Admin", allocator: "Allocator", poc: "POC" };
@@ -122,6 +123,12 @@ export default function UserManagementPage() {
     setUsers(prev => prev.filter(x => x.id !== u.id));
   };
 
+  const bustPocCache = () => {
+    clearCachePrefix('["db-all-poc-profiles"');
+    clearCachePrefix('["db-poc-profiles"');
+    clearCachePrefix('["db-poc-switcher-list"');
+  };
+
   const setAccess = async (u: UserRow, grant: boolean) => {
     const patch = grant
       ? { access_status: "approved", is_active: true }
@@ -130,6 +137,7 @@ export default function UserManagementPage() {
     if (error) { toast.error("Failed to update access", { description: error.message }); return; }
     toast.success(grant ? `Granted access to ${u.display_name}` : `Revoked access for ${u.display_name}`);
     setUsers(prev => prev.map(x => x.id === u.id ? { ...x, ...patch } : x));
+    bustPocCache();
   };
 
 
@@ -441,6 +449,9 @@ function EditUserDialog({ user, onSaved, onCancel }: { user: UserRow; onSaved: (
     setBusy(false);
     if (error) { toast.error("Save failed", { description: error.message }); return; }
     toast.success("User updated");
+    // Bust poc caches so POC Database reflects the role sync triggered by DB
+    clearCachePrefix('["db-all-poc-profiles"');
+    clearCachePrefix('["db-poc-profiles"');
     onSaved({ ...user, ...patch });
   };
 
