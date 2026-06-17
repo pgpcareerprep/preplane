@@ -38,7 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 const ROLE_ORDER: Role[] = ["admin", "allocator", "poc"];
-const ROLE_LABELS: Record<Role, string> = { admin: "Admins", allocator: "Allocators", poc: "POCs" };
+const ROLE_LABELS: Record<Role, string> = { admin: "Admins", allocator: "Allocators", poc: "Prep POCs" };
 
 type NavItem = {
   label: string;

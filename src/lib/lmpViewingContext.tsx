@@ -160,7 +160,7 @@ const POC_COLORS = [
 ];
 
 export function LmpViewingProvider({ children }: { children: ReactNode }) {
-  const { user, role, viewAsRole, viewAsUser, setViewAsUser } = useRole();
+  const { user, role, viewAsRole } = useRole();
   // Default target:
   //  - admin → "all" (org oversight)
   //  - allocator/poc with a resolved POC profile → their own name (so the
@@ -172,47 +172,23 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       ? "all"
       : (ownName ? ownName : "me");
 
-  // Persist switcher choice per-user across reloads
-  const storageKey = user.id ? `lmp_viewing_target_${user.id}` : "";
-  const readStored = (): ViewingTarget | null => {
-    if (!storageKey || typeof window === "undefined") return null;
-    try { return (window.localStorage.getItem(storageKey) as ViewingTarget) || null; } catch { return null; }
-  };
-
   const [target, setTargetState] = useState<ViewingTarget>(defaultTarget);
   // UUID of the person currently being viewed (null = self or all)
   const [targetPocId, setTargetPocId] = useState<string | null>(null);
 
-  // When user/role resolves, hydrate from localStorage or fall back to default
+  // When the real user/role resolves, reset to the default target.
+  // No localStorage restore — the board scope is session-only.
   useEffect(() => {
-    const stored = readStored();
-    if (stored) {
-      setTargetState(stored);
-    } else {
-      setTargetState(defaultTarget);
-    }
+    setTargetState(defaultTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, role, ownName]);
 
-  // Sync: when Topbar viewAsUser changes (admin impersonation), update local target
-  // and carry the selected person's poc_profiles.id for UUID-based filtering.
-  useEffect(() => {
-    if (viewAsUser) {
-      setTargetState(viewAsUser.name);
-      setTargetPocId((viewAsUser as any).pocId ?? null);
-    }
-  }, [viewAsUser]);
-
   const setTarget = useCallback((t: ViewingTarget) => {
     setTargetState(t);
-    if (storageKey && typeof window !== "undefined") {
-      try { window.localStorage.setItem(storageKey, t); } catch { /* ignore */ }
-    }
     if (t === "me" || t === "all") {
       setTargetPocId(null);
-      setViewAsUser(null);
     }
-  }, [setViewAsUser, storageKey]);
+  }, []);
 
   const { data: lmpRecords = [] } = useLmpRows();
   const { data: dbPocList } = usePocSwitcherList();

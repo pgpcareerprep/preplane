@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { LayoutGrid, LayoutList, Loader2, DatabaseZap, UserX, FilterX, Inbox } from "lucide-react";
+import { LayoutGrid, LayoutList, Loader2, DatabaseZap, UserX, FilterX, Inbox, Download } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useRole } from "@/lib/rolesContext";
+import { useViewer } from "@/lib/viewerContext";
 import { canPerform } from "@/lib/permissions";
 import { type LmpStatus } from "@/types/lmp";
 import { useLmpRows, useLmpMutation } from "@/lib/sheets/hooks";
@@ -15,20 +15,21 @@ import { LmpKanban } from "@/components/lmp/LmpKanban";
 import { LmpCardList, type SortState } from "@/components/lmp/LmpCardList";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { type LmpBoardScope } from "@/lib/lmpViewingContext";
-import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import type { LmpRecord } from "@/lib/lmpTypes";
+import { exportLmpBoardCsv } from "@/lib/exportCsv";
 
 /**
  * Resolve which records fall inside the selected board scope.
  *
- * Self scope  — records where the effective user is a Prep or Support POC
- *               (uses pocProfileId UUID when available, name-based fallback for legacy).
- * All scope   — all records (admin/allocator only).
- * POC scope   — records where the given poc_profiles.id appears in activePocLmpIdsMap.
+ * Self scope — UUID-first: look up effectivePocId in activePocLmpIdsMap.
+ *              Legacy fallback only when no UUID available: check prepPoc/supportPoc names.
+ *              Outreach-only, allocator and adminOwner fields must NOT grant Self scope.
+ * All scope  — all records (admin/allocator in normal mode only).
+ * POC scope  — records where the given poc_profiles.id appears in activePocLmpIdsMap.
  */
 function resolveLmpBoardScope(
   records: LmpRecord[],
@@ -38,10 +39,30 @@ function resolveLmpBoardScope(
   activePocLmpIdsMap: Map<string, Set<string>>,
 ): LmpRecord[] {
   if (scope.kind === "all") return records;
+
   if (scope.kind === "self") {
-    return records.filter((r) => isUserOperationalPoc(r, effectivePocName, effectivePocId));
+    // UUID-first: if we have a canonical poc_profiles.id use activePocLmpIdsMap exclusively.
+    if (effectivePocId) {
+      const allowedIds = activePocLmpIdsMap.get(effectivePocId) ?? new Set<string>();
+      return records.filter((r) => allowedIds.has(r.id));
+    }
+    // Legacy name-based fallback — only checks Prep POC and Support POC, not outreach/allocator.
+    if (!effectivePocName) return [];
+    const nameLower = effectivePocName.toLowerCase().trim();
+    return records.filter((r) => {
+      const prepName = (r.prepPoc?.name ?? r.domainPrepPoc?.name ?? "").toLowerCase().trim();
+      const supportName = (r.supportPoc?.name ?? r.behavioralPrepPoc?.name ?? "").toLowerCase().trim();
+      if (!nameLower) return false;
+      const matches = (cell: string) => cell && (
+        cell === nameLower ||
+        cell.startsWith(nameLower.split(" ")[0]) ||
+        nameLower.startsWith(cell.split(" ")[0])
+      );
+      return matches(prepName) || matches(supportName);
+    });
   }
-  // poc scope — use activePocLmpIdsMap (active links only)
+
+  // POC scope — use activePocLmpIdsMap (active links only).
   const allowedIds = activePocLmpIdsMap.get(scope.pocId);
   if (!allowedIds) return [];
   return records.filter((r) => allowedIds.has(r.id));
@@ -49,7 +70,7 @@ function resolveLmpBoardScope(
 
 /**
  * Apply domain / status / text / overdue filters on top of a pre-scoped list.
- * Does NOT touch board scope — clearing filters never changes scope.
+ * Clearing filters never changes board scope.
  */
 function applyBoardFilters(
   records: LmpRecord[],
@@ -75,24 +96,32 @@ function applyBoardFilters(
 }
 
 export default function LmpBoardPage() {
-  const { role, user } = useRole();
-  const canEdit = canPerform(role, "edit_lmp");
+  const {
+    actorRole,
+    effectiveUser,
+    effectiveRole: _effectiveRole,
+    effectivePocId,
+    isViewAsActive,
+    isReadOnly,
+  } = useViewer();
+
+  // canEdit: only when user has edit permission AND View As is not active
+  const canEdit = canPerform(actorRole, "edit_lmp") && !isReadOnly;
+
+  // Only admin/allocator in normal (non-View As) mode may change the board scope.
+  const canChangeBoardScope =
+    (actorRole === "admin" || actorRole === "allocator") && !isViewAsActive;
 
   const { selectOptions: prepPocOptions, activePocLmpIdsMap } = useEligiblePrepPocs();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialView = searchParams.get("view") === "kanban" ? "kanban" : "cards";
   const [view, setView] = useState<"kanban" | "cards">(initialView);
 
-  // DB-first: keep all `lmp_processes` and `lmp_candidates` queries fresh
-  // via Supabase Realtime instead of polling Google Sheets.
   useLmpProcessesRealtime();
   useLmpCandidatesRealtime();
 
-  // Live data from DB (parsed into LmpRecord shape via useLmpRows).
   const { data: rawRecords = [], isLoading, isError, error } = useLmpRows();
   const { update: updateMutation } = useLmpMutation();
-
-  // DB candidate counts (single source of truth — sheet column ignored).
   const { data: candidateCounts = {} } = useLmpCandidateCounts();
 
   const records = useMemo(() => {
@@ -120,16 +149,26 @@ export default function LmpBoardPage() {
   const [sort, setSort] = useState<SortState>({ key: "age", dir: "asc" });
 
   // Board scope — default to "self" for all roles including admin/allocator.
-  // Clearing filters must NOT change scope (they are separate states).
   const [scope, setScope] = useState<LmpBoardScope>({ kind: "self" });
 
-  const canSeeAll = role === "admin" || role === "allocator";
+  // Auto-sync: when View As changes (or View As user changes), immediately
+  // reset to Self scope and clear page-local filters so the new perspective
+  // is not obscured by stale state from a different user.
+  const prevViewAsSig = useRef<string | null>(null);
+  useEffect(() => {
+    const sig = isViewAsActive ? (effectivePocId ?? effectiveUser.email) : null;
+    if (sig !== prevViewAsSig.current) {
+      prevViewAsSig.current = sig;
+      setScope({ kind: "self" });
+      setFilters(EMPTY_LMP_FILTERS);
+      setOverdueOnly(false);
+    }
+  }, [isViewAsActive, effectivePocId, effectiveUser.email]);
 
-  // Effective identity for self-scope filtering
-  const effectivePocId = user.pocProfileId ?? null;
-  const effectivePocName = user.pocProfileName ?? user.name ?? "";
+  // Effective identity for self-scope resolution.
+  const effectivePocName = effectiveUser.pocProfileName ?? effectiveUser.name ?? "";
 
-  // 1. Apply board scope to get the scoped records
+  // 1. Apply board scope.
   const scopedRecords = useMemo(
     () =>
       resolveLmpBoardScope(
@@ -142,7 +181,7 @@ export default function LmpBoardPage() {
     [records, scope, effectivePocId, effectivePocName, activePocLmpIdsMap],
   );
 
-  // 2. Apply domain / status / text filters on top
+  // 2. Apply domain / status / text filters on top.
   const filtered = useMemo(
     () => applyBoardFilters(scopedRecords, filters, overdueOnly),
     [scopedRecords, filters, overdueOnly],
@@ -151,6 +190,7 @@ export default function LmpBoardPage() {
   const [feedbackLmpId, setFeedbackLmpId] = useState<string | null>(null);
 
   const onChangeStatus = (id: string, status: LmpStatus, reason: string) => {
+    if (isReadOnly) return;
     updateMutation.mutate(
       { id, patch: { status, reason: reason || undefined, lastActivity: `Just now — Status updated` } },
       {
@@ -163,8 +203,9 @@ export default function LmpBoardPage() {
     );
   };
 
-  // Derive the selected POC name for scoped empty states
+  // Derive names for empty states and labels.
   const selectedPocName = scope.kind === "poc" ? scope.pocName : undefined;
+  const viewAsDisplayName = isViewAsActive ? (effectiveUser.pocProfileName ?? effectiveUser.name) : null;
 
   // Scope selector value: "__self__" | "__all__" | <uuid>
   const scopeSelectorValue =
@@ -178,17 +219,23 @@ export default function LmpBoardPage() {
     } else if (value === "__all__") {
       setScope({ kind: "all" });
     } else {
-      // UUID — find the name from prepPocOptions
       const opt = prepPocOptions.find((o) => o.value === value);
       setScope({ kind: "poc", pocId: value, pocName: opt?.label ?? value });
     }
   };
 
-  // LmpKpiStrip needs a "target" string for legacy compatibility
+  // KPI strip target string for legacy compatibility.
   const kpiTarget =
-    scope.kind === "self" ? "me" :
+    scope.kind === "self" ? (viewAsDisplayName ?? "me") :
     scope.kind === "all" ? "all" :
     scope.pocName;
+
+  // CSV export filename.
+  const csvScope = isViewAsActive
+    ? (viewAsDisplayName ?? "view-as")
+    : scope.kind === "self" ? "my-lmps"
+    : scope.kind === "all" ? "all-pocs"
+    : scope.pocName;
 
   return (
     <div className="space-y-6">
@@ -197,30 +244,61 @@ export default function LmpBoardPage() {
         subtitle="Process-level placement tracking across all stages"
       />
 
-      {/* Board scope selector — admin / allocator only */}
-      {canSeeAll && (
+      {/* Board scope selector OR View As indicator + CSV export */}
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <label htmlFor="board-scope" className="text-[12px] text-n500 dark:text-d-muted font-medium shrink-0">
+          <span className="text-[12px] text-n500 dark:text-d-muted font-medium shrink-0">
             Viewing:
-          </label>
-          <select
-            id="board-scope"
-            value={scopeSelectorValue}
-            onChange={(e) => handleScopeChange(e.target.value)}
-            className="h-8 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface px-2 text-[12.5px] text-n800 dark:text-d-text focus:outline-none focus:ring-1 focus:ring-orange-500"
-          >
-            <option value="__self__">My LMPs</option>
-            <option value="__all__">All POCs</option>
-            {prepPocOptions
-              .filter((o) => o.value !== "All")
-              .map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-          </select>
+          </span>
+
+          {isViewAsActive ? (
+            /* During View As: non-editable indicator */
+            <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-amber-50 dark:bg-amber-900/20 text-[12.5px] text-amber-800 dark:text-amber-200 font-medium">
+              {viewAsDisplayName}'s LMPs
+            </span>
+          ) : canChangeBoardScope ? (
+            /* Normal admin/allocator: editable scope dropdown */
+            <select
+              id="board-scope"
+              value={scopeSelectorValue}
+              onChange={(e) => handleScopeChange(e.target.value)}
+              className="h-8 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface px-2 text-[12.5px] text-n800 dark:text-d-text focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="__self__">My LMPs</option>
+              <option value="__all__">All POCs</option>
+              {prepPocOptions
+                .filter((o) => o.value !== "All")
+                .map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+            </select>
+          ) : (
+            /* POC: fixed "My LMPs" indicator */
+            <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-n50 dark:bg-d-surface text-[12.5px] text-n700 dark:text-d-text">
+              My LMPs
+            </span>
+          )}
         </div>
-      )}
+
+        {/* CSV Export button — always visible, disabled when no filtered records */}
+        <button
+          type="button"
+          disabled={filtered.length === 0}
+          onClick={() => exportLmpBoardCsv(filtered, csvScope)}
+          title={filtered.length === 0 ? "No records to export" : `Export ${filtered.length} records as CSV`}
+          className={cn(
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12px] font-medium transition-colors",
+            filtered.length === 0
+              ? "border-n200 bg-n50 text-n400 cursor-not-allowed dark:border-d-border dark:bg-d-surface dark:text-d-muted"
+              : "border-n200 bg-white text-n700 hover:bg-n50 hover:border-n300 dark:border-d-border dark:bg-d-surface dark:text-d-text dark:hover:bg-d-surface-2",
+          )}
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export as CSV
+        </button>
+      </div>
 
       {isError && (
         <div className="rounded-lg border border-coral-200 bg-coral-50 px-4 py-3 text-[13px] text-coral-700">
@@ -247,7 +325,7 @@ export default function LmpBoardPage() {
             value={filters}
             onChange={setFilters}
             records={records}
-            role={role}
+            role={actorRole}
             prepPocOptions={[]}
             trailing={<ViewToggle value={view} onChange={handleViewChange} />}
           />
@@ -258,6 +336,7 @@ export default function LmpBoardPage() {
               selectedPocName={selectedPocName}
               scopedRecordCount={scopedRecords.length}
               filteredRecordCount={filtered.length}
+              viewAsName={viewAsDisplayName ?? undefined}
             />
           ) : view === "kanban" ? (
             <LmpKanban records={filtered} canDrag={canEdit} onChangeStatus={onChangeStatus} />
@@ -317,34 +396,44 @@ function BoardEmptyState({
   selectedPocName,
   scopedRecordCount,
   filteredRecordCount,
+  viewAsName,
 }: {
   scope: LmpBoardScope;
   selectedPocName?: string;
   scopedRecordCount: number;
   filteredRecordCount: number;
+  viewAsName?: string;
 }) {
-  // No data loaded at all
-  if (scopedRecordCount === 0 && filteredRecordCount === 0 && scope.kind !== "poc" && scope.kind !== "all") {
-    // For self scope with no scoped records, check if it's because of no assignments
-    // vs no data loaded — we use records.length === 0 to detect "no data loaded" upstream,
-    // but here we just check scopedRecordCount.
-  }
+  // Derive the display name: during View As use effectiveUser name.
+  const selfLabel = viewAsName ?? "you";
 
   if (scope.kind === "self") {
     if (scopedRecordCount === 0) {
       return (
         <EmptyState
           icon={UserX}
-          title="No LMPs assigned to you yet."
-          description="Ask an admin to assign LMPs, or switch to a different scope."
+          title={
+            viewAsName
+              ? `${viewAsName} currently has no active LMP assignments.`
+              : "No LMPs assigned to you yet."
+          }
+          description={
+            viewAsName
+              ? "They have no active Prep or Support assignments."
+              : "Ask an admin to assign LMPs, or switch to a different scope."
+          }
         />
       );
     }
     return (
       <EmptyState
         icon={FilterX}
-        title="No LMP records match the current filters."
-        description="Try clearing filters or broadening your search."
+        title={
+          viewAsName
+            ? `No LMPs for ${viewAsName} match the current filters.`
+            : "No LMP records match the current filters."
+        }
+        description={`Try clearing filters or broadening your search. (${selfLabel} has ${scopedRecordCount} LMP${scopedRecordCount !== 1 ? "s" : ""} total)`}
       />
     );
   }

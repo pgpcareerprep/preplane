@@ -23,6 +23,8 @@ export type ApprovedUser = {
   role: Role;
   /** poc_profiles.id — used for UUID-based filtering in view-as mode */
   pocId?: string | null;
+  /** poc_profiles.role_type — used to exclude outreach-only POCs from View As */
+  pocRoleType?: string | null;
 };
 
 type RoleContextValue = {
@@ -265,25 +267,43 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           const emails = validUsers.map((u) => (u.email as string).toLowerCase());
           const pocNameByEmail: Map<string, string> = new Map();
           const pocIdByEmail: Map<string, string> = new Map();
+          // role_type: "outreach_poc" means the person is outreach-only; exclude from View As.
+          const pocRoleTypeByEmail: Map<string, string> = new Map();
           if (emails.length > 0) {
             const { data: pocRows } = await supabase
               .from("poc_profiles")
-              .select("email, name, id")
+              .select("email, name, id, role_type, status")
               .not("email", "is", null)
               .in("email", emails);
             for (const p of pocRows ?? []) {
-              if (p.email && p.name) pocNameByEmail.set(p.email.toLowerCase(), p.name as string);
-              if (p.email && p.id) pocIdByEmail.set(p.email.toLowerCase(), p.id as string);
+              if (!p.email) continue;
+              const key = (p.email as string).toLowerCase();
+              if (p.name) pocNameByEmail.set(key, p.name as string);
+              if (p.id) pocIdByEmail.set(key, p.id as string);
+              if (p.role_type) pocRoleTypeByEmail.set(key, p.role_type as string);
             }
           }
-          setApprovedUsers(
-            validUsers.map((u) => ({
-              name: (pocNameByEmail.get((u.email as string).toLowerCase()) ?? u.display_name) as string,
+          const enriched: ApprovedUser[] = [];
+          for (const u of validUsers) {
+            const emailKey = (u.email as string).toLowerCase();
+            const pocRoleType = pocRoleTypeByEmail.get(emailKey) ?? null;
+            const profilesRole = u.role as Role;
+
+            // For POC users: require a matching poc_profiles record and exclude outreach-only.
+            if (profilesRole === "poc") {
+              if (!pocIdByEmail.has(emailKey)) continue; // no poc_profiles record — skip
+              if (pocRoleType === "outreach_poc") continue; // outreach-only — exclude
+            }
+
+            enriched.push({
+              name: (pocNameByEmail.get(emailKey) ?? u.display_name) as string,
               email: u.email as string,
-              role: u.role as Role,
-              pocId: pocIdByEmail.get((u.email as string).toLowerCase()) ?? null,
-            })),
-          );
+              role: profilesRole,
+              pocId: pocIdByEmail.get(emailKey) ?? null,
+              pocRoleType,
+            });
+          }
+          setApprovedUsers(enriched);
         }
       }
     })();
