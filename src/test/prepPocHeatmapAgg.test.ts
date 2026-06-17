@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildHeatmapData,
+  filterHeatmapMetricRecords,
   mapStatusToBucket,
   fmtConversion,
   type PocRaw,
@@ -480,5 +481,67 @@ describe("Reconciliation: Total = Current + Closed per row", () => {
     expect(row.closedLmpCount).toBe(
       row.convertedCount + row.notConvertedCount + row.onHoldCount + row.otherReasonsCount,
     );
+  });
+});
+
+// ── Drill-down record filters ────────────────────────────────────────────────
+
+describe("Drill-down filters reconcile with visible heatmap cells", () => {
+  const pocs = [poc("p1", "Alice", ["Consulting"])];
+  const links = [
+    link("p1", "lmp1", "prep", "not-started", "Consulting"),
+    link("p1", "lmp2", "prep", "prep-ongoing", "Finance"),
+    link("p1", "lmp3", "support", "prep-done", "Consulting"),
+    link("p1", "lmp4", "prep", "converted", "Consulting"),
+    link("p1", "lmp5", "prep", "not-converted", "Consulting"),
+    link("p1", "lmp6", "prep", "hold", "Consulting"),
+    link("p1", "lmp7", "prep", "other-reasons", "Consulting"),
+  ];
+  const candidates = [
+    candidate("lmp4", "s1"),
+    candidate("lmp4", "s1"),
+    candidate("lmp4", "s2"),
+  ];
+  const result = buildHeatmapData(pocs, links, candidates);
+  const row = result.rows[0];
+
+  it("Total returns all assigned distinct LMPs", () => {
+    const drill = filterHeatmapMetricRecords(result.source, "p1", "total");
+    expect(drill.lmps).toHaveLength(row.totalLmpLoad);
+  });
+
+  it("Current returns not started, prep ongoing, and prep done LMPs", () => {
+    const drill = filterHeatmapMetricRecords(result.source, "p1", "current");
+    expect(drill.lmps).toHaveLength(row.currentLmpCount);
+    expect(drill.lmps.map((r) => r.statusBucket).sort()).toEqual(["notStarted", "prepDone", "prepOngoing"].sort());
+  });
+
+  it("Closed follows the canonical On hold treatment", () => {
+    const drill = filterHeatmapMetricRecords(result.source, "p1", "closed");
+    expect(drill.lmps).toHaveLength(row.closedLmpCount);
+    expect(drill.lmps.some((r) => r.statusLabel === "On hold")).toBe(true);
+  });
+
+  it("Primary and Support use assignment role without inflating total", () => {
+    expect(filterHeatmapMetricRecords(result.source, "p1", "primary").lmps).toHaveLength(row.primaryCount);
+    expect(filterHeatmapMetricRecords(result.source, "p1", "support").lmps).toHaveLength(row.supportCount);
+  });
+
+  it("Domain drill-down applies the same domain intersection logic", () => {
+    expect(filterHeatmapMetricRecords(result.source, "p1", "inDomain").lmps).toHaveLength(row.inDomainCount);
+    expect(filterHeatmapMetricRecords(result.source, "p1", "crossDomain").lmps).toHaveLength(row.crossDomainCount);
+  });
+
+  it("Students Placed deduplicates by canonical student id", () => {
+    const drill = filterHeatmapMetricRecords(result.source, "p1", "studentsPlaced");
+    expect(drill.students).toHaveLength(row.studentsPlaced);
+    expect(new Set(drill.students.map((s) => s.studentId)).size).toBe(row.studentsPlaced);
+  });
+
+  it("LMP Conversion exposes numerator and denominator records", () => {
+    const drill = filterHeatmapMetricRecords(result.source, "p1", "lmpConversion");
+    expect(drill.convertedLmps).toHaveLength(row.convertedCount);
+    expect(drill.denominatorLmps).toHaveLength(row.eligibleClosedCount);
+    expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(false);
   });
 });
