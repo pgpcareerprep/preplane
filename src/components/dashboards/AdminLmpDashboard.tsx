@@ -7,7 +7,8 @@ import {
   LxInsightTile, LX_HEX, type LxAccent,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
-import { useLmpFilters, uniquePocs, usePrepPocOptions } from "./filters/useLmpFilters";
+import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
   DOMAINS, domainBreakdown, isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
@@ -78,7 +79,7 @@ function canonicalStatus(status: LmpStatus): ActiveLmpStatus {
 
 export function AdminLmpDashboard() {
   const { user } = useRole();
-  const prepPocOptions = usePrepPocOptions();
+  const { selectOptions: prepPocOptions, pocLmpIdsMap } = useEligiblePrepPocs();
   // Total student count from canonical students DB (independent of any filter).
   const { data: totalStudentsDb = 0 } = useQuery({
     queryKey: ["students_total_count"],
@@ -129,11 +130,7 @@ export function AdminLmpDashboard() {
   useLmpCandidatesRealtime();
   // Invalidate the dashboard's custom queries on any underlying DB write so
   // the heatmap, attention strip, and student cards update instantly.
-  useRealtimeInvalidate("lmp_processes", [
-    ["prep_poc_capacity_live_v2"],
-    ["attention_pending_offers"],
-    ["attention_missing_prep_docs"],
-  ]);
+  useRealtimeInvalidate("lmp_processes", [["prep_poc_capacity_live_v2"]]);
   useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"]]);
   useRealtimeInvalidate("poc_profiles" as never, [
     ["prep_poc_capacity_live_v2"],
@@ -146,7 +143,7 @@ export function AdminLmpDashboard() {
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
   const { data: lmpRecords = [] } = useLmpRows();
   const { data: domainRows = [] } = useDomains();
-  const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined });
+  const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
   const filteredIds = useMemo(() => new Set(filtered.map((row) => row.processId)), [filtered]);
   const filteredRecords = useMemo(
     () => lmpRecords.filter((row) => filteredIds.has(row.id)),
@@ -316,13 +313,61 @@ export function AdminLmpDashboard() {
     refetchInterval: 120_000,
   });
 
-  const capacityPocs = prepPocCapacity.map((p) => p.name);
+  // Intersect heatmap ID sets with filteredLmpIds so the map reflects current filters.
+  // When no filters are active (all = filtered), filteredLmpIds covers everything.
+  const filteredCapacity = useMemo(() => {
+    const hasFilter = filteredIds.size < all.length || filteredIds.size === 0 && all.length > 0;
+    if (!hasFilter) return prepPocCapacity;
+    return prepPocCapacity
+      .map((p) => {
+        const intersect = (s: Set<string>) => {
+          const out = new Set<string>();
+          s.forEach((id) => { if (filteredIds.has(id)) out.add(id); });
+          return out;
+        };
+        const total = intersect(p.ids.total);
+        const prepActive = intersect(p.ids.prepActive);
+        const supportActive = intersect(p.ids.supportActive);
+        const inDomain = intersect(p.ids.inDomain);
+        const cross = intersect(p.ids.cross);
+        const notStarted = intersect(p.ids.notStarted);
+        const prepOngoing = intersect(p.ids.prepOngoing);
+        const prepDone = intersect(p.ids.prepDone);
+        const hold = intersect(p.ids.hold);
+        const converted = intersect(p.ids.converted);
+        const notConverted = intersect(p.ids.notConverted);
+        const otherReasons = intersect(p.ids.otherReasons);
+        return {
+          ...p,
+          historical: total.size,
+          active: prepActive.size,
+          supportActive: supportActive.size,
+          inDomain: inDomain.size,
+          cross: cross.size,
+          notStarted: notStarted.size,
+          prepOngoing: prepOngoing.size,
+          prepDone: prepDone.size,
+          hold: hold.size,
+          converted: converted.size,
+          notConverted: notConverted.size,
+          otherReasons: otherReasons.size,
+          ids: {
+            total, prepActive, supportActive, inDomain, cross,
+            notStarted, prepOngoing, prepDone, hold, converted, notConverted, otherReasons,
+          },
+        };
+      })
+      .filter((p) => p.historical > 0 || p.active > 0 || p.supportActive > 0)
+      .sort((a, b) => (b.active - a.active) || (b.historical - a.historical));
+  }, [prepPocCapacity, filteredIds, all.length]);
+
+  const capacityPocs = filteredCapacity.map((p) => p.name);
   const capacityByName = useMemo(() => {
-    const m = new Map<string, typeof prepPocCapacity[number]>();
-    prepPocCapacity.forEach((p) => m.set(p.name, p));
+    const m = new Map<string, typeof filteredCapacity[number]>();
+    filteredCapacity.forEach((p) => m.set(p.name, p));
     return m;
-  }, [prepPocCapacity]);
-  const heatmapMatrix = prepPocCapacity.map((p) => [
+  }, [filteredCapacity]);
+  const heatmapMatrix = filteredCapacity.map((p) => [
     p.historical,
     p.active,
     p.supportActive,
@@ -337,49 +382,20 @@ export function AdminLmpDashboard() {
     p.otherReasons,
   ]);
 
-  const loadTotals = prepPocCapacity.map((p) => p.active);
+  const loadTotals = filteredCapacity.map((p) => p.active);
 
-  /* ─────── Attention strip — live, source-of-truth queries ─────── */
-  const { data: attentionPendingOffers = 0 } = useQuery({
-    queryKey: ["attention_pending_offers"],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("lmp_processes")
-        .select("*", { count: "exact", head: true })
-        .ilike("status", "offer received");
-      if (error) throw new Error(error.message);
-      return count ?? 0;
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
-
-  const { data: attentionMissingPrepDocs = 0 } = useQuery({
-    queryKey: ["attention_missing_prep_docs"],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("lmp_processes")
-        .select("*", { count: "exact", head: true })
-        .or("prep_doc.is.null,prep_doc.eq.")
-        .not("status", "in", '("Converted","Closed","Rejected")');
-      if (error) throw new Error(error.message);
-      return count ?? 0;
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
-
+  /* ─────── Attention strip — computed from filtered scope ─────── */
+  // Query POC thresholds only — not counts (counts come from filteredCapacity).
   const { data: attentionPocs = [] } = useQuery({
     queryKey: ["attention_pocs"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("poc_profiles")
-        .select("name, active_load, max_threshold")
+        .select("name, max_threshold")
         .eq("status", "active");
       if (error) throw new Error(error.message);
       return (data ?? []).map((p: any) => ({
         name: (p.name ?? "").trim(),
-        active: Number(p.active_load ?? 0),
         threshold: Number(p.max_threshold ?? 8),
       }));
     },
@@ -387,17 +403,51 @@ export function AdminLmpDashboard() {
     refetchInterval: 120_000,
   });
 
-  const mostOverloadedPocName =
-    [...attentionPocs].sort((a, b) => b.active - a.active)[0]?.name ?? "—";
-  const overloadedPocsCount = attentionPocs.filter((p) => p.active > p.threshold).length;
-  const highestRiskDomainName =
-    [...domainRows]
-      .map((d: any) => ({
-        name: d?.name ?? "—",
-        risk: Number(d?.on_hold ?? 0) + Number(d?.dormant ?? 0) + Number(d?.closed ?? 0),
-        total: Number(d?.total_lmps ?? 0),
-      }))
-      .sort((a, b) => b.risk - a.risk || b.total - a.total)[0]?.name ?? "—";
+  // All attention counts computed from filteredRecords/filteredCapacity so they respect active filters.
+  const TERMINAL_STATUSES = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
+  const attentionPendingOffers = filteredRecords.filter((r) => r.status === "offer-received").length;
+  const attentionMissingPrepDocs = filteredRecords.filter(
+    (r) => !r.prepDoc && !TERMINAL_STATUSES.has(r.status),
+  ).length;
+
+  const mostOverloadedPocName = useMemo(
+    () => (filteredCapacity.length > 0
+      ? [...filteredCapacity].sort((a, b) => b.active - a.active)[0]?.name ?? "—"
+      : "—"),
+    [filteredCapacity],
+  );
+
+  const overloadedPocsCount = useMemo(() => {
+    const thresholdByName = new Map<string, number>();
+    attentionPocs.forEach((p) => thresholdByName.set(p.name, p.threshold));
+    return filteredCapacity.filter((p) => {
+      const threshold = thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD;
+      return p.active > threshold;
+    }).length;
+  }, [filteredCapacity, attentionPocs]);
+
+  const highestRiskDomainName = useMemo(() => {
+    const cd = (domainRows as any[]).map((d: any) => ({
+      id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "",
+      aliases: Array.isArray(d?.aliases) ? d.aliases : [],
+    })).filter((d) => d.name);
+    const RISK_STATUSES = new Set(["hold", "dormant", "closed", "other-reasons"]);
+    const riskByDomain = new Map<string, number>();
+    const totalByDomain = new Map<string, number>();
+    for (const r of filteredRecords) {
+      const domainName = resolveDomainName(r.domain, cd) ?? r.domain ?? "Unmapped";
+      if (!domainName || domainName.toLowerCase() === "unmapped") continue;
+      totalByDomain.set(domainName, (totalByDomain.get(domainName) ?? 0) + 1);
+      if (RISK_STATUSES.has(r.status)) {
+        riskByDomain.set(domainName, (riskByDomain.get(domainName) ?? 0) + 1);
+      }
+    }
+    const allDomains = Array.from(new Set([...riskByDomain.keys(), ...totalByDomain.keys()]));
+    return allDomains.sort((a, b) => {
+      const diff = (riskByDomain.get(b) ?? 0) - (riskByDomain.get(a) ?? 0);
+      return diff !== 0 ? diff : (totalByDomain.get(b) ?? 0) - (totalByDomain.get(a) ?? 0);
+    })[0] ?? "—";
+  }, [filteredRecords, domainRows]);
 
   /* ─────── Student analytics (live · students DB) ─────── */
   const studentStats = useMemo(() => {
@@ -688,34 +738,55 @@ export function AdminLmpDashboard() {
         </LxCard>
       </LxGrid>
 
-      {/* ─────── SECTION 4: Domain load (live from domains table) ─────── */}
-      <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Active load by domain — with total processes and conversion rate from the domains database." />
+      {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
+      <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Active load by domain — calculated from the current filtered scope." />
       <LxGrid>
         <LxCard span={12}>
           <LxCardHeader eyebrow="Active load" title="Domain load (ranked)"
             info={info("admin.domain.bar")}
-            hint="Bar length reflects active LMPs. Chips show total processes and conversion rate." />
+            hint="Bar length reflects active LMPs in the selected scope. Total and conversion rate are from the filtered view." />
           {(() => {
-            type DomainRow = { name: string; total_lmps: number; active_lmps: number; converted_lmps: number; conversion_rate: number };
-            const rows = (domainRows as DomainRow[])
-              .filter((d) => d.name && d.name.toLowerCase() !== "unmapped")
-              .map((d) => ({
-                label: d.name,
-                value: Number(d.active_lmps ?? 0),
-                total: Number(d.total_lmps ?? 0),
-                converted: Number(d.converted_lmps ?? 0),
-                conv: Number(d.conversion_rate ?? 0),
-              }))
-              .sort((a, b) => b.value - a.value);
+            // Compute domain metrics from filteredRecords (scope-aware, not global domainRows fields).
+            const cd = (domainRows as any[]).map((d: any) => ({
+              id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "",
+              aliases: Array.isArray(d?.aliases) ? d.aliases : [],
+            })).filter((d) => d.name);
+            const ACTIVE_STATUSES = new Set(["prep-ongoing", "prep-done", "not-started", "hold"]);
+
+            const totalByDomain = new Map<string, number>();
+            const activeByDomain = new Map<string, number>();
+            const convertedByDomain = new Map<string, number>();
+            for (const r of filteredRecords) {
+              const domainName = resolveDomainName(r.domain, cd) ?? r.domain ?? "Unmapped";
+              if (!domainName || domainName.toLowerCase() === "unmapped") continue;
+              totalByDomain.set(domainName, (totalByDomain.get(domainName) ?? 0) + 1);
+              if (ACTIVE_STATUSES.has(r.status)) {
+                activeByDomain.set(domainName, (activeByDomain.get(domainName) ?? 0) + 1);
+              }
+              if (r.status === "converted") {
+                convertedByDomain.set(domainName, (convertedByDomain.get(domainName) ?? 0) + 1);
+              }
+            }
+            const allDomains = new Set([...totalByDomain.keys(), ...activeByDomain.keys()]);
+            const rows = Array.from(allDomains).map((name) => {
+              const total = totalByDomain.get(name) ?? 0;
+              const active = activeByDomain.get(name) ?? 0;
+              const conv = convertedByDomain.get(name) ?? 0;
+              const notConv = filteredRecords.filter(
+                (r) => r.status === "not-converted" && (resolveDomainName(r.domain, cd) ?? r.domain) === name,
+              ).length;
+              const convRate = (conv + notConv) > 0 ? (conv / (conv + notConv)) * 100 : 0;
+              return { label: name, value: active, total, converted: conv, conv: convRate };
+            }).sort((a, b) => b.value - a.value);
+
             return (
               <LxRankedBar
                 accent="info"
                 maxItems={12}
                 rows={rows}
                 onRowClick={(r) => {
-                  const cd = (domainRows as any[]).map((d) => ({ id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "", aliases: Array.isArray(d?.aliases) ? d.aliases : [] })).filter((d) => d.name);
-                  const matched = all.filter((p) => (resolveDomainName(p.domain, cd) ?? "Unmapped") === r.label);
-                  openLmps(matched, `${r.label} · LMPs`, `${r.value} active`);
+                  const matched = filtered.filter((p) => (resolveDomainName(p.domain, cd) ?? "Unmapped") === r.label);
+                  openLmps(matched, `${r.label} · LMPs`, `${r.value} active in view`);
                 }}
                 chips={(r) => {
                   const meta = rows.find((x) => x.label === r.label);
@@ -888,7 +959,7 @@ export function AdminLmpDashboard() {
           limit={25}
           span={7}
         />
-        <RecentActivityCard limit={20} span={5} />
+        <RecentActivityCard lmpIds={Array.from(filteredIds)} limit={20} span={5} />
       </LxGrid>
 
       <LxAttentionStrip
@@ -898,15 +969,27 @@ export function AdminLmpDashboard() {
           { label: "Most overloaded POC",  value: mostOverloadedPocName,    accent: "orange", info: info("attention.most-overloaded-poc"),
             onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`) },
           { label: "Pending offers",       value: attentionPendingOffers,   accent: "yellow", info: info("attention.pending-offers"),
-            onClick: () => openLmps(lmpsByStatus(all, "Offer Received"), "Pending offers", "All LMPs awaiting offer outcome") },
+            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`) },
           { label: "Missing prep docs",    value: attentionMissingPrepDocs, accent: "ai",     info: info("attention.missing-prep-docs") },
           { label: "Overloaded POCs",      value: overloadedPocsCount,      accent: "info",   info: info("attention.overloaded-pocs"),
-            onClick: () => setDrill({
-              kind: "pocs",
-              title: "Overloaded POCs",
-              subtitle: "Active load exceeds threshold",
-              rows: attentionPocs.filter((p) => p.active > p.threshold).map((p) => ({ name: p.name, activeLoad: p.active, threshold: p.threshold })),
-            }) },
+            onClick: () => {
+              const thresholdByName = new Map(attentionPocs.map((p) => [p.name, p.threshold]));
+              setDrill({
+                kind: "pocs",
+                title: "Overloaded POCs",
+                subtitle: "Active load exceeds threshold (filtered view)",
+                rows: filteredCapacity
+                  .filter((p) => {
+                    const threshold = thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD;
+                    return p.active > threshold;
+                  })
+                  .map((p) => ({
+                    name: p.name,
+                    activeLoad: p.active,
+                    threshold: thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD,
+                  })),
+              });
+            } },
         ]}
       />
 

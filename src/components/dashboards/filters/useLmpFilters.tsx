@@ -2,22 +2,19 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DOMAINS, STATUS_LIST, type Domain, type Process, type ProcessStatus, type ProcessType, daysSince, scopeForRole } from "@/lib/lmpProcessQueries";
+import { startOfDay, endOfDay } from "date-fns";
 
-export type DateRange = "7d" | "30d" | "90d" | "All";
+export type DateRange = "7d" | "30d" | "90d" | "All" | "Custom";
 
-const RANGE_DAYS: Record<DateRange, number> = { "7d": 7, "30d": 30, "90d": 90, All: 100000 };
+const RANGE_DAYS: Record<Exclude<DateRange, "Custom">, number> = {
+  "7d": 7, "30d": 30, "90d": 90, All: 100000,
+};
 
 /**
- * Tolerant POC name match.
+ * Tolerant POC name match (legacy fallback — used when no UUID map is available).
  *
- * The dropdown uses canonical full names from `poc_profiles.name`
- * (e.g. "Shubham Gupta"), but `lmp_processes.prep_poc` stores the value
- * as it appears in the source sheet, often first-name-only ("Shubham").
- * We normalize both sides and accept any token-level overlap.
- *
- * Caveat: two POCs sharing a first name (e.g. "Mansi Bhargwa" / "Mansi Jain")
- * will collide on the row's "Mansi". The proper fix is to filter via
- * `lmp_poc_links` (UUIDs) — tracked separately.
+ * NOTE: Two POCs sharing a first name (e.g. "Mansi Bhargava" / "Mansi Jain") will
+ * collide. Always prefer UUID-based filtering via `pocLmpIdsMap` when available.
  */
 function matchesPocSelection(rowName: string | undefined | null, selected: string): boolean {
   const row = (rowName ?? "").trim().toLowerCase();
@@ -26,7 +23,6 @@ function matchesPocSelection(rowName: string | undefined | null, selected: strin
   if (row === sel) return true;
   const rowTokens = row.split(/\s+/).filter(Boolean);
   const selTokens = sel.split(/\s+/).filter(Boolean);
-  // Match if any token of the row name appears in the selected name (or vice versa).
   return rowTokens.some((t) => selTokens.includes(t));
 }
 
@@ -37,11 +33,27 @@ export type LmpFilters = {
   domain: Domain | "All";
   status: ProcessStatus | "All";
   type: ProcessType | "All";
-  prepPoc: string;     // "All" or name
-  outreachPoc: string; // "All" or name
+  /** poc_profiles.id UUID or "All". Legacy: may also be a name for backward compat. */
+  prepPoc: string;
+  outreachPoc: string;
+  /** Inclusive start date for Custom range. */
+  customFrom: Date | null;
+  /** Inclusive end date for Custom range. */
+  customTo: Date | null;
 };
 
-export function useLmpFilters({ role, userName, data }: { role: Role; userName: string; data?: Process[] }) {
+type UseLmpFiltersOptions = {
+  role: Role;
+  userName: string;
+  data?: Process[];
+  /**
+   * Optional UUID-keyed map of pocId → Set<lmp_process_id>.
+   * When provided and prepPoc is a UUID, filter is exact-ID-based (no name matching).
+   */
+  pocLmpIdsMap?: Map<string, Set<string>>;
+};
+
+export function useLmpFilters({ role, userName, data, pocLmpIdsMap }: UseLmpFiltersOptions) {
   const [filters, setFilters] = useState<LmpFilters>({
     range: "30d",
     domain: "All",
@@ -49,23 +61,48 @@ export function useLmpFilters({ role, userName, data }: { role: Role; userName: 
     type: "All",
     prepPoc: "All",
     outreachPoc: "All",
+    customFrom: null,
+    customTo: null,
   });
 
   const all = useMemo(() => scopeForRole(data ?? [], role, userName), [role, userName, data]);
 
   const filtered = useMemo(() => {
-    const cutoff = RANGE_DAYS[filters.range];
     return all.filter((r) => {
-      if (daysSince(r.dateCreated) > cutoff) return false;
+      // ── Date range ──
+      if (filters.range === "Custom") {
+        if (filters.customFrom && filters.customTo) {
+          const created = new Date(r.dateCreated);
+          const from = startOfDay(filters.customFrom);
+          const to = endOfDay(filters.customTo);
+          if (created < from || created > to) return false;
+        }
+        // If Custom selected but dates not both set, show nothing meaningful
+      } else {
+        const cutoff = RANGE_DAYS[filters.range as Exclude<DateRange, "Custom">];
+        if (daysSince(r.dateCreated) > cutoff) return false;
+      }
+
       if (filters.domain !== "All" && r.domain !== filters.domain) return false;
       if (filters.status !== "All" && r.status !== filters.status) return false;
       if (filters.type !== "All" && r.type !== filters.type) return false;
-      if (filters.prepPoc !== "All" && !matchesPocSelection(r.prepPoc, filters.prepPoc)) return false;
-      // Outreach POC filter is hidden in admin UI but still wired; keep tolerant match for parity.
+
+      // ── Prep POC filter (UUID-first, name fallback) ──
+      if (filters.prepPoc !== "All") {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filters.prepPoc);
+        if (isUuid && pocLmpIdsMap) {
+          const allowedIds = pocLmpIdsMap.get(filters.prepPoc);
+          if (!allowedIds || !allowedIds.has(r.processId)) return false;
+        } else {
+          // Legacy name-based fallback
+          if (!matchesPocSelection(r.prepPoc, filters.prepPoc)) return false;
+        }
+      }
+
       if (filters.outreachPoc !== "All" && !matchesPocSelection(r.outreachPoc, filters.outreachPoc)) return false;
       return true;
     });
-  }, [all, filters]);
+  }, [all, filters, pocLmpIdsMap]);
 
   const set = <K extends keyof LmpFilters>(k: K, v: LmpFilters[K]) =>
     setFilters((prev) => ({ ...prev, [k]: v }));
@@ -81,18 +118,14 @@ export function uniquePocs(rows: Process[]): string[] {
 }
 
 /**
- * Live Prep POC options sourced from the canonical `poc_profiles` DB.
- * Strictly returns active POCs whose role_type is `prep_poc` — no sheet-derived
- * names, no admins, no garbage values like "NA" / "Outsourced".
+ * Legacy Prep POC options from `poc_profiles` filtered by role_type = "prep_poc".
+ * Kept for AllocatorLmpDashboard backward compatibility.
+ * New code should use `useEligiblePrepPocs` from `@/lib/hooks/useEligiblePrepPocs`.
  */
 export function usePrepPocOptions(): string[] {
   const { data = [] } = useQuery({
     queryKey: ["prep_poc_options"],
     queryFn: async () => {
-      // Eligibility is domain-based only — access level (admin / allocator /
-      // poc) does NOT exclude anyone. Anyone tagged as a Prep POC and active
-      // is allocatable; the allocation engine itself filters out those with
-      // no assigned domain.
       const { data, error } = await supabase
         .from("poc_profiles")
         .select("name")
@@ -109,11 +142,11 @@ export function usePrepPocOptions(): string[] {
   });
   return useMemo(
     () => ["All", ...Array.from(new Set(data)).sort()],
-    [data]
+    [data],
   );
 }
 
 export const DOMAIN_OPTIONS: ("All" | Domain)[] = ["All", ...DOMAINS];
 export const STATUS_OPTIONS: ("All" | ProcessStatus)[] = ["All", ...STATUS_LIST];
 export const TYPE_OPTIONS: ("All" | ProcessType)[] = ["All", "Internship", "Full-Time"];
-export const RANGE_OPTIONS: DateRange[] = ["7d", "30d", "90d", "All"];
+export const RANGE_OPTIONS: DateRange[] = ["7d", "30d", "90d", "All", "Custom"];

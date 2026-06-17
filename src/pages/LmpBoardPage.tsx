@@ -13,6 +13,7 @@ import { LmpKpiStrip } from "@/components/lmp/LmpKpiStrip";
 import { LmpFilterBar, EMPTY_LMP_FILTERS, type LmpFilters } from "@/components/lmp/LmpFilterBar";
 import { LmpKanban } from "@/components/lmp/LmpKanban";
 import { LmpCardList, type SortState } from "@/components/lmp/LmpCardList";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 
 import { useLmpViewing } from "@/lib/lmpViewingContext";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
@@ -21,10 +22,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import type { ViewingTarget } from "@/lib/lmpViewingContext";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function LmpBoardPage() {
   const { role } = useRole();
   const canEdit = canPerform(role, "edit_lmp");
   const { filterFor, target } = useLmpViewing();
+  const { selectOptions: prepPocOptions, pocLmpIdsMap } = useEligiblePrepPocs();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialView = searchParams.get("view") === "kanban" ? "kanban" : "cards";
   const [view, setView] = useState<"kanban" | "cards">(initialView);
@@ -72,6 +76,11 @@ export default function LmpBoardPage() {
       if (!filterFor(r)) return false;
       if (filters.domain && r.domain !== filters.domain) return false;
       if (filters.status && r.status !== filters.status) return false;
+      // UUID-based Prep POC filter (admin/allocator only)
+      if (filters.prepPocId && UUID_RE.test(filters.prepPocId)) {
+        const allowedIds = pocLmpIdsMap.get(filters.prepPocId);
+        if (!allowedIds || !allowedIds.has(r.id)) return false;
+      }
       if (overdueOnly) {
         if (!r.nextExpectedProgress) return false;
         const d = new Date(r.nextExpectedProgress);
@@ -84,7 +93,7 @@ export default function LmpBoardPage() {
       return true;
     });
     return result;
-  }, [records, filters, filterFor, overdueOnly]);
+  }, [records, filters, filterFor, overdueOnly, pocLmpIdsMap]);
 
 
   const [feedbackLmpId, setFeedbackLmpId] = useState<string | null>(null);
@@ -130,6 +139,8 @@ export default function LmpBoardPage() {
             value={filters}
             onChange={setFilters}
             records={records}
+            role={role}
+            prepPocOptions={prepPocOptions}
             trailing={<ViewToggle value={view} onChange={handleViewChange} />}
           />
 
