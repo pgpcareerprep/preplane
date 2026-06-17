@@ -573,12 +573,16 @@ export function LxFunnel({
 }
 
 /* ─────────────── Heatmap (semantic, compressed) ─────────────── */
+export type LxHeatmapColumn = { label: string; accent: LxAccent; info?: string };
+export type LxHeatmapGroup = { label: string; accent: LxAccent; start: number; span: number };
+
 export function LxHeatmap({
   rowLabels, columns, values, loadTrends, loadTotals, primaryIndex = 0, onCellClick, rowKeys,
+  groups, formatValue,
 }: {
   rowLabels: string[];
   /** columns describe semantic accent for each col */
-  columns: { label: string; accent: LxAccent; info?: string }[];
+  columns: LxHeatmapColumn[];
   /** values[row][col] — raw count */
   values: number[][];
   /** optional per-row mini timeline (length 8-16) for the primary column */
@@ -591,6 +595,10 @@ export function LxHeatmap({
   onCellClick?: (cell: { row: string; rowIndex: number; col: string; colIndex: number; value: number; rowKey?: string }) => void;
   /** optional stable row identifiers (mirrors rowLabels) */
   rowKeys?: string[];
+  /** optional section groups for grouped table headers */
+  groups?: LxHeatmapGroup[];
+  /** optional cell display formatter; raw numeric value is preserved for intensity and clicks */
+  formatValue?: (value: number, ctx: { rowIndex: number; colIndex: number; col: string; row: string }) => ReactNode;
 }) {
   // per-column max for relative intensity
   const colMax = columns.map((ci_, ci) =>
@@ -601,20 +609,124 @@ export function LxHeatmap({
       ),
     ),
   );
+  const totals = columns.map((_, ci) =>
+    values.reduce((sum, row, ri) => sum + (ci === primaryIndex && loadTotals ? loadTotals[ri] ?? 0 : row[ci] ?? 0), 0),
+  );
+  const groupForCol = (ci: number) => groups?.find((g) => ci >= g.start && ci < g.start + g.span);
+  const groupBoundary = (ci: number) => {
+    const group = groupForCol(ci);
+    return {
+      group,
+      start: !!group && group.start === ci,
+      end: !!group && group.start + group.span - 1 === ci,
+    };
+  };
+  const toHex2 = (n: number) =>
+    Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, "0");
+  const heatAlpha = (value: number, intensity: number) => {
+    if (value === 0) return 0.045;
+    if (intensity <= 0.25) return 0.13;
+    if (intensity <= 0.5) return 0.2;
+    if (intensity <= 0.75) return 0.28;
+    return 0.38;
+  };
+  const headerRows = groups?.length ? 2 : 1;
+
   return (
-    <div className="overflow-x-auto -mx-1 px-1">
-      <table className="w-full text-[12px] border-separate border-spacing-y-1.5 border-spacing-x-1.5" style={{ tableLayout: "fixed" }}>
+    <div className="overflow-x-auto -mx-1 px-1 pb-1">
+      <table className="min-w-[1180px] w-full text-[12px] border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: "140px" }} />
+          <col style={{ width: "156px" }} />
           {columns.map((_, ci) => (
-            <col key={ci} style={{ width: "64px" }} />
+            <col key={ci} style={{ width: "76px" }} />
           ))}
         </colgroup>
 
         <thead>
           <tr>
-            <th className="text-left font-medium px-2 py-1.5 text-[10px] uppercase tracking-[0.5px]" style={{ color: "var(--lx-text-3)" }}>POC</th>
+            <th
+              rowSpan={headerRows}
+              className="sticky left-0 z-30 text-left font-semibold px-4 py-3 text-[11px] uppercase tracking-[0.7px] rounded-tl-2xl border-y border-l"
+              style={{
+                color: "var(--lx-text)",
+                background: "linear-gradient(180deg, var(--lx-surface), rgba(255,255,255,0.96))",
+                borderColor: "var(--lx-border)",
+              }}
+            >
+              POC
+            </th>
+            {groups?.length ? (
+              groups.map((group) => (
+                <th
+                  key={group.label}
+                  colSpan={group.span}
+                  className="px-3 py-3 text-center text-[11px] uppercase tracking-[0.75px] font-bold border-t border-b first:border-l"
+                  style={{
+                    color: LX_HEX[group.accent],
+                    background: `linear-gradient(180deg, ${SOFT_BG[group.accent]}, rgba(255,255,255,0.72))`,
+                    borderColor: `${LX_HEX[group.accent]}33`,
+                    boxShadow: `inset 0 2px 0 ${LX_HEX[group.accent]}66`,
+                  }}
+                >
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <span
+                      className="h-6 w-6 rounded-lg grid place-items-center"
+                      style={{ background: `${LX_HEX[group.accent]}1F`, color: LX_HEX[group.accent] }}
+                      aria-hidden
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ background: LX_HEX[group.accent] }} />
+                    </span>
+                    {group.label}
+                  </span>
+                </th>
+              ))
+            ) : (
+              columns.map((c, ci) => (
+                <th key={c.label}
+                  className="text-center font-medium px-2 py-2 text-[10px] uppercase tracking-[0.5px] border-y"
+                  style={{
+                    color: ci === primaryIndex ? "var(--lx-text)" : "var(--lx-text-3)",
+                    background: SOFT_BG[c.accent],
+                    borderColor: "var(--lx-border)",
+                  }}>
+                  <span className="inline-flex flex-col items-center gap-0.5">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: LX_HEX[c.accent] }} />
+                      {c.info && <LxInfo text={c.info} size={10} />}
+                    </span>
+                    <span className="leading-tight">{c.label}</span>
+                  </span>
+                </th>
+              ))
+            )}
+          </tr>
+          {groups?.length && (
+            <tr>
             {columns.map((c, ci) => (
+                <th
+                  key={c.label}
+                  className={cn(
+                    "text-center font-semibold px-2 py-2.5 text-[10px] tracking-[0.25px] border-b",
+                    groupBoundary(ci).start && "border-l",
+                    groupBoundary(ci).end && "border-r",
+                  )}
+                  style={{
+                    color: LX_HEX[c.accent],
+                    background: SOFT_BG[groupForCol(ci)?.accent ?? c.accent],
+                    borderColor: `${LX_HEX[groupForCol(ci)?.accent ?? c.accent]}2E`,
+                  }}
+                >
+                  <span className="inline-flex min-h-[30px] flex-col items-center justify-center gap-0.5 leading-tight">
+                    <span>{c.label}</span>
+                    {c.info && <LxInfo text={c.info} size={10} />}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          )}
+          {!groups?.length && (
+            <tr className="hidden">
+              {columns.map((c, ci) => (
               <th key={c.label}
                 className="text-center font-medium px-1 py-1.5 text-[10px] uppercase tracking-[0.5px]"
                 style={{
@@ -635,26 +747,35 @@ export function LxHeatmap({
                 </span>
               </th>
             ))}
-          </tr>
+            </tr>
+          )}
         </thead>
         <tbody>
           {rowLabels.map((r, ri) => (
-            <tr key={r}>
-              <td className="px-2 py-2 whitespace-nowrap font-medium text-[12px]" style={{ color: "var(--lx-text)" }}>{r}</td>
+            <tr key={r} className="group/heatrow">
+              <td
+                className="sticky left-0 z-20 px-4 py-3 whitespace-nowrap font-semibold text-[12.5px] border-b border-l transition-colors group-hover/heatrow:text-[var(--lx-text)]"
+                style={{
+                  color: "var(--lx-text-2)",
+                  background: "rgba(255,255,255,0.96)",
+                  borderColor: "var(--lx-border)",
+                }}
+              >
+                {r}
+              </td>
               {columns.map((c, ci) => {
                 const isPrimary = ci === primaryIndex;
                 const v = isPrimary && loadTotals ? loadTotals[ri] ?? 0 : values[ri]?.[ci] ?? 0;
                 const intensity = Math.min(1, v / colMax[ci]);
                 const hex = LX_HEX[c.accent];
-                const alpha = v === 0 ? 0 : 0.12 + intensity * 0.83;
-                const toHex2 = (n: number) =>
-                  Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, "0");
-                const bg = v === 0 ? "rgba(0,0,0,0.025)" : `${hex}${toHex2(alpha)}`;
-                const dark = v > 0 && intensity > 0.45;
+                const alpha = heatAlpha(v, intensity);
+                const bg = v === 0 ? "rgba(16,24,40,0.025)" : `${hex}${toHex2(alpha)}`;
                 const clickable = !!onCellClick && v > 0;
+                const boundary = groupBoundary(ci);
+                const display = formatValue ? formatValue(v, { rowIndex: ri, colIndex: ci, col: c.label, row: r }) : v;
                 return (
                   <td key={ci}
-                    title={`${c.label}: ${v}`}
+                    title={`${r} · ${c.label}: ${typeof display === "string" || typeof display === "number" ? display : v}`}
                     onClick={clickable ? () => onCellClick!({ row: r, rowIndex: ri, col: c.label, colIndex: ci, value: v, rowKey: rowKeys?.[ri] }) : undefined}
                     role={clickable ? "button" : undefined}
                     tabIndex={clickable ? 0 : undefined}
@@ -665,20 +786,60 @@ export function LxHeatmap({
                       }
                     }}
                     className={cn(
-                      "py-2.5 rounded-md font-mono tabular-nums text-center text-[13px]",
+                      "py-3 px-2 font-mono tabular-nums text-center text-[13px] border-b transition-all",
                       isPrimary ? "font-bold" : "font-semibold",
-                      clickable && "cursor-pointer hover:ring-2 hover:ring-offset-1 transition-shadow",
+                      clickable && "cursor-pointer hover:-translate-y-[1px] hover:ring-1 hover:ring-offset-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                      boundary.start && "border-l",
+                      boundary.end && "border-r",
                     )}
                     style={{
                       background: bg,
-                      color: v === 0 ? "var(--lx-text-3)" : dark ? "#fff" : "var(--lx-text)",
+                      color: v === 0 ? "var(--lx-text-3)" : "var(--lx-text)",
+                      borderColor: `${LX_HEX[boundary.group?.accent ?? c.accent]}26`,
+                      boxShadow: clickable ? `inset 0 0 0 1px ${LX_HEX[c.accent]}12` : undefined,
                     }}>
-                    {v}
+                    {display}
                   </td>
                 );
               })}
             </tr>
           ))}
+          {rowLabels.length > 0 && (
+            <tr>
+              <td
+                className="sticky left-0 z-20 px-4 py-3 whitespace-nowrap font-bold text-[12.5px] border-y border-l rounded-bl-2xl"
+                style={{
+                  color: "var(--lx-text)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.98), var(--lx-soft))",
+                  borderColor: "var(--lx-border)",
+                }}
+              >
+                TOTAL
+              </td>
+              {columns.map((c, ci) => {
+                const boundary = groupBoundary(ci);
+                const v = totals[ci] ?? 0;
+                const display = formatValue ? formatValue(v, { rowIndex: -1, colIndex: ci, col: c.label, row: "TOTAL" }) : v;
+                return (
+                  <td
+                    key={c.label}
+                    className={cn(
+                      "py-3 px-2 font-mono tabular-nums text-center text-[13px] font-bold border-y",
+                      boundary.start && "border-l",
+                      boundary.end && "border-r",
+                    )}
+                    style={{
+                      color: LX_HEX[c.accent],
+                      background: `linear-gradient(180deg, rgba(255,255,255,0.95), ${SOFT_BG[boundary.group?.accent ?? c.accent]})`,
+                      borderColor: `${LX_HEX[boundary.group?.accent ?? c.accent]}33`,
+                    }}
+                  >
+                    {display}
+                  </td>
+                );
+              })}
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

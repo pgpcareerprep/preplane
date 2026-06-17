@@ -287,6 +287,7 @@ export function AdminLmpDashboard() {
             hasDomain: domainCtx.size > 0,
             historical: totalIds.size,
             active: prepActiveIds.size,
+            closed: statusIds.converted.size + statusIds.notConverted.size + statusIds.hold.size + statusIds.otherReasons.size,
             supportActive: supportActiveIds.size,
             cross: crossIds.size,
             inDomain: inDomainIds.size,
@@ -301,6 +302,12 @@ export function AdminLmpDashboard() {
               total: totalIds,
               prepActive: prepActiveIds,
               supportActive: supportActiveIds,
+              closed: new Set([
+                ...statusIds.converted,
+                ...statusIds.notConverted,
+                ...statusIds.hold,
+                ...statusIds.otherReasons,
+              ]),
               inDomain: inDomainIds,
               cross: crossIds,
               ...statusIds,
@@ -325,19 +332,37 @@ export function AdminLmpDashboard() {
   const heatmapMatrix = prepPocCapacity.map((p) => [
     p.historical,
     p.active,
-    p.supportActive,
-    p.inDomain,
-    p.cross,
+    p.closed,
     p.notStarted,
     p.prepOngoing,
     p.prepDone,
-    p.hold,
     p.converted,
     p.notConverted,
+    p.hold,
     p.otherReasons,
+    p.active,
+    p.supportActive,
+    p.inDomain,
+    p.cross,
+    p.closed > 0 ? Math.round((p.converted / p.closed) * 100) : 0,
+    p.converted,
   ]);
 
   const loadTotals = prepPocCapacity.map((p) => p.active);
+  const heatmapClosedTotal = prepPocCapacity.reduce((sum, p) => sum + p.closed, 0);
+  const heatmapConvertedTotal = prepPocCapacity.reduce((sum, p) => sum + p.converted, 0);
+  const formatHeatmapValue = (value: number, ctx: { rowIndex: number; colIndex: number }) => {
+    if (ctx.colIndex !== 14) return value;
+    if (ctx.rowIndex < 0) {
+      const pct = heatmapClosedTotal > 0 ? Math.round((heatmapConvertedTotal / heatmapClosedTotal) * 100) : 0;
+      return `${heatmapConvertedTotal}/${heatmapClosedTotal} - ${pct}%`;
+    }
+    const row = prepPocCapacity[ctx.rowIndex];
+    const closed = row?.closed ?? 0;
+    const convertedCount = row?.converted ?? 0;
+    const pct = closed > 0 ? Math.round((convertedCount / closed) * 100) : 0;
+    return `${convertedCount}/${closed} - ${pct}%`;
+  };
 
   /* ─────── Attention strip — live, source-of-truth queries ─────── */
   const { data: attentionPendingOffers = 0 } = useQuery({
@@ -560,18 +585,23 @@ export function AdminLmpDashboard() {
   // then resolves them to in-memory Process rows so the modal always matches.
   const onHeatmapCell = (cell: { row: string; colIndex: number; col: string; value: number }) => {
     const name = cell.row;
-    const subtitle = `${cell.col} · ${cell.value} LMPs`;
     const cap = capacityByName.get(name);
     const COL_TO_SET = [
-      "total", "prepActive", "supportActive", "inDomain", "cross",
-      "notStarted", "prepOngoing", "prepDone", "hold",
-      "converted", "notConverted", "otherReasons",
+      "total", "prepActive", "closed",
+      "notStarted", "prepOngoing", "prepDone",
+      "converted", "notConverted", "hold", "otherReasons",
+      "prepActive", "supportActive",
+      "inDomain", "cross",
+      "converted", "converted",
     ] as const;
     const setKey = COL_TO_SET[cell.colIndex];
     const ids = cap?.ids?.[setKey] as Set<string> | undefined;
     const rows = ids
       ? all.filter((r) => ids.has(r.processId))
       : lmpsForPoc(all, name, "prep");
+    const subtitle = cell.colIndex === 14
+      ? `${cell.col} · ${formatHeatmapValue(cell.value, { rowIndex: cell.rowIndex, colIndex: cell.colIndex })}`
+      : `${cell.col} · ${rows.length} LMPs`;
     openLmps(rows, `${name} · ${cell.col}`, subtitle);
   };
 
@@ -666,23 +696,36 @@ export function AdminLmpDashboard() {
             <LxHeatmap
               rowLabels={capacityPocs}
               onCellClick={onHeatmapCell}
+              groups={[
+                { label: "LMP Load", accent: "neutral", start: 0, span: 3 },
+                { label: "Active Prep", accent: "info", start: 3, span: 3 },
+                { label: "Closed Outcomes", accent: "success", start: 6, span: 4 },
+                { label: "Responsibility", accent: "ai", start: 10, span: 2 },
+                { label: "Domain Load", accent: "teal", start: 12, span: 2 },
+                { label: "Performance", accent: "success", start: 14, span: 2 },
+              ]}
               columns={[
-                { label: "Total LMP (till today)", accent: "teal",    info: info("admin.heatmap.col.total") },
-                { label: "Prep Load (Active)",     accent: "ai",      info: info("admin.heatmap.col.prep-load") },
-                { label: "Support Load (Active)",  accent: "info",    info: info("admin.heatmap.col.support") },
-                { label: "In-domain Load",         accent: "success", info: info("admin.heatmap.col.in-domain") },
-                { label: "Cross-domain Load",      accent: "orange",  info: info("admin.heatmap.col.cross") },
-                { label: "Not Started",            accent: "neutral", info: info("admin.heatmap.col.not-started") },
-                { label: "Prep Ongoing",           accent: "info",    info: info("admin.heatmap.col.prep-ongoing") },
-                { label: "Prep Done",              accent: "teal",    info: info("admin.heatmap.col.prep-done") },
-                { label: "Hold",                   accent: "yellow",  info: info("admin.heatmap.col.hold") },
-                { label: "Converted",              accent: "success", info: info("admin.heatmap.col.converted") },
-                { label: "Not Converted",          accent: "risk",    info: info("admin.heatmap.col.not-conv") },
-                { label: "Other Reasons",          accent: "orange",  info: info("admin.heatmap.col.other") },
+                { label: "Total", accent: "neutral", info: info("admin.heatmap.col.total") },
+                { label: "Current", accent: "neutral", info: info("admin.heatmap.col.prep-load") },
+                { label: "Closed", accent: "neutral", info: info("admin.heatmap.col.total") },
+                { label: "Not Started", accent: "info", info: info("admin.heatmap.col.not-started") },
+                { label: "Prep Ongoing", accent: "info", info: info("admin.heatmap.col.prep-ongoing") },
+                { label: "Prep Done", accent: "info", info: info("admin.heatmap.col.prep-done") },
+                { label: "Converted", accent: "success", info: info("admin.heatmap.col.converted") },
+                { label: "Not Converted", accent: "risk", info: info("admin.heatmap.col.not-conv") },
+                { label: "On hold", accent: "neutral", info: info("admin.heatmap.col.hold") },
+                { label: "Other reasons", accent: "orange", info: info("admin.heatmap.col.other") },
+                { label: "Primary", accent: "ai", info: info("admin.heatmap.col.prep-load") },
+                { label: "Support", accent: "ai", info: info("admin.heatmap.col.support") },
+                { label: "In-domain", accent: "teal", info: info("admin.heatmap.col.in-domain") },
+                { label: "Cross-domain", accent: "yellow", info: info("admin.heatmap.col.cross") },
+                { label: "LMP Conversion", accent: "success", info: info("admin.heatmap.col.converted") },
+                { label: "Students Placed", accent: "success", info: info("admin.heatmap.col.converted") },
               ]}
               values={heatmapMatrix}
               loadTotals={loadTotals}
               primaryIndex={1}
+              formatValue={formatHeatmapValue}
             />
           )}
         </LxCard>
