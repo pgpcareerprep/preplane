@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Search, X } from "lucide-react";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
@@ -50,6 +51,9 @@ export function ReassignPocModal({
   lmpLabel?: string;
   scope?: ReassignScope;
 }) {
+  // #region agent log
+  fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3c81bd'},body:JSON.stringify({sessionId:'3c81bd',location:'ReassignPocModal.tsx:mount',message:'react-query hooks resolved',data:{useQueryClientType:typeof useQueryClient,useMutationType:typeof useMutation},timestamp:Date.now(),hypothesisId:'H1',runId:'post-fix'})}).catch(()=>{});
+  // #endregion
   const { user } = useRole();
   const qc = useQueryClient();
   const { data: profiles = [], isLoading } = usePocProfiles();
