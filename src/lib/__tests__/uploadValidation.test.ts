@@ -8,6 +8,7 @@ import {
   validateUrl,
   validateMentorRow,
   validateStudentRow,
+  validateStudentCsvDuplicates,
 } from "@/lib/uploadValidation";
 
 describe("validateEmail", () => {
@@ -124,5 +125,31 @@ describe("validateStudentRow", () => {
   it("flags missing primary_domain", () => {
     const errors = validateStudentRow({ ...validStudent, primary_domain: "" }, 0);
     expect(errors.some((e) => e.includes("primary_domain"))).toBe(true);
+  });
+});
+
+describe("validateStudentCsvDuplicates", () => {
+  it("returns no errors for unique emails and student IDs", () => {
+    const errors = validateStudentCsvDuplicates([
+      { email: "a@example.com", roll_no: "S001" },
+      { email: "b@example.com", roll_no: "S002" },
+    ]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("flags duplicate emails with row numbers", () => {
+    const errors = validateStudentCsvDuplicates([
+      { email: "dup@example.com", roll_no: "S001" },
+      { email: "dup@example.com", roll_no: "S002" },
+    ]);
+    expect(errors.some((e) => e.includes('Duplicate email "dup@example.com" in rows 2, 3'))).toBe(true);
+  });
+
+  it("flags duplicate student IDs with row numbers", () => {
+    const errors = validateStudentCsvDuplicates([
+      { email: "a@example.com", roll_no: "S001" },
+      { email: "b@example.com", roll_no: "S001" },
+    ]);
+    expect(errors.some((e) => e.includes('Duplicate Student ID "S001" in rows 2, 3'))).toBe(true);
   });
 });

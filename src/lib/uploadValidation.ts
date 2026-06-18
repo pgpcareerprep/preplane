@@ -96,3 +96,38 @@ export function validateStudentRow(rec: Record<string, unknown>, rowIdx: number)
 
   return errors;
 }
+
+export function validateStudentCsvDuplicates(records: Record<string, unknown>[]): string[] {
+  const errors: string[] = [];
+  const emailRows = new Map<string, number[]>();
+  const rollRows = new Map<string, number[]>();
+
+  records.forEach((rec, idx) => {
+    const rowNum = idx + 2;
+    const email = asStr(rec.email).toLowerCase();
+    if (email) {
+      const rows = emailRows.get(email) ?? [];
+      rows.push(rowNum);
+      emailRows.set(email, rows);
+    }
+    const roll = asStr(rec.roll_no);
+    if (roll) {
+      const rows = rollRows.get(roll) ?? [];
+      rows.push(rowNum);
+      rollRows.set(roll, rows);
+    }
+  });
+
+  for (const [email, rowNums] of emailRows) {
+    if (rowNums.length > 1) {
+      errors.push(`Duplicate email "${email}" in rows ${rowNums.join(", ")}`);
+    }
+  }
+  for (const [roll, rowNums] of rollRows) {
+    if (rowNums.length > 1) {
+      errors.push(`Duplicate Student ID "${roll}" in rows ${rowNums.join(", ")}`);
+    }
+  }
+
+  return errors;
+}

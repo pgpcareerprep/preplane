@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { ColumnMapping, MentorCsvRow } from "@/lib/mentorUpload";
 import { fetchCanonicalDomains, normalizeDomain, normalizeDomainList } from "@/lib/domainNormalize";
+import { validateStudentCsvDuplicates } from "@/lib/uploadValidation";
 
 export type StudentCsvRow = MentorCsvRow;
 
@@ -80,6 +81,75 @@ export type StudentUploadResult = {
   status: "success" | "partial_success" | "failed";
 };
 
+type ExistingStudent = {
+  id: string;
+  email: string | null;
+  roll_no: string | null;
+  name: string;
+};
+
+type ParsedStudentRow = {
+  rowNum: number;
+  rec: Record<string, unknown>;
+};
+
+const STUDENT_UPLOAD_FIELDS = [
+  "roll_no",
+  "name",
+  "email",
+  "primary_domain",
+  "secondary_domain",
+  "other_domains",
+  "placement_status",
+  "cohort",
+  "phone",
+  "sync_source",
+] as const;
+
+function buildStudentPayload(rec: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const key of STUDENT_UPLOAD_FIELDS) {
+    if (rec[key] !== undefined && rec[key] !== null && rec[key] !== "") {
+      payload[key] = rec[key];
+    }
+  }
+  return payload;
+}
+
+async function fetchExistingStudents(
+  rollNos: string[],
+  emails: string[],
+): Promise<{ students: ExistingStudent[]; error?: string }> {
+  const byId = new Map<string, ExistingStudent>();
+
+  const addRows = (rows: ExistingStudent[] | null) => {
+    for (const row of rows || []) {
+      byId.set(row.id, row);
+    }
+  };
+
+  const CHUNK = 200;
+  for (let i = 0; i < rollNos.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, email, roll_no, name")
+      .in("roll_no", rollNos.slice(i, i + CHUNK));
+    if (error) return { students: [], error: error.message };
+    addRows(data as ExistingStudent[]);
+  }
+
+  for (let i = 0; i < emails.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, email, roll_no, name")
+      .in("email", emails.slice(i, i + CHUNK));
+    if (error) return { students: [], error: error.message };
+    addRows(data as ExistingStudent[]);
+  }
+
+  return { students: [...byId.values()] };
+}
+
 export async function uploadStudents(
   rows: StudentCsvRow[],
   mapping: ColumnMapping[],
@@ -96,89 +166,140 @@ export async function uploadStudents(
     return acc;
   }, {});
 
-  // Load canonical domains once for alias-aware normalization.
   const canonicalDomains = await fetchCanonicalDomains();
 
-  const records = rows
-    .map((row, idx) => {
-      const rec: Record<string, unknown> = { sync_source: "csv_upload" };
-      for (const [csvCol, dbField] of Object.entries(mapped)) {
-        const val = (row[csvCol] || "").trim();
-        if (!val) continue;
-        if (dbField === "other_domains") {
-          const parts = val.split(/[,;|]+/).map((s) => s.trim()).filter(Boolean);
-          rec[dbField] = normalizeDomainList(parts, canonicalDomains).join(", ");
-        } else if (dbField === "primary_domain") {
-          rec[dbField] = normalizeDomain(val, canonicalDomains) ?? val;
-        } else if (dbField === "email") {
-          rec[dbField] = val.toLowerCase();
-        } else {
-          rec[dbField] = val;
-        }
-      }
-      const hasName = !!rec.name;
-      const hasRoll = !!rec.roll_no;
-      if (!hasName && !hasRoll) {
-        errors.push(`Row ${idx + 2}: missing name and roll_no, skipped`);
-        skipped++;
-        return null;
-      }
-      if (!rec.name) rec.name = rec.roll_no;
-      return rec;
-    })
-    .filter(Boolean) as Record<string, unknown>[];
+  const parsedRows: ParsedStudentRow[] = [];
 
-  // Pre-fetch existing keys to compute insert vs update.
-  const rollNos = records.map((r) => r.roll_no as string | undefined).filter(Boolean) as string[];
-  const emails = records
-    .filter((r) => !r.roll_no)
-    .map((r) => r.email as string | undefined)
-    .filter(Boolean) as string[];
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    const rowNum = idx + 2;
+    const rec: Record<string, unknown> = { sync_source: "csv_upload" };
 
-  const existingRolls = new Set<string>();
-  const existingEmails = new Set<string>();
-  if (rollNos.length) {
-    const { data } = await supabase.from("students").select("roll_no").in("roll_no", rollNos);
-    (data || []).forEach((d: any) => d.roll_no && existingRolls.add(d.roll_no));
-  }
-  if (emails.length) {
-    const { data } = await supabase.from("students").select("email").in("email", emails);
-    (data || []).forEach((d: any) => d.email && existingEmails.add(d.email.toLowerCase()));
-  }
-
-  const BATCH = 50;
-  for (let i = 0; i < records.length; i += BATCH) {
-    const batch = records.slice(i, i + BATCH);
-    const withRoll = batch.filter((r) => r.roll_no);
-    const withEmailOnly = batch.filter((r) => !r.roll_no && r.email);
-
-    if (withRoll.length) {
-      const { error } = await supabase
-        .from("students")
-        .upsert(withRoll as any, { onConflict: "roll_no", ignoreDuplicates: false });
-      if (error) {
-        errors.push(error.message);
-        skipped += withRoll.length;
+    for (const [csvCol, dbField] of Object.entries(mapped)) {
+      const val = (row[csvCol] || "").trim();
+      if (!val) continue;
+      if (dbField === "other_domains") {
+        const parts = val.split(/[,;|]+/).map((s) => s.trim()).filter(Boolean);
+        rec[dbField] = normalizeDomainList(parts, canonicalDomains).join(", ");
+      } else if (dbField === "primary_domain") {
+        rec[dbField] = normalizeDomain(val, canonicalDomains) ?? val;
+      } else if (dbField === "email") {
+        rec[dbField] = val.toLowerCase();
       } else {
-        for (const r of withRoll) {
-          if (existingRolls.has(r.roll_no as string)) updated++;
-          else inserted++;
-        }
+        rec[dbField] = val;
       }
     }
-    if (withEmailOnly.length) {
-      const { error } = await supabase
-        .from("students")
-        .upsert(withEmailOnly as any, { onConflict: "email", ignoreDuplicates: false });
+
+    const hasName = !!rec.name;
+    const hasRoll = !!rec.roll_no;
+    if (!hasName && !hasRoll) {
+      errors.push(`Row ${rowNum}: missing name and roll_no, skipped`);
+      skipped++;
+      continue;
+    }
+    if (!rec.name) rec.name = rec.roll_no;
+
+    parsedRows.push({ rowNum, rec });
+  }
+
+  const duplicateErrors = validateStudentCsvDuplicates(parsedRows.map((p) => p.rec));
+  if (duplicateErrors.length) {
+    return {
+      inserted: 0,
+      updated: 0,
+      skipped: rows.length,
+      errors: duplicateErrors,
+      status: "failed",
+    };
+  }
+
+  const rollNos = [
+    ...new Set(
+      parsedRows
+        .map((p) => p.rec.roll_no as string | undefined)
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const emails = [
+    ...new Set(
+      parsedRows
+        .map((p) => p.rec.email as string | undefined)
+        .filter(Boolean) as string[],
+    ),
+  ];
+
+  const { students: existingStudents, error: fetchError } = await fetchExistingStudents(rollNos, emails);
+  if (fetchError) {
+    errors.push(fetchError);
+    const status: StudentUploadResult["status"] = "failed";
+    await supabase.from("data_source_sync_history").insert({
+      source_type: "student_db",
+      file_name: fileName,
+      uploaded_by_admin_id: admin.id ?? null,
+      uploaded_by_admin_email: admin.email ?? null,
+      total_rows: rows.length,
+      inserted_rows: 0,
+      updated_rows: 0,
+      skipped_rows: rows.length,
+      error_rows: errors.length,
+      validation_summary: { errors: errors.slice(0, 20) },
+      status,
+    });
+    await supabase.rpc("refresh_data_source_status", { _source: "student_db" });
+    return { inserted: 0, updated: 0, skipped: rows.length, errors, status };
+  }
+
+  const existingByEmail = new Map<string, ExistingStudent>();
+  const existingByRollNo = new Map<string, ExistingStudent>();
+  for (const student of existingStudents) {
+    if (student.email) existingByEmail.set(student.email.toLowerCase(), student);
+    if (student.roll_no) existingByRollNo.set(student.roll_no, student);
+  }
+
+  for (const { rowNum, rec } of parsedRows) {
+    const email = rec.email as string | undefined;
+    const rollNo = rec.roll_no as string | undefined;
+    const emailMatch = email ? existingByEmail.get(email.toLowerCase()) : undefined;
+    const rollMatch = rollNo ? existingByRollNo.get(rollNo) : undefined;
+
+    if (emailMatch && rollMatch && emailMatch.id !== rollMatch.id) {
+      errors.push(
+        `Row ${rowNum}: email belongs to one existing student but Student ID belongs to another. Please resolve conflict.`,
+      );
+      skipped++;
+      continue;
+    }
+
+    const payload = buildStudentPayload(rec);
+    const target = emailMatch ?? rollMatch;
+
+    if (target) {
+      const { error } = await supabase.from("students").update(payload).eq("id", target.id);
       if (error) {
-        errors.push(error.message);
-        skipped += withEmailOnly.length;
-      } else {
-        for (const r of withEmailOnly) {
-          if (existingEmails.has((r.email as string).toLowerCase())) updated++;
-          else inserted++;
-        }
+        errors.push(`Row ${rowNum}: ${error.message}`);
+        skipped++;
+        continue;
       }
+      updated++;
+      const merged: ExistingStudent = {
+        id: target.id,
+        name: (payload.name as string | undefined) ?? target.name,
+        email: (payload.email as string | undefined) ?? target.email,
+        roll_no: (payload.roll_no as string | undefined) ?? target.roll_no,
+      };
+      if (merged.email) existingByEmail.set(merged.email.toLowerCase(), merged);
+      if (merged.roll_no) existingByRollNo.set(merged.roll_no, merged);
+    } else {
+      const { data, error } = await supabase.from("students").insert(payload).select("id, email, roll_no, name").single();
+      if (error) {
+        errors.push(`Row ${rowNum}: ${error.message}`);
+        skipped++;
+        continue;
+      }
+      inserted++;
+      const created = data as ExistingStudent;
+      if (created.email) existingByEmail.set(created.email.toLowerCase(), created);
+      if (created.roll_no) existingByRollNo.set(created.roll_no, created);
     }
   }
 

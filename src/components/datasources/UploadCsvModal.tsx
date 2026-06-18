@@ -25,7 +25,7 @@ import {
   autoMapPocColumns, uploadPocs, POC_DB_FIELDS, POC_REQUIRED_FIELDS,
 } from "@/lib/pocUpload";
 import { invalidateDataSourceCaches, type DataSourceType } from "@/lib/hooks/useDbData";
-import { validateMentorRow, validateAlumniRow, validateStudentRow } from "@/lib/uploadValidation";
+import { validateMentorRow, validateAlumniRow, validateStudentRow, validateStudentCsvDuplicates } from "@/lib/uploadValidation";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { loadSavedMapping, saveMapping, clearMapping } from "@/lib/columnMappingStore";
 import { UploadReportPanel } from "@/components/upload/UploadReportPanel";
@@ -304,6 +304,24 @@ export function UploadCsvModal({
     return { results, validCount: results.length - invalid.length, invalidCount: invalid.length, invalid };
   }, [source, rows, mapping, aluParsed]);
 
+  const studentDuplicateErrors = useMemo(() => {
+    if (source !== "student_db" || !rows.length) return [] as string[];
+    const mapped = mapping.reduce<Record<string, string>>((acc, m) => {
+      if (m.dbField) acc[m.csvColumn] = m.dbField;
+      return acc;
+    }, {});
+    const recs = rows.map((row) => {
+      const rec: Record<string, unknown> = {};
+      for (const [csvCol, dbField] of Object.entries(mapped)) {
+        const val = (row[csvCol] || "").trim();
+        if (!val) continue;
+        rec[dbField] = dbField === "email" ? val.toLowerCase() : val;
+      }
+      return rec;
+    });
+    return validateStudentCsvDuplicates(recs);
+  }, [source, rows, mapping]);
+
   const downloadValidationReport = () => {
     const csv = "row_number,errors\n" + validation.invalid
       .map(r => `${r.row + 2},${csvEscape(r.errors.join(" | "))}`).join("\n");
@@ -554,6 +572,18 @@ export function UploadCsvModal({
                 </div>
               )}
 
+              {source === "student_db" && studentDuplicateErrors.length > 0 && (
+                <div className="mb-3 flex items-start gap-1.5 rounded-md border border-coral-200 bg-coral-50 px-3 py-2 text-[12px] text-coral-700">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-medium">Upload blocked: duplicate values found in CSV</p>
+                    {studentDuplicateErrors.map((err) => (
+                      <p key={err}>{err}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Validation summary */}
               <div className="mb-2 flex items-center justify-between gap-3 text-[12px]">
                 {validation.invalidCount === 0 ? (
@@ -627,9 +657,13 @@ export function UploadCsvModal({
               <div className="mt-4 flex items-center gap-2">
                 <button
                   onClick={doUpload}
-                  disabled={source === "alumni_db" && aluMissingHeaders.length > 0}
+                  disabled={
+                    (source === "alumni_db" && aluMissingHeaders.length > 0) ||
+                    (source === "student_db" && studentDuplicateErrors.length > 0)
+                  }
                   className={cn("inline-flex items-center gap-2 rounded-md text-[13px] font-medium px-4 py-2 shadow-sm transition-colors",
-                    (source === "alumni_db" && aluMissingHeaders.length > 0)
+                    (source === "alumni_db" && aluMissingHeaders.length > 0) ||
+                    (source === "student_db" && studentDuplicateErrors.length > 0)
                       ? "bg-n200 text-n400 cursor-not-allowed"
                       : "bg-orange-500 hover:bg-orange-600 text-white")}
                 >
