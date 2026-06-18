@@ -47,13 +47,17 @@ export const DASHBOARD_INFO = {
 
   // ── Admin · Student analytics
   "admin.students.total-db":       "All students currently in the Students database, ignoring dashboard filters.",
+  "admin.students.opted-out":      "Students whose placement_status is marked as opted out, withdrawn, or a similar terminal opt-out value. These students are excluded from eligible-student calculations.",
+  "admin.students.eligible":       "Total students minus opted-out students. This is the operative base for participation and conversion metrics.",
   "admin.students.in-view":        "Unique student names appearing on any LMP in the current view (parsed from R1/R2/R3/Final/Convert fields).",
   "admin.students.in-process":     "Students with at least one ACTIVE LMP (active_lmp_count ≥ 1) from the live Students DB.",
   "admin.students.single":         "Students with exactly one active LMP.",
   "admin.students.multiple":       "Students with two or more active LMPs simultaneously.",
   "admin.students.inactive":       "Students with zero active LMPs.",
-  "admin.students.cohort":         "Per-cohort split of students by active-LMP count.",
+  "admin.students.cohort":         "Per-cohort split of students by active-LMP count. Conversion % = matched converted students ÷ eligible (non-opted-out) students in cohort.",
   "admin.students.by-domain":      "Unique students grouped by their PRIMARY domain preference (resolved to canonical domain names). Click a row to list those students.",
+  "admin.students.domain-pref":    "Compares student domain preferences (primary + secondary) against actual LMP engagement and placement outcomes. Uses canonical domain names from the domains table.",
+  "admin.students.poc-lens":       "Shows how each Prep POC's active LMPs funnel students from initial shortlisting through interview rounds, offers, and final conversion.",
   "admin.students.converted":      "Unique students listed under Converted Names across LMPs in the selected dashboard scope. A student appearing in multiple LMPs is counted once.",
 
   // ── Admin · Attention / Performance strip

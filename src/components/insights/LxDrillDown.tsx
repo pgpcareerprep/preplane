@@ -61,12 +61,15 @@ function StatusBadge({ status }: { status: string }) {
 export type LmpDrillRow = Process;
 
 export type StudentDrillRow = {
+  id?: string | null;
+  email?: string | null;
   name: string;
   cohort?: string;
   primaryDomain?: string;
   secondaryDomain?: string;
   lmpCount?: number;
   activeLmpCount?: number;
+  placementStatus?: string | null;
 };
 
 export type PocDrillRow = {
@@ -201,8 +204,11 @@ export function LxDrillDown({
                     csv = toCsv(rows, headers);
                   } else if (filtered.kind === "students") {
                     csv = toCsv(filtered.rows, [
-                      { key: "name", label: "Name" }, { key: "cohort", label: "Cohort" },
+                      { key: "name", label: "Name" }, { key: "email", label: "Email" },
+                      { key: "cohort", label: "Cohort" },
                       { key: "primaryDomain", label: "Primary Domain" },
+                      { key: "secondaryDomain", label: "Secondary Domain" },
+                      { key: "placementStatus", label: "Placement Status" },
                       { key: "activeLmpCount", label: "Active LMPs" }, { key: "lmpCount", label: "Total LMPs" },
                     ]);
                   } else if (filtered.kind === "pocs") {

@@ -18,6 +18,7 @@ import {
 //  this dashboard does not consume it directly anymore.)
 import { resolveDomainName } from "@/lib/domainAlias";
 import { rankPerformance } from "@/lib/performanceConversion";
+import { isOptedOutStatus, getStudentIdentityKey, type DomainPreferenceRow, type PocMovementRow } from "@/lib/studentAnalytics";
 
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpRows } from "@/lib/sheets/hooks";
@@ -150,7 +151,7 @@ export function AdminLmpDashboard() {
       while (true) {
         const { data, error } = await supabase
           .from("students")
-          .select("name, cohort, primary_domain, secondary_domain, lmp_count, active_lmp_count")
+          .select("id, email, name, cohort, primary_domain, secondary_domain, lmp_count, active_lmp_count, placement_status")
           .range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
@@ -159,12 +160,15 @@ export function AdminLmpDashboard() {
         from += PAGE;
       }
       return out.map((s) => ({
+        id: (s.id ?? null) as string | null,
+        email: (s.email ?? null) as string | null,
         name: (s.name ?? "").trim(),
         cohort: (s.cohort ?? "").trim(),
         primaryDomain: (s.primary_domain ?? "").trim(),
         secondaryDomain: (s.secondary_domain ?? "").trim(),
         lmpCount: Number(s.lmp_count ?? 0),
         activeLmpCount: Number(s.active_lmp_count ?? 0),
+        placementStatus: (s.placement_status ?? null) as string | null,
       }));
     },
     staleTime: 60_000,
@@ -302,19 +306,20 @@ export function AdminLmpDashboard() {
 
   /* ─────── Student analytics (live · students DB) ─────── */
   const studentStats = useMemo(() => {
-    // Unique students in CURRENT filtered LMP view (derived from process name strings).
-    const inViewNames = new Set<string>();
-    filtered.forEach((r) => {
-      [r.r1Shortlisted, r.r2Shortlisted, r.r3Shortlisted, r.finalConvert, r.convertNames]
-        .filter(Boolean)
-        .forEach((s) =>
-          s.split(/[,/]/).map((n) => n.trim()).filter(Boolean).forEach((n) => inViewNames.add(n)),
-        );
-    });
+    // ── Domain resolution (local, same approach as canonicalDomains useMemo below)
+    const localCanonical = (domainRows as any[]).map((d: any) => ({
+      id: d?.id ?? d?.slug ?? "",
+      name: d?.name ?? "",
+      slug: d?.slug ?? "",
+      aliases: Array.isArray(d?.aliases) ? d.aliases : [],
+    })).filter((d: any) => d.name);
 
-    // Canonical counts come from the students DB (active_lmp_count is maintained
-    // by the candidates trigger), so the strip reflects real DB state, not parsed strings.
-    const rosterWithCohort = studentRoster.filter((s) => s.name && s.cohort);
+    // ── Opted-out classification
+    let optedOut = 0;
+    studentRoster.forEach((s) => { if (isOptedOutStatus(s.placementStatus)) optedOut += 1; });
+    const eligibleStudents = studentRoster.length - optedOut;
+
+    // ── Active/inactive counts (across ALL students, not just eligible)
     let active = 0, single = 0, multiple = 0, inactive = 0;
     studentRoster.forEach((s) => {
       const c = s.activeLmpCount;
@@ -323,44 +328,38 @@ export function AdminLmpDashboard() {
       else { multiple += 1; active += 1; }
     });
 
-    // Cohort split from students DB
-    const cohortAgg: Record<string, { total: number; single: number; multiple: number; inactive: number }> = {};
+    // ── Cohort split
+    const rosterWithCohort = studentRoster.filter((s) => s.name && s.cohort);
+    const cohortAgg: Record<string, { total: number; single: number; multiple: number; inactive: number; optedOut: number }> = {};
     rosterWithCohort.forEach((s) => {
-      const bucket = cohortAgg[s.cohort] ?? { total: 0, single: 0, multiple: 0, inactive: 0 };
+      const bucket = cohortAgg[s.cohort] ?? { total: 0, single: 0, multiple: 0, inactive: 0, optedOut: 0 };
       bucket.total += 1;
-      const c = s.activeLmpCount;
-      if (c === 0) bucket.inactive += 1;
-      else if (c === 1) bucket.single += 1;
-      else bucket.multiple += 1;
+      if (isOptedOutStatus(s.placementStatus)) { bucket.optedOut += 1; }
+      else {
+        const c = s.activeLmpCount;
+        if (c === 0) bucket.inactive += 1;
+        else if (c === 1) bucket.single += 1;
+        else bucket.multiple += 1;
+      }
       cohortAgg[s.cohort] = bucket;
     });
 
-    // Domain preference: bucket students by canonical domain (resolved via
-    // `domains.aliases`). Anything that doesn't match a canonical name or alias
-    // falls into "Unmapped" so the chart never shows raw sheet variants.
+    // ── Domain preference (for legacy bar chart rows)
     const totalsByDomain = new Map<string, number>();
     const activeByDomain = new Map<string, number>();
-    const canonicalDomains = domainRows.map((d: any) => ({
-      id: d?.id ?? d?.slug ?? "",
-      name: d?.name ?? "",
-      slug: d?.slug ?? "",
-      aliases: Array.isArray(d?.aliases) ? d.aliases : [],
-    })).filter((d) => d.name);
     const UNMAPPED = "Unmapped";
     studentRoster.forEach((s) => {
-      const canonical = resolveDomainName(s.primaryDomain, canonicalDomains) ?? UNMAPPED;
+      const canonical = resolveDomainName(s.primaryDomain, localCanonical) ?? UNMAPPED;
       totalsByDomain.set(canonical, (totalsByDomain.get(canonical) ?? 0) + 1);
       if (s.activeLmpCount > 0) {
         activeByDomain.set(canonical, (activeByDomain.get(canonical) ?? 0) + 1);
       }
     });
-    // Rows come strictly from the domains table (canonical order). Hide the
-    // synthetic "Unmapped" row when empty; keep zero-count canonical rows.
-    const orderedNames = canonicalDomains
-      .map((d) => d.name)
-      .filter((n) => n.toLowerCase() !== "unmapped");
+    const orderedNames = localCanonical
+      .map((d: any) => d.name as string)
+      .filter((n: string) => n.toLowerCase() !== "unmapped");
     const buildRows = (src: Map<string, number>) => {
-      const rows = orderedNames.map((name) => ({ label: name, value: src.get(name) ?? 0 }));
+      const rows = orderedNames.map((name: string) => ({ label: name, value: src.get(name) ?? 0 }));
       const unmappedCount = src.get(UNMAPPED) ?? 0;
       if (unmappedCount > 0) rows.push({ label: UNMAPPED, value: unmappedCount });
       return rows;
@@ -368,15 +367,86 @@ export function AdminLmpDashboard() {
     const domainRowsTotal = buildRows(totalsByDomain);
     const domainRowsActive = buildRows(activeByDomain);
 
+    // ── Domain Preference vs Placement Outcome table
+    // For each domain: primary pref, secondary pref, total interested (unique),
+    // eligible interested, currently in process (from filtered LMPs), converted (from filtered LMPs).
+
+    // Step 1: build per-student identity keys for roster lookups
+    const rosterByKey = new Map<string, (typeof studentRoster)[0]>();
+    studentRoster.forEach((s) => rosterByKey.set(getStudentIdentityKey(s), s));
+
+    // Step 2: build per-domain preference sets
+    const primaryByDomain = new Map<string, Set<string>>();
+    const secondaryByDomain = new Map<string, Set<string>>();
+    studentRoster.forEach((s) => {
+      const key = getStudentIdentityKey(s);
+      const pd = resolveDomainName(s.primaryDomain, localCanonical);
+      const sd = resolveDomainName(s.secondaryDomain, localCanonical);
+      if (pd && pd.toLowerCase() !== "unmapped") {
+        if (!primaryByDomain.has(pd)) primaryByDomain.set(pd, new Set());
+        primaryByDomain.get(pd)!.add(key);
+      }
+      if (sd && sd.toLowerCase() !== "unmapped" && sd !== pd) {
+        if (!secondaryByDomain.has(sd)) secondaryByDomain.set(sd, new Set());
+        secondaryByDomain.get(sd)!.add(key);
+      }
+    });
+
+    // Step 3: parse "in process" and "converted" student names from filtered LMPs per domain
+    const inProcessByDomain = new Map<string, Set<string>>();
+    const convertedByDomain = new Map<string, Set<string>>();
+    const TERM = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
+    filtered.forEach((r) => {
+      const canon = resolveDomainName(r.domain, localCanonical);
+      if (!canon || canon.toLowerCase() === "unmapped") return;
+      const normName = (n: string) => n.replace(/\s+/g, " ").trim().toLowerCase();
+      const parsePeople = (raw: string | null | undefined) =>
+        (raw ?? "").split(/[,/;\n]+/).map((n) => normName(n)).filter((n) => n && n !== "-" && n !== "na");
+
+      if (!TERM.has(r.status)) {
+        if (!inProcessByDomain.has(canon)) inProcessByDomain.set(canon, new Set());
+        const set = inProcessByDomain.get(canon)!;
+        [r.r1Shortlisted, r.r2Shortlisted, r.r3Shortlisted].forEach((f) => parsePeople(f).forEach((n) => set.add(n)));
+      }
+      if (r.convertNames || r.finalConvert) {
+        if (!convertedByDomain.has(canon)) convertedByDomain.set(canon, new Set());
+        const set = convertedByDomain.get(canon)!;
+        [r.convertNames, r.finalConvert].forEach((f) => parsePeople(f).forEach((n) => set.add(n)));
+      }
+    });
+
+    // Step 4: build rows per canonical domain
+    const domainPrefRows: DomainPreferenceRow[] = orderedNames.map((domain: string) => {
+      const primary = primaryByDomain.get(domain) ?? new Set<string>();
+      const secondary = secondaryByDomain.get(domain) ?? new Set<string>();
+      const allInterested = new Set([...primary, ...secondary]);
+      const eligibleInterested = new Set<string>();
+      allInterested.forEach((k) => {
+        const s = rosterByKey.get(k);
+        if (s && !isOptedOutStatus(s.placementStatus)) eligibleInterested.add(k);
+      });
+      return {
+        domain,
+        primaryPref: primary.size,
+        secondaryPref: secondary.size,
+        totalInterested: allInterested.size,
+        eligible: eligibleInterested.size,
+        inProcess: inProcessByDomain.get(domain)?.size ?? 0,
+        converted: convertedByDomain.get(domain)?.size ?? 0,
+      };
+    });
+
     return {
-      totalStudents: inViewNames.size,        // "In current view"
-      activeStudents: active,                  // In Process (Unique) — live DB
-      inactiveStudents: inactive,              // Inactive — live DB
-      singleProcess: single,                   // live DB
-      multipleProcesses: multiple,             // live DB
+      optedOutStudents: optedOut,
+      eligibleStudents,
+      activeStudents: active,
+      inactiveStudents: inactive,
+      singleProcess: single,
+      multipleProcesses: multiple,
       cohortAgg,
       domainRowsTotal,
       domainRowsActive,
+      domainPrefRows,
     };
   }, [filtered, studentRoster, domainRows]);
 
@@ -432,7 +502,54 @@ export function AdminLmpDashboard() {
     };
   }, [filteredRecords, studentRoster]);
 
+  /* ─────── Per-cohort conversion count (matched rows only) ─────── */
+  const convertedPerCohort = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of convertedStudentsData.rows) {
+      if (row.matchStatus === "matched" && row.cohort && row.cohort !== "—") {
+        m.set(row.cohort, (m.get(row.cohort) ?? 0) + 1);
+      }
+    }
+    return m;
+  }, [convertedStudentsData.rows]);
+
+  /* ─────── POC movement stats (for POC Lens table in student analytics) ─────── */
+  const pocMovementStats = useMemo((): PocMovementRow[] => {
+    const byPoc = new Map<string, { name: string; activeLmps: number; shortlisted: Set<string>; advanced: Set<string>; offers: Set<string>; converted: Set<string> }>();
+    const normName = (n: string) => n.replace(/\s+/g, " ").trim().toLowerCase();
+    const parse = (raw: string | null | undefined) =>
+      (raw ?? "").split(/[,/;\n]+/).map((n) => normName(n)).filter((n) => n && n !== "-" && n !== "na");
+
+    filteredRecords.forEach((r) => {
+      const pocId = r.prepPocId ?? "";
+      const pocName = (r.prepPoc as any)?.name ?? pocId;
+      if (!pocId && !pocName) return;
+      const key = pocId || pocName;
+      if (!byPoc.has(key)) byPoc.set(key, { name: pocName || pocId, activeLmps: 0, shortlisted: new Set(), advanced: new Set(), offers: new Set(), converted: new Set() });
+      const entry = byPoc.get(key)!;
+      const TERM = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
+      if (!TERM.has(r.status)) entry.activeLmps += 1;
+      parse(r.r1Shortlisted).forEach((n) => entry.shortlisted.add(n));
+      parse(r.r2Shortlisted).forEach((n) => { entry.shortlisted.add(n); entry.advanced.add(n); });
+      parse(r.r3Shortlisted).forEach((n) => { entry.shortlisted.add(n); entry.advanced.add(n); });
+      parse(r.finalConvert).forEach((n) => { entry.shortlisted.add(n); entry.offers.add(n); });
+      [r.convertNames, r.finalConvert].forEach((f) =>
+        parse(f).forEach((n) => { entry.shortlisted.add(n); entry.converted.add(n); }),
+      );
+    });
+
+    return Array.from(byPoc.entries())
+      .filter(([, e]) => e.activeLmps > 0 || e.converted.size > 0)
+      .map(([pocId, e]) => {
+        const eligible = e.shortlisted.size;
+        const convPct = eligible > 0 ? (e.converted.size / eligible) * 100 : null;
+        return { pocId, pocName: e.name, activeLmps: e.activeLmps, shortlisted: e.shortlisted.size, advancedRounds: e.advanced.size, offers: e.offers.size, converted: e.converted.size, convPct };
+      })
+      .sort((a, b) => b.activeLmps - a.activeLmps || b.converted - a.converted);
+  }, [filteredRecords]);
+
   const [domainPrefMode, setDomainPrefMode] = useState<"total" | "active">("total");
+  const [studentLensMode, setStudentLensMode] = useState<"domain" | "poc">("domain");
   const todaySet = useTodayDailyLogIds();
   const [drill, setDrill] = useState<DrillState | null>(null);
   const [domainLoadView, setDomainLoadView] = useState<DomainLoadView>("table");
@@ -981,31 +1098,37 @@ export function AdminLmpDashboard() {
         info={info("admin.students.in-process")}
       />
 
-      {/* Row 1 — metrics strip (7 cards, responsive 1→2→4→7 columns) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        <LxKpi span={2} className="!col-span-1" label="Total students"        accent="info"    value={totalStudentsDb}
+      {/* Row 1 — metrics strip (8 cards, responsive 1→2→4→8 columns) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-4">
+        <LxKpi label="Total Students" accent="info" value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
-        <LxKpi span={2} className="!col-span-1" label="In current view"       accent="teal"    value={studentStats.totalStudents}
-          sub="Unique in selected scope" info={info("admin.students.in-view")} />
-        <LxKpi span={2} className="!col-span-1" label="In Process (Unique)"   accent="success" value={studentStats.activeStudents}
-          sub="At least 1 process" info={info("admin.students.in-process")}
+        <LxKpi label="Opted Out" accent="orange" value={studentStats.optedOutStudents}
+          sub="Withdrawn / opted-out" info={info("admin.students.opted-out")}
+          onClick={() => setDrill({ kind: "students", title: "Opted-out students", subtitle: "placement_status = opted-out", rows: studentsInBucket(studentRoster, { bucket: "opted-out" }) })} />
+        <LxKpi label="Eligible Students" accent="teal" value={studentStats.eligibleStudents}
+          sub="Total minus opted-out" info={info("admin.students.eligible")}
+          onClick={() => setDrill({ kind: "students", title: "Eligible students", subtitle: "Excluding opted-out", rows: studentsInBucket(studentRoster, { bucket: "eligible" }) })} />
+        <LxKpi label="In Process" accent="success" value={studentStats.activeStudents}
+          sub="≥ 1 active LMP" info={info("admin.students.in-process")}
           onClick={() => setDrill({ kind: "students", title: "Students in process", subtitle: "≥ 1 active LMP", rows: studentsInBucket(studentRoster, { bucket: "active" }) })} />
-        <LxKpi span={2} className="!col-span-1" label="Single Process"        accent="success" value={studentStats.singleProcess}
-          sub="Exactly 1 process" info={info("admin.students.single")}
-          onClick={() => setDrill({ kind: "students", title: "Students with a single process", rows: studentsInBucket(studentRoster, { bucket: "single" }) })} />
-        <LxKpi span={2} className="!col-span-1" label="Multiple Processes"    accent="ai"      value={studentStats.multipleProcesses}
-          sub="2+ processes" info={info("admin.students.multiple")}
-          onClick={() => setDrill({ kind: "students", title: "Students with multiple processes", rows: studentsInBucket(studentRoster, { bucket: "multiple" }) })} />
-        <LxKpi span={2} className="!col-span-1" label="Inactive (0 Process)"  accent="risk"    value={studentStats.inactiveStudents}
-          sub="Zero processes" info={info("admin.students.inactive")}
+        <LxKpi label="Single Process" accent="success" value={studentStats.singleProcess}
+          sub="Exactly 1 active LMP" info={info("admin.students.single")}
+          onClick={() => setDrill({ kind: "students", title: "Students — single process", rows: studentsInBucket(studentRoster, { bucket: "single" }) })} />
+        <LxKpi label="Multiple Processes" accent="ai" value={studentStats.multipleProcesses}
+          sub="2+ active LMPs" info={info("admin.students.multiple")}
+          onClick={() => setDrill({ kind: "students", title: "Students — multiple processes", rows: studentsInBucket(studentRoster, { bucket: "multiple" }) })} />
+        <LxKpi label="Inactive" accent="risk" value={studentStats.inactiveStudents}
+          sub="Zero active LMPs" info={info("admin.students.inactive")}
           onClick={() => setDrill({ kind: "students", title: "Inactive students", subtitle: "Zero active LMPs", rows: studentsInBucket(studentRoster, { bucket: "inactive" }) })} />
-        <LxKpi span={2} className="!col-span-1" label="Total Students Converted" accent="success" value={convertedStudentsData.uniqueCount}
-          sub="Unique in selected scope" info={info("admin.students.converted")}
+        <LxKpi label="Total Converted" accent="success"
+          value={convertedStudentsData.uniqueCount}
+          sub={studentStats.eligibleStudents > 0 ? `${((convertedStudentsData.uniqueCount / studentStats.eligibleStudents) * 100).toFixed(0)}% of eligible` : "Unique in scope"}
+          info={info("admin.students.converted")}
           onClick={() => setDrill({
             kind: "converted-students",
             title: "Converted Students",
-            subtitle: `${convertedStudentsData.uniqueCount} unique student${convertedStudentsData.uniqueCount === 1 ? "" : "s"} · ${convertedStudentsData.recordCount} conversion record${convertedStudentsData.recordCount === 1 ? "" : "s"}`,
+            subtitle: `${convertedStudentsData.uniqueCount} unique · ${convertedStudentsData.recordCount} records`,
             rows: convertedStudentsData.rows,
           })} />
       </div>
@@ -1024,8 +1147,11 @@ export function AdminLmpDashboard() {
             .sort((a, b) => ((b[1]?.total ?? 0) - (a[1]?.total ?? 0)))
             .map(([cohort, c]) => {
               const inProcess = c.single + c.multiple;
+              const eligible = c.total - c.optedOut;
+              const cohortConverted = convertedPerCohort.get(cohort) ?? 0;
+              const convPct = eligible > 0 ? (cohortConverted / eligible) * 100 : null;
               const pct = (n: number) => (c.total ? (n / c.total) * 100 : 0);
-              const openCohort = (bucket: "single" | "multiple" | "inactive" | "all", subtitle: string) =>
+              const openCohort = (bucket: "single" | "multiple" | "inactive" | "opted-out" | "all", subtitle: string) =>
                 setDrill({ kind: "students", title: `${cohort} · ${subtitle}`, rows: studentsInBucket(studentRoster, { cohort, bucket }) });
               return (
                 <LxCard key={cohort} span={6}>
@@ -1034,6 +1160,24 @@ export function AdminLmpDashboard() {
                     title={cohort}
                     info={info("admin.students.cohort")}
                     hint={`${c.total} total · ${inProcess} in process · ${c.inactive} inactive`}
+                    right={
+                      <div className="flex items-center gap-2">
+                        {convPct !== null && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium border"
+                            style={{ background: `${LX_HEX.success}18`, color: LX_HEX.success, borderColor: `${LX_HEX.success}40` }}>
+                            {cohortConverted}/{eligible} conv · {convPct.toFixed(0)}%
+                          </span>
+                        )}
+                        {c.optedOut > 0 && (
+                          <button
+                            onClick={() => openCohort("opted-out", "opted out")}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium border hover:opacity-80 transition-opacity"
+                            style={{ background: `${LX_HEX.orange}18`, color: LX_HEX.orange, borderColor: `${LX_HEX.orange}40` }}>
+                            {c.optedOut} opted out
+                          </button>
+                        )}
+                      </div>
+                    }
                   />
                   <LxStackedBar
                     onSegmentClick={(s) => {
@@ -1046,6 +1190,7 @@ export function AdminLmpDashboard() {
                       { label: "Multiple Processes", value: c.multiple, accent: "info",    info: info("admin.students.multiple") },
                       { label: "Inactive",           value: c.inactive, accent: "risk",    info: info("admin.students.inactive") },
                     ]}
+                    total={c.total - c.optedOut}
                   />
                   <div className="mt-3 grid grid-cols-3 gap-2 text-[11.5px]" style={{ color: "var(--lx-text-3)" }}>
                     <button onClick={() => openCohort("single", "single process")} className="text-left rounded-md hover:bg-[var(--lx-soft)] -mx-1 px-1 py-1 transition-colors">
@@ -1067,51 +1212,158 @@ export function AdminLmpDashboard() {
         )}
       </LxGrid>
 
-      {/* Row 3 — domain preference */}
+      {/* Row 3 — Student Preference vs Placement Outcome / POC Lens */}
       <LxGrid>
         <LxCard span={12}>
           <LxCardHeader
-            eyebrow="Domain preference"
-            title="Students by domain"
-            info={info("admin.students.by-domain")}
-            hint="Number of unique students participating per domain."
+            eyebrow="Student analytics"
+            title={studentLensMode === "domain" ? "Student preference vs placement outcome" : "POC lens — student funnel"}
+            info={info(studentLensMode === "domain" ? "admin.students.domain-pref" : "admin.students.poc-lens")}
+            hint={studentLensMode === "domain"
+              ? "Primary and secondary domain preferences vs LMP engagement and conversion."
+              : "How each Prep POC's LMPs move students through the placement funnel."}
             right={
               <div className="inline-flex rounded-md p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
-                {(["total", "active"] as const).map((m) => (
+                {(["domain", "poc"] as const).map((m) => (
                   <button
                     key={m}
-                    onClick={() => setDomainPrefMode(m)}
+                    onClick={() => setStudentLensMode(m)}
                     className="px-2.5 h-7 text-[11.5px] font-medium rounded-[5px] transition-colors"
                     style={{
-                      background: domainPrefMode === m ? "var(--lx-surface)" : "transparent",
-                      color: domainPrefMode === m ? "var(--lx-text)" : "var(--lx-text-3)",
-                      boxShadow: domainPrefMode === m ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                      background: studentLensMode === m ? "var(--lx-surface)" : "transparent",
+                      color: studentLensMode === m ? "var(--lx-text)" : "var(--lx-text-3)",
+                      boxShadow: studentLensMode === m ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
                     }}
                   >
-                    {m === "total" ? "Total students" : "Active only"}
+                    {m === "domain" ? "Domain lens" : "POC lens"}
                   </button>
                 ))}
               </div>
             }
           />
-          <LxRankedBar
-            accent="info"
-            maxItems={12}
-            rows={[...(domainPrefMode === "active" ? studentStats.domainRowsActive : studentStats.domainRowsTotal)].sort((a, b) => b.value - a.value)}
-            onRowClick={(r) => {
-              const cd = (domainRows as any[]).map((d) => ({ id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "", aliases: Array.isArray(d?.aliases) ? d.aliases : [] })).filter((d) => d.name);
-              const matchedAll = studentRoster.filter((s) => (resolveDomainName(s.primaryDomain, cd) ?? "Unmapped") === r.label);
-              const rows = domainPrefMode === "active"
-                ? matchedAll.filter((s) => (s.activeLmpCount ?? 0) > 0)
-                : matchedAll;
-              setDrill({
-                kind: "students",
-                title: `${r.label} · students`,
-                subtitle: `${rows.length} ${domainPrefMode === "active" ? "active" : "total"} students`,
-                rows,
-              });
-            }}
-          />
+
+          {studentLensMode === "domain" ? (
+            /* ── Domain Preference vs Placement Outcome table ── */
+            studentStats.domainPrefRows.every((r) => r.totalInterested === 0 && r.inProcess === 0 && r.converted === 0) ? (
+              <div className="py-8 text-center text-[12px]" style={{ color: "var(--lx-text-3)" }}>
+                No domain preference data yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-4 px-4">
+                <table className="w-full text-[11.5px] border-collapse">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                      {[
+                        { label: "Domain", align: "left" as const },
+                        { label: "Primary Pref", align: "right" as const },
+                        { label: "Secondary Pref", align: "right" as const },
+                        { label: "Total Interested", align: "right" as const },
+                        { label: "Eligible", align: "right" as const },
+                        { label: "In Process", align: "right" as const },
+                        { label: "Converted", align: "right" as const },
+                        { label: "Conv %", align: "right" as const },
+                      ].map((h) => (
+                        <th key={h.label}
+                          className={`pb-2 pt-1 font-medium text-[10.5px] uppercase tracking-[0.5px] whitespace-nowrap ${h.align === "right" ? "text-right pr-2" : "text-left"}`}
+                          style={{ color: "var(--lx-text-3)" }}>
+                          {h.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentStats.domainPrefRows
+                      .filter((r) => r.totalInterested > 0 || r.inProcess > 0 || r.converted > 0)
+                      .sort((a, b) => b.totalInterested - a.totalInterested)
+                      .map((r) => {
+                        const convPct = r.eligible > 0 ? (r.converted / r.eligible) * 100 : null;
+                        const convColor = convPct == null ? "var(--lx-text-3)" : convPct >= 50 ? LX_HEX.success : convPct >= 20 ? LX_HEX.yellow : LX_HEX.risk;
+                        return (
+                          <tr key={r.domain}
+                            className="border-b hover:bg-[var(--lx-soft)] transition-colors cursor-pointer"
+                            style={{ borderColor: "var(--lx-border)" }}
+                            onClick={() => {
+                              const matchedAll = studentRoster.filter(
+                                (s) => (resolveDomainName(s.primaryDomain, canonicalDomains) ?? "Unmapped") === r.domain
+                                  || (resolveDomainName(s.secondaryDomain, canonicalDomains) ?? "Unmapped") === r.domain,
+                              );
+                              setDrill({ kind: "students", title: `${r.domain} · interested students`, subtitle: `${matchedAll.length} students prefer this domain`, rows: matchedAll });
+                            }}
+                          >
+                            <td className="py-2 pr-4 font-medium" style={{ color: "var(--lx-text)" }}>{r.domain}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums" style={{ color: "var(--lx-text-2)" }}>{r.primaryPref}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums" style={{ color: "var(--lx-text-2)" }}>{r.secondaryPref}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums font-semibold" style={{ color: "var(--lx-text)" }}>{r.totalInterested}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums" style={{ color: "var(--lx-text-2)" }}>{r.eligible}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums" style={{ color: LX_HEX.info }}>{r.inProcess}</td>
+                            <td className="py-2 pr-2 text-right tabular-nums font-semibold" style={{ color: LX_HEX.success }}>{r.converted}</td>
+                            <td className="py-2 text-right tabular-nums font-semibold" style={{ color: convColor }}>
+                              {convPct != null ? `${convPct.toFixed(0)}%` : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            /* ── POC Lens table ── */
+            pocMovementStats.length === 0 ? (
+              <div className="py-8 text-center text-[12px]" style={{ color: "var(--lx-text-3)" }}>
+                No POC data in current scope.
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-4 px-4">
+                <table className="w-full text-[11.5px] border-collapse">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                      {[
+                        { label: "Prep POC", align: "left" as const },
+                        { label: "Active LMPs", align: "right" as const },
+                        { label: "Shortlisted", align: "right" as const },
+                        { label: "Adv. Rounds (R2+)", align: "right" as const },
+                        { label: "Offers", align: "right" as const },
+                        { label: "Converted", align: "right" as const },
+                        { label: "Conv %", align: "right" as const },
+                      ].map((h) => (
+                        <th key={h.label}
+                          className={`pb-2 pt-1 font-medium text-[10.5px] uppercase tracking-[0.5px] whitespace-nowrap ${h.align === "right" ? "text-right pr-2" : "text-left"}`}
+                          style={{ color: "var(--lx-text-3)" }}>
+                          {h.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pocMovementStats.map((p) => {
+                      const convColor = p.convPct == null ? "var(--lx-text-3)" : p.convPct >= 50 ? LX_HEX.success : p.convPct >= 20 ? LX_HEX.yellow : LX_HEX.risk;
+                      return (
+                        <tr key={p.pocId}
+                          className="border-b hover:bg-[var(--lx-soft)] transition-colors cursor-pointer"
+                          style={{ borderColor: "var(--lx-border)" }}
+                          onClick={() => {
+                            const lmps = filteredRecords.filter((r) => r.prepPocId === p.pocId || (r.prepPoc as any)?.name === p.pocName);
+                            setDrill({ kind: "lmps", title: `${p.pocName} · LMPs`, subtitle: `${p.activeLmps} active`, rows: lmps });
+                          }}
+                        >
+                          <td className="py-2 pr-4 font-medium" style={{ color: "var(--lx-text)" }}>{p.pocName || "—"}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums" style={{ color: "var(--lx-text-2)" }}>{p.activeLmps}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums" style={{ color: "var(--lx-text-2)" }}>{p.shortlisted}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums" style={{ color: LX_HEX.info }}>{p.advancedRounds}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums" style={{ color: LX_HEX.yellow }}>{p.offers}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums font-semibold" style={{ color: LX_HEX.success }}>{p.converted}</td>
+                          <td className="py-2 text-right tabular-nums font-semibold" style={{ color: convColor }}>
+                            {p.convPct != null ? `${p.convPct.toFixed(0)}%` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
         </LxCard>
       </LxGrid>
 

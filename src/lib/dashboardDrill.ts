@@ -8,6 +8,7 @@ import { isConverted, isDormant } from "@/lib/lmpProcessQueries";
 import { flagRows } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import type { StudentDrillRow } from "@/components/insights/LxDrillDown";
+import { isOptedOutStatus } from "@/lib/studentAnalytics";
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
@@ -150,17 +151,20 @@ export function lmpsStatusMissing(rows: Process[]): Process[] {
 
 /* ─────────── Student filters ─────────── */
 export type RosterRow = {
+  id?: string | null;
+  email?: string | null;
   name: string;
   cohort?: string;
   primaryDomain?: string;
   secondaryDomain?: string;
   lmpCount?: number;
   activeLmpCount?: number;
+  placementStatus?: string | null;
 };
 
 export function studentsInBucket(
   roster: RosterRow[],
-  opts: { cohort?: string; bucket?: "single" | "multiple" | "inactive" | "active" | "all"; domain?: string } = {},
+  opts: { cohort?: string; bucket?: "single" | "multiple" | "inactive" | "active" | "opted-out" | "eligible" | "all"; domain?: string } = {},
 ): StudentDrillRow[] {
   return roster.filter((s) => {
     if (opts.cohort && norm(s.cohort) !== norm(opts.cohort)) return false;
@@ -171,6 +175,9 @@ export function studentsInBucket(
       if (pd !== d && sd !== d) return false;
     }
     const c = s.activeLmpCount ?? 0;
+    const optedOut = isOptedOutStatus(s.placementStatus);
+    if (opts.bucket === "opted-out") return optedOut;
+    if (opts.bucket === "eligible") return !optedOut;
     if (opts.bucket === "single") return c === 1;
     if (opts.bucket === "multiple") return c >= 2;
     if (opts.bucket === "inactive") return c === 0;
