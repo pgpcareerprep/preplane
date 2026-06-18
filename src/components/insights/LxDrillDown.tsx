@@ -67,6 +67,9 @@ export type StudentDrillRow = {
   cohort?: string;
   primaryDomain?: string;
   secondaryDomain?: string;
+  rollNo?: string;
+  studentCode?: string;
+  phone?: string;
   lmpCount?: number;
   activeLmpCount?: number;
   placementStatus?: string | null;
@@ -83,8 +86,12 @@ export type PocDrillRow = {
 
 export type ConvertedStudentDrillRow = {
   studentName: string;
+  studentIdDisplay: string;
+  email: string;
+  phone: string;
   cohort: string;
   primaryDomain: string;
+  secondaryDomain: string;
   company: string;
   role: string;
   lmpDomain: string;
@@ -141,7 +148,7 @@ export function LxDrillDown({
       return {
         ...state,
         rows: state.rows.filter((r) =>
-          `${r.name} ${r.cohort ?? ""} ${r.primaryDomain ?? ""}`.toLowerCase().includes(needle),
+          `${r.name} ${r.rollNo ?? ""} ${r.studentCode ?? ""} ${r.email ?? ""} ${r.cohort ?? ""} ${r.primaryDomain ?? ""}`.toLowerCase().includes(needle),
         ),
       };
     }
@@ -157,7 +164,7 @@ export function LxDrillDown({
       return {
         ...state,
         rows: state.rows.filter((r) =>
-          `${r.studentName} ${r.cohort} ${r.company} ${r.role} ${r.lmpDomain} ${r.primaryDomain} ${r.prepPoc} ${r.outreachPoc} ${r.lmpCode}`
+          `${r.studentName} ${r.studentIdDisplay} ${r.email} ${r.phone} ${r.cohort} ${r.company} ${r.role} ${r.lmpDomain} ${r.primaryDomain} ${r.secondaryDomain} ${r.prepPoc} ${r.outreachPoc} ${r.lmpCode}`
             .toLowerCase().includes(needle),
         ),
       };
@@ -203,8 +210,16 @@ export function LxDrillDown({
                     }));
                     csv = toCsv(rows, headers);
                   } else if (filtered.kind === "students") {
-                    csv = toCsv(filtered.rows, [
-                      { key: "name", label: "Name" }, { key: "email", label: "Email" },
+                    csv = toCsv(
+                      filtered.rows.map((r) => ({
+                        ...r,
+                        rollNo: r.rollNo || r.studentCode || r.id || "",
+                      })),
+                      [
+                      { key: "name", label: "Name" },
+                      { key: "rollNo", label: "Student ID" },
+                      { key: "email", label: "Email" },
+                      { key: "phone", label: "Phone" },
                       { key: "cohort", label: "Cohort" },
                       { key: "primaryDomain", label: "Primary Domain" },
                       { key: "secondaryDomain", label: "Secondary Domain" },
@@ -228,18 +243,22 @@ export function LxDrillDown({
                           ? new Date(r.closingDate).toLocaleDateString() : r.closingDate,
                       })),
                       [
-                        { key: "studentName",  label: "Student Name" },
-                        { key: "cohort",       label: "Cohort" },
-                        { key: "primaryDomain",label: "Primary Domain" },
-                        { key: "company",      label: "Company" },
-                        { key: "role",         label: "Role" },
-                        { key: "lmpDomain",    label: "LMP Domain" },
-                        { key: "processType",  label: "Process Type" },
-                        { key: "displayStatus",label: "LMP Status" },
-                        { key: "prepPoc",      label: "Prep POC" },
-                        { key: "outreachPoc",  label: "Outreach POC" },
-                        { key: "closingDate",  label: "Closing Date" },
-                        { key: "lmpCode",      label: "LMP ID" },
+                        { key: "studentName", label: "Student Name" },
+                        { key: "studentIdDisplay", label: "Student ID" },
+                        { key: "email", label: "Email" },
+                        { key: "phone", label: "Phone" },
+                        { key: "cohort", label: "Cohort" },
+                        { key: "primaryDomain", label: "Primary Domain" },
+                        { key: "secondaryDomain", label: "Secondary Domain" },
+                        { key: "company", label: "Company" },
+                        { key: "role", label: "Role" },
+                        { key: "lmpDomain", label: "LMP Domain" },
+                        { key: "processType", label: "Process Type" },
+                        { key: "displayStatus", label: "LMP Status" },
+                        { key: "prepPoc", label: "Prep POC" },
+                        { key: "outreachPoc", label: "Outreach POC" },
+                        { key: "closingDate", label: "Closing Date" },
+                        { key: "lmpCode", label: "LMP ID" },
                       ],
                     );
                   } else {
@@ -355,11 +374,12 @@ function LmpTable({ rows, onClose }: { rows: LmpDrillRow[]; onClose: () => void 
 }
 
 function StudentTable({ rows }: { rows: StudentDrillRow[] }) {
+  const displayId = (r: StudentDrillRow) => r.rollNo || r.studentCode || r.id || "—";
   return (
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: "var(--lx-surface, white)" }}>
         <tr style={{ borderBottom: "1px solid var(--lx-border, rgba(0,0,0,0.06))" }}>
-          {["Name", "Cohort", "Primary Domain", "Active LMPs", "Total LMPs"].map((h) => (
+          {["Name", "Student ID", "Email", "Phone", "Cohort", "Primary Domain", "Secondary Domain", "Active LMPs", "Total LMPs"].map((h) => (
             <th key={h} className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium"
               style={{ color: "var(--lx-text-3)" }}>{h}</th>
           ))}
@@ -370,8 +390,12 @@ function StudentTable({ rows }: { rows: StudentDrillRow[] }) {
           <tr key={`${r.name}-${i}`} className="border-b last:border-0 hover:bg-[var(--lx-soft)] transition-colors"
             style={{ borderColor: "var(--lx-border, rgba(0,0,0,0.04))" }}>
             <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: "var(--lx-text)" }}>{r.name || "—"}</td>
+            <td className="px-3 py-2 font-mono text-[11px] truncate max-w-[140px]" style={{ color: "var(--lx-text-2)" }}>{displayId(r)}</td>
+            <td className="px-3 py-2 truncate max-w-[180px]" style={{ color: "var(--lx-text-2)" }}>{r.email || "—"}</td>
+            <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.phone || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.cohort || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: "var(--lx-text-2)" }}>{r.primaryDomain || "—"}</td>
+            <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: "var(--lx-text-2)" }}>{r.secondaryDomain || "—"}</td>
             <td className="px-3 py-2 font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>{r.activeLmpCount ?? 0}</td>
             <td className="px-3 py-2 font-mono tabular-nums" style={{ color: "var(--lx-text-3)" }}>{r.lmpCount ?? 0}</td>
           </tr>
@@ -456,8 +480,12 @@ function ConvertedStudentTable({
       <thead className="sticky top-0 z-10" style={{ background: "var(--lx-surface, white)" }}>
         <tr style={{ borderBottom: "1px solid var(--lx-border, rgba(0,0,0,0.06))" }}>
           {sortableTh("Student Name", "studentName")}
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Student ID</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Email</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Phone</th>
           {sortableTh("Cohort", "cohort")}
           <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Primary Domain</th>
+          <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Secondary Domain</th>
           {sortableTh("Company", "company")}
           <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>Role</th>
           <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium" style={{ color: "var(--lx-text-3)" }}>LMP Domain</th>
@@ -482,6 +510,11 @@ function ConvertedStudentTable({
               <td className="px-3 py-2 font-medium truncate max-w-[150px]" style={{ color: "var(--lx-text)" }}>
                 {r.studentName || "—"}
               </td>
+              <td className="px-3 py-2 font-mono text-[11px] truncate max-w-[130px]" style={{ color: "var(--lx-text-2)" }}>
+                {r.studentIdDisplay || "—"}
+              </td>
+              <td className="px-3 py-2 truncate max-w-[150px]" style={{ color: "var(--lx-text-2)" }}>{r.email || "—"}</td>
+              <td className="px-3 py-2 truncate max-w-[110px]" style={{ color: "var(--lx-text-2)" }}>{r.phone || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[100px]"
                 style={{ color: unmatched ? "var(--lx-text-3)" : "var(--lx-text-2)", fontStyle: unmatched ? "italic" : undefined }}>
                 {r.cohort || "—"}
@@ -489,6 +522,10 @@ function ConvertedStudentTable({
               <td className="px-3 py-2 truncate max-w-[120px]"
                 style={{ color: unmatched ? "var(--lx-text-3)" : "var(--lx-text-2)", fontStyle: unmatched ? "italic" : undefined }}>
                 {r.primaryDomain || "—"}
+              </td>
+              <td className="px-3 py-2 truncate max-w-[120px]"
+                style={{ color: unmatched ? "var(--lx-text-3)" : "var(--lx-text-2)", fontStyle: unmatched ? "italic" : undefined }}>
+                {r.secondaryDomain || "—"}
               </td>
               <td className="px-3 py-2 truncate max-w-[130px]" style={{ color: "var(--lx-text)" }}>{r.company || "—"}</td>
               <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.role || "—"}</td>

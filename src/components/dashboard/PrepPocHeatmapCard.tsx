@@ -67,13 +67,19 @@ type HeatmapCandidateQueryRow = {
   lmp_id: string;
   student_id: string | null;
   student_name: string;
+  roll_no: string | null;
   pipeline_stage: string | null;
   students: {
     id: string;
     name: string;
+    roll_no: string | null;
     student_code: string | null;
+    email: string | null;
+    phone: string | null;
     cohort: string | null;
     primary_domain: string | null;
+    secondary_domain: string | null;
+    placement_status: string | null;
   } | null;
 };
 
@@ -613,7 +619,7 @@ export function PrepPocHeatmapCard() {
           .in("role", ["prep", "support"]),
         supabase
           .from("lmp_candidates")
-          .select("lmp_id, student_id, student_name, pipeline_stage, students(id, name, student_code, cohort, primary_domain)")
+          .select("lmp_id, student_id, student_name, roll_no, pipeline_stage, students(id, name, roll_no, student_code, email, phone, cohort, primary_domain, secondary_domain, placement_status)")
           .not("student_id", "is", null),
       ]);
 
@@ -1250,7 +1256,9 @@ function HeatmapDrilldownModal({
     const q = searchTerm.trim().toLowerCase();
     const rows = q
       ? allStudents.filter((record) => [
-          record.studentName, record.studentCode, record.company, record.lmpCode,
+          record.studentName, record.studentCode, record.email, record.phone,
+          record.primaryDomain, record.secondaryDomain,
+          record.company, record.lmpCode,
           record.domain, record.cohort, record.primaryPoc, record.supportPoc,
         ].some((v) => v.toLowerCase().includes(q)))
       : allStudents;
@@ -1282,10 +1290,20 @@ function HeatmapDrilldownModal({
       downloadCsv(
         `${safeFilename(selection.pocName)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
         [...meta, ...allStudents.map((r) => ({
-          "Student Name": r.studentName, "Student ID": r.studentId, Cohort: r.cohort,
-          Company: r.company, LMP: r.lmpCode, Domain: r.domain,
-          "Placement Status": r.placementStatus, "Placement Date": formatDate(r.placementDate),
-          "Primary POC": r.primaryPoc, "Support POC": r.supportPoc,
+          "Student Name": r.studentName,
+          "Student ID": r.studentCode || r.studentId,
+          Email: r.email || "",
+          Phone: r.phone || "",
+          "Primary Domain": r.primaryDomain || "",
+          "Secondary Domain": r.secondaryDomain || "",
+          Cohort: r.cohort,
+          Company: r.company,
+          LMP: r.lmpCode,
+          Domain: r.domain,
+          "Placement Status": r.placementStatus,
+          "Placement Date": formatDate(r.placementDate),
+          "Primary POC": r.primaryPoc,
+          "Support POC": r.supportPoc,
         }))],
       );
       return;
@@ -1449,7 +1467,7 @@ function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[]
       <table className="w-full min-w-[920px] text-left text-[12px]">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
           <tr>
-            {["Student", "Student ID", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((h) => (
+            {["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((h) => (
               <th key={h} className="border-b border-slate-200 px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
@@ -1459,6 +1477,10 @@ function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[]
             <tr key={r.studentId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
               <td className="px-3 py-3 font-semibold text-slate-900">{r.studentName}</td>
               <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{r.studentCode || r.studentId}</td>
+              <td className="px-3 py-3 text-slate-700">{r.email || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.phone || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.primaryDomain || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.secondaryDomain || "—"}</td>
               <td className="px-3 py-3 text-slate-700">{r.cohort || "—"}</td>
               <td className="px-3 py-3 text-slate-700">{r.company || "—"}</td>
               <td className="px-3 py-3 text-slate-700">{r.lmpCode || r.lmpId}</td>

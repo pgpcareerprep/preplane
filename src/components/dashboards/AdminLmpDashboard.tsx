@@ -154,7 +154,7 @@ export function AdminLmpDashboard() {
       while (true) {
         const { data, error } = await supabase
           .from("students")
-          .select("id, email, name, cohort, primary_domain, secondary_domain, lmp_count, active_lmp_count, placement_status")
+          .select("id, email, name, cohort, primary_domain, secondary_domain, lmp_count, active_lmp_count, placement_status, roll_no, student_code, phone")
           .range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
@@ -169,6 +169,9 @@ export function AdminLmpDashboard() {
         cohort: (s.cohort ?? "").trim(),
         primaryDomain: (s.primary_domain ?? "").trim(),
         secondaryDomain: (s.secondary_domain ?? "").trim(),
+        rollNo: (s.roll_no ?? "").trim(),
+        studentCode: (s.student_code ?? "").trim(),
+        phone: (s.phone ?? "").trim(),
         lmpCount: Number(s.lmp_count ?? 0),
         activeLmpCount: Number(s.active_lmp_count ?? 0),
         placementStatus: (s.placement_status ?? null) as string | null,
@@ -189,7 +192,7 @@ export function AdminLmpDashboard() {
       while (true) {
         const { data, error } = await supabase
           .from("lmp_candidates")
-          .select("id, lmp_id, student_id, email, student_name, pipeline_stage, offer_status, status, r1_status, r2_status, r3_status")
+          .select("id, lmp_id, student_id, email, student_name, roll_no, pipeline_stage, offer_status, status, r1_status, r2_status, r3_status")
           .range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
@@ -203,6 +206,7 @@ export function AdminLmpDashboard() {
         studentId: (c.student_id ?? null) as string | null,
         email: (c.email ?? null) as string | null,
         studentName: (c.student_name ?? "") as string,
+        rollNo: (c.roll_no ?? null) as string | null,
         pipelineStage: (c.pipeline_stage ?? null) as string | null,
         offerStatus: (c.offer_status ?? null) as string | null,
         status: (c.status ?? null) as string | null,
@@ -642,25 +646,37 @@ export function AdminLmpDashboard() {
     const rows: ConvertedStudentDrillRow[] = [];
 
     const rosterByKey = new Map<string, typeof studentRoster[0]>();
-    studentRoster.forEach((s) => rosterByKey.set(getStudentIdentityKey(s), s));
+    const rosterById = new Map<string, typeof studentRoster[0]>();
+    studentRoster.forEach((s) => {
+      rosterByKey.set(getStudentIdentityKey(s), s);
+      if (s.id) rosterById.set(s.id, s);
+    });
 
     for (const rec of filteredRecords) {
       const cands = candidatesByLmp.get(rec.id) ?? [];
       const convCands = cands.filter(isConvCand);
 
       if (convCands.length > 0) {
-        // Candidate-based path (highest fidelity)
         for (const cand of convCands) {
           const key = getCandidateIdentityKey(cand);
           uniqueKeys.add(key);
           const dedupKey = `${key}::${rec.id}`;
           if (!seenKeyLmp.has(dedupKey)) {
             seenKeyLmp.add(dedupKey);
-            const student = rosterByKey.get(key);
+            const student = rosterByKey.get(key) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
             rows.push({
               studentName: cand.studentName || student?.name || "—",
+              studentIdDisplay:
+                student?.rollNo ||
+                student?.studentCode ||
+                cand.rollNo ||
+                cand.studentId ||
+                "",
+              email: student?.email || cand.email || "",
+              phone: student?.phone || "",
               cohort: student?.cohort || "—",
               primaryDomain: student?.primaryDomain || "—",
+              secondaryDomain: student?.secondaryDomain || "—",
               company: (rec as any).company || "—",
               role: (rec as any).role || "—",
               lmpDomain: (rec as any).domain || "—",
@@ -693,8 +709,12 @@ export function AdminLmpDashboard() {
             const student = matchStatus === "matched" ? matches[0] : null;
             rows.push({
               studentName: name,
+              studentIdDisplay: student?.rollNo || student?.studentCode || student?.id || "",
+              email: student?.email || "",
+              phone: student?.phone || "",
               cohort: student?.cohort || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
               primaryDomain: student?.primaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
+              secondaryDomain: student?.secondaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
               company: (rec as any).company || "—",
               role: (rec as any).role || "—",
               lmpDomain: (rec as any).domain || "—",

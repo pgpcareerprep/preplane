@@ -157,6 +157,9 @@ export type RosterRow = {
   cohort?: string;
   primaryDomain?: string;
   secondaryDomain?: string;
+  rollNo?: string;
+  studentCode?: string;
+  phone?: string;
   lmpCount?: number;
   activeLmpCount?: number;
   placementStatus?: string | null;

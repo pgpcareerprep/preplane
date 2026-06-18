@@ -93,6 +93,13 @@ type ParsedStudentRow = {
   rec: Record<string, unknown>;
 };
 
+type ResolvedWrite = {
+  rowNum: number;
+  kind: "insert" | "update";
+  id?: string;
+  payload: Record<string, unknown>;
+};
+
 const STUDENT_UPLOAD_FIELDS = [
   "roll_no",
   "name",
@@ -106,12 +113,17 @@ const STUDENT_UPLOAD_FIELDS = [
   "sync_source",
 ] as const;
 
+const BATCH_SIZE = 50;
+
 function buildStudentPayload(rec: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const key of STUDENT_UPLOAD_FIELDS) {
     if (rec[key] !== undefined && rec[key] !== null && rec[key] !== "") {
       payload[key] = rec[key];
     }
+  }
+  if (payload.roll_no) {
+    payload.student_code = payload.roll_no;
   }
   return payload;
 }
@@ -148,6 +160,73 @@ async function fetchExistingStudents(
   }
 
   return { students: [...byId.values()] };
+}
+
+async function executeInsertBatch(
+  batch: ResolvedWrite[],
+): Promise<{ inserted: number; errors: string[]; skipped: number }> {
+  let inserted = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  const payloads = batch.map((b) => b.payload);
+
+  const { data, error } = await supabase
+    .from("students")
+    .insert(payloads)
+    .select("id, email, roll_no, name");
+
+  if (!error) {
+    return { inserted: batch.length, errors, skipped };
+  }
+
+  for (const item of batch) {
+    const { error: rowError } = await supabase.from("students").insert(item.payload);
+    if (rowError) {
+      errors.push(`Row ${item.rowNum}: ${rowError.message}`);
+      skipped++;
+    } else {
+      inserted++;
+    }
+  }
+  return { inserted, errors, skipped };
+}
+
+async function executeUpdateBatch(
+  batch: ResolvedWrite[],
+): Promise<{ updated: number; errors: string[]; skipped: number }> {
+  let updated = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  const payloads = batch.map((b) => ({ id: b.id, ...b.payload }));
+
+  const { error } = await supabase
+    .from("students")
+    .upsert(payloads, { onConflict: "id", ignoreDuplicates: false });
+
+  if (!error) {
+    return { updated: batch.length, errors, skipped };
+  }
+
+  for (const item of batch) {
+    const { error: rowError } = await supabase
+      .from("students")
+      .update(item.payload)
+      .eq("id", item.id!);
+    if (rowError) {
+      errors.push(`Row ${item.rowNum}: ${rowError.message}`);
+      skipped++;
+    } else {
+      updated++;
+    }
+  }
+  return { updated, errors, skipped };
+}
+
+async function syncCandidatesAfterUpload(): Promise<void> {
+  const { error } = await supabase.rpc("sync_lmp_candidates_from_students_after_student_upload");
+  if (error) {
+    console.warn("[studentUpload] candidate sync RPC failed:", error.message);
+  }
 }
 
 export async function uploadStudents(
@@ -256,6 +335,9 @@ export async function uploadStudents(
     if (student.roll_no) existingByRollNo.set(student.roll_no, student);
   }
 
+  const toInsert: ResolvedWrite[] = [];
+  const toUpdate: ResolvedWrite[] = [];
+
   for (const { rowNum, rec } of parsedRows) {
     const email = rec.email as string | undefined;
     const rollNo = rec.roll_no as string | undefined;
@@ -274,13 +356,7 @@ export async function uploadStudents(
     const target = emailMatch ?? rollMatch;
 
     if (target) {
-      const { error } = await supabase.from("students").update(payload).eq("id", target.id);
-      if (error) {
-        errors.push(`Row ${rowNum}: ${error.message}`);
-        skipped++;
-        continue;
-      }
-      updated++;
+      toUpdate.push({ rowNum, kind: "update", id: target.id, payload });
       const merged: ExistingStudent = {
         id: target.id,
         name: (payload.name as string | undefined) ?? target.name,
@@ -290,18 +366,27 @@ export async function uploadStudents(
       if (merged.email) existingByEmail.set(merged.email.toLowerCase(), merged);
       if (merged.roll_no) existingByRollNo.set(merged.roll_no, merged);
     } else {
-      const { data, error } = await supabase.from("students").insert(payload).select("id, email, roll_no, name").single();
-      if (error) {
-        errors.push(`Row ${rowNum}: ${error.message}`);
-        skipped++;
-        continue;
-      }
-      inserted++;
-      const created = data as ExistingStudent;
-      if (created.email) existingByEmail.set(created.email.toLowerCase(), created);
-      if (created.roll_no) existingByRollNo.set(created.roll_no, created);
+      toInsert.push({ rowNum, kind: "insert", payload });
     }
   }
+
+  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+    const batch = toInsert.slice(i, i + BATCH_SIZE);
+    const result = await executeInsertBatch(batch);
+    inserted += result.inserted;
+    skipped += result.skipped;
+    errors.push(...result.errors);
+  }
+
+  for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+    const batch = toUpdate.slice(i, i + BATCH_SIZE);
+    const result = await executeUpdateBatch(batch);
+    updated += result.updated;
+    skipped += result.skipped;
+    errors.push(...result.errors);
+  }
+
+  await syncCandidatesAfterUpload();
 
   const status: StudentUploadResult["status"] =
     errors.length === 0 ? "success" : inserted + updated > 0 ? "partial_success" : "failed";

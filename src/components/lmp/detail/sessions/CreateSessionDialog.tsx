@@ -84,11 +84,14 @@ export function CreateSessionDialog({ open, onOpenChange, lmpId }: Props) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lmp_candidates")
-        .select("id, student_id, student_name, roll_no")
+        .select("id, student_id, student_name, roll_no, students(id, roll_no, student_code)")
         .eq("lmp_id", lmpId)
         .order("student_name");
       if (error) throw error;
-      return (data ?? []) as any[];
+      return (data ?? []).map((c: any) => ({
+        ...c,
+        roll_no: c.students?.roll_no || c.roll_no || c.students?.student_code || null,
+      }));
     },
   });
 

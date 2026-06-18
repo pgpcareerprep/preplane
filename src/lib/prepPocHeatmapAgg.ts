@@ -50,13 +50,19 @@ export type CandidateRaw = {
   lmp_id: string;
   student_id: string | null;
   student_name?: string | null;
+  roll_no?: string | null;
   pipeline_stage?: string | null;
   students?: {
     id?: string | null;
     name?: string | null;
+    roll_no?: string | null;
     student_code?: string | null;
+    email?: string | null;
+    phone?: string | null;
     cohort?: string | null;
     primary_domain?: string | null;
+    secondary_domain?: string | null;
+    placement_status?: string | null;
   } | null;
 };
 
@@ -148,7 +154,11 @@ export type HeatmapDrilldownStudentRecord = {
   studentId: string;
   studentName: string;
   studentCode: string;
+  email: string;
+  phone: string;
   cohort: string;
+  primaryDomain: string;
+  secondaryDomain: string;
   lmpId: string;
   lmpCode: string;
   company: string;
@@ -368,14 +378,22 @@ export function buildHeatmapData(
             pocName: poc.name,
             studentId,
             studentName: candidate?.students?.name || candidate?.student_name || studentId,
-            studentCode: candidate?.students?.student_code || "",
+            studentCode:
+              candidate?.students?.roll_no ||
+              candidate?.roll_no ||
+              candidate?.students?.student_code ||
+              "",
+            email: candidate?.students?.email || "",
+            phone: candidate?.students?.phone || "",
             cohort: candidate?.students?.cohort || "",
+            primaryDomain: candidate?.students?.primary_domain || "",
+            secondaryDomain: candidate?.students?.secondary_domain || "",
             lmpId: id,
             lmpCode: details?.lmp_code || "",
             company: details?.company || "",
             role: details?.role || "",
             domain,
-            placementStatus: "Converted",
+            placementStatus: candidate?.students?.placement_status || "Converted",
             placementDate: details?.updated_at || details?.created_at || "",
             primaryPoc: primaryPocsByLmp.get(id) || "",
             supportPoc: supportPocsByLmp.get(id) || "",

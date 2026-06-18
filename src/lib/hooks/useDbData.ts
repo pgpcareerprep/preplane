@@ -780,6 +780,13 @@ export function invalidateDataSourceCaches(qc: ReturnType<typeof useQueryClient>
     qc.invalidateQueries({ queryKey: ["db-students"] });
     qc.invalidateQueries({ queryKey: ["db-student"] });
     qc.invalidateQueries({ queryKey: ["db-students-with-load"] });
+    qc.invalidateQueries({ queryKey: ["students_total_count"] });
+    qc.invalidateQueries({ queryKey: ["students_roster_full"] });
+    qc.invalidateQueries({ queryKey: ["lmp_candidates_all"] });
+    qc.invalidateQueries({ queryKey: ["prep_poc_heatmap_v3"] });
+    qc.invalidateQueries({ queryKey: ["analytics"] });
+    qc.invalidateQueries({ queryKey: ["dashboard-kpis"] });
+    qc.invalidateQueries({ queryKey: ["lmp_candidates_live"] });
     clearCachePrefix('["db-students');
     clearCachePrefix('["db-student"');
   }
