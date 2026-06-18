@@ -46,6 +46,41 @@ import {
   Download, RefreshCw, WifiOff, ClipboardList, Search, ArrowUpDown,
 } from "lucide-react";
 
+// ── Query-response types (narrow, no 'as any' escape hatch) ──────────────────
+
+type HeatmapLinkQueryRow = {
+  poc_id: string;
+  role: string;
+  lmp_id: string;
+  lmp_processes: {
+    id: string | null;
+    lmp_code: string | null;
+    company: string;
+    role: string;
+    status: string;
+    domain_id: string | null;
+    domain_raw: string | null;
+    daily_progress: string | null;
+    created_at: string;
+    updated_at: string;
+    domains: { name: string | null } | null;
+  } | null;
+};
+
+type HeatmapCandidateQueryRow = {
+  lmp_id: string;
+  student_id: string | null;
+  student_name: string;
+  pipeline_stage: string | null;
+  students: {
+    id: string;
+    name: string;
+    student_code: string | null;
+    cohort: string | null;
+    primary_domain: string | null;
+  } | null;
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const QUERY_KEY = ["prep_poc_heatmap_v3"] as const;
@@ -443,7 +478,7 @@ export function PrepPocHeatmapCard() {
           .eq("status", "active"),
         supabase
           .from("lmp_poc_links")
-          .select("poc_id, role, lmp_id, lmp_processes(id, lmp_code, company, role, status, domain_id, domain_raw, daily_progress, created_at, updated_at, candidate_count, domains(name))")
+          .select("poc_id, role, lmp_id, lmp_processes(id, lmp_code, company, role, status, domain_id, domain_raw, daily_progress, created_at, updated_at, domains(name))")
           .in("role", ["prep", "support"]),
         supabase
           .from("lmp_candidates")
@@ -451,14 +486,14 @@ export function PrepPocHeatmapCard() {
           .not("student_id", "is", null),
       ]);
 
-      if (pocsRes.error) throw new Error(pocsRes.error.message);
-      if (linksRes.error) throw new Error(linksRes.error.message);
-      if (candidatesRes.error) throw new Error(candidatesRes.error.message);
+      if (pocsRes.error) { console.error("[PrepPocHeatmap] Query failed", pocsRes.error); throw new Error(pocsRes.error.message); }
+      if (linksRes.error) { console.error("[PrepPocHeatmap] Query failed", linksRes.error); throw new Error(linksRes.error.message); }
+      if (candidatesRes.error) { console.error("[PrepPocHeatmap] Query failed", candidatesRes.error); throw new Error(candidatesRes.error.message); }
 
       return buildHeatmapData(
-        (pocsRes.data ?? []) as any[],
-        (linksRes.data ?? []) as any[],
-        (candidatesRes.data ?? []) as any[],
+        (pocsRes.data ?? []) as import("@/lib/prepPocHeatmapAgg").PocRaw[],
+        (linksRes.data ?? []) as HeatmapLinkQueryRow[],
+        (candidatesRes.data ?? []) as HeatmapCandidateQueryRow[],
       );
     },
     staleTime: 60_000,
@@ -705,7 +740,7 @@ export function PrepPocHeatmapCard() {
               Failed to load heatmap data
             </p>
             <p className="text-[12px]" style={{ color: "#94a3b8" }}>
-              {(error as Error)?.message ?? "Unknown error"}
+              Check console for details or retry.
             </p>
             <button
               onClick={() => refetch()}
