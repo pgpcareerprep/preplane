@@ -7,7 +7,7 @@
  * CSV export, and responsive horizontal scroll.
  *
  * Data sources:
- *   poc_profiles   — active Prep POCs + domain configuration
+ *   poc_profiles   — all active POCs + domain configuration (no role_type filter)
  *   lmp_poc_links  — POC-to-LMP assignments (prep / support role)
  *   lmp_processes  — LMP status and domain_id
  *   domains        — canonical domain name (joined via lmp_processes.domain_id)
@@ -354,8 +354,7 @@ export function PrepPocHeatmapCard() {
       const [pocsRes, linksRes, candidatesRes] = await Promise.all([
         supabase
           .from("poc_profiles")
-          .select("id, name, primary_domain, domain_tags")
-          .eq("role_type", "prep_poc")
+          .select("id, name, primary_domain, domain_tags, role_type")
           .eq("status", "active"),
         supabase
           .from("lmp_poc_links")
