@@ -5,7 +5,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { ConfirmedPocSelection } from "@/lib/createLmpProcess";
 import { cn } from "@/lib/utils";
 import { allocatePoc, getDomainTier, TAG_STYLES, PATH_LABELS, PATH_DESCRIPTIONS, type AssignedPoc, type AllocationResult, type AllocationTag, type AllocationPath, type DomainAliasResolver, type HistoricalProcess } from "@/lib/pocAllocation";
-import { isEligiblePoc, usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
+import { isEligiblePoc, isOutreachTagPoc, usePocRegistry, type PocRegistryEntry } from "@/lib/hooks/usePocRegistry";
 import type { PocCapability } from "@/lib/pocCapability";
 import { useDomains, usePocLiveLoads } from "@/lib/hooks/useDbData";
 import { supabase } from "@/integrations/supabase/client";
@@ -146,6 +146,15 @@ export function POCReviewStep({
       });
   }, [pocRegistry, prepLoad, outreachLoad]);
 
+  /** Display-only outreach tag list — excluded from prep allocation pool. */
+  const allOutreachPocs = useMemo(
+    () =>
+      pocRegistry
+        .filter(isOutreachTagPoc)
+        .map((p) => toPocCapability(p, outreachLoad[p.name] ?? 0)),
+    [pocRegistry, outreachLoad],
+  );
+
   // Existing processes for this company — Step 0 reassigns the previous Prep
   // POC. Matched first on company+role, then on company alone (most recent
   // row wins, hence the created_at desc ordering).
@@ -241,15 +250,16 @@ export function POCReviewStep({
   useEffect(() => {
     if (hydratedRef.current) return;
     if (!initial || pocPool.length === 0) return;
-    const find = (n?: string) => n ? pocPool.find(p => p.name === n) : undefined;
-    const p = find(initial.prepName);
-    const s = find(initial.supportName);
-    const o = find(initial.outreachName);
+    const findPrepSupport = (n?: string) => (n ? pocPool.find((p) => p.name === n) : undefined);
+    const findOutreach = (n?: string) => (n ? allOutreachPocs.find((p) => p.name === n) : undefined);
+    const p = findPrepSupport(initial.prepName);
+    const s = findPrepSupport(initial.supportName);
+    const o = findOutreach(initial.outreachName);
     if (p) setPrepOverride(toAssignedFromPool(p, reqDomain, domainAliasResolver));
     if (s) setSupportOverride(toAssignedFromPool(s, reqDomain, domainAliasResolver));
     if (o) setOutreachPoc(toAssignedFromPool(o, reqDomain, domainAliasResolver));
     hydratedRef.current = true;
-  }, [initial, pocPool, reqDomain, domainAliasResolver]);
+  }, [initial, pocPool, allOutreachPocs, reqDomain, domainAliasResolver]);
 
   const handleSaveDraft = async () => {
     if (!onSaveDraft) return;
@@ -556,7 +566,7 @@ export function POCReviewStep({
             )}
             {showOutreachSelector && (
               <PocSwitcher
-                pocs={pocPool.filter(p => p.pocType === "outreach")}
+                pocs={allOutreachPocs}
                 currentName={outreachPoc?.name}
                 domain={reqDomain}
                 onSelect={(p) => { setOutreachPoc(toAssignedFromPool(p, reqDomain, domainAliasResolver)); setShowOutreachSelector(false); }}

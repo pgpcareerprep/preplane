@@ -70,6 +70,11 @@ export function isEligiblePoc(entry: PocRegistryEntry): boolean {
   return hasCapacity && entry.domains.length > 0;
 }
 
+/** Outreach names for display-only LMP tagging — not operational allocation. */
+export function isOutreachTagPoc(entry: PocRegistryEntry): boolean {
+  return entry.poc_type === "outreach" && entry.availability !== "deactivated";
+}
+
 export function mergePocDomains(primaryDomain?: string | null, domainTags?: string[] | null): string[] {
   const domains: string[] = [];
   const seen = new Set<string>();
