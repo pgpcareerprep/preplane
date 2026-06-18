@@ -22,6 +22,7 @@ export type PocRaw = {
   name: string;
   primary_domain: string | null;
   domain_tags: string[] | null;
+  role_type?: string | null;
 };
 
 export type LmpProcessForHeatmap = {

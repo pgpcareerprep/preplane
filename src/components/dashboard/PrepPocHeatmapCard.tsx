@@ -1,26 +1,19 @@
 /**
- * PrepPocHeatmapCard
+ * PrepPocHeatmapCard — Lumina v1 redesign
  *
- * Live "Prep POC Heatmap" replacing the old LxHeatmap section.
- * Fully self-contained: fetches its own data, wires realtime subscriptions,
- * provides KPI summary row, grouped column headers, heatmap intensity styling,
- * CSV export, and responsive horizontal scroll.
+ * Presentation layer only. All Supabase queries, realtime, aggregation
+ * formulas, drilldown data and export data are unchanged.
  *
- * Data sources:
- *   poc_profiles   — active Prep POCs + domain configuration
- *   lmp_poc_links  — POC-to-LMP assignments (prep / support role)
- *   lmp_processes  — LMP status and domain_id
- *   domains        — canonical domain name (joined via lmp_processes.domain_id)
- *   lmp_candidates — student_id for placed-student counting
- *
- * Status treatment for "On hold":
- *   Counted as Closed in the LMP Load column (matching the reference visual)
- *   but excluded from the LMP Conversion denominator (it is not a final outcome).
- *
- * Domain Load applies to Primary (prep-role) LMP assignments only.
+ * Key visual changes:
+ *  - On Hold moved from Closed Outcomes → Active Prep (visual only)
+ *  - Single SECTION_CONFIG drives colgroup / headers / body / totals
+ *  - 5-level column-relative heat scale (0 / 1-25% / 26-50% / 51-75% / 76-100%)
+ *  - Section visibility controls (Columns popover, EyeOff per group)
+ *  - Lumina design tokens throughout (var(--lx-*))
+ *  - Dark-mode compatible structural styling
  */
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -41,12 +34,15 @@ import {
 import { LxInfo } from "@/components/insights/LxInfo";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Users, Briefcase, GraduationCap, TrendingUp,
-  Download, RefreshCw, WifiOff, ClipboardList, Search, ArrowUpDown,
+  Download, RefreshCw, WifiOff, ClipboardList, Search,
+  ArrowUpDown, EyeOff, Columns3, BarChart3,
 } from "lucide-react";
 
-// ── Query-response types (narrow, no 'as any' escape hatch) ──────────────────
+// ── Query types ───────────────────────────────────────────────────────────────
 
 type HeatmapLinkQueryRow = {
   poc_id: string;
@@ -85,46 +81,72 @@ type HeatmapCandidateQueryRow = {
 
 const QUERY_KEY = ["prep_poc_heatmap_v3"] as const;
 
-// GitHub/LeetCode-style 4-level heat palette per spec
-// bg[0]=zero  bg[1]=1-33%  bg[2]=34-66%  bg[3]=67-100%
-// All text stays dark navy — no white text on soft pastels
-type ColorPalette = { bg: [string, string, string, string]; text: [string, string, string, string] };
+const STORAGE_KEY = "heatmap_visible_sections_v1";
 
-const PALETTE = {
-  lmpLoad:    { bg: ["#F8FAFC", "#E7EDF4", "#D4DFEB", "#AFC0D4"], text: ["#94A3B8", "#475569", "#334155", "#10213F"] },
-  activePrep: { bg: ["#F8FBFF", "#ECF4FE", "#D8E8FD", "#B7D3F8"], text: ["#94A3B8", "#1E40AF", "#1E3A8A", "#10213F"] },
-  converted:  { bg: ["#F8FCF6", "#EAF6E2", "#D5EDCB", "#B9DFAE"], text: ["#94A3B8", "#15803D", "#166534", "#10213F"] },
-  amber:      { bg: ["#FFFAF6", "#FEF3E8", "#FDE1C9", "#F6C18F"], text: ["#94A3B8", "#92400E", "#78350F", "#10213F"] },
-  purple:     { bg: ["#FCFAFF", "#F2E8FD", "#E3D1FA", "#CDB4F1"], text: ["#94A3B8", "#4C1D95", "#3B0764", "#10213F"] },
-  teal:       { bg: ["#F8FDFD", "#E8F8F8", "#CFEDED", "#9FD8D8"], text: ["#94A3B8", "#0E7490", "#155E75", "#10213F"] },
-  perfGreen:  { bg: ["#F8FCF7", "#F0FAED", "#D9EFD4", "#B8DDB1"], text: ["#94A3B8", "#15803D", "#14532D", "#10213F"] },
-} satisfies Record<string, ColorPalette>;
+// ── Heat palette — 5 levels aligned to Lumina brand colors ───────────────────
+// L0=zero  L1=1-25%  L2=26-50%  L3=51-75%  L4=76-100%
+// Dark text throughout — no white text on pastels.
 
-// Per-spec group header and sub-header background colours
-const GROUP_HEADER_BG: Record<string, string> = {
-  lmpLoad:        "#F8FAFC",
-  activePrep:     "#F5F9FE",
-  closedOutcomes: "#F8FBF6",
-  responsibility: "#FCF9FE",
-  domainLoad:     "#FAFDFD",
-  performance:    "#F7FCF6",
-};
-const GROUP_SUBHEADER_BG: Record<string, string> = {
-  lmpLoad:        "#F5F7FA",
-  activePrep:     "#F2F7FE",
-  closedOutcomes: "#F3F9F0",
-  responsibility: "#F9F4FD",
-  domainLoad:     "#F2F9FB",
-  performance:    "#F3FBF2",
+type ColorPalette = {
+  bg: [string, string, string, string, string];
+  text: [string, string, string, string, string];
 };
 
-// GitHub-style: 0 = zero, 1 = 1-33%, 2 = 34-66%, 3 = 67-100%
-function intensityLevel(value: number, colMax: number): 0 | 1 | 2 | 3 {
+const MUTED_TEXT = "#7A756C"; // lx-text-3
+
+// Warm neutral / LMP Load
+const P_NEUTRAL: ColorPalette = {
+  bg:   ["#FAFAF8", "#EEECEA", "#DEDAD5", "#CCC8C1", "#B5B0A8"],
+  text: [MUTED_TEXT, "#5C594F", "#3D3A35", "#2A2825", "#1A1916"],
+};
+// Sky / Active Prep
+const P_SKY: ColorPalette = {
+  bg:   ["#F6FAFF", "#DEEAF9", "#BAD3F4", "#8DB6EC", "#4A8EE8"],
+  text: [MUTED_TEXT, "#1A4FA0", "#163E88", "#102E6A", "#0A1F4B"],
+};
+// Yellow / On Hold (muted warm yellow — distinct from Sky within Active Prep)
+const P_YELLOW: ColorPalette = {
+  bg:   ["#FEFDF5", "#FBF5D5", "#F7E99E", "#F2D962", "#E8C72A"],
+  text: [MUTED_TEXT, "#7A5F08", "#614A06", "#4A3805", "#312603"],
+};
+// Sage / Converted
+const P_SAGE: ColorPalette = {
+  bg:   ["#F5FAF4", "#D8EDD5", "#B5D9B0", "#8BC185", "#6A9E62"],
+  text: [MUTED_TEXT, "#2D6A27", "#245520", "#1B4018", "#122B10"],
+};
+// Coral / Not Converted
+const P_CORAL: ColorPalette = {
+  bg:   ["#FFF7F5", "#FDE0D8", "#FAC0B0", "#F59380", "#F07040"],
+  text: [MUTED_TEXT, "#8B2800", "#6E2000", "#521800", "#381000"],
+};
+// Orange / Other Reasons
+const P_ORANGE: ColorPalette = {
+  bg:   ["#FEF9F5", "#FAE6CE", "#F5CFA0", "#EDB169", "#E38330"],
+  text: [MUTED_TEXT, "#7A3E06", "#5E2F04", "#452303", "#2D1702"],
+};
+// Plum / Responsibility (muted — not AI context here)
+const P_PLUM: ColorPalette = {
+  bg:   ["#FAF8FF", "#EDE5FB", "#D8CAF7", "#BEA9F1", "#8B5CF6"],
+  text: [MUTED_TEXT, "#4A1D96", "#3B1580", "#2C0F60", "#1E0942"],
+};
+// Teal / Domain Load (in-domain + cross-domain same family)
+const P_TEAL: ColorPalette = {
+  bg:   ["#F3FBFD", "#C8EDF5", "#92D8EC", "#54BEE0", "#39B6D8"],
+  text: [MUTED_TEXT, "#0E5E78", "#0A4A60", "#07374A", "#042535"],
+};
+// Perf green / Students Placed
+const P_PERF: ColorPalette = {
+  bg:   ["#F4FAF3", "#CEEACB", "#9DD498", "#6BBC65", "#4DA847"],
+  text: [MUTED_TEXT, "#225220", "#1A4018", "#123010", "#0B200A"],
+};
+
+function intensityLevel(value: number, colMax: number): 0 | 1 | 2 | 3 | 4 {
   if (value === 0 || colMax === 0) return 0;
-  const ratio = value / colMax;
-  if (ratio <= 0.33) return 1;
-  if (ratio <= 0.66) return 2;
-  return 3;
+  const r = value / colMax;
+  if (r <= 0.25) return 1;
+  if (r <= 0.50) return 2;
+  if (r <= 0.75) return 3;
+  return 4;
 }
 
 function cellStyle(value: number, colMax: number, palette: ColorPalette) {
@@ -132,154 +154,284 @@ function cellStyle(value: number, colMax: number, palette: ColorPalette) {
   return { background: palette.bg[lvl], color: palette.text[lvl] };
 }
 
-// ── Column metadata ───────────────────────────────────────────────────────────
+// ── Section / column schema ───────────────────────────────────────────────────
+
+export type SectionKey =
+  | "lmpLoad"
+  | "activePrep"
+  | "closedOutcomes"
+  | "responsibility"
+  | "domainLoad"
+  | "performance";
+
+const ALL_SECTION_KEYS: SectionKey[] = [
+  "lmpLoad", "activePrep", "closedOutcomes", "responsibility", "domainLoad", "performance",
+];
+
+type ColType = "heat" | "conversion"; // "conversion" = lmpConversion custom cell
 
 type ColDef = {
-  key: keyof PrepPocHeatmapRow;
+  dataKey: keyof PrepPocHeatmapRow; // row field (for heat cells)
   metricKey: HeatmapMetricKey;
   label: string;
   subLabel?: string;
-  palette: ColorPalette;
   tooltip: string;
   minWidth: number;
+  palette: ColorPalette;
+  totalAccent: string; // bold text colour in TOTAL row
+  colType: ColType;
 };
 
-const COLUMN_GROUPS = [
+type SectionDef = {
+  key: SectionKey;
+  label: string;
+  icon: ComponentType<{ size?: number }>;
+  // CSS-compatible colour (can use var(--lx-*) or explicit hex)
+  accent: string;
+  headerBg: string;
+  subheaderBg: string;
+  cols: ColDef[];
+};
+
+const SECTION_CONFIG: SectionDef[] = [
   {
     key: "lmpLoad",
     label: "LMP LOAD",
     icon: ClipboardList,
-    color: "#64748B",
+    accent: "var(--lx-text-3)",
+    headerBg: "var(--lx-soft)",
+    subheaderBg: "var(--lx-bg)",
     cols: [
-      { key: "totalLmpLoad" as keyof PrepPocHeatmapRow, metricKey: "total",   label: "Total",   subLabel: "(Till Today)", palette: PALETTE.lmpLoad, tooltip: "Distinct LMPs assigned to this POC as Primary or Support (all time).",                                                         minWidth: 68 },
-      { key: "currentLmpCount" as keyof PrepPocHeatmapRow, metricKey: "current", label: "Current", subLabel: "(Ongoing)",    palette: PALETTE.lmpLoad, tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done.",                                                                    minWidth: 68 },
-      { key: "closedLmpCount"  as keyof PrepPocHeatmapRow, metricKey: "closed",  label: "Closed",  subLabel: undefined,      palette: PALETTE.lmpLoad, tooltip: "LMPs with no remaining current Prep work (Converted + Not Converted + On hold + Other reasons).",                              minWidth: 60 },
-    ] as ColDef[],
+      {
+        dataKey: "totalLmpLoad", metricKey: "total", colType: "heat",
+        label: "Total", subLabel: "(Till Today)", minWidth: 68,
+        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        tooltip: "Distinct LMPs assigned to this POC as Primary or Support (all time).",
+      },
+      {
+        dataKey: "currentLmpCount", metricKey: "current", colType: "heat",
+        label: "Current", subLabel: "(Ongoing)", minWidth: 68,
+        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done.",
+      },
+      {
+        dataKey: "closedLmpCount", metricKey: "closed", colType: "heat",
+        label: "Closed", minWidth: 60,
+        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        tooltip: "LMPs with no remaining current Prep work (Converted + Not Converted + On Hold + Other Reasons).",
+      },
+    ],
   },
   {
     key: "activePrep",
     label: "ACTIVE PREP",
     icon: RefreshCw,
-    color: "#2563EB",
+    accent: "var(--lx-info)",
+    headerBg: "#F0F6FE",
+    subheaderBg: "#E6F0FC",
     cols: [
-      { key: "notStartedCount"  as keyof PrepPocHeatmapRow, metricKey: "notStarted",  label: "Not Started",  palette: PALETTE.activePrep, tooltip: "LMPs assigned but preparation has not yet begun.",                        minWidth: 78 },
-      { key: "prepOngoingCount" as keyof PrepPocHeatmapRow, metricKey: "prepOngoing", label: "Prep Ongoing", palette: PALETTE.activePrep, tooltip: "Prep currently in progress.",                                              minWidth: 90 },
-      { key: "prepDoneCount"    as keyof PrepPocHeatmapRow, metricKey: "prepDone",    label: "Prep Done",    palette: PALETTE.activePrep, tooltip: "Prep marked complete, candidate handed to rounds.",                        minWidth: 78 },
-    ] as ColDef[],
+      {
+        dataKey: "notStartedCount", metricKey: "notStarted", colType: "heat",
+        label: "Not Started", minWidth: 78,
+        palette: P_SKY, totalAccent: "#1A4FA0",
+        tooltip: "LMPs assigned but preparation has not yet begun.",
+      },
+      {
+        dataKey: "prepOngoingCount", metricKey: "prepOngoing", colType: "heat",
+        label: "Prep Ongoing", minWidth: 90,
+        palette: P_SKY, totalAccent: "#1A4FA0",
+        tooltip: "Prep currently in progress.",
+      },
+      {
+        dataKey: "prepDoneCount", metricKey: "prepDone", colType: "heat",
+        label: "Prep Done", minWidth: 78,
+        palette: P_SKY, totalAccent: "#1A4FA0",
+        tooltip: "Prep marked complete, candidate handed to rounds.",
+      },
+      {
+        dataKey: "onHoldCount", metricKey: "onHold", colType: "heat",
+        label: "On Hold", minWidth: 72,
+        palette: P_YELLOW, totalAccent: "#7A5F08",
+        tooltip: "LMPs currently mapped to On Hold status. Shown here for operational visibility — excluded from the conversion denominator and existing load calculations are unchanged.",
+      },
+    ],
   },
   {
     key: "closedOutcomes",
     label: "CLOSED OUTCOMES",
     icon: TrendingUp,
-    color: "#22A447",
+    accent: "var(--lx-success)",
+    headerBg: "#F2F9F1",
+    subheaderBg: "#E8F5E7",
     cols: [
-      { key: "convertedCount"    as keyof PrepPocHeatmapRow, metricKey: "converted",    label: "Converted",     palette: PALETTE.converted, tooltip: "Successful conversions credited to this POC.",                                                                                 minWidth: 80 },
-      { key: "notConvertedCount" as keyof PrepPocHeatmapRow, metricKey: "notConverted", label: "Not Converted", palette: PALETTE.amber,     tooltip: "LMPs that closed with a Not Converted outcome.",                                                                               minWidth: 96 },
-      { key: "onHoldCount"       as keyof PrepPocHeatmapRow, metricKey: "onHold",       label: "On hold",       palette: PALETTE.amber,     tooltip: "LMPs currently mapped to the On hold status. Excluded from conversion rate denominator.",                                      minWidth: 68 },
-      { key: "otherReasonsCount" as keyof PrepPocHeatmapRow, metricKey: "otherReasons", label: "Other reasons", palette: PALETTE.amber,     tooltip: "Closed for reasons other than conversion or Not Converted (e.g. role pulled, candidate withdrew).",                             minWidth: 96 },
-    ] as ColDef[],
+      {
+        dataKey: "convertedCount", metricKey: "converted", colType: "heat",
+        label: "Converted", minWidth: 80,
+        palette: P_SAGE, totalAccent: "#2D6A27",
+        tooltip: "Successful conversions credited to this POC.",
+      },
+      {
+        dataKey: "notConvertedCount", metricKey: "notConverted", colType: "heat",
+        label: "Not Converted", minWidth: 96,
+        palette: P_CORAL, totalAccent: "#8B2800",
+        tooltip: "LMPs that closed with a Not Converted outcome.",
+      },
+      {
+        dataKey: "otherReasonsCount", metricKey: "otherReasons", colType: "heat",
+        label: "Other Reasons", minWidth: 96,
+        palette: P_ORANGE, totalAccent: "#7A3E06",
+        tooltip: "Closed for reasons other than Converted or Not Converted (e.g. role pulled, candidate withdrew).",
+      },
+    ],
   },
   {
     key: "responsibility",
     label: "RESPONSIBILITY",
     icon: Users,
-    color: "#6D28D9",
+    accent: "var(--lx-ai)",
+    headerBg: "#F7F4FE",
+    subheaderBg: "#F0EBFD",
     cols: [
-      { key: "primaryCount" as keyof PrepPocHeatmapRow, metricKey: "primary", label: "Primary", palette: PALETTE.purple, tooltip: "Distinct LMPs where this POC is the Primary Prep owner.", minWidth: 68 },
-      { key: "supportCount" as keyof PrepPocHeatmapRow, metricKey: "support", label: "Support", palette: PALETTE.purple, tooltip: "Distinct LMPs where this POC is a Support owner.",        minWidth: 68 },
-    ] as ColDef[],
+      {
+        dataKey: "primaryCount", metricKey: "primary", colType: "heat",
+        label: "Primary", minWidth: 68,
+        palette: P_PLUM, totalAccent: "#4A1D96",
+        tooltip: "Distinct LMPs where this POC is the Primary Prep owner.",
+      },
+      {
+        dataKey: "supportCount", metricKey: "support", colType: "heat",
+        label: "Support", minWidth: 68,
+        palette: P_PLUM, totalAccent: "#4A1D96",
+        tooltip: "Distinct LMPs where this POC is a Support owner.",
+      },
+    ],
   },
   {
     key: "domainLoad",
     label: "DOMAIN LOAD",
     icon: Briefcase,
-    color: "#0891B2",
+    accent: "var(--lx-teal)",
+    headerBg: "#EDF9FD",
+    subheaderBg: "#E0F5FA",
     cols: [
-      { key: "inDomainCount"   as keyof PrepPocHeatmapRow, metricKey: "inDomain",   label: "In-domain",    palette: PALETTE.teal, tooltip: "Primary LMPs matching at least one domain assigned to this POC.",  minWidth: 80 },
-      { key: "crossDomainCount" as keyof PrepPocHeatmapRow, metricKey: "crossDomain", label: "Cross-domain", palette: PALETTE.teal, tooltip: "Primary LMPs outside all domains assigned to this POC.",           minWidth: 92 },
-    ] as ColDef[],
+      {
+        dataKey: "inDomainCount", metricKey: "inDomain", colType: "heat",
+        label: "In-domain", minWidth: 80,
+        palette: P_TEAL, totalAccent: "#0E5E78",
+        tooltip: "Primary LMPs matching at least one domain assigned to this POC.",
+      },
+      {
+        dataKey: "crossDomainCount", metricKey: "crossDomain", colType: "heat",
+        label: "Cross-domain", minWidth: 92,
+        palette: P_TEAL, totalAccent: "#0E5E78",
+        tooltip: "Primary LMPs outside all domains assigned to this POC.",
+      },
+    ],
+  },
+  {
+    key: "performance",
+    label: "PERFORMANCE",
+    icon: BarChart3,
+    accent: "var(--lx-success)",
+    headerBg: "#F2F9F1",
+    subheaderBg: "#E8F5E7",
+    cols: [
+      {
+        // dataKey unused for "conversion" colType — special rendering
+        dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
+        label: "LMP Conversion", minWidth: 108,
+        palette: P_SAGE, totalAccent: "#2D6A27",
+        tooltip: "Converted ÷ eligible closed LMPs (excludes On Hold). Format: converted/eligible – %.",
+      },
+      {
+        dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
+        label: "Students Placed", minWidth: 96,
+        palette: P_PERF, totalAccent: "#225220",
+        tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC.",
+      },
+    ],
   },
 ];
 
-// Performance columns are rendered separately due to custom formatting
-const PERF_COLS = {
-  conversion: {
-    label: "LMP Conversion",
-    tooltip: "Converted ÷ eligible closed LMPs (excludes On hold). Format: converted/eligible - %.",
-    minWidth: 108,
-  },
-  studentsPlaced: {
-    label: "Students Placed",
-    tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC. The overall total counts each student once.",
-    minWidth: 96,
-  },
-};
+// ── Visibility helpers ────────────────────────────────────────────────────────
 
-// Flat column list for max computation
-const ALL_COLS: ColDef[] = COLUMN_GROUPS.flatMap((g) => g.cols);
+function loadVisibleSections(): Set<SectionKey> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw) as SectionKey[];
+      if (Array.isArray(arr) && arr.length > 0) return new Set(arr as SectionKey[]);
+    }
+  } catch {
+    // ignore
+  }
+  return new Set(ALL_SECTION_KEYS);
+}
 
-// ── Live badge ────────────────────────────────────────────────────────────────
+function saveVisibleSections(set: Set<SectionKey>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+  } catch {
+    // ignore
+  }
+}
+
+// ── Helper components ─────────────────────────────────────────────────────────
 
 function LiveBadge({ isFetching, isError }: { isFetching: boolean; isError: boolean }) {
   if (isError) {
     return (
-      <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border"
-        style={{ background: "#fff1f2", borderColor: "#fecaca", color: "#dc2626" }}>
-        <WifiOff size={10} />
-        Error
+      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium border"
+        style={{ background: "color-mix(in srgb, var(--lx-risk) 10%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-risk) 30%, transparent)", color: "var(--lx-risk)" }}>
+        <WifiOff size={9} /> Error
       </span>
     );
   }
   if (isFetching) {
     return (
-      <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border"
-        style={{ background: "#fffbeb", borderColor: "#fde68a", color: "#d97706" }}>
-        <RefreshCw size={10} className="animate-spin" />
-        Refreshing
+      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium border"
+        style={{ background: "color-mix(in srgb, var(--lx-yellow) 15%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-yellow) 40%, transparent)", color: "#9A7408" }}>
+        <RefreshCw size={9} className="animate-spin" /> Refreshing
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border"
-      style={{ background: "#f0fdf4", borderColor: "#bbf7d0", color: "#15803d" }}>
-      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+    <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full text-[11px] font-medium border"
+      style={{ background: "color-mix(in srgb, var(--lx-success) 10%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-success) 25%, transparent)", color: "var(--lx-success)" }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--lx-success)" }} />
       Live
     </span>
   );
 }
 
-// ── KPI Card ─────────────────────────────────────────────────────────────────
-
 function KpiCard({
-  icon: Icon, label, value, color, tooltip,
+  icon: Icon, label, value, accentCss, tooltip,
 }: {
-  icon: ComponentType<{ size?: number; className?: string }>;
+  icon: ComponentType<{ size?: number }>;
   label: string;
   value: string | number;
-  color: string;
+  accentCss: string; // e.g. "var(--lx-orange)"
   tooltip: string;
 }) {
   return (
-    <div className="flex items-center gap-3 flex-1 min-w-[130px] rounded-2xl border bg-white px-4 py-3"
-      style={{ borderColor: "#e7edf4", boxShadow: "0 10px 28px rgba(15, 23, 42, 0.045)" }}>
-      <span className="shrink-0 h-10 w-10 rounded-2xl flex items-center justify-center"
-        style={{ background: `${color}14`, boxShadow: `inset 0 0 0 1px ${color}18` }}>
-        <Icon size={18} style={{ color }} />
+    <div className="flex items-center gap-3 flex-1 min-w-[130px] rounded-2xl border px-4 py-3"
+      style={{ background: "var(--lx-surface)", borderColor: "var(--lx-border)", boxShadow: "0 1px 3px rgba(26,25,22,0.05)" }}>
+      <span className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center"
+        style={{ background: `color-mix(in srgb, ${accentCss} 12%, var(--lx-soft))` }}>
+        <Icon size={17} style={{ color: accentCss }} />
       </span>
       <div className="min-w-0">
-        <div className="text-[22px] font-bold leading-none tabular-nums" style={{ color: "#1e293b" }}>
+        <div className="text-[20px] font-bold leading-none tabular-nums" style={{ color: "var(--lx-text)" }}>
           {value}
         </div>
-        <div className="mt-1 text-[11.5px] font-medium inline-flex items-center gap-1" style={{ color: "#64748b" }}>
+        <div className="mt-0.5 text-[11px] font-medium inline-flex items-center gap-1" style={{ color: "var(--lx-text-3)" }}>
           <span>{label}</span>
-          <LxInfo text={tooltip} size={11} />
+          <LxInfo text={tooltip} size={10} />
         </div>
       </div>
     </div>
   );
 }
-
-// ── Cell rendering ────────────────────────────────────────────────────────────
 
 function HeatCell({
   value, palette, colMax, className, ariaLabel, onOpen,
@@ -295,26 +447,21 @@ function HeatCell({
   const clickable = value > 0 && Boolean(onOpen);
   return (
     <td
-      className={cn(
-        "text-center tabular-nums text-[13px] font-semibold border border-white/80 transition-all group-hover:bg-blend-multiply",
-        className,
-      )}
-      style={{
-        ...style,
-        boxShadow: value > 0 ? "inset 0 0 0 1px rgba(15, 23, 42, 0.025)" : undefined,
-      }}
+      className={cn("text-center tabular-nums text-[12.5px] font-semibold transition-colors", className)}
+      style={{ ...style, borderColor: "var(--lx-border)" }}
     >
       {clickable ? (
         <button
           type="button"
           aria-label={ariaLabel}
           onClick={onOpen}
-          className="h-full min-h-[34px] w-full rounded-lg px-2 py-2 font-semibold tabular-nums transition-all hover:-translate-y-0.5 hover:bg-white/30 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+          className="h-full min-h-[38px] w-full px-1.5 py-2 font-semibold tabular-nums transition-all hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+          style={{ "--tw-ring-color": "var(--lx-orange)" } as React.CSSProperties}
         >
           {value}
         </button>
       ) : (
-        <span className="inline-flex min-h-[34px] items-center justify-center px-2 py-2">
+        <span className="inline-flex min-h-[38px] items-center justify-center px-1.5">
           {value}
         </span>
       )}
@@ -322,40 +469,138 @@ function HeatCell({
   );
 }
 
-// ── Skeleton ─────────────────────────────────────────────────────────────────
+// ── Columns popover ───────────────────────────────────────────────────────────
+
+function ColumnsPopover({
+  visibleSections,
+  onToggle,
+  onShowAll,
+}: {
+  visibleSections: Set<SectionKey>;
+  onToggle: (key: SectionKey) => void;
+  onShowAll: () => void;
+}) {
+  const allVisible = ALL_SECTION_KEYS.every((k) => visibleSections.has(k));
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-[12.5px] font-semibold transition-colors hover:brightness-97 focus-visible:outline-none focus-visible:ring-2"
+          style={{
+            background: "var(--lx-surface)",
+            borderColor: "var(--lx-border)",
+            color: "var(--lx-text-2)",
+            "--tw-ring-color": "var(--lx-orange)",
+          } as React.CSSProperties}
+          aria-label="Toggle column section visibility"
+        >
+          <Columns3 size={13} />
+          Columns
+          {!allVisible && (
+            <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+              style={{ background: "var(--lx-orange)", color: "#fff" }}>
+              {ALL_SECTION_KEYS.length - visibleSections.size}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-56 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--lx-text-3)" }}>
+          Visible sections
+        </div>
+        <div className="space-y-1">
+          {SECTION_CONFIG.map((s) => {
+            const checked = visibleSections.has(s.key);
+            return (
+              <label
+                key={s.key}
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer text-[12.5px] font-medium transition-colors hover:bg-slate-50"
+                style={{ color: "var(--lx-text-2)" }}
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => onToggle(s.key)}
+                  aria-label={`${checked ? "Hide" : "Show"} ${s.label} columns`}
+                />
+                {s.label}
+              </label>
+            );
+          })}
+        </div>
+        {!allVisible && (
+          <button
+            type="button"
+            onClick={onShowAll}
+            className="mt-2 w-full rounded-lg border py-1.5 text-[12px] font-semibold transition-colors hover:bg-slate-50"
+            style={{ borderColor: "var(--lx-border)", color: "var(--lx-orange)" }}
+          >
+            Show all
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function HeatmapSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
       <div className="flex gap-3">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-16 flex-1 rounded-xl bg-slate-100" />
+          <div key={i} className="h-14 flex-1 rounded-xl" style={{ background: "var(--lx-soft)" }} />
         ))}
       </div>
-      <div className="h-8 bg-slate-100 rounded" />
-      <div className="h-8 bg-slate-100 rounded" />
+      <div className="h-8 rounded" style={{ background: "var(--lx-soft)" }} />
+      <div className="h-7 rounded" style={{ background: "var(--lx-soft)" }} />
       {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="h-10 bg-slate-50 rounded" />
+        <div key={i} className="h-10 rounded" style={{ background: "var(--lx-bg)" }} />
       ))}
     </div>
   );
 }
+
+// ── Totals type ───────────────────────────────────────────────────────────────
+
+type TotalsShape = {
+  totalLmpLoad: number; currentLmpCount: number; closedLmpCount: number;
+  notStartedCount: number; prepOngoingCount: number; prepDoneCount: number; onHoldCount: number;
+  convertedCount: number; notConvertedCount: number; otherReasonsCount: number;
+  primaryCount: number; supportCount: number;
+  inDomainCount: number; crossDomainCount: number;
+  eligibleClosedCount: number; lmpConversionPercentage: number | null; studentsPlaced: number;
+};
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PrepPocHeatmapCard() {
   const [activeView, setActiveView] = useState<"lmp" | "student" | "domain">("lmp");
   const [selection, setSelection] = useState<HeatmapDrilldownSelection | null>(null);
+  const [visibleSections, setVisibleSections] = useState<Set<SectionKey>>(loadVisibleSections);
+
+  // Persist visibility prefs
+  useEffect(() => { saveVisibleSections(visibleSections); }, [visibleSections]);
+
+  const toggleSection = useCallback((key: SectionKey) => {
+    setVisibleSections((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }, []);
+
+  const showAll = useCallback(() => setVisibleSections(new Set(ALL_SECTION_KEYS)), []);
 
   // ── Data fetch ──────────────────────────────────────────────────────────────
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<PrepPocHeatmapResponse>({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery<PrepPocHeatmapResponse>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
       const [pocsRes, linksRes, candidatesRes] = await Promise.all([
         supabase
           .from("poc_profiles")
-          .select("id, name, primary_domain, domain_tags")
-          .eq("role_type", "prep_poc")
+          .select("id, name, primary_domain, domain_tags, role_type")
           .eq("status", "active"),
         supabase
           .from("lmp_poc_links")
@@ -382,17 +627,19 @@ export function PrepPocHeatmapCard() {
     refetchOnWindowFocus: true,
   });
 
-  // ── Realtime subscriptions ──────────────────────────────────────────────────
+  // ── Realtime ────────────────────────────────────────────────────────────────
   useRealtimeInvalidate("lmp_processes", [QUERY_KEY]);
   useRealtimeInvalidate("lmp_poc_links" as never, [QUERY_KEY]);
   useRealtimeInvalidate("poc_profiles" as never, [QUERY_KEY]);
   useRealtimeInvalidate("lmp_candidates", [QUERY_KEY]);
 
-  // ── Per-column max values for heat intensity ────────────────────────────────
+  // Only POCs with at least one LMP assignment
+  const activeRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
+
+  // Per-column max values (heat only; conversion skipped)
   const colMaxValues = useMemo(() => {
-    const rows = data?.rows ?? [];
     const maxFor = (key: keyof PrepPocHeatmapRow) =>
-      Math.max(1, ...rows.map((r) => (r[key] as number) ?? 0));
+      Math.max(1, ...activeRows.map((r) => (r[key] as number) ?? 0));
     return {
       totalLmpLoad: maxFor("totalLmpLoad"),
       currentLmpCount: maxFor("currentLmpCount"),
@@ -400,9 +647,9 @@ export function PrepPocHeatmapCard() {
       notStartedCount: maxFor("notStartedCount"),
       prepOngoingCount: maxFor("prepOngoingCount"),
       prepDoneCount: maxFor("prepDoneCount"),
+      onHoldCount: maxFor("onHoldCount"),
       convertedCount: maxFor("convertedCount"),
       notConvertedCount: maxFor("notConvertedCount"),
-      onHoldCount: maxFor("onHoldCount"),
       otherReasonsCount: maxFor("otherReasonsCount"),
       primaryCount: maxFor("primaryCount"),
       supportCount: maxFor("supportCount"),
@@ -410,9 +657,9 @@ export function PrepPocHeatmapCard() {
       crossDomainCount: maxFor("crossDomainCount"),
       studentsPlaced: maxFor("studentsPlaced"),
     };
-  }, [data]);
+  }, [activeRows]);
 
-  // ── CSV export ──────────────────────────────────────────────────────────────
+  // CSV export — always exports full dataset regardless of visibility
   const handleExport = useCallback(() => {
     if (!data) return;
     const { rows, summary, generatedAt } = data;
@@ -424,55 +671,46 @@ export function PrepPocHeatmapCard() {
       "Not Started": r.notStartedCount,
       "Prep Ongoing": r.prepOngoingCount,
       "Prep Done": r.prepDoneCount,
+      "On Hold": r.onHoldCount,
       Converted: r.convertedCount,
       "Not Converted": r.notConvertedCount,
-      "On hold": r.onHoldCount,
-      "Other reasons": r.otherReasonsCount,
+      "Other Reasons": r.otherReasonsCount,
       Primary: r.primaryCount,
       Support: r.supportCount,
       "In-domain": r.inDomainCount,
       "Cross-domain": r.crossDomainCount,
       "Converted Count": r.convertedCount,
       "Eligible Closed Count": r.eligibleClosedCount,
-      "LMP Conversion %": r.lmpConversionPercentage !== null
-        ? `${r.lmpConversionPercentage.toFixed(1)}%`
-        : "—",
+      "LMP Conversion %": r.lmpConversionPercentage !== null ? `${r.lmpConversionPercentage.toFixed(1)}%` : "—",
       "Students Placed": r.studentsPlaced,
     }));
-    // Append metadata rows
-    csvRows.push({} as any);
-    csvRows.push({ "POC Name": `Exported At: ${generatedAt}` } as any);
-    csvRows.push({
-      "POC Name": `Active POCs: ${summary.activePocCount} | Unique LMPs: ${summary.uniqueLmpCount} | Converted LMP %: ${summary.convertedLmpPercentage !== null ? `${summary.convertedLmpPercentage.toFixed(1)}%` : "—"}`,
-    } as any);
-
+    csvRows.push({} as never);
+    csvRows.push({ "POC Name": `Exported At: ${generatedAt}` } as never);
+    csvRows.push({ "POC Name": `Active POCs: ${summary.activePocCount} | Unique LMPs: ${summary.uniqueLmpCount} | Converted LMP %: ${summary.convertedLmpPercentage !== null ? `${summary.convertedLmpPercentage.toFixed(1)}%` : "—"}` } as never);
     downloadCsv(`prep-poc-heatmap-lmp-wise-${dateStamp()}.csv`, csvRows, [
       "POC Name", "Total LMPs", "Current LMPs", "Closed LMPs",
-      "Not Started", "Prep Ongoing", "Prep Done",
-      "Converted", "Not Converted", "On hold", "Other reasons",
-      "Primary", "Support",
-      "In-domain", "Cross-domain",
-      "Converted Count", "Eligible Closed Count", "LMP Conversion %",
-      "Students Placed",
+      "Not Started", "Prep Ongoing", "Prep Done", "On Hold",
+      "Converted", "Not Converted", "Other Reasons",
+      "Primary", "Support", "In-domain", "Cross-domain",
+      "Converted Count", "Eligible Closed Count", "LMP Conversion %", "Students Placed",
     ]);
   }, [data]);
 
-  // ── Totals row values ───────────────────────────────────────────────────────
-  const totals = useMemo(() => {
+  // Totals row values
+  const totals = useMemo((): TotalsShape | null => {
     if (!data) return null;
     const { rows, summary } = data;
-    const sum = (key: keyof PrepPocHeatmapRow) =>
-      rows.reduce((s, r) => s + ((r[key] as number) ?? 0), 0);
+    const sum = (key: keyof PrepPocHeatmapRow) => rows.reduce((s, r) => s + ((r[key] as number) ?? 0), 0);
     return {
-      totalLmpLoad: summary.uniqueLmpCount, // globally deduped
+      totalLmpLoad: summary.uniqueLmpCount,
       currentLmpCount: sum("currentLmpCount"),
       closedLmpCount: sum("closedLmpCount"),
       notStartedCount: sum("notStartedCount"),
       prepOngoingCount: sum("prepOngoingCount"),
       prepDoneCount: sum("prepDoneCount"),
+      onHoldCount: sum("onHoldCount"),
       convertedCount: summary.convertedLmpCount,
       notConvertedCount: sum("notConvertedCount"),
-      onHoldCount: sum("onHoldCount"),
       otherReasonsCount: sum("otherReasonsCount"),
       primaryCount: sum("primaryCount"),
       supportCount: sum("supportCount"),
@@ -480,41 +718,45 @@ export function PrepPocHeatmapCard() {
       crossDomainCount: sum("crossDomainCount"),
       eligibleClosedCount: summary.eligibleClosedLmpCount,
       lmpConversionPercentage: summary.convertedLmpPercentage,
-      studentsPlaced: summary.uniqueStudentsPlaced, // globally deduped
+      studentsPlaced: summary.uniqueStudentsPlaced,
     };
   }, [data]);
 
-  const openDrilldown = useCallback((row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => {
+  const openDrilldown = useCallback((
+    row: PrepPocHeatmapRow,
+    metricKey: HeatmapMetricKey,
+    displayedValue: number | string,
+    displayedCount: number | null,
+  ) => {
     if (displayedCount !== null && displayedCount <= 0) return;
-    setSelection({
-      pocId: row.pocId,
-      pocName: row.pocName,
-      metricKey,
-      metricLabel: HEATMAP_METRIC_LABELS[metricKey],
-      displayedValue,
-      displayedCount,
-    });
+    setSelection({ pocId: row.pocId, pocName: row.pocName, metricKey, metricLabel: HEATMAP_METRIC_LABELS[metricKey], displayedValue, displayedCount });
   }, []);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // Visible sections in order
+  const visibleConfig = useMemo(
+    () => SECTION_CONFIG.filter((s) => visibleSections.has(s.key)),
+    [visibleSections],
+  );
+  const noSections = visibleConfig.length === 0;
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div
-      className="rounded-3xl border bg-white overflow-hidden"
-      style={{
-        borderColor: "#e7edf4",
-        boxShadow: "0 24px 60px rgba(15, 23, 42, 0.075), 0 2px 8px rgba(15, 23, 42, 0.045)",
-      }}
-    >
+    <div className="lumina rounded-2xl border overflow-hidden"
+      style={{ background: "var(--lx-surface)", borderColor: "var(--lx-border)", boxShadow: "0 1px 3px rgba(26,25,22,0.06)" }}>
+
       {/* ── Card header ── */}
-      <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-br from-white via-white to-slate-50/70" style={{ borderColor: "#f1f5f9" }}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          {/* Title area */}
+      <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: "var(--lx-border)", background: "var(--lx-surface)" }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* Title block */}
           <div>
-            <h3 className="text-[22px] font-bold tracking-[-0.02em]" style={{ color: "#111827" }}>
+            <p className="lx-eyebrow" style={{ color: "var(--lx-orange)" }}>POC ANALYTICS</p>
+            <h2 className="text-[24px] font-bold mt-0.5 tracking-tight" style={{ color: "var(--lx-text)" }}>
               Prep POC Heatmap
-            </h3>
-            <p className="text-[12px] mt-0.5 flex items-center gap-1.5" style={{ color: "#64748b" }}>
+            </h2>
+            <p className="text-[13px] mt-1" style={{ color: "var(--lx-text-3)" }}>
+              Live workload, preparation stage, outcomes and ownership by Prep POC.
+            </p>
+            <p className="text-[12px] mt-1.5 flex items-center gap-2" style={{ color: "var(--lx-text-3)" }}>
               Live from POC DB • LMP DB
               <LiveBadge isFetching={isFetching && !isLoading} isError={isError} />
             </p>
@@ -522,40 +764,56 @@ export function PrepPocHeatmapCard() {
 
           {/* Controls */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* View tabs */}
-            <div className="flex rounded-xl border bg-white overflow-hidden shadow-sm" style={{ borderColor: "#e2e8f0" }}>
-              {(
-                [
-                  { id: "lmp", label: "LMP-wise" },
-                  { id: "student", label: "Student-wise" },
-                  { id: "domain", label: "Domain-wise" },
-                ] as const
-              ).map((tab) => (
+            {/* Segmented view control */}
+            <div className="flex h-9 rounded-xl border overflow-hidden"
+              style={{ borderColor: "var(--lx-border)", background: "var(--lx-soft)" }}>
+              {([
+                { id: "lmp", label: "LMP-wise" },
+                { id: "student", label: "Student-wise" },
+                { id: "domain", label: "Domain-wise" },
+              ] as const).map((tab, i) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveView(tab.id)}
                   disabled={tab.id !== "lmp"}
                   className={cn(
-                    "px-4 py-2 text-[12.5px] font-semibold transition-colors border-r last:border-r-0",
-                    activeView === tab.id
-                      ? "bg-blue-50 text-blue-700"
-                      : "bg-white hover:bg-slate-50",
+                    "px-3.5 text-[12.5px] font-semibold transition-colors border-r last:border-r-0 focus-visible:outline-none focus-visible:ring-2",
                     tab.id !== "lmp" && "opacity-40 cursor-not-allowed",
                   )}
-                  style={{ borderColor: "#e2e8f0", color: activeView === tab.id ? "#1d4ed8" : "#64748b" }}
+                  style={{
+                    borderColor: "var(--lx-border)",
+                    background: activeView === tab.id ? "var(--lx-surface)" : "transparent",
+                    color: activeView === tab.id ? "var(--lx-orange)" : "var(--lx-text-2)",
+                    boxShadow: activeView === tab.id ? "0 1px 3px rgba(26,25,22,0.08)" : undefined,
+                    "--tw-ring-color": "var(--lx-orange)",
+                  } as React.CSSProperties}
                   title={tab.id !== "lmp" ? "Not yet implemented" : undefined}
+                  aria-pressed={activeView === tab.id}
+                  role="tab"
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
 
+            {/* Columns visibility */}
+            <ColumnsPopover
+              visibleSections={visibleSections}
+              onToggle={toggleSection}
+              onShowAll={showAll}
+            />
+
             {/* Export */}
             <button
               onClick={handleExport}
               disabled={!data || isLoading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border bg-white text-[12.5px] font-semibold transition-colors hover:bg-slate-50 disabled:opacity-40 shadow-sm"
-              style={{ borderColor: "#e2e8f0", color: "#64748b" }}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-[12.5px] font-semibold transition-colors hover:brightness-97 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2"
+              style={{
+                background: "var(--lx-surface)",
+                borderColor: "var(--lx-border)",
+                color: "var(--lx-text-2)",
+                "--tw-ring-color": "var(--lx-orange)",
+              } as React.CSSProperties}
             >
               <Download size={13} />
               Export CSV
@@ -563,268 +821,373 @@ export function PrepPocHeatmapCard() {
           </div>
         </div>
 
-        {/* ── KPI cards ── */}
+        {/* KPI cards */}
         {!isLoading && data && (
-          <div className="flex flex-wrap gap-3 mt-4">
-            <KpiCard
-              icon={Users}
-              label="Active POCs"
-              value={data.summary.activePocCount}
-              color="#6366f1"
-              tooltip="Distinct active Prep POCs included in the current dashboard scope."
-            />
-            <KpiCard
-              icon={Briefcase}
-              label="Unique LMPs"
-              value={data.summary.uniqueLmpCount}
-              color="#3b82f6"
-              tooltip="Distinct LMP processes counted once, even when multiple POCs are assigned."
-            />
-            <KpiCard
-              icon={GraduationCap}
-              label="Students Placed"
-              value={data.summary.uniqueStudentsPlaced}
-              color="#22c55e"
-              tooltip="Distinct students with a valid final placement outcome, counted once globally."
-            />
-            <KpiCard
-              icon={TrendingUp}
-              label="Converted LMP %"
-              value={
-                data.summary.convertedLmpPercentage !== null
-                  ? `${data.summary.convertedLmpPercentage.toFixed(0)}%`
-                  : "—"
-              }
-              color="#14b8a6"
-              tooltip="Globally distinct converted LMPs ÷ eligible closed LMPs (excludes On hold)."
-            />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <KpiCard icon={Users} label="Active POCs" value={data.summary.activePocCount}
+              accentCss="var(--lx-orange)"
+              tooltip="Distinct active POCs with at least one LMP assignment included in the heatmap." />
+            <KpiCard icon={Briefcase} label="Unique LMPs" value={data.summary.uniqueLmpCount}
+              accentCss="var(--lx-yellow)"
+              tooltip="Distinct LMP processes counted once, even when multiple POCs are assigned." />
+            <KpiCard icon={GraduationCap} label="Students Placed" value={data.summary.uniqueStudentsPlaced}
+              accentCss="var(--lx-success)"
+              tooltip="Distinct students with a valid final placement outcome, counted once globally." />
+            <KpiCard icon={TrendingUp} label="Converted LMP %"
+              value={data.summary.convertedLmpPercentage !== null ? `${data.summary.convertedLmpPercentage.toFixed(0)}%` : "—"}
+              accentCss="var(--lx-info)"
+              tooltip="Globally distinct converted LMPs ÷ eligible closed LMPs (excludes On Hold)." />
           </div>
         )}
-
-        {/* Skeleton KPI row while loading */}
         {isLoading && (
-          <div className="flex flex-wrap gap-3 mt-4 animate-pulse">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 flex-1 min-w-[130px] rounded-xl bg-slate-100" />
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 animate-pulse">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="h-14 rounded-2xl" style={{ background: "var(--lx-soft)" }} />)}
           </div>
         )}
       </div>
 
       {/* ── Body ── */}
-      <div className="p-4">
+      <div className="p-4" style={{ background: "var(--lx-bg)" }}>
         {isLoading && <HeatmapSkeleton />}
 
         {isError && (
           <div className="py-10 text-center space-y-2">
-            <p className="text-[14px] font-medium" style={{ color: "#dc2626" }}>
+            <p className="text-[14px] font-medium" style={{ color: "var(--lx-risk)" }}>
               Failed to load heatmap data
             </p>
-            <p className="text-[12px]" style={{ color: "#94a3b8" }}>
-              Check console for details or retry.
+            <p className="text-[12px]" style={{ color: "var(--lx-text-3)" }}>
+              Check console for details.
             </p>
             <button
               onClick={() => refetch()}
-              className="mt-2 px-4 py-1.5 rounded-lg border text-[12.5px] font-medium hover:bg-slate-50"
-              style={{ borderColor: "#e2e8f0", color: "#64748b" }}
+              className="mt-2 px-4 py-1.5 rounded-lg border text-[12.5px] font-medium"
+              style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-2)", background: "var(--lx-surface)" }}
             >
               Retry
             </button>
           </div>
         )}
 
-        {!isLoading && !isError && data && data.rows.length === 0 && (
+        {!isLoading && !isError && data && activeRows.length === 0 && (
           <div className="py-10 text-center">
-            <p className="text-[14px]" style={{ color: "#94a3b8" }}>
-              No Prep POC workload data is available for the selected filters.
+            <p className="text-[14px]" style={{ color: "var(--lx-text-3)" }}>
+              No Prep POC workload data available.
             </p>
           </div>
         )}
 
-        {!isLoading && !isError && data && data.rows.length > 0 && (
+        {!isLoading && !isError && data && activeRows.length > 0 && (
           <>
-          <div className="overflow-x-auto rounded-2xl border bg-white" style={{ borderColor: "#e7edf4" }}>
-            <table
-              className="w-full border-separate text-[12px]"
-              style={{ borderSpacing: 0, minWidth: 1280 }}
-            >
-              <colgroup>
-                <col style={{ minWidth: 140, width: 160 }} />
-                {/* LMP Load */}
-                <col style={{ minWidth: 68 }} />
-                <col style={{ minWidth: 68 }} />
-                <col style={{ minWidth: 60 }} />
-                {/* Active Prep */}
-                <col style={{ minWidth: 78 }} />
-                <col style={{ minWidth: 90 }} />
-                <col style={{ minWidth: 78 }} />
-                {/* Closed Outcomes */}
-                <col style={{ minWidth: 80 }} />
-                <col style={{ minWidth: 96 }} />
-                <col style={{ minWidth: 68 }} />
-                <col style={{ minWidth: 96 }} />
-                {/* Responsibility */}
-                <col style={{ minWidth: 68 }} />
-                <col style={{ minWidth: 68 }} />
-                {/* Domain Load */}
-                <col style={{ minWidth: 80 }} />
-                <col style={{ minWidth: 92 }} />
-                {/* Performance */}
-                <col style={{ minWidth: 108 }} />
-                <col style={{ minWidth: 96 }} />
-              </colgroup>
-
-              <thead>
-                {/* ── Row 1: Group headers ── */}
-                <tr>
-                  <th
-                    rowSpan={2}
-                    className="text-left align-bottom px-4 pb-4 pt-5 text-[11px] font-bold uppercase tracking-wide border-r border-b"
-                    style={{ color: "#475569", position: "sticky", left: 0, background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)", zIndex: 3, borderColor: "#e7edf4" }}
+            <div className="overflow-x-auto rounded-xl border"
+              style={{ borderColor: "var(--lx-border)", background: "var(--lx-surface)" }}>
+              {noSections ? (
+                <div className="py-10 px-6 text-center space-y-3">
+                  <p className="text-[13px]" style={{ color: "var(--lx-text-3)" }}>
+                    No metric sections are visible.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={showAll}
+                    className="px-4 py-1.5 rounded-lg border text-[12.5px] font-semibold transition-colors"
+                    style={{ borderColor: "var(--lx-orange)", color: "var(--lx-orange)", background: "var(--lx-surface)" }}
                   >
-                    POC
-                  </th>
+                    Show all sections
+                  </button>
+                </div>
+              ) : (
+                <table
+                  className="w-full border-separate text-[12px]"
+                  style={{ borderSpacing: 0, minWidth: 900 }}
+                >
+                  {/* Colgroup — driven by visible sections */}
+                  <colgroup>
+                    <col style={{ minWidth: 148, width: 160 }} />
+                    {visibleConfig.flatMap((s) =>
+                      s.cols.map((c) => <col key={c.metricKey} style={{ minWidth: c.minWidth }} />),
+                    )}
+                  </colgroup>
 
-                  {COLUMN_GROUPS.map((g) => {
-                    const Icon = g.icon;
-                    return (
+                  <thead>
+                    {/* Row 1: Group headers */}
+                    <tr>
                       <th
-                        key={g.key}
-                        colSpan={g.cols.length}
-                        className="text-center px-2 py-3 text-[10.5px] font-bold uppercase tracking-wider border-b"
+                        rowSpan={2}
+                        className="text-left align-bottom px-4 pb-3 pt-4 text-[10.5px] font-bold uppercase tracking-widest border-r border-b"
                         style={{
-                          color: g.color,
-                          borderBottom: `1px solid ${g.color}26`,
-                          borderTop: `3px solid ${g.color}`,
-                          borderLeft: `1px solid ${g.color}40`,
-                          borderRight: `1px solid ${g.color}40`,
-                          background: GROUP_HEADER_BG[g.key],
-                          borderRadius: "8px 8px 0 0",
+                          color: "var(--lx-text-3)",
+                          position: "sticky", left: 0, zIndex: 3,
+                          background: "var(--lx-surface)",
+                          borderColor: "var(--lx-border)",
                         }}
                       >
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="h-6 w-6 rounded-xl inline-flex items-center justify-center" style={{ background: `${g.color}14` }}>
-                            <Icon size={12} />
-                          </span>
-                          {g.label}
-                        </span>
+                        POC
                       </th>
-                    );
-                  })}
 
-                  {/* Performance header */}
-                  <th
-                    colSpan={2}
-                    className="text-center px-2 py-3 text-[10.5px] font-bold uppercase tracking-wider border-b"
-                    style={{
-                      color: "#15803D",
-                      borderBottom: "1px solid #15803D26",
-                      borderTop: "3px solid #15803D",
-                      borderLeft: "1px solid #15803D40",
-                      borderRight: "1px solid #15803D40",
-                      background: GROUP_HEADER_BG.performance,
-                      borderRadius: "8px 8px 0 0",
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="h-6 w-6 rounded-xl inline-flex items-center justify-center" style={{ background: "#15803D14" }}>
-                        <TrendingUp size={12} />
-                      </span>
-                      PERFORMANCE
-                    </span>
-                  </th>
-                </tr>
-
-                {/* ── Row 2: Sub-column labels ── */}
-                <tr>
-                  {COLUMN_GROUPS.flatMap((g) =>
-                    g.cols.map((col) => (
-                      <th
-                        key={col.key}
-                        className="text-center px-1.5 pt-2 pb-3 text-[10px] font-semibold border-b"
-                        style={{
-                          color: "#475569",
-                          verticalAlign: "bottom",
-                          background: GROUP_SUBHEADER_BG[g.key],
-                          borderColor: `${g.color}1f`,
-                        }}
-                      >
-                        <span className="inline-flex flex-col items-center gap-0.5">
-                          <span className="leading-tight text-center">{col.label}</span>
-                          {col.subLabel && (
-                            <span className="text-[9px] leading-tight" style={{ color: "#cbd5e1" }}>
-                              {col.subLabel}
+                      {visibleConfig.map((s) => {
+                        const Icon = s.icon;
+                        return (
+                          <th
+                            key={s.key}
+                            colSpan={s.cols.length}
+                            className="text-center px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b"
+                            style={{
+                              color: s.accent,
+                              background: s.headerBg,
+                              borderTop: `2.5px solid ${s.accent}`,
+                              borderLeft: `1px solid color-mix(in srgb, ${s.accent} 20%, transparent)`,
+                              borderRight: `1px solid color-mix(in srgb, ${s.accent} 20%, transparent)`,
+                              borderBottom: `1px solid color-mix(in srgb, ${s.accent} 15%, transparent)`,
+                              borderRadius: "6px 6px 0 0",
+                            }}
+                          >
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                              <span className="h-5 w-5 rounded-lg inline-flex items-center justify-center"
+                                style={{ background: `color-mix(in srgb, ${s.accent} 12%, transparent)` }}>
+                                <Icon size={11} />
+                              </span>
+                              {s.label}
+                              <button
+                                type="button"
+                                onClick={() => toggleSection(s.key)}
+                                aria-label={`Hide ${s.label} columns`}
+                                className="ml-0.5 opacity-0 group-hover:opacity-100 inline-flex items-center justify-center h-4 w-4 rounded hover:opacity-70 focus-visible:outline-none focus-visible:ring-1 transition-opacity"
+                                style={{ "--tw-ring-color": "var(--lx-orange)" } as React.CSSProperties}
+                              >
+                                <EyeOff size={9} />
+                              </button>
                             </span>
-                          )}
-                          <LxInfo text={col.tooltip} size={10} />
-                        </span>
-                      </th>
-                    )),
-                  )}
-                  {/* Performance sub-labels */}
-                  <th
-                    className="text-center px-1.5 pt-2 pb-3 text-[10px] font-semibold border-b"
-                    style={{ color: "#64748b", verticalAlign: "bottom", background: GROUP_SUBHEADER_BG.performance, borderColor: "#15803D1f" }}
-                  >
-                    <span className="inline-flex flex-col items-center gap-0.5">
-                      <span className="leading-tight">LMP Conversion</span>
-                      <LxInfo text={PERF_COLS.conversion.tooltip} size={10} />
-                    </span>
-                  </th>
-                  <th
-                    className="text-center px-1.5 pt-2 pb-3 text-[10px] font-semibold border-b"
-                    style={{ color: "#64748b", verticalAlign: "bottom", background: GROUP_SUBHEADER_BG.performance, borderColor: "#15803D1f" }}
-                  >
-                    <span className="inline-flex flex-col items-center gap-0.5">
-                      <span className="leading-tight">Students Placed</span>
-                      <LxInfo text={PERF_COLS.studentsPlaced.tooltip} size={10} />
-                    </span>
-                  </th>
-                </tr>
-              </thead>
+                          </th>
+                        );
+                      })}
+                    </tr>
 
-              <tbody>
-                {data.rows.map((row) => (
-                  <DataRow
-                    key={row.pocId}
-                    row={row}
-                    colMaxValues={colMaxValues}
-                    onOpenDrilldown={openDrilldown}
-                  />
-                ))}
+                    {/* Row 2: Metric sub-headers */}
+                    <tr>
+                      {visibleConfig.flatMap((s) =>
+                        s.cols.map((col) => (
+                          <th
+                            key={col.metricKey}
+                            className="text-center px-1 pt-1.5 pb-2.5 text-[10px] font-semibold border-b"
+                            style={{
+                              color: "var(--lx-text-2)",
+                              verticalAlign: "bottom",
+                              background: s.subheaderBg,
+                              borderColor: `color-mix(in srgb, ${s.accent} 12%, transparent)`,
+                            }}
+                          >
+                            <span className="inline-flex flex-col items-center gap-0.5">
+                              <span className="leading-tight text-center whitespace-nowrap">{col.label}</span>
+                              {col.subLabel && (
+                                <span className="text-[9px] leading-tight" style={{ color: "var(--lx-text-3)" }}>
+                                  {col.subLabel}
+                                </span>
+                              )}
+                              <LxInfo text={col.tooltip} size={9} />
+                            </span>
+                          </th>
+                        )),
+                      )}
+                    </tr>
+                  </thead>
 
-                {/* ── Total row ── */}
-                {totals && (
-                  <TotalRow totals={totals} colMaxValues={colMaxValues} />
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Heat intensity legend */}
-          <div className="flex items-center gap-2 mt-2 px-1 justify-end">
-            <span className="text-[10.5px]" style={{ color: "#94a3b8" }}>Less</span>
-            {(["#F8FAFC", "#E7EDF4", "#D4DFEB", "#AFC0D4"] as const).map((bg, i) => (
-              <span key={i} className="inline-block w-4 h-4 rounded-sm border" style={{ background: bg, borderColor: "#D9E1EA" }} />
-            ))}
-            <span className="text-[10.5px]" style={{ color: "#94a3b8" }}>More</span>
-            <span className="ml-2 text-[10px]" style={{ color: "#cbd5e1" }}>· heat = % of column max</span>
-          </div>
+                  <tbody>
+                    {activeRows.map((row) => (
+                      <DataRow
+                        key={row.pocId}
+                        row={row}
+                        colMaxValues={colMaxValues}
+                        visibleConfig={visibleConfig}
+                        onOpenDrilldown={openDrilldown}
+                      />
+                    ))}
+                    {totals && (
+                      <TotalRow totals={totals} visibleConfig={visibleConfig} />
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer: legend + On Hold note */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-2 px-1">
+              <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--lx-text-3)" }}>
+                <span>Heat intensity (relative to column max)</span>
+                <span className="flex items-center gap-1 ml-1">
+                  <span className="text-[10px]">Low</span>
+                  {(["#EEECEA", "#CCC8C1", "#B5B0A8", "#7A756C", "#5C594F"] as const).map((bg, i) => (
+                    <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm border"
+                      style={{ background: bg, borderColor: "var(--lx-border)" }} />
+                  ))}
+                  <span className="text-[10px]">High</span>
+                </span>
+              </div>
+              <p className="text-[10.5px] flex items-center gap-1" style={{ color: "var(--lx-text-3)" }}>
+                <LxInfo text="On Hold is shown under Active Prep for operational visibility. Load and conversion calculations remain unchanged." size={10} />
+                On Hold shown under Active Prep · load &amp; conversion calculations unchanged.
+              </p>
+            </div>
           </>
         )}
       </div>
+
       {data && (
         <HeatmapDrilldownModal
           open={Boolean(selection)}
           selection={selection}
           data={data}
-          onOpenChange={(open) => {
-            if (!open) setSelection(null);
-          }}
+          onOpenChange={(open) => { if (!open) setSelection(null); }}
         />
       )}
     </div>
   );
 }
+
+// ── DataRow ───────────────────────────────────────────────────────────────────
+
+function DataRow({
+  row, colMaxValues, visibleConfig, onOpenDrilldown,
+}: {
+  row: PrepPocHeatmapRow;
+  colMaxValues: Record<string, number>;
+  visibleConfig: SectionDef[];
+  onOpenDrilldown: (row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => void;
+}) {
+  const open = (metricKey: HeatmapMetricKey, val: number | string, count: number | null = typeof val === "number" ? val : null) =>
+    () => onOpenDrilldown(row, metricKey, val, count);
+
+  return (
+    <tr className="group transition-colors">
+      {/* Sticky POC name */}
+      <td
+        className="px-4 py-2.5 font-semibold text-[12.5px] whitespace-nowrap border-r border-b transition-colors"
+        style={{
+          color: "var(--lx-text)",
+          position: "sticky", left: 0, zIndex: 1,
+          background: "var(--lx-surface)",
+          borderColor: "var(--lx-border)",
+        }}
+      >
+        {row.pocName}
+      </td>
+
+      {visibleConfig.flatMap((s) =>
+        s.cols.map((col) => {
+          if (col.colType === "conversion") {
+            // LMP Conversion special cell
+            const dispVal = fmtConversion(row.convertedCount, row.eligibleClosedCount, row.lmpConversionPercentage);
+            const hasEligible = row.eligibleClosedCount > 0;
+            const isGood = row.lmpConversionPercentage !== null && row.lmpConversionPercentage >= 50;
+            return (
+              <td
+                key={col.metricKey}
+                className="text-center text-[12px] font-semibold tabular-nums border-b transition-colors"
+                style={{
+                  background: s.subheaderBg,
+                  color: hasEligible
+                    ? isGood ? "var(--lx-success)" : "var(--lx-risk)"
+                    : "var(--lx-text-3)",
+                  borderColor: "var(--lx-border)",
+                }}
+              >
+                {hasEligible ? (
+                  <button
+                    type="button"
+                    aria-label={`View LMP Conversion details for ${row.pocName}`}
+                    onClick={open("lmpConversion", dispVal, row.eligibleClosedCount)}
+                    className="w-full min-h-[38px] px-1.5 py-2 font-semibold tabular-nums transition-all hover:brightness-95 focus-visible:outline-none focus-visible:ring-2"
+                    style={{ "--tw-ring-color": "var(--lx-orange)" } as React.CSSProperties}
+                  >
+                    {dispVal}
+                  </button>
+                ) : (
+                  <span className="inline-flex min-h-[38px] items-center justify-center px-1.5">{dispVal}</span>
+                )}
+              </td>
+            );
+          }
+
+          // Standard heat cell
+          const value = (row[col.dataKey] as number) ?? 0;
+          const colMax = colMaxValues[col.dataKey as string] ?? 1;
+          return (
+            <HeatCell
+              key={col.metricKey}
+              value={value}
+              palette={col.palette}
+              colMax={colMax}
+              ariaLabel={`View ${value} ${col.label} LMPs for ${row.pocName}`}
+              onOpen={open(col.metricKey, value)}
+            />
+          );
+        }),
+      )}
+    </tr>
+  );
+}
+
+// ── TotalRow ──────────────────────────────────────────────────────────────────
+
+function TotalRow({
+  totals, visibleConfig,
+}: {
+  totals: TotalsShape;
+  visibleConfig: SectionDef[];
+}) {
+  return (
+    <tr>
+      <td
+        className="px-4 py-2.5 text-[11.5px] font-bold uppercase tracking-widest border-r"
+        style={{
+          color: "var(--lx-text-2)",
+          position: "sticky", left: 0, zIndex: 1,
+          background: "var(--lx-soft)",
+          borderTop: "2px solid var(--lx-border)",
+          borderColor: "var(--lx-border)",
+        }}
+      >
+        TOTAL
+      </td>
+
+      {visibleConfig.flatMap((s) =>
+        s.cols.map((col) => {
+          if (col.colType === "conversion") {
+            const dispVal = fmtConversion(totals.convertedCount, totals.eligibleClosedCount, totals.lmpConversionPercentage);
+            return (
+              <td
+                key={col.metricKey}
+                className="text-center text-[12px] font-bold tabular-nums py-2.5"
+                style={{
+                  background: "var(--lx-soft)",
+                  color: totals.eligibleClosedCount > 0 ? col.totalAccent : "var(--lx-text-3)",
+                  borderTop: "2px solid var(--lx-border)",
+                }}
+              >
+                {dispVal}
+              </td>
+            );
+          }
+
+          const value = totals[col.dataKey as keyof TotalsShape] as number ?? 0;
+          return (
+            <td
+              key={col.metricKey}
+              className="text-center text-[12.5px] font-bold tabular-nums py-2.5"
+              style={{
+                background: "var(--lx-soft)",
+                color: value > 0 ? col.totalAccent : "var(--lx-text-3)",
+                borderTop: "2px solid var(--lx-border)",
+              }}
+            >
+              {value}
+            </td>
+          );
+        }),
+      )}
+    </tr>
+  );
+}
+
+// ── Drilldown modal (unchanged) ───────────────────────────────────────────────
 
 type HeatmapDrilldownSelection = {
   pocId: string;
@@ -839,10 +1202,7 @@ type LmpSortKey = "company" | "statusLabel" | "domain" | "studentsMapped" | "cre
 type StudentSortKey = "studentName" | "company" | "domain" | "cohort" | "placementDate";
 
 function HeatmapDrilldownModal({
-  open,
-  selection,
-  data,
-  onOpenChange,
+  open, selection, data, onOpenChange,
 }: {
   open: boolean;
   selection: HeatmapDrilldownSelection | null;
@@ -874,15 +1234,9 @@ function HeatmapDrilldownModal({
     const q = searchTerm.trim().toLowerCase();
     const rows = q
       ? allLmps.filter((record) => [
-          record.company,
-          record.role,
-          record.lmpCode,
-          record.domain,
-          record.statusLabel,
-          record.outcomeReason,
-          record.primaryPoc,
-          record.supportPoc,
-        ].some((value) => value.toLowerCase().includes(q)))
+          record.company, record.role, record.lmpCode, record.domain,
+          record.statusLabel, record.outcomeReason, record.primaryPoc, record.supportPoc,
+        ].some((v) => v.toLowerCase().includes(q)))
       : allLmps;
     return [...rows].sort((a, b) => compareValues(a[lmpSort], b[lmpSort], lmpSort === "createdAt" || lmpSort === "updatedAt"));
   }, [allLmps, lmpSort, searchTerm]);
@@ -891,35 +1245,26 @@ function HeatmapDrilldownModal({
     const q = searchTerm.trim().toLowerCase();
     const rows = q
       ? allStudents.filter((record) => [
-          record.studentName,
-          record.studentCode,
-          record.company,
-          record.lmpCode,
-          record.domain,
-          record.cohort,
-          record.primaryPoc,
-          record.supportPoc,
-        ].some((value) => value.toLowerCase().includes(q)))
+          record.studentName, record.studentCode, record.company, record.lmpCode,
+          record.domain, record.cohort, record.primaryPoc, record.supportPoc,
+        ].some((v) => v.toLowerCase().includes(q)))
       : allStudents;
     return [...rows].sort((a, b) => compareValues(a[studentSort], b[studentSort], studentSort === "placementDate"));
   }, [allStudents, searchTerm, studentSort]);
 
-  const activeRows = result?.recordType === "student" ? filteredStudents : filteredLmps;
-  const totalPages = Math.max(1, Math.ceil(activeRows.length / pageSize));
+  const modalRows = result?.recordType === "student" ? filteredStudents : filteredLmps;
+  const totalPages = Math.max(1, Math.ceil(modalRows.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageRows = activeRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageRows = modalRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const resetModalControls = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setSearchTerm("");
-      setPage(1);
-    }
+    if (!nextOpen) { setSearchTerm(""); setPage(1); }
     onOpenChange(nextOpen);
   };
 
   const exportDrilldown = () => {
     if (!selection || !result) return;
-    const metadataRows = [
+    const meta = [
       { Field: "POC Name", Value: selection.pocName },
       { Field: "Metric", Value: selection.metricLabel },
       { Field: "Displayed Count", Value: String(selection.displayedCount ?? originalCount) },
@@ -928,50 +1273,28 @@ function HeatmapDrilldownModal({
       { Field: "Exported At", Value: new Date().toISOString() },
       {},
     ];
-
     if (result.recordType === "student") {
       downloadCsv(
         `${safeFilename(selection.pocName)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
-        [
-          ...metadataRows,
-          ...allStudents.map((record) => ({
-            "Student Name": record.studentName,
-            "Student ID": record.studentId,
-            Cohort: record.cohort,
-            Company: record.company,
-            LMP: record.lmpCode,
-            Domain: record.domain,
-            "Placement Status": record.placementStatus,
-            "Placement Date": formatDate(record.placementDate),
-            "Primary POC": record.primaryPoc,
-            "Support POC": record.supportPoc,
-          })),
-        ],
+        [...meta, ...allStudents.map((r) => ({
+          "Student Name": r.studentName, "Student ID": r.studentId, Cohort: r.cohort,
+          Company: r.company, LMP: r.lmpCode, Domain: r.domain,
+          "Placement Status": r.placementStatus, "Placement Date": formatDate(r.placementDate),
+          "Primary POC": r.primaryPoc, "Support POC": r.supportPoc,
+        }))],
       );
       return;
     }
-
     downloadCsv(
       `${safeFilename(selection.pocName)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
-      [
-        ...metadataRows,
-        ...allLmps.map((record) => ({
-          "LMP Name": `${record.company} — ${record.role}`.trim(),
-          Company: record.company,
-          Role: record.role,
-          "LMP ID": record.lmpCode || record.lmpId,
-          Domain: record.domain,
-          "Primary POC": record.primaryPoc,
-          "Support POC": record.supportPoc,
-          "Prep Status": record.statusLabel,
-          Outcome: record.statusLabel,
-          Reason: record.outcomeReason,
-          "Students Mapped": record.studentsMapped,
-          "Students Placed": record.studentsPlaced,
-          "Created Date": formatDate(record.createdAt),
-          "Last Updated": formatDate(record.updatedAt),
-        })),
-      ],
+      [...meta, ...allLmps.map((r) => ({
+        "LMP Name": `${r.company} — ${r.role}`.trim(), Company: r.company, Role: r.role,
+        "LMP ID": r.lmpCode || r.lmpId, Domain: r.domain,
+        "Primary POC": r.primaryPoc, "Support POC": r.supportPoc,
+        "Prep Status": r.statusLabel, Outcome: r.statusLabel, Reason: r.outcomeReason,
+        "Students Mapped": r.studentsMapped, "Students Placed": r.studentsPlaced,
+        "Created Date": formatDate(r.createdAt), "Last Updated": formatDate(r.updatedAt),
+      }))],
     );
   };
 
@@ -984,9 +1307,9 @@ function HeatmapDrilldownModal({
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-slate-500">
             {originalCount.toLocaleString()} records contributing to this metric
-            {searchTerm.trim() && ` · ${activeRows.length.toLocaleString()} matching search`}
+            {searchTerm.trim() && ` · ${modalRows.length.toLocaleString()} matching search`}
             {selection?.metricKey === "lmpConversion" && result && (
-              <span> · {result.convertedLmps.length}/{result.denominatorLmps.length} converted · On hold excluded</span>
+              <span> · {result.convertedLmps.length}/{result.denominatorLmps.length} converted · On Hold excluded</span>
             )}
           </DialogDescription>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1006,30 +1329,20 @@ function HeatmapDrilldownModal({
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               value={searchTerm}
-              onChange={(event) => {
-                setSearchTerm(event.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               placeholder="Search records..."
               className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             />
           </label>
           {result?.recordType === "student" ? (
-            <SortSelect value={studentSort} onChange={(value) => setStudentSort(value as StudentSortKey)} options={[
-              ["studentName", "Student name"],
-              ["company", "Company"],
-              ["domain", "Domain"],
-              ["cohort", "Cohort"],
-              ["placementDate", "Placement date"],
+            <SortSelect value={studentSort} onChange={(v) => setStudentSort(v as StudentSortKey)} options={[
+              ["studentName", "Student name"], ["company", "Company"], ["domain", "Domain"],
+              ["cohort", "Cohort"], ["placementDate", "Placement date"],
             ]} />
           ) : (
-            <SortSelect value={lmpSort} onChange={(value) => setLmpSort(value as LmpSortKey)} options={[
-              ["createdAt", "Created date"],
-              ["updatedAt", "Last updated"],
-              ["company", "Company"],
-              ["statusLabel", "Status"],
-              ["domain", "Domain"],
-              ["studentsMapped", "Students mapped"],
+            <SortSelect value={lmpSort} onChange={(v) => setLmpSort(v as LmpSortKey)} options={[
+              ["createdAt", "Created date"], ["updatedAt", "Last updated"], ["company", "Company"],
+              ["statusLabel", "Status"], ["domain", "Domain"], ["studentsMapped", "Students mapped"],
             ]} />
           )}
           <button
@@ -1038,8 +1351,7 @@ function HeatmapDrilldownModal({
             disabled={!result || originalCount === 0}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
           >
-            <Download size={14} />
-            Download CSV
+            <Download size={14} /> Download CSV
           </button>
         </div>
 
@@ -1051,10 +1363,9 @@ function HeatmapDrilldownModal({
               <MetricSummaryCard label="Conversion" value={fmtConversion(result.convertedLmps.length, result.denominatorLmps.length, result.denominatorLmps.length ? (result.convertedLmps.length / result.denominatorLmps.length) * 100 : null)} tone="green" />
             </div>
           )}
-
           {!result || originalCount === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-[13px] text-slate-500">
-              No records were found for this metric under the current filters.
+              No records found for this metric.
             </div>
           ) : result.recordType === "student" ? (
             <StudentDrilldownTable rows={pageRows as HeatmapDrilldownStudentRecord[]} />
@@ -1068,24 +1379,16 @@ function HeatmapDrilldownModal({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-white px-6 py-3 text-[12px] text-slate-500">
           <span>
-            Showing {activeRows.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, activeRows.length)} of {activeRows.length}
+            Showing {modalRows.length ? (safePage - 1) * pageSize + 1 : 0}–{Math.min(safePage * pageSize, modalRows.length)} of {modalRows.length}
           </span>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40"
-            >
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40">
               Previous
             </button>
             <span>Page {safePage} / {totalPages}</span>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40"
-            >
+            <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40">
               Next
             </button>
           </div>
@@ -1101,35 +1404,29 @@ function LmpDrilldownTable({ rows, onView }: { rows: HeatmapDrilldownLmpRecord[]
       <table className="w-full min-w-[980px] text-left text-[12px]">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
           <tr>
-            {["LMP / Company", "Process ID", "Domain", "Primary POC", "Support POC", "Status", "Students", "Created", "Updated", "Actions"].map((header) => (
-              <th key={header} className="border-b border-slate-200 px-3 py-3 font-bold">{header}</th>
+            {["LMP / Company", "Process ID", "Domain", "Primary POC", "Support POC", "Status", "Students", "Created", "Updated", "Actions"].map((h) => (
+              <th key={h} className="border-b border-slate-200 px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((record) => (
-            <tr key={record.lmpId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+          {rows.map((r) => (
+            <tr key={r.lmpId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+              <td className="px-3 py-3"><div className="font-semibold text-slate-900">{r.company || "Untitled"}</div><div className="text-slate-500">{r.role || "No role"}</div></td>
+              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{r.lmpCode || r.lmpId}</td>
+              <td className="px-3 py-3 text-slate-700">{r.domain || "Unmapped"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.primaryPoc || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.supportPoc || "—"}</td>
               <td className="px-3 py-3">
-                <div className="font-semibold text-slate-900">{record.company || "Untitled company"}</div>
-                <div className="text-slate-500">{record.role || "No role"}</div>
+                <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{r.statusLabel}</span>
+                {r.outcomeReason && <div className="mt-1 text-[11px] text-slate-500">{r.outcomeReason}</div>}
               </td>
-              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{record.lmpCode || record.lmpId}</td>
-              <td className="px-3 py-3 text-slate-700">{record.domain || "Unmapped"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.primaryPoc || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.supportPoc || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.studentsMapped} mapped · {r.studentsPlaced} placed</td>
+              <td className="px-3 py-3 text-slate-600">{formatDate(r.createdAt)}</td>
+              <td className="px-3 py-3 text-slate-600">{formatDate(r.updatedAt)}</td>
               <td className="px-3 py-3">
-                <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{record.statusLabel}</span>
-                {record.outcomeReason && <div className="mt-1 text-[11px] text-slate-500">{record.outcomeReason}</div>}
-              </td>
-              <td className="px-3 py-3 text-slate-700">{record.studentsMapped} mapped · {record.studentsPlaced} placed</td>
-              <td className="px-3 py-3 text-slate-600">{formatDate(record.createdAt)}</td>
-              <td className="px-3 py-3 text-slate-600">{formatDate(record.updatedAt)}</td>
-              <td className="px-3 py-3">
-                <button
-                  type="button"
-                  onClick={() => onView(record.lmpId)}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-600 hover:bg-slate-50"
-                >
+                <button type="button" onClick={() => onView(r.lmpId)}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-600 hover:bg-slate-50">
                   View LMP
                 </button>
               </td>
@@ -1147,23 +1444,23 @@ function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[]
       <table className="w-full min-w-[920px] text-left text-[12px]">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
           <tr>
-            {["Student", "Student ID", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((header) => (
-              <th key={header} className="border-b border-slate-200 px-3 py-3 font-bold">{header}</th>
+            {["Student", "Student ID", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((h) => (
+              <th key={h} className="border-b border-slate-200 px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((record) => (
-            <tr key={record.studentId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-              <td className="px-3 py-3 font-semibold text-slate-900">{record.studentName}</td>
-              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{record.studentCode || record.studentId}</td>
-              <td className="px-3 py-3 text-slate-700">{record.cohort || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.company || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.lmpCode || record.lmpId}</td>
-              <td className="px-3 py-3 text-slate-700">{record.domain || "Unmapped"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.placementStatus} · {formatDate(record.placementDate)}</td>
-              <td className="px-3 py-3 text-slate-700">{record.primaryPoc || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{record.supportPoc || "—"}</td>
+          {rows.map((r) => (
+            <tr key={r.studentId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+              <td className="px-3 py-3 font-semibold text-slate-900">{r.studentName}</td>
+              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{r.studentCode || r.studentId}</td>
+              <td className="px-3 py-3 text-slate-700">{r.cohort || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.company || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.lmpCode || r.lmpId}</td>
+              <td className="px-3 py-3 text-slate-700">{r.domain || "Unmapped"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.placementStatus} · {formatDate(r.placementDate)}</td>
+              <td className="px-3 py-3 text-slate-700">{r.primaryPoc || "—"}</td>
+              <td className="px-3 py-3 text-slate-700">{r.supportPoc || "—"}</td>
             </tr>
           ))}
         </tbody>
@@ -1172,18 +1469,12 @@ function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[]
   );
 }
 
-function SortSelect({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: [string, string][] }) {
+function SortSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
     <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-600 shadow-sm">
       <ArrowUpDown size={13} />
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="bg-transparent outline-none"
-      >
-        {options.map(([key, label]) => (
-          <option key={key} value={key}>{label}</option>
-        ))}
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent outline-none">
+        {options.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
     </label>
   );
@@ -1191,10 +1482,7 @@ function SortSelect({ value, onChange, options }: { value: string; onChange: (va
 
 function MetricSummaryCard({ label, value, tone }: { label: string; value: string | number; tone: "green" | "slate" }) {
   return (
-    <div className={cn(
-      "rounded-2xl border px-4 py-3",
-      tone === "green" ? "border-green-100 bg-green-50 text-green-800" : "border-slate-200 bg-white text-slate-800",
-    )}>
+    <div className={cn("rounded-2xl border px-4 py-3", tone === "green" ? "border-green-100 bg-green-50 text-green-800" : "border-slate-200 bg-white text-slate-800")}>
       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{label}</div>
       <div className="mt-1 text-[22px] font-bold">{value}</div>
     </div>
@@ -1216,206 +1504,13 @@ function compareValues(a: unknown, b: unknown, desc = false): number {
   return desc ? -cmp : cmp;
 }
 
-function safeFilename(value: string): string {
-  return value.trim().replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "heatmap";
+function safeFilename(v: string): string {
+  return v.trim().replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "heatmap";
 }
 
 function formatDate(value: string): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
-}
-
-// ── DataRow ───────────────────────────────────────────────────────────────────
-
-function DataRow({
-  row,
-  colMaxValues,
-  onOpenDrilldown,
-}: {
-  row: PrepPocHeatmapRow;
-  colMaxValues: Record<string, number>;
-  onOpenDrilldown: (row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => void;
-}) {
-  const openMetric = (metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null = typeof displayedValue === "number" ? displayedValue : null) =>
-    () => onOpenDrilldown(row, metricKey, displayedValue, displayedCount);
-
-  return (
-    <tr className="group transition-colors">
-      {/* POC name — sticky left */}
-      <td
-        className="px-4 py-3 font-semibold text-[12.5px] whitespace-nowrap border-r border-b transition-colors group-hover:bg-slate-50"
-        style={{
-          color: "#1e293b",
-          position: "sticky",
-          left: 0,
-          background: "rgba(255,255,255,0.98)",
-          zIndex: 1,
-          borderColor: "#e7edf4",
-        }}
-      >
-        {row.pocName}
-      </td>
-
-      {/* LMP LOAD */}
-      <HeatCell value={row.totalLmpLoad} palette={PALETTE.lmpLoad} colMax={colMaxValues.totalLmpLoad} className="border-l border-slate-200/60" ariaLabel={`View ${row.totalLmpLoad} Total LMPs for ${row.pocName}`} onOpen={openMetric("total", row.totalLmpLoad)} />
-      <HeatCell value={row.currentLmpCount} palette={PALETTE.lmpLoad} colMax={colMaxValues.currentLmpCount} ariaLabel={`View ${row.currentLmpCount} Current LMPs for ${row.pocName}`} onOpen={openMetric("current", row.currentLmpCount)} />
-      <HeatCell value={row.closedLmpCount} palette={PALETTE.lmpLoad} colMax={colMaxValues.closedLmpCount} className="border-r border-slate-200/60" ariaLabel={`View ${row.closedLmpCount} Closed LMPs for ${row.pocName}`} onOpen={openMetric("closed", row.closedLmpCount)} />
-
-      {/* ACTIVE PREP */}
-      <HeatCell value={row.notStartedCount} palette={PALETTE.activePrep} colMax={colMaxValues.notStartedCount} className="border-l border-blue-100" ariaLabel={`View ${row.notStartedCount} Not Started LMPs for ${row.pocName}`} onOpen={openMetric("notStarted", row.notStartedCount)} />
-      <HeatCell value={row.prepOngoingCount} palette={PALETTE.activePrep} colMax={colMaxValues.prepOngoingCount} ariaLabel={`View ${row.prepOngoingCount} Prep Ongoing LMPs for ${row.pocName}`} onOpen={openMetric("prepOngoing", row.prepOngoingCount)} />
-      <HeatCell value={row.prepDoneCount} palette={PALETTE.activePrep} colMax={colMaxValues.prepDoneCount} className="border-r border-blue-100" ariaLabel={`View ${row.prepDoneCount} Prep Done LMPs for ${row.pocName}`} onOpen={openMetric("prepDone", row.prepDoneCount)} />
-
-      {/* CLOSED OUTCOMES */}
-      <HeatCell value={row.convertedCount} palette={PALETTE.converted} colMax={colMaxValues.convertedCount} className="border-l border-green-100" ariaLabel={`View ${row.convertedCount} Converted LMPs for ${row.pocName}`} onOpen={openMetric("converted", row.convertedCount)} />
-      <HeatCell value={row.notConvertedCount} palette={PALETTE.amber} colMax={colMaxValues.notConvertedCount} ariaLabel={`View ${row.notConvertedCount} Not Converted LMPs for ${row.pocName}`} onOpen={openMetric("notConverted", row.notConvertedCount)} />
-      <HeatCell value={row.onHoldCount} palette={PALETTE.amber} colMax={colMaxValues.onHoldCount} ariaLabel={`View ${row.onHoldCount} On hold LMPs for ${row.pocName}`} onOpen={openMetric("onHold", row.onHoldCount)} />
-      <HeatCell value={row.otherReasonsCount} palette={PALETTE.amber} colMax={colMaxValues.otherReasonsCount} className="border-r border-green-100" ariaLabel={`View ${row.otherReasonsCount} Other reasons LMPs for ${row.pocName}`} onOpen={openMetric("otherReasons", row.otherReasonsCount)} />
-
-      {/* RESPONSIBILITY */}
-      <HeatCell value={row.primaryCount} palette={PALETTE.purple} colMax={colMaxValues.primaryCount} className="border-l border-purple-100" ariaLabel={`View ${row.primaryCount} Primary LMPs for ${row.pocName}`} onOpen={openMetric("primary", row.primaryCount)} />
-      <HeatCell value={row.supportCount} palette={PALETTE.purple} colMax={colMaxValues.supportCount} className="border-r border-purple-100" ariaLabel={`View ${row.supportCount} Support LMPs for ${row.pocName}`} onOpen={openMetric("support", row.supportCount)} />
-
-      {/* DOMAIN LOAD */}
-      <HeatCell value={row.inDomainCount} palette={PALETTE.teal} colMax={colMaxValues.inDomainCount} className="border-l border-teal-100" ariaLabel={`View ${row.inDomainCount} In-domain LMPs for ${row.pocName}`} onOpen={openMetric("inDomain", row.inDomainCount)} />
-      <HeatCell value={row.crossDomainCount} palette={PALETTE.teal} colMax={colMaxValues.crossDomainCount} className="border-r border-teal-100" ariaLabel={`View ${row.crossDomainCount} Cross-domain LMPs for ${row.pocName}`} onOpen={openMetric("crossDomain", row.crossDomainCount)} />
-
-      {/* PERFORMANCE — LMP Conversion */}
-      <td
-        className="text-center text-[12px] font-semibold tabular-nums px-1 py-2.5 border-l border-b border-green-100 transition-colors"
-        style={{
-          color: row.eligibleClosedCount > 0
-            ? row.lmpConversionPercentage !== null && row.lmpConversionPercentage >= 50
-              ? "#15803d"
-              : "#9f1239"
-            : "#94a3b8",
-          background: "#f5fbf6",
-        }}
-      >
-        {row.eligibleClosedCount > 0 ? (
-          <button
-            type="button"
-            aria-label={`View LMP Conversion details for ${row.pocName}`}
-            onClick={openMetric("lmpConversion", fmtConversion(row.convertedCount, row.eligibleClosedCount, row.lmpConversionPercentage), row.eligibleClosedCount)}
-            className="w-full rounded-lg px-2 py-2 font-semibold tabular-nums transition-all hover:-translate-y-0.5 hover:bg-white/40 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1"
-          >
-            {fmtConversion(row.convertedCount, row.eligibleClosedCount, row.lmpConversionPercentage)}
-          </button>
-        ) : (
-          <span className="inline-flex min-h-[34px] items-center justify-center px-2 py-2">
-            {fmtConversion(row.convertedCount, row.eligibleClosedCount, row.lmpConversionPercentage)}
-          </span>
-        )}
-      </td>
-
-      {/* PERFORMANCE — Students Placed */}
-      <HeatCell value={row.studentsPlaced} palette={PALETTE.perfGreen} colMax={colMaxValues.studentsPlaced} className="border-r border-green-100" ariaLabel={`View ${row.studentsPlaced} Students Placed for ${row.pocName}`} onOpen={openMetric("studentsPlaced", row.studentsPlaced)} />
-    </tr>
-  );
-}
-
-// ── Total row ─────────────────────────────────────────────────────────────────
-
-function TotalRow({
-  totals,
-  colMaxValues,
-}: {
-  totals: {
-    totalLmpLoad: number;
-    currentLmpCount: number;
-    closedLmpCount: number;
-    notStartedCount: number;
-    prepOngoingCount: number;
-    prepDoneCount: number;
-    convertedCount: number;
-    notConvertedCount: number;
-    onHoldCount: number;
-    otherReasonsCount: number;
-    primaryCount: number;
-    supportCount: number;
-    inDomainCount: number;
-    crossDomainCount: number;
-    eligibleClosedCount: number;
-    lmpConversionPercentage: number | null;
-    studentsPlaced: number;
-  };
-  colMaxValues: Record<string, number>;
-}) {
-  return (
-    <tr style={{ background: "#F7F9FC" }}>
-      <td
-        className="px-4 py-3 font-bold text-[12.5px] uppercase tracking-wide border-r"
-        style={{
-          color: "#1e293b",
-          position: "sticky",
-          left: 0,
-          background: "#F7F9FC",
-          zIndex: 1,
-          borderTop: "2px solid #D9E1EA",
-          borderColor: "#dbe5ef",
-        }}
-      >
-        TOTAL
-      </td>
-
-      {/* LMP LOAD — globally unique */}
-      <td className="text-center font-bold text-[13px] tabular-nums py-3 border-l border-slate-200/60" style={{ background: "#EDF2F7", color: "#334155", borderTop: "2px solid #D9E1EA" }}>
-        {totals.totalLmpLoad}
-      </td>
-      <td className="text-center font-bold text-[13px] tabular-nums py-3" style={{ background: "#EDF2F7", color: "#334155", borderTop: "2px solid #D9E1EA" }}>
-        {totals.currentLmpCount}
-      </td>
-      <td className="text-center font-bold text-[13px] tabular-nums py-3 border-r border-slate-200/60" style={{ background: "#EDF2F7", color: "#334155", borderTop: "2px solid #D9E1EA" }}>
-        {totals.closedLmpCount}
-      </td>
-
-      {/* ACTIVE PREP */}
-      <TotalCell value={totals.notStartedCount} color="#2563EB" />
-      <TotalCell value={totals.prepOngoingCount} color="#2563EB" />
-      <TotalCell value={totals.prepDoneCount} color="#2563EB" />
-
-      {/* CLOSED OUTCOMES */}
-      <TotalCell value={totals.convertedCount} color="#22A447" />
-      <TotalCell value={totals.notConvertedCount} color="#D97706" />
-      <TotalCell value={totals.onHoldCount} color="#D97706" />
-      <TotalCell value={totals.otherReasonsCount} color="#D97706" />
-
-      {/* RESPONSIBILITY */}
-      <TotalCell value={totals.primaryCount} color="#6D28D9" />
-      <TotalCell value={totals.supportCount} color="#6D28D9" />
-
-      {/* DOMAIN LOAD */}
-      <TotalCell value={totals.inDomainCount} color="#0891B2" />
-      <TotalCell value={totals.crossDomainCount} color="#0891B2" />
-
-      {/* PERFORMANCE — LMP Conversion (globally deduped) */}
-      <td
-        className="text-center font-bold text-[12px] tabular-nums py-3 border-l border-green-100"
-        style={{ background: "#F0FDF4", color: "#15803D", borderTop: "2px solid #D9E1EA" }}
-      >
-        {fmtConversion(totals.convertedCount, totals.eligibleClosedCount, totals.lmpConversionPercentage)}
-      </td>
-
-      {/* PERFORMANCE — Students Placed (globally deduped) */}
-      <td
-        className="text-center font-bold text-[13px] tabular-nums py-3 border-r border-green-100"
-        style={{ background: "#DCFCE7", color: "#15803D", borderTop: "2px solid #D9E1EA" }}
-      >
-        {totals.studentsPlaced}
-      </td>
-    </tr>
-  );
-}
-
-function TotalCell({ value, color }: { value: number; color: string }) {
-  return (
-    <td
-      className="text-center font-bold text-[13px] tabular-nums py-3 border-white"
-      style={{ background: "#F7F9FC", color, borderTop: "2px solid #D9E1EA" }}
-    >
-      {value}
-    </td>
-  );
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }

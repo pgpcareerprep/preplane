@@ -3,20 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
-  LxHero, LxKpi, LxStackedBar, LxDonut, LxRankedBar, LxAttentionStrip,
-  LxInsightTile, LX_HEX, type LxAccent,
+  LxKpi, LxStackedBar, LxRankedBar, LxAttentionStrip,
+  LX_HEX, type LxAccent,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
-  isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
-  POC_OVERLOAD_THRESHOLD, calculateOutcomeConversionRate,
+  lmpStatusCounts,
+  POC_OVERLOAD_THRESHOLD,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
 import { resolveDomainName } from "@/lib/domainAlias";
+import { rankPerformance } from "@/lib/performanceConversion";
 
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpRows } from "@/lib/sheets/hooks";
@@ -37,8 +38,9 @@ import {
   lmpsByStatus, lmpsForDomain, lmpsForPoc,
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
 } from "@/lib/dashboardDrill";
-import { STATUSES, STATUS_META, type LmpStatus } from "@/lib/lmpTypes";
+import { STATUS_META } from "@/lib/lmpTypes";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
+import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 
 /* ─── Converted-name parsing ───────────────────────────────────────────────
  * Splits a raw final_converted_names string into individual names.
@@ -113,19 +115,7 @@ function pctClass(value: number | null): LxAccent {
   return "risk";
 }
 
-type ActiveLmpStatus = Exclude<LmpStatus, "ongoing" | "dormant" | "closed" | "converted-na" | "offer-received">;
-
-const STATUS_ACCENT: Record<ActiveLmpStatus, LxAccent> = {
-  "not-started": "neutral",
-  "prep-ongoing": "info",
-  "prep-done": "sky",
-  hold: "ai",
-  converted: "success",
-  "not-converted": "neutral",
-  "other-reasons": "risk",
-};
-
-function canonicalStatus(status: LmpStatus): ActiveLmpStatus {
+function canonicalStatus(status: import("@/types/lmp").LmpStatus): ActiveLmpStatus {
   if (status === "ongoing") return "prep-ongoing";
   if (status === "offer-received") return "converted";
   if (status === "dormant" || status === "closed" || status === "converted-na") return "other-reasons";
@@ -209,42 +199,8 @@ export function AdminLmpDashboard() {
     [filteredIds, lmpRecords],
   );
 
-  /* ─────── KPIs ─────── */
-  const convertedCount = filteredRecords.filter((r) => r.status === "converted").length;
-  const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
-  const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
-  const converted = convertedCount;
-  const ongoing = filtered.filter((r) => r.status === "Ongoing").length;
-  const offerReceived = filtered.filter((r) => r.status === "Offer Received").length;
-  const risk =
-    filtered.filter((r) => r.status === "On Hold").length +
-    filtered.filter(isDormant).length +
-    filtered.filter((r) => r.status === "Closed").length;
-
-  /* ─────── Status + Offer ─────── */
-  const sc = statusCounts(filtered);
+  /* ─────── Status counts (canonical 7-bucket model) ─────── */
   const lsc = lmpStatusCounts(filteredRecords);
-  const liveStatusSegments = STATUSES.map((rawStatus) => {
-    const status = canonicalStatus(rawStatus);
-    return {
-      status,
-      label: STATUS_META[status].label,
-      value: lsc[status],
-      accent: STATUS_ACCENT[status],
-    };
-  });
-  const oc = offerCounts(filtered);
-
-  /* ─────── POCs ─────── */
-  const prepLoad = useMemo(() => pocLoad(filtered, "prep"), [filtered]);
-  const outreachLoad = useMemo(() => pocLoad(filtered, "outreach"), [filtered]);
-  const activePocs = new Set<string>();
-  filtered.filter((r) => r.status === "Ongoing").forEach((r) => {
-    activePocs.add(r.prepPoc); activePocs.add(r.outreachPoc);
-  });
-  const avgLoad = activePocs.size ? ongoing / activePocs.size : 0;
-  const overloaded = prepLoad.filter((p) => p.ongoing > POC_OVERLOAD_THRESHOLD).length
-    + outreachLoad.filter((p) => p.ongoing > POC_OVERLOAD_THRESHOLD).length;
 
   /* ─────── Capacity data — used by attention strip for overloaded POC detection ─────── */
   const { data: prepPocCapacity = [] } = useQuery({
@@ -315,11 +271,17 @@ export function AdminLmpDashboard() {
     refetchInterval: 120_000,
   });
 
-  // All attention counts computed from filteredRecords/filteredCapacity so they respect active filters.
+  // All attention/performance counts respect active filters via filteredRecords / filteredCapacity.
+
   const TERMINAL_STATUSES = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
+
+  // Pending Offers — LMPs in Offer Received status (unchanged).
   const attentionPendingOffers = filteredRecords.filter((r) => r.status === "offer-received").length;
-  const attentionMissingPrepDocs = filteredRecords.filter(
-    (r) => !r.prepDoc && !TERMINAL_STATUSES.has(r.status),
+
+  // Missing Prep POCs — active LMPs with no prep POC assigned (prepPocId is null/undefined).
+  // Excludes terminal statuses since closed processes no longer need assignment.
+  const attentionMissingPrepPocs = filteredRecords.filter(
+    (r) => !r.prepPocId && !TERMINAL_STATUSES.has(r.status),
   ).length;
 
   const mostOverloadedPocName = useMemo(
@@ -337,29 +299,6 @@ export function AdminLmpDashboard() {
       return p.active > threshold;
     }).length;
   }, [filteredCapacity, attentionPocs]);
-
-  const highestRiskDomainName = useMemo(() => {
-    const cd = (domainRows as any[]).map((d: any) => ({
-      id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "",
-      aliases: Array.isArray(d?.aliases) ? d.aliases : [],
-    })).filter((d) => d.name);
-    const RISK_STATUSES = new Set(["hold", "dormant", "closed", "other-reasons"]);
-    const riskByDomain = new Map<string, number>();
-    const totalByDomain = new Map<string, number>();
-    for (const r of filteredRecords) {
-      const domainName = resolveDomainName(r.domain, cd) ?? r.domain ?? "Unmapped";
-      if (!domainName || domainName.toLowerCase() === "unmapped") continue;
-      totalByDomain.set(domainName, (totalByDomain.get(domainName) ?? 0) + 1);
-      if (RISK_STATUSES.has(r.status)) {
-        riskByDomain.set(domainName, (riskByDomain.get(domainName) ?? 0) + 1);
-      }
-    }
-    const allDomains = Array.from(new Set([...riskByDomain.keys(), ...totalByDomain.keys()]));
-    return allDomains.sort((a, b) => {
-      const diff = (riskByDomain.get(b) ?? 0) - (riskByDomain.get(a) ?? 0);
-      return diff !== 0 ? diff : (totalByDomain.get(b) ?? 0) - (totalByDomain.get(a) ?? 0);
-    })[0] ?? "—";
-  }, [filteredRecords, domainRows]);
 
   /* ─────── Student analytics (live · students DB) ─────── */
   const studentStats = useMemo(() => {
@@ -514,6 +453,44 @@ export function AdminLmpDashboard() {
       .filter((d) => d.name),
     [domainRows],
   );
+
+  // ── Performance metrics ──────────────────────────────────────────────────────
+  // Formula (POC, POD, domain): Converted ÷ (Converted + Not Converted) × 100.
+  // offer-received counts as Converted (canonical lmpStatusCounts mapping).
+  // All computations respect active filters via filteredRecords.
+
+  const bestPoc = useMemo(() => {
+    // Group by prepPocId (UUID) to deduplicate assignments; display name from prepPoc.name.
+    const byPocId = new Map<string, { name: string; converted: number; notConverted: number }>();
+    for (const r of filteredRecords) {
+      if (!r.prepPocId) continue;
+      const entry = byPocId.get(r.prepPocId) ?? {
+        name: r.prepPoc?.name ?? r.prepPocId,
+        converted: 0,
+        notConverted: 0,
+      };
+      if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
+      else if (r.status === "not-converted") entry.notConverted += 1;
+      byPocId.set(r.prepPocId, entry);
+    }
+    return rankPerformance(Array.from(byPocId.values()));
+  }, [filteredRecords]);
+
+  const bestDomain = useMemo(() => {
+    // Group by canonical domain name (resolved via aliases → primary name).
+    const byDomain = new Map<string, { converted: number; notConverted: number }>();
+    for (const r of filteredRecords) {
+      const domainName = resolveDomainName(r.domain, canonicalDomains) ?? r.domain ?? "";
+      if (!domainName || domainName.toLowerCase() === "unmapped") continue;
+      const entry = byDomain.get(domainName) ?? { converted: 0, notConverted: 0 };
+      if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
+      else if (r.status === "not-converted") entry.notConverted += 1;
+      byDomain.set(domainName, entry);
+    }
+    return rankPerformance(
+      Array.from(byDomain.entries()).map(([name, e]) => ({ name, ...e })),
+    );
+  }, [filteredRecords, canonicalDomains]);
 
   const domainAnalytics = useMemo(() => {
     type MutableDomain = {
@@ -776,58 +753,13 @@ export function AdminLmpDashboard() {
         showOutreachPoc
       />
 
-      {/* ─────── SECTION 1: Unified LMP Health + Status ─────── */}
-      <LxGrid>
-        <LxHero
-          eyebrow="LMP Health Summary"
-          title="Live snapshot of the selected view vs. the full pipeline"
-          primaryValue={`${conversionRate.toFixed(1)}%`}
-          primaryLabel="overall conversion"
-          variant="mu"
-          span={12}
-          info={info("admin.hero.conversion")}
-          stats={[
-            {
-              label: "In current view",
-              value: filtered.length.toLocaleString(),
-              sub: `${lsc["prep-ongoing"]} prep ongoing · ${lsc.converted} converted`,
-              info: info("admin.hero.in-view"),
-              onClick: () => openLmps(filtered, "LMPs in current view", `${filtered.length} of ${all.length} total`),
-            },
-            {
-              label: "Overall LMPs",
-              value: all.length.toLocaleString(),
-              sub: `${all.filter(isConverted).length} converted across all processes`,
-              info: info("admin.hero.overall"),
-              onClick: () => openLmps(all, "All LMPs", `${all.length} processes`),
-            },
-            {
-              label: "Conversion",
-              value: `${conversionRate.toFixed(1)}%`,
-              sub: `${converted} of ${filtered.length} in view`,
-              accent: "success",
-              info: info("admin.hero.conversion"),
-              onClick: () => openLmps(filtered.filter(isConverted), "Converted LMPs", `${converted} of ${filtered.length} in view`),
-            },
-          ]}
-          rightSlot={
-            <StatusMiniDonut
-              total={filtered.length}
-              segments={liveStatusSegments}
-            />
-          }
-          footer={
-            <StatusStrip
-              total={filtered.length}
-              onSegmentClick={(s) => openStatus(s.status)}
-              segments={liveStatusSegments}
-            />
-          }
-        />
-      </LxGrid>
-
-      {/* Live snapshot strip — flag counts across all in-scope LMPs */}
-      <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
+      {/* ─────── SECTION 1: LMP Health Summary ─────── */}
+      <LmpHealthSummaryCard
+        total={filteredRecords.length}
+        lsc={lsc}
+        isLoading={lmpLoading}
+        onStatusClick={openStatus}
+      />
 
       {/* ─────── SECTION 2: Prep POC Heatmap ─────── */}
       <PrepPocHeatmapCard />
@@ -1198,14 +1130,62 @@ export function AdminLmpDashboard() {
 
       <LxAttentionStrip
         items={[
-          { label: "Highest risk domain",  value: highestRiskDomainName,    accent: "risk",   info: info("attention.highest-risk-domain"),
-            onClick: () => openLmps(lmpsForDomain(filtered, highestRiskDomainName), `${highestRiskDomainName} · LMPs`) },
-          { label: "Most overloaded POC",  value: mostOverloadedPocName,    accent: "orange", info: info("attention.most-overloaded-poc"),
-            onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`) },
-          { label: "Pending offers",       value: attentionPendingOffers,   accent: "yellow", info: info("attention.pending-offers"),
-            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`) },
-          { label: "Missing prep docs",    value: attentionMissingPrepDocs, accent: "ai",     info: info("attention.missing-prep-docs") },
-          { label: "Overloaded POCs",      value: overloadedPocsCount,      accent: "info",   info: info("attention.overloaded-pocs"),
+          {
+            label: "Highest Performing POC",
+            value: bestPoc ? bestPoc.name : "—",
+            sub: bestPoc
+              ? `${bestPoc.converted}/${bestPoc.eligible} · ${bestPoc.pct.toFixed(0)}%`
+              : "No eligible outcomes",
+            accent: "success",
+            info: info("attention.best-poc"),
+            onClick: bestPoc
+              ? () => openLmps(lmpsForPoc(filtered, bestPoc.name, "prep"), `${bestPoc.name} · LMPs`)
+              : undefined,
+          },
+          {
+            label: "Best Performing POD",
+            value: "—",
+            sub: "POD mapping unavailable",
+            accent: "neutral",
+            info: info("attention.best-pod"),
+          },
+          {
+            label: "Best Performing Domain",
+            value: bestDomain ? bestDomain.name : "—",
+            sub: bestDomain
+              ? `${bestDomain.converted}/${bestDomain.eligible} · ${bestDomain.pct.toFixed(0)}%`
+              : "No eligible outcomes",
+            accent: "teal",
+            info: info("attention.best-domain"),
+            onClick: bestDomain
+              ? () => openLmps(lmpsForDomain(filtered, bestDomain.name), `${bestDomain.name} · LMPs`)
+              : undefined,
+          },
+          {
+            label: "Most Overloaded POC",
+            value: mostOverloadedPocName,
+            accent: "orange",
+            info: info("attention.most-overloaded-poc"),
+            onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`),
+          },
+          {
+            label: "Pending Offers",
+            value: attentionPendingOffers,
+            accent: "yellow",
+            info: info("attention.pending-offers"),
+            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`),
+          },
+          {
+            label: "Missing Prep POCs",
+            value: attentionMissingPrepPocs,
+            accent: "ai",
+            info: info("attention.missing-prep-pocs"),
+          },
+          {
+            label: "Overloaded POCs",
+            value: overloadedPocsCount,
+            accent: "info",
+            info: info("attention.overloaded-pocs"),
             onClick: () => {
               const thresholdByName = new Map(attentionPocs.map((p) => [p.name, p.threshold]));
               setDrill({
@@ -1223,102 +1203,21 @@ export function AdminLmpDashboard() {
                     threshold: thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD,
                   })),
               });
-            } },
+            },
+          },
         ]}
       />
+
+      {/* ─────── Flagged LMPs (moved to bottom) ─────── */}
+      <LxSection
+        eyebrow="Flagged LMPs"
+        title="Processes requiring operational attention."
+        hint="Action flags from the current filtered scope — stale, overdue, missing documents."
+      />
+      <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />
     </LuminaShell>
   );
 }
 
-type StatusSegment = {
-  status: ActiveLmpStatus;
-  label: string;
-  value: number;
-  accent: LxAccent;
-};
-
-function StatusMiniDonut({
-  total, segments,
-}: {
-  total: number;
-  segments: StatusSegment[];
-}) {
-  const safe = segments.reduce((s, x) => s + x.value, 0) || 1;
-  let cursor = 0;
-  const stops = segments.map((s) => {
-    const pct = (s.value / safe) * 100;
-    const start = cursor; cursor += pct;
-    return `${LX_HEX[s.accent]} ${start}% ${cursor}%`;
-  });
-  return (
-    <div className="relative shrink-0" style={{ width: 132, height: 132 }} aria-hidden>
-      <div
-        className="h-full w-full rounded-full"
-        style={{ background: stops.length ? `conic-gradient(${stops.join(", ")})` : "rgba(26,25,22,0.15)" }}
-      />
-      <div
-        className="absolute inset-[14px] rounded-full grid place-items-center text-center"
-        style={{ background: "rgba(255,255,255,0.85)", border: "1px solid rgba(26,25,22,0.08)" }}
-      >
-        <div>
-          <div className="text-[22px] font-semibold leading-none" style={{ color: "var(--lx-text)" }}>{total}</div>
-          <div className="text-[9.5px] font-semibold uppercase tracking-[0.7px] mt-1" style={{ color: "rgba(26,25,22,0.62)" }}>
-            Processes
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusStrip({
-  total, segments, onSegmentClick,
-}: {
-  total: number;
-  segments: StatusSegment[];
-  onSegmentClick?: (s: StatusSegment) => void;
-}) {
-  const safe = total || 1;
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
-      {segments.map((s) => {
-        const pct = (s.value / safe) * 100;
-        const color = LX_HEX[s.accent];
-        const clickable = !!onSegmentClick;
-        return (
-          <div
-            key={s.label}
-            className="rounded-xl px-3 py-2.5 flex flex-col gap-1 transition-shadow"
-            style={{
-              background: "rgba(255,255,255,0.6)",
-              border: "1px solid rgba(26,25,22,0.08)",
-              borderLeft: `3px solid ${color}`,
-              cursor: clickable ? "pointer" : undefined,
-            }}
-            onClick={clickable ? () => onSegmentClick!(s) : undefined}
-            role={clickable ? "button" : undefined}
-            tabIndex={clickable ? 0 : undefined}
-            onKeyDown={(e) => {
-              if (clickable && (e.key === "Enter" || e.key === " ")) {
-                e.preventDefault(); onSegmentClick!(s);
-              }
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: color }} />
-              <div className="text-[10px] font-semibold uppercase tracking-[0.6px] truncate" style={{ color: "rgba(26,25,22,0.62)" }}>
-                {s.label}
-              </div>
-            </div>
-            <div className="flex items-baseline justify-between gap-2">
-              <div className="text-[20px] font-semibold leading-none" style={{ color: "var(--lx-text)" }}>{s.value}</div>
-              <div className="text-[11.5px] font-semibold tabular-nums" style={{ color }}>{pct.toFixed(0)}%</div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
