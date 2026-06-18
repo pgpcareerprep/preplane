@@ -164,7 +164,11 @@ export type RosterRow = {
 
 export function studentsInBucket(
   roster: RosterRow[],
-  opts: { cohort?: string; bucket?: "single" | "multiple" | "inactive" | "active" | "opted-out" | "eligible" | "all"; domain?: string } = {},
+  opts: {
+    cohort?: string;
+    bucket?: "single" | "multiple" | "inactive" | "no-active" | "active" | "opted-out" | "eligible" | "all";
+    domain?: string;
+  } = {},
 ): StudentDrillRow[] {
   return roster.filter((s) => {
     if (opts.cohort && norm(s.cohort) !== norm(opts.cohort)) return false;
@@ -178,9 +182,10 @@ export function studentsInBucket(
     const optedOut = isOptedOutStatus(s.placementStatus);
     if (opts.bucket === "opted-out") return optedOut;
     if (opts.bucket === "eligible") return !optedOut;
+    // "inactive" and "no-active" both exclude opted-out students per spec
+    if (opts.bucket === "inactive" || opts.bucket === "no-active") return c === 0 && !optedOut;
     if (opts.bucket === "single") return c === 1;
     if (opts.bucket === "multiple") return c >= 2;
-    if (opts.bucket === "inactive") return c === 0;
     if (opts.bucket === "active") return c >= 1;
     return true;
   });

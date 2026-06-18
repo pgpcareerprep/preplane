@@ -4,16 +4,21 @@
  */
 
 export const OPTED_OUT_STATUSES = new Set([
+  // Spec-required exact values
   "opted out",
   "opt out",
   "opted-out",
   "opt-out",
+  "placement opt out",
   "withdrawn",
+  "not participating",
+  "deferred",
+  "defaulted",
+  // Additional safe values kept from previous iteration
   "dropout",
   "drop out",
   "dropped out",
   "not interested",
-  "deferred",
 ]);
 
 export function normalizePlacementStatus(status: string | null | undefined): string {
@@ -24,7 +29,7 @@ export function isOptedOutStatus(status: string | null | undefined): boolean {
   return OPTED_OUT_STATUSES.has(normalizePlacementStatus(status));
 }
 
-/** Stable identity key — prefers UUID id, then email, then name as last resort. */
+/** Stable identity key for a student roster entry. Prefers UUID id → email → name. */
 export function getStudentIdentityKey(student: {
   id?: string | null;
   email?: string | null;
@@ -36,22 +41,43 @@ export function getStudentIdentityKey(student: {
   return `name:${student.name.trim().toLowerCase()}`;
 }
 
+/** Stable identity key for an lmp_candidate row. Prefers student_id → email → student_name. */
+export function getCandidateIdentityKey(candidate: {
+  studentId?: string | null;
+  email?: string | null;
+  studentName: string;
+}): string {
+  if (candidate.studentId) return `id:${candidate.studentId}`;
+  const e = (candidate.email ?? "").trim().toLowerCase();
+  if (e) return `email:${e}`;
+  return `name:${candidate.studentName.trim().toLowerCase()}`;
+}
+
+/** 11-column domain preference vs placement outcome row. */
 export type DomainPreferenceRow = {
   domain: string;
-  primaryPref: number;
-  secondaryPref: number;
-  totalInterested: number;
-  eligible: number;
-  inProcess: number;
-  converted: number;
+  primaryInterested: number;
+  primaryConverted: number;
+  primaryFulfilledPct: number | null;
+  secondaryInterested: number;
+  secondaryConverted: number;
+  secondaryFulfilledPct: number | null;
+  totalUniqueInterested: number;
+  currentlyInDomainProcess: number;
+  totalConverted: number;
+  interestToPlacementPct: number | null;
 };
 
+/** POC lens row — one row per POC × role combination. */
 export type PocMovementRow = {
-  pocId: string;
+  pocKey: string;
   pocName: string;
+  role: string;
   activeLmps: number;
-  shortlisted: number;
-  advancedRounds: number;
+  uniqueStudents: number;
+  r1: number;
+  r2: number;
+  r3: number;
   offers: number;
   converted: number;
   convPct: number | null;
