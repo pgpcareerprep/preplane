@@ -11,7 +11,7 @@ import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
-  DOMAINS, domainBreakdown, isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
+  isConverted, isDormant, lmpStatusCounts, offerCounts, pocLoad, statusCounts,
   POC_OVERLOAD_THRESHOLD, calculateOutcomeConversionRate,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
@@ -25,7 +25,7 @@ import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { ArrowUpDown, Download } from "lucide-react";
 import { SyncIndicator } from "@/components/sheets/SyncIndicator";
 import { useTodayDailyLogIds } from "@/lib/hooks/useTodayDailyLogIds";
 import { ActionRequiredCard } from "./sections/ActionRequiredCard";
@@ -57,6 +57,60 @@ export function parseConvertedNames(raw: string | null | undefined): string[] {
 
 export function normalizeConvertedName(name: string): string {
   return name.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+type DomainLoadView = "table" | "heatmap";
+type DomainSortKey =
+  | "rank"
+  | "domain"
+  | "totalLmps"
+  | "activeLoad"
+  | "convertedLmps"
+  | "studentsPlaced"
+  | "studentsOpted"
+  | "conversionPct";
+
+type DomainAnalyticsRow = {
+  rank: number;
+  domain: string;
+  totalLmps: number;
+  activeLoad: number;
+  convertedLmps: number;
+  studentsPlaced: number;
+  studentsOpted: number;
+  conversionPct: number | null;
+  insight: "Highest load" | "Strong conversion" | "Balanced" | "Watchlist" | "No current load";
+};
+
+const ACTIVE_LMP_STATUSES = new Set(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
+const CONVERTED_LMP_STATUSES = new Set(["converted", "offer-received"]);
+
+function downloadDashboardCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+function formatConversion(value: number | null): string {
+  return value == null ? "—" : `${value.toFixed(1)}%`;
+}
+
+function pctClass(value: number | null): LxAccent {
+  if (value == null) return "neutral";
+  if (value >= 50) return "success";
+  if (value >= 20) return "yellow";
+  return "risk";
 }
 
 type ActiveLmpStatus = Exclude<LmpStatus, "ongoing" | "dormant" | "closed" | "converted-na" | "offer-received">;
@@ -180,15 +234,6 @@ export function AdminLmpDashboard() {
     };
   });
   const oc = offerCounts(filtered);
-
-  /* ─────── Domains ─────── */
-  const domains = useMemo(() => domainBreakdown(filteredRecords), [filteredRecords]);
-  const sortedByLoad = [...domains].sort((a, b) => b.ongoing - a.ongoing);
-  const highestLoad = sortedByLoad[0];
-  const highestRisk = [...domains].sort((a, b) => b.risk - a.risk)[0];
-  const fastestMoving = [...domains].sort(
-    (a, b) => (b.converted / Math.max(1, b.total)) - (a.converted / Math.max(1, a.total)),
-  )[0];
 
   /* ─────── POCs ─────── */
   const prepLoad = useMemo(() => pocLoad(filtered, "prep"), [filtered]);
@@ -451,10 +496,252 @@ export function AdminLmpDashboard() {
   const [domainPrefMode, setDomainPrefMode] = useState<"total" | "active">("total");
   const todaySet = useTodayDailyLogIds();
   const [drill, setDrill] = useState<DrillState | null>(null);
+  const [domainLoadView, setDomainLoadView] = useState<DomainLoadView>("table");
+  const [domainLoadFilter, setDomainLoadFilter] = useState("all");
+  const [domainLoadSort, setDomainLoadSort] = useState<{ key: DomainSortKey; dir: "asc" | "desc" }>({
+    key: "activeLoad",
+    dir: "desc",
+  });
+
+  const canonicalDomains = useMemo(
+    () => (domainRows as any[])
+      .map((d: any) => ({
+        id: d?.id ?? d?.slug ?? "",
+        name: d?.name ?? "",
+        slug: d?.slug ?? "",
+        aliases: Array.isArray(d?.aliases) ? d.aliases : [],
+      }))
+      .filter((d) => d.name),
+    [domainRows],
+  );
+
+  const domainAnalytics = useMemo(() => {
+    type MutableDomain = {
+      domain: string;
+      lmpIds: Set<string>;
+      activeIds: Set<string>;
+      convertedIds: Set<string>;
+      placedStudents: Set<string>;
+      optedStudents: Set<string>;
+    };
+    const byDomain = new Map<string, MutableDomain>();
+    const getDomain = (domain: string) => {
+      const existing = byDomain.get(domain);
+      if (existing) return existing;
+      const next: MutableDomain = {
+        domain,
+        lmpIds: new Set(),
+        activeIds: new Set(),
+        convertedIds: new Set(),
+        placedStudents: new Set(),
+        optedStudents: new Set(),
+      };
+      byDomain.set(domain, next);
+      return next;
+    };
+
+    for (const rec of filteredRecords) {
+      const domain = resolveDomainName(rec.domain, canonicalDomains) ?? rec.domain?.trim();
+      if (!domain || domain.toLowerCase() === "unmapped") continue;
+      const row = getDomain(domain);
+      row.lmpIds.add(rec.id);
+      if (ACTIVE_LMP_STATUSES.has(rec.status)) row.activeIds.add(rec.id);
+      if (CONVERTED_LMP_STATUSES.has(rec.status)) row.convertedIds.add(rec.id);
+      if (rec.status === "converted") {
+        parseConvertedNames(rec.finalConvertedNames).forEach((name) => row.placedStudents.add(normalizeConvertedName(name)));
+      }
+    }
+
+    for (const student of studentRoster) {
+      const studentKey = normalizeConvertedName(student.name);
+      if (!studentKey) continue;
+      const studentDomains = new Set<string>();
+      [student.primaryDomain, student.secondaryDomain].forEach((raw) => {
+        const domain = resolveDomainName(raw, canonicalDomains);
+        if (domain) studentDomains.add(domain);
+      });
+      studentDomains.forEach((domain) => getDomain(domain).optedStudents.add(studentKey));
+    }
+
+    const rawRows = Array.from(byDomain.values()).filter(
+      (row) => row.lmpIds.size > 0 || row.optedStudents.size > 0 || row.placedStudents.size > 0,
+    );
+    const visibleLmpRows = rawRows.filter((row) => row.lmpIds.size > 0);
+    const highestActive = Math.max(0, ...visibleLmpRows.map((row) => row.activeIds.size));
+    const overallPlaced = new Set<string>();
+    const overallOpted = new Set<string>();
+    rawRows.forEach((row) => {
+      row.placedStudents.forEach((id) => overallPlaced.add(id));
+      row.optedStudents.forEach((id) => overallOpted.add(id));
+    });
+    const overallConversion = overallOpted.size ? (overallPlaced.size / overallOpted.size) * 100 : null;
+    const optedMedian = rawRows.length
+      ? [...rawRows].map((row) => row.optedStudents.size).sort((a, b) => a - b)[Math.floor(rawRows.length / 2)] ?? 0
+      : 0;
+
+    const rows: DomainAnalyticsRow[] = rawRows.map((row) => {
+      const conversionPct = row.optedStudents.size
+        ? (row.placedStudents.size / row.optedStudents.size) * 100
+        : null;
+      let insight: DomainAnalyticsRow["insight"] = "Balanced";
+      if (row.activeIds.size === 0) insight = "No current load";
+      else if (highestActive > 0 && row.activeIds.size === highestActive) insight = "Highest load";
+      else if (conversionPct != null && overallConversion != null && conversionPct > overallConversion && row.placedStudents.size > 0) insight = "Strong conversion";
+      else if (row.optedStudents.size >= optedMedian && (conversionPct == null || conversionPct < Math.max(15, overallConversion ?? 0))) insight = "Watchlist";
+
+      return {
+        rank: 0,
+        domain: row.domain,
+        totalLmps: row.lmpIds.size,
+        activeLoad: row.activeIds.size,
+        convertedLmps: row.convertedIds.size,
+        studentsPlaced: row.placedStudents.size,
+        studentsOpted: row.optedStudents.size,
+        conversionPct,
+        insight,
+      };
+    });
+
+    rows.sort((a, b) => {
+      const loadDiff = b.activeLoad - a.activeLoad;
+      if (loadDiff) return loadDiff;
+      const totalDiff = b.totalLmps - a.totalLmps;
+      if (totalDiff) return totalDiff;
+      return a.domain.localeCompare(b.domain);
+    });
+    rows.forEach((row, index) => { row.rank = index + 1; });
+    return rows;
+  }, [canonicalDomains, filteredRecords, studentRoster]);
+
+  const visibleDomainRows = useMemo(() => {
+    const scoped = domainLoadFilter === "all"
+      ? domainAnalytics
+      : domainAnalytics.filter((row) => row.domain === domainLoadFilter);
+    const sorted = [...scoped].sort((a, b) => {
+      const dir = domainLoadSort.dir === "asc" ? 1 : -1;
+      if (domainLoadSort.key === "domain") return dir * a.domain.localeCompare(b.domain);
+      if (domainLoadSort.key === "conversionPct") {
+        const av = a.conversionPct ?? -1;
+        const bv = b.conversionPct ?? -1;
+        const diff = av - bv;
+        return diff ? dir * diff : a.domain.localeCompare(b.domain);
+      }
+      const diff = Number(a[domainLoadSort.key]) - Number(b[domainLoadSort.key]);
+      if (diff) return dir * diff;
+      const loadDiff = b.activeLoad - a.activeLoad;
+      if (loadDiff) return loadDiff;
+      const totalDiff = b.totalLmps - a.totalLmps;
+      if (totalDiff) return totalDiff;
+      return a.domain.localeCompare(b.domain);
+    });
+    return sorted.map((row, index) => ({ ...row, rank: index + 1 }));
+  }, [domainAnalytics, domainLoadFilter, domainLoadSort]);
+
+  const domainTotals = useMemo(() => {
+    const visibleDomains = new Set(visibleDomainRows.map((row) => row.domain));
+    const totalLmpIds = new Set<string>();
+    const activeLmpIds = new Set<string>();
+    const convertedLmpIds = new Set<string>();
+    const placedStudents = new Set<string>();
+    const optedStudents = new Set<string>();
+
+    for (const rec of filteredRecords) {
+      const domain = resolveDomainName(rec.domain, canonicalDomains) ?? rec.domain?.trim();
+      if (!domain || !visibleDomains.has(domain)) continue;
+      totalLmpIds.add(rec.id);
+      if (ACTIVE_LMP_STATUSES.has(rec.status)) activeLmpIds.add(rec.id);
+      if (CONVERTED_LMP_STATUSES.has(rec.status)) convertedLmpIds.add(rec.id);
+      if (rec.status === "converted") {
+        parseConvertedNames(rec.finalConvertedNames).forEach((name) => placedStudents.add(normalizeConvertedName(name)));
+      }
+    }
+
+    for (const student of studentRoster) {
+      const studentKey = normalizeConvertedName(student.name);
+      if (!studentKey) continue;
+      const studentDomains = [student.primaryDomain, student.secondaryDomain]
+        .map((raw) => resolveDomainName(raw, canonicalDomains))
+        .filter((domain): domain is string => !!domain);
+      if (studentDomains.some((domain) => visibleDomains.has(domain))) {
+        optedStudents.add(studentKey);
+      }
+    }
+
+    return {
+      totalDomains: visibleDomainRows.length,
+      totalLmps: totalLmpIds.size,
+      activeLoad: activeLmpIds.size,
+      convertedLmps: convertedLmpIds.size,
+      studentsPlaced: placedStudents.size,
+      studentsOpted: optedStudents.size,
+      conversionPct: optedStudents.size ? (placedStudents.size / optedStudents.size) * 100 : null,
+      highestLoad: [...visibleDomainRows].sort((a, b) => {
+        const loadDiff = b.activeLoad - a.activeLoad;
+        if (loadDiff) return loadDiff;
+        const totalDiff = b.totalLmps - a.totalLmps;
+        if (totalDiff) return totalDiff;
+        return a.domain.localeCompare(b.domain);
+      })[0]?.domain ?? "—",
+    };
+  }, [canonicalDomains, filteredRecords, studentRoster, visibleDomainRows]);
 
   // ── Drill openers ──
   const openLmps = (rows: typeof filtered, title: string, subtitle?: string) =>
     setDrill({ kind: "lmps", title, subtitle, rows });
+  const openDomainLmps = (domain: string, subtitle?: string) => {
+    const matched = filtered.filter((p) => (resolveDomainName(p.domain, canonicalDomains) ?? p.domain ?? "Unmapped") === domain);
+    openLmps(matched, `${domain} · LMPs`, subtitle ?? `${matched.length} LMPs in current view`);
+  };
+  const setDomainSortKey = (key: DomainSortKey) => {
+    setDomainLoadSort((current) => ({
+      key,
+      dir: current.key === key && current.dir === "desc" ? "asc" : "desc",
+    }));
+  };
+  const maxDomainMetrics = useMemo(() => ({
+    totalLmps: Math.max(1, ...visibleDomainRows.map((row) => row.totalLmps)),
+    activeLoad: Math.max(1, ...visibleDomainRows.map((row) => row.activeLoad)),
+    convertedLmps: Math.max(1, ...visibleDomainRows.map((row) => row.convertedLmps)),
+    studentsPlaced: Math.max(1, ...visibleDomainRows.map((row) => row.studentsPlaced)),
+    studentsOpted: Math.max(1, ...visibleDomainRows.map((row) => row.studentsOpted)),
+  }), [visibleDomainRows]);
+  const exportDomainCsv = () => {
+    const metadata = [
+      ["Exported At", new Date().toISOString()],
+      ["Applied Filters", JSON.stringify(filters)],
+      ["Selected View", domainLoadView],
+      ["Domain Filter", domainLoadFilter === "all" ? "All Domains" : domainLoadFilter],
+      [],
+    ];
+    const headers = [
+      "Rank",
+      "Domain",
+      "Total LMPs (Till Today)",
+      "Active Load",
+      "Converted LMPs",
+      "Students Placed",
+      "Total student opted",
+      "Conversion %",
+      "Insight",
+    ];
+    const body = visibleDomainRows.map((row) => [
+      row.rank,
+      row.domain,
+      row.totalLmps,
+      row.activeLoad,
+      row.convertedLmps,
+      row.studentsPlaced,
+      row.studentsOpted,
+      formatConversion(row.conversionPct),
+      row.insight,
+    ]);
+    const csv = [
+      ...metadata.map((line) => line.map(csvEscape).join(",")),
+      headers.map(csvEscape).join(","),
+      ...body.map((line) => line.map(csvEscape).join(",")),
+    ].join("\n");
+    downloadDashboardCsv(`domain-load-${domainLoadView}.csv`, csv);
+  };
   const openStatus = (status: ActiveLmpStatus) => {
     const ids = new Set(
       filteredRecords
@@ -546,72 +833,212 @@ export function AdminLmpDashboard() {
       <PrepPocHeatmapCard />
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
-      <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Active load by domain — calculated from the current filtered scope." />
+      <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Domain-wise load and outcomes snapshot from the current filtered scope." />
       <LxGrid>
-        <LxCard span={12}>
-          <LxCardHeader eyebrow="Active load" title="Domain load (ranked)"
+        <LxCard span={12} className="overflow-hidden">
+          <LxCardHeader
+            eyebrow="Active load"
+            title="Domain load"
             info={info("admin.domain.bar")}
-            hint="Bar length reflects active LMPs in the selected scope. Total and conversion rate are from the filtered view." />
-          {(() => {
-            // Compute domain metrics from filteredRecords (scope-aware, not global domainRows fields).
-            const cd = (domainRows as any[]).map((d: any) => ({
-              id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "",
-              aliases: Array.isArray(d?.aliases) ? d.aliases : [],
-            })).filter((d) => d.name);
-            const ACTIVE_STATUSES = new Set(["prep-ongoing", "prep-done", "not-started", "hold"]);
-
-            const totalByDomain = new Map<string, number>();
-            const activeByDomain = new Map<string, number>();
-            const convertedByDomain = new Map<string, number>();
-            for (const r of filteredRecords) {
-              const domainName = resolveDomainName(r.domain, cd) ?? r.domain ?? "Unmapped";
-              if (!domainName || domainName.toLowerCase() === "unmapped") continue;
-              totalByDomain.set(domainName, (totalByDomain.get(domainName) ?? 0) + 1);
-              if (ACTIVE_STATUSES.has(r.status)) {
-                activeByDomain.set(domainName, (activeByDomain.get(domainName) ?? 0) + 1);
-              }
-              if (r.status === "converted") {
-                convertedByDomain.set(domainName, (convertedByDomain.get(domainName) ?? 0) + 1);
-              }
+            hint="Total LMPs, active load, placements, student opt-ins, and conversion from live filtered data."
+            right={
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
+                  {(["table", "heatmap"] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => setDomainLoadView(view)}
+                      className="h-8 px-3 rounded-md text-[11.5px] font-semibold transition-colors"
+                      style={{
+                        background: domainLoadView === view ? "var(--lx-surface)" : "transparent",
+                        color: domainLoadView === view ? LX_HEX.info : "var(--lx-text-2)",
+                        boxShadow: domainLoadView === view ? "0 1px 2px rgba(16,33,63,0.08)" : "none",
+                      }}
+                    >
+                      {view === "table" ? "Table" : "Heatmap"}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={domainLoadFilter}
+                  onChange={(event) => setDomainLoadFilter(event.target.value)}
+                  className="h-9 rounded-lg border bg-transparent px-3 text-[11.5px] font-medium outline-none"
+                  style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-2)", background: "var(--lx-surface)" }}
+                  aria-label="Filter domain load"
+                >
+                  <option value="all">All Domains</option>
+                  {domainAnalytics.map((row) => (
+                    <option key={row.domain} value={row.domain}>{row.domain}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={exportDomainCsv}
+                  disabled={visibleDomainRows.length === 0}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[11.5px] font-semibold transition-colors hover:bg-[var(--lx-soft)] disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ borderColor: "var(--lx-border)", color: "var(--lx-text)" }}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export CSV
+                </button>
+              </div>
             }
-            const allDomains = new Set([...totalByDomain.keys(), ...activeByDomain.keys()]);
-            const rows = Array.from(allDomains).map((name) => {
-              const total = totalByDomain.get(name) ?? 0;
-              const active = activeByDomain.get(name) ?? 0;
-              const conv = convertedByDomain.get(name) ?? 0;
-              const notConv = filteredRecords.filter(
-                (r) => r.status === "not-converted" && (resolveDomainName(r.domain, cd) ?? r.domain) === name,
-              ).length;
-              const convRate = (conv + notConv) > 0 ? (conv / (conv + notConv)) * 100 : 0;
-              return { label: name, value: active, total, converted: conv, conv: convRate };
-            }).sort((a, b) => b.value - a.value);
+          />
 
-            return (
-              <LxRankedBar
-                accent="info"
-                maxItems={12}
-                rows={rows}
-                onRowClick={(r) => {
-                  const matched = filtered.filter((p) => (resolveDomainName(p.domain, cd) ?? "Unmapped") === r.label);
-                  openLmps(matched, `${r.label} · LMPs`, `${r.value} active in view`);
-                }}
-                chips={(r) => {
-                  const meta = rows.find((x) => x.label === r.label);
-                  if (!meta) return null;
-                  return (
-                    <span className="flex items-center gap-1.5 text-[10.5px] font-medium">
-                      <span className="px-1.5 py-[1px] rounded-full" style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }}>
-                        {meta.total} total
-                      </span>
-                      <span className="px-1.5 py-[1px] rounded-full" style={{ background: "rgba(106,158,98,0.14)", color: "var(--lx-success, #6A9E62)" }}>
-                        {meta.conv.toFixed(1)}% conv
-                      </span>
-                    </span>
-                  );
-                }}
-              />
-            );
-          })()}
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: "Total Domains", value: domainTotals.totalDomains.toLocaleString(), sub: "In selected scope", accent: "info" as LxAccent },
+              { label: "Total LMPs", value: domainTotals.totalLmps.toLocaleString(), sub: "Till today", accent: "neutral" as LxAccent },
+              { label: "Active Load", value: domainTotals.activeLoad.toLocaleString(), sub: "Not started + prep ongoing + prep done", accent: "teal" as LxAccent },
+              { label: "Highest Load", value: domainTotals.highestLoad, sub: "Tie: total LMPs, then A-Z", accent: "success" as LxAccent },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border px-4 py-3"
+                style={{ borderColor: "var(--lx-border)", background: "linear-gradient(180deg, var(--lx-surface), var(--lx-soft))" }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.9px]" style={{ color: "var(--lx-text-3)" }}>{item.label}</div>
+                  <span className="h-2 w-2 rounded-full" style={{ background: LX_HEX[item.accent] }} />
+                </div>
+                <div className="mt-2 truncate text-[24px] font-semibold leading-none tabular-nums" title={item.value} style={{ color: "var(--lx-text)" }}>{item.value}</div>
+                <div className="mt-1 truncate text-[11px]" style={{ color: "var(--lx-text-3)" }}>{item.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {visibleDomainRows.length === 0 ? (
+            <div className="rounded-2xl border px-4 py-10 text-center text-[12.5px]" style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-3)" }}>
+              No domain load data is available for the selected filters.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: "var(--lx-border)" }}>
+              <table className="min-w-[1060px] w-full border-collapse text-[12px]">
+                <thead>
+                  <tr style={{ background: "var(--lx-soft)" }}>
+                    {[
+                      ["rank", "Rank"],
+                      ["domain", "Domain"],
+                      ["totalLmps", "Total LMPs (Till Today)"],
+                      ["activeLoad", "Active Load"],
+                      ["convertedLmps", "Converted LMPs"],
+                      ["studentsPlaced", "Students Placed"],
+                      ["studentsOpted", "Total student opted"],
+                      ["conversionPct", "Conversion %"],
+                    ].map(([key, label]) => (
+                      <th key={key} className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
+                        <button
+                          type="button"
+                          onClick={() => setDomainSortKey(key as DomainSortKey)}
+                          className="inline-flex items-center gap-1 rounded-md hover:text-[var(--lx-text)]"
+                          aria-label={`Sort by ${label}`}
+                        >
+                          {label}
+                          <ArrowUpDown className="h-3 w-3 opacity-60" />
+                        </button>
+                      </th>
+                    ))}
+                    {domainLoadView === "table" && (
+                      <th className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
+                        Insight
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleDomainRows.map((row) => {
+                    const activePct = (row.activeLoad / maxDomainMetrics.activeLoad) * 100;
+                    const heat = (value: number, max: number, palette: string[]) => {
+                      if (value === 0) return palette[0];
+                      const intensity = value / Math.max(1, max);
+                      if (intensity <= 0.25) return palette[1];
+                      if (intensity <= 0.5) return palette[2];
+                      if (intensity <= 0.75) return palette[3];
+                      return palette[4];
+                    };
+                    const conversionHeat = row.conversionPct == null
+                      ? "rgba(122,117,108,0.07)"
+                      : row.conversionPct >= 50 ? "rgba(106,158,98,0.18)" : row.conversionPct >= 20 ? "rgba(247,211,68,0.22)" : "rgba(240,112,64,0.16)";
+                    const metricClass = "px-3 py-3 text-left font-semibold tabular-nums";
+                    return (
+                      <tr key={row.domain} className="group transition-colors hover:bg-[var(--lx-soft)]">
+                        <td className="px-3 py-3 font-mono tabular-nums" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>#{row.rank}</td>
+                        <td className="sticky left-0 z-[1] px-3 py-3 font-semibold" style={{ color: "var(--lx-text)", background: "var(--lx-surface)", borderBottom: "1px solid var(--lx-border)" }}>
+                          <button type="button" onClick={() => openDomainLmps(row.domain, `${row.activeLoad} active · ${row.totalLmps} total`)} className="text-left hover:underline underline-offset-4">
+                            {row.domain}
+                          </button>
+                        </td>
+                        {domainLoadView === "table" ? (
+                          <>
+                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <button onClick={() => openDomainLmps(row.domain)} className="rounded-full px-2 py-1 hover:underline" style={{ background: "rgba(74,142,232,0.10)", color: "var(--lx-text)" }}>{row.totalLmps}</button>
+                            </td>
+                            <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <button type="button" onClick={() => openDomainLmps(row.domain, `${row.activeLoad} active LMPs`)} className="grid w-full grid-cols-[1fr_auto] items-center gap-3 text-left">
+                                <span className="h-2.5 overflow-hidden rounded-full" style={{ background: "rgba(74,142,232,0.12)" }}>
+                                  <span className="block h-full rounded-full transition-all" style={{ width: `${activePct}%`, background: LX_HEX.info }} />
+                                </span>
+                                <span className="font-mono font-semibold tabular-nums" style={{ color: "var(--lx-text)" }}>{row.activeLoad}</span>
+                              </button>
+                            </td>
+                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(106,158,98,0.12)", color: LX_HEX.success }}>{row.convertedLmps}</span>
+                            </td>
+                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(109,40,217,0.10)", color: LX_HEX.ai }}>{row.studentsPlaced}</span>
+                            </td>
+                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(227,131,48,0.12)", color: LX_HEX.orange }}>{row.studentsOpted}</span>
+                            </td>
+                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <span className="rounded-full px-2 py-1" style={{ background: `${LX_HEX[pctClass(row.conversionPct)]}1f`, color: LX_HEX[pctClass(row.conversionPct)] }}>{formatConversion(row.conversionPct)}</span>
+                            </td>
+                            <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                              <span className="rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }} title="Rule-based signal from active load, student interest, and conversion.">
+                                {row.insight}
+                              </span>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className={metricClass} style={{ background: heat(row.totalLmps, maxDomainMetrics.totalLmps, ["#f8fafc", "#eef4fb", "#dfeafa", "#cbdcf5", "#b5ccef"]), border: "1px solid #fff" }}>{row.totalLmps}</td>
+                            <td className={metricClass} style={{ background: heat(row.activeLoad, maxDomainMetrics.activeLoad, ["#f8fbff", "#ecf4fe", "#d8e8fd", "#b7d3f8", "#93bdf4"]), border: "1px solid #fff" }}>{row.activeLoad}</td>
+                            <td className={metricClass} style={{ background: heat(row.convertedLmps, maxDomainMetrics.convertedLmps, ["#f8fcf6", "#eaf6e2", "#d5edcb", "#b9dfae", "#9ccc90"]), border: "1px solid #fff" }}>{row.convertedLmps}</td>
+                            <td className={metricClass} style={{ background: heat(row.studentsPlaced, maxDomainMetrics.studentsPlaced, ["#fcfaff", "#f2e8fd", "#e3d1fa", "#cdb4f1", "#b99be8"]), border: "1px solid #fff" }}>{row.studentsPlaced}</td>
+                            <td className={metricClass} style={{ background: heat(row.studentsOpted, maxDomainMetrics.studentsOpted, ["#fffaf6", "#fef3e8", "#fde1c9", "#f6c18f", "#efaa69"]), border: "1px solid #fff" }}>{row.studentsOpted}</td>
+                            <td className={metricClass} style={{ background: conversionHeat, border: "1px solid #fff" }}>{formatConversion(row.conversionPct)}</td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ background: "var(--lx-soft)" }}>
+                    <td className="px-3 py-3 font-semibold" style={{ borderTop: "2px solid var(--lx-border)", color: "var(--lx-text)" }}>TOTAL</td>
+                    <td className="sticky left-0 z-[1] px-3 py-3 font-semibold" style={{ borderTop: "2px solid var(--lx-border)", color: "var(--lx-text)", background: "var(--lx-soft)" }}>
+                      {domainTotals.totalDomains} domains
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.info }}>{domainTotals.totalLmps}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.teal }}>{domainTotals.activeLoad}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.success }}>{domainTotals.convertedLmps}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.ai }}>{domainTotals.studentsPlaced}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.orange }}>{domainTotals.studentsOpted}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX[pctClass(domainTotals.conversionPct)] }}>{formatConversion(domainTotals.conversionPct)}</td>
+                    {domainLoadView === "table" && <td className="px-3 py-3" style={{ borderTop: "2px solid var(--lx-border)" }} />}
+                  </tr>
+                </tbody>
+              </table>
+              {domainLoadView === "heatmap" && (
+                <div className="flex items-center justify-end gap-2 border-t px-4 py-3 text-[11px]" style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-3)" }}>
+                  <span>Low</span>
+                  {["#f8fbff", "#ecf4fe", "#d8e8fd", "#b7d3f8", "#93bdf4"].map((color) => (
+                    <span key={color} className="h-3 w-3 rounded-[3px] border border-white" style={{ background: color }} />
+                  ))}
+                  <span>High</span>
+                </div>
+              )}
+            </div>
+          )}
         </LxCard>
       </LxGrid>
 
