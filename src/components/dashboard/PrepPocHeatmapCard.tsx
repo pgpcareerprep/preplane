@@ -387,6 +387,9 @@ export function PrepPocHeatmapCard() {
   useRealtimeInvalidate("poc_profiles" as never, [QUERY_KEY]);
   useRealtimeInvalidate("lmp_candidates", [QUERY_KEY]);
 
+  // Only show POCs who have at least one LMP assignment (participating in POC allocation)
+  const activeRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
+
   // ── Per-column max values for heat intensity ────────────────────────────────
   const colMaxValues = useMemo(() => {
     const maxFor = (key: keyof PrepPocHeatmapRow) =>
@@ -481,9 +484,6 @@ export function PrepPocHeatmapCard() {
       studentsPlaced: summary.uniqueStudentsPlaced, // globally deduped
     };
   }, [data]);
-
-  // Only show POCs who have at least one LMP assignment (participating in POC allocation)
-  const activeRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
 
   const openDrilldown = useCallback((row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => {
     if (displayedCount !== null && displayedCount <= 0) return;
