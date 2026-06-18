@@ -228,17 +228,27 @@ export function AdminLmpDashboard() {
     ["prep_poc_capacity_live_v2"],
     ["attention_pending_offers"],
     ["attention_missing_prep_docs"],
-  ]);
-  useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"]]);
+  ], {
+    cachePrefixes: ['["db-lmp-processes', '["prep_poc_capacity_live_v2'],
+  });
+  useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"]], {
+    cachePrefixes: ['["db-poc-switcher-list', '["prep_poc_capacity_live_v2'],
+  });
   useRealtimeInvalidate("poc_profiles" as never, [
     ["prep_poc_capacity_live_v2"],
     ["attention_pocs"],
-  ]);
+  ], {
+    cachePrefixes: ['["db-poc-profiles-with-load', '["db-all-poc-profiles', '["eligible_prep_pocs'],
+  });
   useRealtimeInvalidate("students" as never, [
     ["students_total_count"],
     ["students_roster_full"],
-  ]);
-  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_all"]]);
+  ], {
+    cachePrefixes: ['["db-students'],
+  });
+  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_all"]], {
+    cachePrefixes: ['["db-lmp-candidates', '["db-lmp-candidate-counts'],
+  });
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
   const { data: lmpRecords = [] } = useLmpRows();
   const { data: domainRows = [] } = useDomains();
@@ -576,11 +586,10 @@ export function AdminLmpDashboard() {
 
       const pocRoles: Array<{ name: string; role: string }> = [];
       const prepName = ((r as any).prepPoc as any)?.name ?? "";
-      const outreachName = ((r as any).outreachPoc as any)?.name ?? "";
       const supportName = ((r as any).supportPoc as any)?.name ?? "";
       if (prepName) pocRoles.push({ name: prepName, role: "Prep" });
-      if (outreachName) pocRoles.push({ name: outreachName, role: "Outreach" });
       if (supportName) pocRoles.push({ name: supportName, role: "Support" });
+      // Outreach names are display-only — excluded from operational POC analytics.
 
       pocRoles.forEach(({ name, role }) => {
         const e = getEntry(name, role);
@@ -1297,7 +1306,7 @@ export function AdminLmpDashboard() {
       />
 
       {/* Row 1 — 8 KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <LxKpi label="Total Students" accent="info" value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
@@ -1397,26 +1406,6 @@ export function AdminLmpDashboard() {
                       { label: "Opted Out",              value: c.optedOut, accent: "orange",  info: info("admin.students.opted-out") },
                     ]}
                   />
-                  <div className="mt-3 grid grid-cols-4 gap-1.5 text-[11px]" style={{ color: "var(--lx-text-3)" }}>
-                    {([
-                      { label: "In 1 Process", value: c.single,   accent: LX_HEX.success, bucket: "single"   as const, denom: eligible },
-                      { label: "In 2+ Process", value: c.multiple, accent: LX_HEX.info,    bucket: "multiple" as const, denom: eligible },
-                      { label: "No Active",    value: c.inactive, accent: LX_HEX.risk,    bucket: "no-active" as const, denom: eligible },
-                      { label: "Opted Out",    value: c.optedOut, accent: LX_HEX.orange,  bucket: "opted-out" as const, denom: c.total },
-                    ] as const).map((seg) => (
-                      <button key={seg.label}
-                        onClick={() => openCohort(seg.bucket, seg.label.toLowerCase())}
-                        className="text-left rounded-md hover:bg-[var(--lx-soft)] px-1.5 py-1.5 transition-colors">
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: seg.accent }} />
-                          <span className="truncate text-[10px] uppercase tracking-[0.4px]">{seg.label}</span>
-                        </div>
-                        <div><span className="font-semibold text-[12px]" style={{ color: "var(--lx-text)" }}>{seg.value}</span>
-                          <span className="ml-1 text-[10px]">{pctOf(seg.value, seg.denom).toFixed(0)}%</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
                 </LxCard>
               );
             })

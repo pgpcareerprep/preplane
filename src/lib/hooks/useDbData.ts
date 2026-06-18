@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { isEligiblePrepPocProfile, isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -84,8 +84,8 @@ export function useLmpProcesses(filters?: { domain?: string; status?: string; po
           // OPTIMISED: hide archived LMP processes by default to avoid loading dead rows
           q = q.neq("status", "archived");
         }
-        if (filters?.pocName) q = q.or(`prep_poc.eq.${filters.pocName},support_poc.eq.${filters.pocName},outreach_poc.eq.${filters.pocName}`);
-        if (filters?.pocId) q = q.or(`prep_poc_id.eq.${filters.pocId},support_poc_id.eq.${filters.pocId},outreach_poc_ids.cs.{${filters.pocId}}`);
+        if (filters?.pocName) q = q.or(`prep_poc.eq.${filters.pocName},support_poc.eq.${filters.pocName}`);
+        if (filters?.pocId) q = q.or(`prep_poc_id.eq.${filters.pocId},support_poc_id.eq.${filters.pocId}`);
         if (filters?.search) q = q.or(`company.ilike.%${filters.search}%,role.ilike.%${filters.search}%`);
         const { data, error } = await q;
         if (error) throw error;
@@ -162,13 +162,12 @@ export function usePocSwitcherList() {
     queryKey,
     queryFn: async () =>
       withCache(queryKey, async () => {
-        // Only fetch operational roles (prep/support/outreach).
-        // Allocator and admin_owner text columns must not appear here.
+        // Operational roles only — outreach is display metadata, not a switcher POC.
         const { data, error } = await (supabase as any)
           .from("lmp_poc_links")
           .select("lmp_id, role, poc:poc_profiles!inner(id, name)")
           .eq("is_active", true)
-          .in("role", ["prep", "support", "outreach"])
+          .in("role", ["prep", "support"])
           .limit(10000);
         if (error) throw error;
 
@@ -1132,7 +1131,7 @@ export type DerivedAllocationMapping = {
 async function fetchAllPocsForMapping() {
   const { data, error } = await supabase
     .from("poc_profiles")
-    .select("id,name,primary_domain,domain_tags,active_load,status")
+    .select("id,name,primary_domain,domain_tags,active_load,status,role_type")
     .order("active_load", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as Array<{
@@ -1142,6 +1141,7 @@ async function fetchAllPocsForMapping() {
     domain_tags: string[] | null;
     active_load: number | null;
     status: string | null;
+    role_type: string | null;
   }>;
 }
 
@@ -1169,9 +1169,23 @@ async function fetchDomainSlugResolver(): Promise<(raw: string) => string | null
   return (raw: string) => map.get((raw || "").toLowerCase().trim()) ?? null;
 }
 
+async function fetchPrepSupportLinkPocIds(): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("lmp_poc_links")
+    .select("poc_id")
+    .in("role", ["prep", "support"]);
+  if (error) throw new Error(error.message);
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    if (row.poc_id) ids.add(row.poc_id as string);
+  }
+  return ids;
+}
+
 function deriveMappingsForSlug(
   pocs: Awaited<ReturnType<typeof fetchAllPocsForMapping>>,
   slug: string,
+  prepSupportLinkIds: ReadonlySet<string>,
   resolve?: (raw: string) => string | null,
 ): DerivedAllocationMapping[] {
   const target = slug.toLowerCase();
@@ -1180,6 +1194,17 @@ function deriveMappingsForSlug(
   const secondary: typeof pocs = [];
   for (const p of pocs) {
     if (p.status && p.status !== "active") continue;
+    if (isOutreachOnlyPoc(p.role_type)) continue;
+    if (!isEligiblePrepPocProfile(
+      {
+        id: p.id,
+        status: p.status,
+        role_type: p.role_type,
+        primary_domain: p.primary_domain,
+        domain_tags: p.domain_tags,
+      },
+      prepSupportLinkIds,
+    )) continue;
     const primarySlug = p.primary_domain ? resolveSlug(p.primary_domain) : null;
     const tagSlugs = (p.domain_tags ?? [])
       .map((t) => resolveSlug(String(t)))
@@ -1210,13 +1235,24 @@ export function useMappedPocCountsByDomain() {
     queryKey,
     queryFn: async () =>
       withCache(queryKey, async () => {
-        const [pocs, resolve] = await Promise.all([
+        const [pocs, resolve, prepSupportLinkIds] = await Promise.all([
           fetchAllPocsForMapping(),
           fetchDomainSlugResolver(),
+          fetchPrepSupportLinkPocIds(),
         ]);
         const counts: Record<string, number> = {};
         for (const p of pocs) {
           if (p.status && p.status !== "active") continue;
+          if (!isEligiblePrepPocProfile(
+            {
+              id: p.id,
+              status: p.status,
+              role_type: p.role_type,
+              primary_domain: p.primary_domain,
+              domain_tags: p.domain_tags,
+            },
+            prepSupportLinkIds,
+          )) continue;
           const seen = new Set<string>();
           if (p.primary_domain) {
             const s = resolve(p.primary_domain);
@@ -1259,8 +1295,11 @@ export function usePocDomainMappings(domainKey?: string) {
         if (byName?.slug) slug = byName.slug;
       }
 
-      const pocs = await fetchAllPocsForMapping();
-      return deriveMappingsForSlug(pocs, slug);
+      const [pocs, prepSupportLinkIds] = await Promise.all([
+        fetchAllPocsForMapping(),
+        fetchPrepSupportLinkPocIds(),
+      ]);
+      return deriveMappingsForSlug(pocs, slug, prepSupportLinkIds);
     },
     enabled: !!domainKey,
     staleTime: 60_000,
@@ -1271,14 +1310,15 @@ export function useAllPocDomainMappings() {
   return useQuery({
     queryKey: ["poc_domain_mappings", "all"],
     queryFn: async (): Promise<DerivedAllocationMapping[]> => {
-      const [pocs, domainsRes] = await Promise.all([
+      const [pocs, domainsRes, prepSupportLinkIds] = await Promise.all([
         fetchAllPocsForMapping(),
         supabase.from("domains").select("slug"),
+        fetchPrepSupportLinkPocIds(),
       ]);
       if (domainsRes.error) throw new Error(domainsRes.error.message);
       const slugs = (domainsRes.data ?? []).map((d: any) => String(d.slug).toLowerCase());
       const out: DerivedAllocationMapping[] = [];
-      for (const slug of slugs) out.push(...deriveMappingsForSlug(pocs, slug));
+      for (const slug of slugs) out.push(...deriveMappingsForSlug(pocs, slug, prepSupportLinkIds));
       return out;
     },
     staleTime: 30_000,

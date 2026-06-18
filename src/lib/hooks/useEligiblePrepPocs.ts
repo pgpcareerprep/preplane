@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { isEligiblePrepPocProfile } from "@/lib/prepPocEligibility";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
@@ -44,8 +45,12 @@ export function useEligiblePrepPocs(): {
   selectOptions: { value: string; label: string }[];
   isLoading: boolean;
 } {
-  useRealtimeInvalidate("poc_profiles" as never, [["eligible_prep_pocs"]]);
-  useRealtimeInvalidate("lmp_poc_links" as never, [["eligible_prep_pocs"]]);
+  useRealtimeInvalidate("poc_profiles" as never, [["eligible_prep_pocs"]], {
+    cachePrefixes: ['["eligible_prep_pocs'],
+  });
+  useRealtimeInvalidate("lmp_poc_links" as never, [["eligible_prep_pocs"]], {
+    cachePrefixes: ['["eligible_prep_pocs'],
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["eligible_prep_pocs"],
@@ -92,33 +97,38 @@ export function useEligiblePrepPocs(): {
 
       const eligible: EligiblePrepPoc[] = [];
 
+      const prepSupportLinkIds = new Set<string>();
+      for (const l of allLinksRes.data ?? []) {
+        if (l.poc_id) prepSupportLinkIds.add(l.poc_id);
+      }
+
       for (const p of pocsRes.data ?? []) {
-        // Exclude outreach-only POCs (role_type = "outreach_poc").
-        const roleType = (p.role_type as string | null) ?? "prep_poc";
-        if (roleType === "outreach_poc") continue;
+        const pocId = p.id as string;
+        if (!isEligiblePrepPocProfile(
+          {
+            id: pocId,
+            status: p.status as string,
+            role_type: p.role_type as string,
+            primary_domain: p.primary_domain as string,
+            domain_tags: p.domain_tags as string[],
+          },
+          prepSupportLinkIds,
+        )) continue;
 
         const primaryDomain = (p.primary_domain ?? "").trim() || null;
         const domainTags: string[] = Array.isArray(p.domain_tags)
           ? (p.domain_tags as string[]).filter((t) => t && t.trim())
           : [];
-        const hasDomain = !!primaryDomain || domainTags.length > 0;
-
-        // Any current or historical prep/support link qualifies as history.
-        const hasPrepOrSupportHistory = linksByPoc.has(p.id as string);
-
-        // Gate: must have a domain OR any prep/support history.
-        if (!hasDomain && !hasPrepOrSupportHistory) continue;
-
         const domains: string[] = [
           ...(primaryDomain ? [primaryDomain] : []),
           ...domainTags,
         ];
 
-        const assignedSet = linksByPoc.get(p.id as string);
+        const assignedSet = linksByPoc.get(pocId);
         const assignedLmpIds = assignedSet ? Array.from(assignedSet) : [];
 
         eligible.push({
-          pocId: p.id as string,
+          pocId,
           name: ((p.name as string | null) ?? "").trim(),
           email: (p.email as string | null) ?? null,
           accessLevel: (p.access_level as string | null) ?? "poc",

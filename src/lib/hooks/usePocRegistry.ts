@@ -65,8 +65,8 @@ export function mapPocProfile(p: any): PocRegistryEntry {
 }
 
 export function isEligiblePoc(entry: PocRegistryEntry): boolean {
+  if (entry.poc_type === "outreach") return false;
   const hasCapacity = entry.availability === "available" && entry.max_threshold > 0;
-  if (entry.poc_type === "outreach") return hasCapacity;
   return hasCapacity && entry.domains.length > 0;
 }
 
@@ -117,9 +117,8 @@ export function useBehavioralPocs() {
 /**
  * Calculate live workload for each POC from the LMP Tracker data.
  */
-export function usePocWorkloads(lmpRows: Array<{ status: string; prepPoc?: { name: string }; domainPrepPoc?: { name: string }; supportPoc?: { name: string }; behavioralPrepPoc?: { name: string }; outreachPoc?: { name: string } }>) {
+export function usePocWorkloads(lmpRows: Array<{ status: string; prepPoc?: { name: string }; domainPrepPoc?: { name: string }; supportPoc?: { name: string }; behavioralPrepPoc?: { name: string } }>) {
   const prepLoad: Record<string, number> = {};
-  const outreachLoad: Record<string, number> = {};
 
   for (const r of lmpRows) {
     const isActive = r.status === "ongoing" || r.status === "not-started";
@@ -127,11 +126,9 @@ export function usePocWorkloads(lmpRows: Array<{ status: string; prepPoc?: { nam
 
     const prep = r.prepPoc?.name || r.domainPrepPoc?.name;
     const support = r.supportPoc?.name || r.behavioralPrepPoc?.name;
-    const outreach = r.outreachPoc?.name;
     if (prep) prepLoad[prep] = (prepLoad[prep] || 0) + 1;
     if (support && support !== prep) prepLoad[support] = (prepLoad[support] || 0) + 1;
-    if (outreach) outreachLoad[outreach] = (outreachLoad[outreach] || 0) + 1;
   }
 
-  return { prepLoad, outreachLoad };
+  return { prepLoad, outreachLoad: {} as Record<string, number> };
 }

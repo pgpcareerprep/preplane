@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
+import { isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
 import { supabase } from "@/integrations/supabase/client";
-import { usePocProfiles, useLmpProcesses } from "@/lib/hooks/useDbData";
+import { usePocProfiles, useLmpProcesses, clearCachePrefix } from "@/lib/hooks/useDbData";
 import { useRole } from "@/lib/rolesContext";
 import {
   Dialog,
@@ -103,16 +104,28 @@ export function ReassignPocModal({
     return m;
   }, [profiles]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = (profiles as PocOpt[]).filter((p) => p.name);
-    if (!q) return list;
-    return list.filter((p) => p.name.toLowerCase().includes(q));
-  }, [profiles, query]);
-
   const [activeRow, setActiveRow] = useState<"prep" | "support" | "outreach">(
     scope === "support_outreach" ? "support" : "prep",
   );
+
+  const { pocs: eligiblePrepPocs } = useEligiblePrepPocs();
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list: PocOpt[];
+    if (activeRow === "outreach") {
+      list = (profiles as PocOpt[]).filter(
+        (p) => p.name && isOutreachOnlyPoc(p.role_type),
+      );
+    } else {
+      const eligibleIds = new Set(eligiblePrepPocs.map((p) => p.pocId));
+      list = (profiles as PocOpt[]).filter(
+        (p) => p.name && eligibleIds.has(p.id),
+      );
+    }
+    if (!q) return list;
+    return list.filter((p) => p.name.toLowerCase().includes(q));
+  }, [profiles, query, activeRow, eligiblePrepPocs]);
 
   const handlePick = (id: string) => {
     if (activeRow === "prep") setPrepId(id);
@@ -232,10 +245,16 @@ export function ReassignPocModal({
         return;
       }
       toast.success(`POC assignment updated`);
+      clearCachePrefix('["db-lmp-processes');
+      clearCachePrefix('["db-poc-switcher-list');
+      clearCachePrefix('["db-poc-profiles-with-load');
+      clearCachePrefix('["eligible_prep_pocs');
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["db-lmp"] });
       qc.invalidateQueries({ queryKey: ["db-poc-assignments"] });
       qc.invalidateQueries({ queryKey: ["db-poc-switcher-list"] });
+      qc.invalidateQueries({ queryKey: ["eligible_prep_pocs"] });
+      qc.invalidateQueries({ queryKey: ["prep_poc_capacity_live_v2"] });
       qc.invalidateQueries({ queryKey: ["sheet-lmp-rows"] });
       qc.invalidateQueries({ queryKey: ["lmp-timeline"] });
       onOpenChange(false);

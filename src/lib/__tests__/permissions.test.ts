@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canEditField,
   canEditFieldFinal,
+  canOperateLmp,
   canPerform,
   getLmpAccessLevel,
   POC_WRITABLE_LMP_COLUMNS,
@@ -40,10 +41,11 @@ describe("canonical permission contract", () => {
     expect(POC_WRITABLE_LMP_COLUMNS).toContain("company");
   });
 
-  it("treats an explicitly assigned outreach POC as an owner", () => {
-    const outreach = { outreach_poc: "Outreach POC" };
-    expect(getLmpAccessLevel("poc", "Outreach POC", outreach)).toBe("full");
-    expect(canEditFieldFinal("poc", "company", "Outreach POC", outreach)).toBe(false);
-    expect(canEditFieldFinal("poc", "domain", "Outreach POC", outreach)).toBe(false);
+  it("treats outreach assignment as display-only (no access, no edit)", () => {
+    const outreach = { outreach_poc: "Outreach POC", outreach_poc_ids: ["out-id"] };
+    expect(getLmpAccessLevel("poc", "Outreach POC", outreach, "out-id")).toBe("none");
+    expect(canOperateLmp("Outreach POC", outreach, "out-id")).toBe(false);
+    expect(canEditFieldFinal("poc", "daily_progress", "Outreach POC", outreach, "out-id")).toBe(false);
+    expect(canEditFieldFinal("poc", "company", "Outreach POC", outreach, "out-id")).toBe(false);
   });
 });

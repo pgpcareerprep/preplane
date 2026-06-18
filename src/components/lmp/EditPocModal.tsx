@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Shuffle, Check } from "lucide-react";
 import { classifyAssignment } from "@/lib/pocCapability";
 import { usePocCapabilityList } from "@/lib/hooks/usePocCapabilityLive";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { TAG_STYLES, type AllocationTag } from "@/lib/pocAllocation";
 
 type Slot = "domain" | "behavioral";
@@ -17,14 +18,17 @@ export function EditPocModal({
   const [domainPick, setDomainPick] = useState<string | null>(null);
   const [behavioralPick, setBehavioralPick] = useState<string | null>(null);
   const { list: pocList } = usePocCapabilityList();
+  const { pocs: eligiblePrepPocs } = useEligiblePrepPocs();
+  const eligibleIds = useMemo(() => new Set(eligiblePrepPocs.map((p) => p.pocId)), [eligiblePrepPocs]);
 
   const candidates = useMemo(() => {
     if (!req) return [];
+    const operational = pocList.filter((p) => p.id && eligibleIds.has(p.id));
     if (slot === "behavioral") {
-      return pocList.filter((p) => p.behavioralPoolMember);
+      return operational.filter((p) => p.behavioralPoolMember);
     }
-    return pocList.filter((p) => p.pocType === "domain");
-  }, [slot, req, pocList]);
+    return operational.filter((p) => p.pocType === "domain" || p.pocType === "cross");
+  }, [slot, req, pocList, eligibleIds]);
 
   if (!req) return null;
 

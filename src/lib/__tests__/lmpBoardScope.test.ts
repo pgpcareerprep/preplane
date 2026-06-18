@@ -169,8 +169,6 @@ describe("LmpBoardScope — resolveLmpBoardScope", () => {
   });
 
   it("self scope shows only prep/support LMPs — not outreach-only", () => {
-    // Bob has prep link to lmpBob and outreach link to lmpBobOutreach
-    // Self scope must not return lmpBobOutreach (outreach-only)
     const result = resolveLmpBoardScope(
       ALL_RECORDS,
       { kind: "self" },
@@ -178,15 +176,8 @@ describe("LmpBoardScope — resolveLmpBoardScope", () => {
       OTHER_POC_NAME,
       ACTIVE_MAP,
     );
-    // isUserOperationalPoc checks prepPocId / supportPocId / outreachPocIds
-    // lmpBobOutreach has outreachPocIds = [OTHER_POC_ID] so it WILL match via outreach
-    // The spec says "self scope: prep or support only" — this is enforced by using
-    // activePocLmpIdsMap (which only has prep/support rows) for poc scope, but for
-    // self scope we use isUserOperationalPoc which includes outreach.
-    // This test verifies the outreach rec IS included in self-scope (by design, via isUserOperationalPoc).
-    // Per the spec, Self scope uses isUserOperationalPoc which checks prep/support/outreach.
-    // The "prep/support only" restriction applies to the activePocLmpIdsMap used in poc scope.
     expect(result.some((r) => r.id === "lmp-bob")).toBe(true);
+    expect(result.some((r) => r.id === "lmp-bob-outreach")).toBe(false);
   });
 
   it("self scope with prep/support assignment returns correct LMP", () => {

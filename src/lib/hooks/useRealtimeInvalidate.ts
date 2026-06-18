@@ -38,7 +38,8 @@ type RealtimeTable =
   | "lmp_guide_nodes"
   | "lmp_drafts"
   | "sync_conflicts"
-  | "copilot_messages";
+  | "copilot_messages"
+  | "user_notifications";
 
 interface Options {
   /** PostgREST-style filter, e.g. `lmp_id=eq.xxx`. */

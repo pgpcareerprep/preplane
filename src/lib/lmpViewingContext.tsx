@@ -114,19 +114,17 @@ export function isUserPocOnRecord(rec: LmpRecord, userName: string, pocId?: stri
 }
 
 /**
- * Operational POC check — any explicitly assigned Prep, Support, or Outreach POC.
- * Allocator and admin ownership labels do not grant POC ownership.
+ * Operational POC check — explicitly assigned Prep or Support only.
+ * Outreach is display-only metadata and does not grant operational access.
  */
 export function isUserOperationalPoc(rec: LmpRecord, userName: string, pocId?: string | null): boolean {
   if (pocId) {
     if (rec.prepPocId && rec.prepPocId === pocId) return true;
     if (rec.supportPocId && rec.supportPocId === pocId) return true;
-    if (Array.isArray(rec.outreachPocIds) && rec.outreachPocIds.includes(pocId)) return true;
   }
   if (userName) {
     if (rec.prepPoc?.name && checkCell(rec.prepPoc.name, userName)) return true;
     if (rec.supportPoc?.name && checkCell(rec.supportPoc.name, userName)) return true;
-    if (rec.outreachPoc?.name && checkCell(rec.outreachPoc.name, userName)) return true;
   }
   return false;
 }
@@ -215,7 +213,6 @@ export function LmpViewingProvider({ children }: { children: ReactNode }) {
       const allNames: string[] = [];
       if (r.prepPoc?.name) allNames.push(...splitPocNames(r.prepPoc.name));
       if (r.supportPoc?.name) allNames.push(...splitPocNames(r.supportPoc.name));
-      if (r.outreachPoc?.name) allNames.push(...splitPocNames(r.outreachPoc.name));
 
       for (const name of allNames) {
         if (!name) continue;

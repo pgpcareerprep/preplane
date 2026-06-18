@@ -89,9 +89,14 @@ export function usePocCapabilityList() {
 
   const list = useMemo<PocCapability[]>(() => {
     if (!data) return [];
-    return (data as any[]).map((r) =>
-      rowToCapability({ ...r, live_active_lmp_count: liveLoadMap[r.name] ?? r.active_load ?? 0 }),
-    );
+    return (data as any[])
+      .filter((r) => {
+        const rt = (r.role_type as string) || "prep_poc";
+        return rt !== "outreach_poc" && rt !== "outreach";
+      })
+      .map((r) =>
+        rowToCapability({ ...r, live_active_lmp_count: liveLoadMap[r.name] ?? r.active_load ?? 0 }),
+      );
   }, [data, liveLoadMap]);
 
   return { list, isLoading, error };
@@ -116,8 +121,17 @@ export function useBehavioralPocs() {
 }
 
 export function useOutreachPocs() {
-  const { list } = usePocCapabilityList();
-  return useMemo(() => list.filter((p) => p.pocType === "outreach").map((p) => p.name), [list]);
+  const { data } = usePocProfilesWithLoad();
+  return useMemo(
+    () =>
+      ((data as any[]) ?? [])
+        .filter((p) => {
+          const rt = (p.role_type as string) || "";
+          return rt === "outreach_poc" || rt === "outreach";
+        })
+        .map((p) => p.name as string),
+    [data],
+  );
 }
 
 /**

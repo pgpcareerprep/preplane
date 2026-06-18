@@ -112,7 +112,7 @@ describe("isUserOperationalPoc — operational checks pass", () => {
 
   it("matches outreachPocIds array membership", () => {
     const rec = makeRec({ outreachPocIds: ["uuid-o1", "uuid-o2"] });
-    expect(isUserOperationalPoc(rec, "", "uuid-o2")).toBe(true);
+    expect(isUserOperationalPoc(rec, "", "uuid-o2")).toBe(false);
   });
 
   it("matches by prepPoc name when no UUID", () => {

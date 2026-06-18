@@ -264,14 +264,8 @@ function ownerNamesMatch(left: string | null | undefined, right: string | null |
 }
 
 export function isLmpOwner(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
-  if (pocId) {
-    if (lmp.prep_poc_id && lmp.prep_poc_id === pocId) return true;
-    if (lmp.support_poc_id && lmp.support_poc_id === pocId) return true;
-    if (Array.isArray(lmp.outreach_poc_ids) && lmp.outreach_poc_ids.includes(pocId)) return true;
-  }
-  return ownerNamesMatch(lmp.prep_poc, _userName)
-    || ownerNamesMatch(lmp.support_poc, _userName)
-    || ownerNamesMatch(lmp.outreach_poc, _userName);
+  // Operational ownership: prep + support only. Outreach is display-only metadata.
+  return isLmpPrepPoc(_userName, lmp, pocId);
 }
 
 export function isLmpPrepPoc(_userName: string, lmp: LmpOwnership, pocId?: string | null): boolean {
@@ -302,8 +296,10 @@ export function getLmpAccessLevel(
 ): "full" | "summary" | "none" {
   // admin/allocator always get full edit access regardless of ownership
   if (role === "admin" || role === "allocator") return "full";
-  // POC: full only if assigned
-  if (isLmpPrepPoc(userName, lmp, pocId) || isLmpOutreachPoc(userName, lmp, pocId)) return "full";
+  // POC: full only if assigned as prep/support (not outreach display tag)
+  if (isLmpPrepPoc(userName, lmp, pocId)) return "full";
+  // Outreach-only assignment is display metadata — no app access
+  if (isLmpOutreachPoc(userName, lmp, pocId)) return "none";
   return "summary";
 }
 
@@ -312,13 +308,13 @@ export function canManageLmp(role: Role): boolean {
   return role === "admin" || role === "allocator";
 }
 
-/** Operational authority always requires assignment, regardless of app role. */
+/** Operational authority requires prep/support assignment (not outreach display). */
 export function canOperateLmp(
   userName: string,
   lmp: LmpOwnership,
   pocId?: string | null,
 ): boolean {
-  return isLmpOwner(userName, lmp, pocId);
+  return isLmpPrepPoc(userName, lmp, pocId);
 }
 
 /** All current roles may view an LMP at their resolved access level. */
@@ -397,10 +393,10 @@ export function canCopilotAction(
     };
   }
 
-  // Execute update: check ownership
+  // Execute update: prep/support assignment only (outreach is display-only)
   if (action === "execute_update") {
     if (role === "admin" || role === "allocator") return { allowed: true };
-    if (targetLmpOwnership && isLmpOwner(userName, targetLmpOwnership)) {
+    if (targetLmpOwnership && isLmpPrepPoc(userName, targetLmpOwnership)) {
       return { allowed: true };
     }
     return {
@@ -464,6 +460,11 @@ export function canEditFieldFinal(
     "prep_doc",
   ];
   if (managementFields.includes(field)) return canManageLmp(role);
+
+  const subRole = getPocSubRole(userName, lmp, pocId);
+  if (subRole === "outreach_poc") {
+    return false;
+  }
 
   return canOperateLmp(userName, lmp, pocId);
 }

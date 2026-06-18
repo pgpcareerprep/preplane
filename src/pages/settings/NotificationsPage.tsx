@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/rolesContext";
+import { useUserNotifications } from "@/lib/hooks/useUserNotifications";
+import { useNavigate } from "react-router-dom";
 
 const ALL_DAYS = [
   { key: "monday", label: "Mon" },
@@ -302,9 +304,12 @@ export default function NotificationsPage() {
       <header>
         <h3 className="text-[24px] font-semibold tracking-[-0.5px] text-n900">Notifications</h3>
         <p className="text-[13px] text-n500 mt-1">
-          Configure when progress reminder emails are sent to POCs.
+          Your in-app feed and progress reminder email settings.
         </p>
       </header>
+
+      <UserNotificationFeed />
+
       {!canEdit && (
         <div className="rounded-lg border border-n200 bg-n50 px-4 py-3 text-[13px] text-n600">
           Read-only view. Notification configuration can be changed by admins and allocators.
@@ -471,6 +476,81 @@ export default function NotificationsPage() {
           If not, a reminder email is sent to the assigned POC. Changing the next progress date
           automatically cancels any previous reminder.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function UserNotificationFeed() {
+  const navigate = useNavigate();
+  const { notifications, unreadCount, markRead, markAllRead, isLoading } = useUserNotifications();
+
+  return (
+    <div className="rounded-xl bg-card border border-n200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-n200 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-orange-50 text-orange-500 grid place-items-center">
+            <Bell className="h-4.5 w-4.5" strokeWidth={1.5} />
+          </div>
+          <div>
+            <h4 className="text-[15px] font-semibold text-n900">Your notifications</h4>
+            <p className="text-[12px] text-n500">
+              {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+            </p>
+          </div>
+        </div>
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            onClick={() => markAllRead()}
+            className="text-[12px] text-orange-600 hover:underline"
+          >
+            Mark all read
+          </button>
+        )}
+      </div>
+      <div className="max-h-[420px] overflow-y-auto">
+        {isLoading ? (
+          <div className="px-5 py-8 grid place-items-center text-n400">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="px-5 py-8 text-center text-[13px] text-n400 italic">
+            No notifications yet.
+          </div>
+        ) : (
+          <ul className="divide-y divide-n100">
+            {notifications.map((n) => {
+              const unread = !n.read_at;
+              return (
+                <li key={n.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (unread) markRead(n.id);
+                      if (n.route) navigate(n.route);
+                    }}
+                    className={cn(
+                      "w-full text-left px-5 py-3 hover:bg-n50 transition-colors",
+                      unread && "bg-orange-50/40",
+                    )}
+                  >
+                    <div className="flex items-start gap-2">
+                      {unread && <span className="mt-1.5 h-2 w-2 rounded-full bg-orange-500 shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-medium text-n900">{n.title}</div>
+                        <div className="text-[12px] text-n600">{n.message}</div>
+                        <div className="text-[11px] text-n400 mt-0.5">
+                          {n.created_at ? new Date(n.created_at).toLocaleString() : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );

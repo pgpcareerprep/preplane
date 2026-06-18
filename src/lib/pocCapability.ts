@@ -71,7 +71,8 @@ export function calculatePocConversion(
   let crossTotal = 0, crossConverted = 0;
 
   for (const r of lmpRows) {
-    const isPocAssigned = (r.prepPoc?.name || r.domainPrepPoc?.name) === pocName || r.outreachPoc?.name === pocName;
+    const isPocAssigned =
+      (r.prepPoc?.name || r.domainPrepPoc?.name) === pocName;
     if (!isPocAssigned) continue;
 
     const isInDomain = pocDomains.some(d => d.toLowerCase() === r.domain.toLowerCase());
