@@ -17,6 +17,7 @@ import {
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
 import { resolveDomainName } from "@/lib/domainAlias";
+import { rankPerformance } from "@/lib/performanceConversion";
 
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpRows } from "@/lib/sheets/hooks";
@@ -270,11 +271,17 @@ export function AdminLmpDashboard() {
     refetchInterval: 120_000,
   });
 
-  // All attention counts computed from filteredRecords/filteredCapacity so they respect active filters.
+  // All attention/performance counts respect active filters via filteredRecords / filteredCapacity.
+
   const TERMINAL_STATUSES = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
+
+  // Pending Offers — LMPs in Offer Received status (unchanged).
   const attentionPendingOffers = filteredRecords.filter((r) => r.status === "offer-received").length;
-  const attentionMissingPrepDocs = filteredRecords.filter(
-    (r) => !r.prepDoc && !TERMINAL_STATUSES.has(r.status),
+
+  // Missing Prep POCs — active LMPs with no prep POC assigned (prepPocId is null/undefined).
+  // Excludes terminal statuses since closed processes no longer need assignment.
+  const attentionMissingPrepPocs = filteredRecords.filter(
+    (r) => !r.prepPocId && !TERMINAL_STATUSES.has(r.status),
   ).length;
 
   const mostOverloadedPocName = useMemo(
@@ -292,29 +299,6 @@ export function AdminLmpDashboard() {
       return p.active > threshold;
     }).length;
   }, [filteredCapacity, attentionPocs]);
-
-  const highestRiskDomainName = useMemo(() => {
-    const cd = (domainRows as any[]).map((d: any) => ({
-      id: d?.id ?? "", name: d?.name ?? "", slug: d?.slug ?? "",
-      aliases: Array.isArray(d?.aliases) ? d.aliases : [],
-    })).filter((d) => d.name);
-    const RISK_STATUSES = new Set(["hold", "dormant", "closed", "other-reasons"]);
-    const riskByDomain = new Map<string, number>();
-    const totalByDomain = new Map<string, number>();
-    for (const r of filteredRecords) {
-      const domainName = resolveDomainName(r.domain, cd) ?? r.domain ?? "Unmapped";
-      if (!domainName || domainName.toLowerCase() === "unmapped") continue;
-      totalByDomain.set(domainName, (totalByDomain.get(domainName) ?? 0) + 1);
-      if (RISK_STATUSES.has(r.status)) {
-        riskByDomain.set(domainName, (riskByDomain.get(domainName) ?? 0) + 1);
-      }
-    }
-    const allDomains = Array.from(new Set([...riskByDomain.keys(), ...totalByDomain.keys()]));
-    return allDomains.sort((a, b) => {
-      const diff = (riskByDomain.get(b) ?? 0) - (riskByDomain.get(a) ?? 0);
-      return diff !== 0 ? diff : (totalByDomain.get(b) ?? 0) - (totalByDomain.get(a) ?? 0);
-    })[0] ?? "—";
-  }, [filteredRecords, domainRows]);
 
   /* ─────── Student analytics (live · students DB) ─────── */
   const studentStats = useMemo(() => {
@@ -469,6 +453,44 @@ export function AdminLmpDashboard() {
       .filter((d) => d.name),
     [domainRows],
   );
+
+  // ── Performance metrics ──────────────────────────────────────────────────────
+  // Formula (POC, POD, domain): Converted ÷ (Converted + Not Converted) × 100.
+  // offer-received counts as Converted (canonical lmpStatusCounts mapping).
+  // All computations respect active filters via filteredRecords.
+
+  const bestPoc = useMemo(() => {
+    // Group by prepPocId (UUID) to deduplicate assignments; display name from prepPoc.name.
+    const byPocId = new Map<string, { name: string; converted: number; notConverted: number }>();
+    for (const r of filteredRecords) {
+      if (!r.prepPocId) continue;
+      const entry = byPocId.get(r.prepPocId) ?? {
+        name: r.prepPoc?.name ?? r.prepPocId,
+        converted: 0,
+        notConverted: 0,
+      };
+      if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
+      else if (r.status === "not-converted") entry.notConverted += 1;
+      byPocId.set(r.prepPocId, entry);
+    }
+    return rankPerformance(Array.from(byPocId.values()));
+  }, [filteredRecords]);
+
+  const bestDomain = useMemo(() => {
+    // Group by canonical domain name (resolved via aliases → primary name).
+    const byDomain = new Map<string, { converted: number; notConverted: number }>();
+    for (const r of filteredRecords) {
+      const domainName = resolveDomainName(r.domain, canonicalDomains) ?? r.domain ?? "";
+      if (!domainName || domainName.toLowerCase() === "unmapped") continue;
+      const entry = byDomain.get(domainName) ?? { converted: 0, notConverted: 0 };
+      if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
+      else if (r.status === "not-converted") entry.notConverted += 1;
+      byDomain.set(domainName, entry);
+    }
+    return rankPerformance(
+      Array.from(byDomain.entries()).map(([name, e]) => ({ name, ...e })),
+    );
+  }, [filteredRecords, canonicalDomains]);
 
   const domainAnalytics = useMemo(() => {
     type MutableDomain = {
@@ -1108,14 +1130,62 @@ export function AdminLmpDashboard() {
 
       <LxAttentionStrip
         items={[
-          { label: "Highest risk domain",  value: highestRiskDomainName,    accent: "risk",   info: info("attention.highest-risk-domain"),
-            onClick: () => openLmps(lmpsForDomain(filtered, highestRiskDomainName), `${highestRiskDomainName} · LMPs`) },
-          { label: "Most overloaded POC",  value: mostOverloadedPocName,    accent: "orange", info: info("attention.most-overloaded-poc"),
-            onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`) },
-          { label: "Pending offers",       value: attentionPendingOffers,   accent: "yellow", info: info("attention.pending-offers"),
-            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`) },
-          { label: "Missing prep docs",    value: attentionMissingPrepDocs, accent: "ai",     info: info("attention.missing-prep-docs") },
-          { label: "Overloaded POCs",      value: overloadedPocsCount,      accent: "info",   info: info("attention.overloaded-pocs"),
+          {
+            label: "Highest Performing POC",
+            value: bestPoc ? bestPoc.name : "—",
+            sub: bestPoc
+              ? `${bestPoc.converted}/${bestPoc.eligible} · ${bestPoc.pct.toFixed(0)}%`
+              : "No eligible outcomes",
+            accent: "success",
+            info: info("attention.best-poc"),
+            onClick: bestPoc
+              ? () => openLmps(lmpsForPoc(filtered, bestPoc.name, "prep"), `${bestPoc.name} · LMPs`)
+              : undefined,
+          },
+          {
+            label: "Best Performing POD",
+            value: "—",
+            sub: "POD mapping unavailable",
+            accent: "neutral",
+            info: info("attention.best-pod"),
+          },
+          {
+            label: "Best Performing Domain",
+            value: bestDomain ? bestDomain.name : "—",
+            sub: bestDomain
+              ? `${bestDomain.converted}/${bestDomain.eligible} · ${bestDomain.pct.toFixed(0)}%`
+              : "No eligible outcomes",
+            accent: "teal",
+            info: info("attention.best-domain"),
+            onClick: bestDomain
+              ? () => openLmps(lmpsForDomain(filtered, bestDomain.name), `${bestDomain.name} · LMPs`)
+              : undefined,
+          },
+          {
+            label: "Most Overloaded POC",
+            value: mostOverloadedPocName,
+            accent: "orange",
+            info: info("attention.most-overloaded-poc"),
+            onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`),
+          },
+          {
+            label: "Pending Offers",
+            value: attentionPendingOffers,
+            accent: "yellow",
+            info: info("attention.pending-offers"),
+            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`),
+          },
+          {
+            label: "Missing Prep POCs",
+            value: attentionMissingPrepPocs,
+            accent: "ai",
+            info: info("attention.missing-prep-pocs"),
+          },
+          {
+            label: "Overloaded POCs",
+            value: overloadedPocsCount,
+            accent: "info",
+            info: info("attention.overloaded-pocs"),
             onClick: () => {
               const thresholdByName = new Map(attentionPocs.map((p) => [p.name, p.threshold]));
               setDrill({
@@ -1133,7 +1203,8 @@ export function AdminLmpDashboard() {
                     threshold: thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD,
                   })),
               });
-            } },
+            },
+          },
         ]}
       />
 

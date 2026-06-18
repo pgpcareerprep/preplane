@@ -56,11 +56,13 @@ export const DASHBOARD_INFO = {
   "admin.students.by-domain":      "Unique students grouped by their PRIMARY domain preference (resolved to canonical domain names). Click a row to list those students.",
   "admin.students.converted":      "Unique students listed under Converted Names across LMPs in the selected dashboard scope. A student appearing in multiple LMPs is counted once.",
 
-  // ── Admin · Attention strip
-  "attention.highest-risk-domain": "Domain with the largest combined count of On Hold + Dormant + Closed LMPs.",
+  // ── Admin · Attention / Performance strip
+  "attention.best-poc":            "POC with the highest Converted ÷ (Converted + Not Converted) rate in the current filtered scope. Requires at least one terminal outcome.",
+  "attention.best-pod":            "POD with the highest distinct-LMP conversion rate in the current filtered scope.",
+  "attention.best-domain":         "Domain with the highest Converted ÷ (Converted + Not Converted) rate in the current filtered scope. Uses canonical domain IDs.",
   "attention.most-overloaded-poc": "Active POC with the highest active_load value (across all roles).",
   "attention.pending-offers":      "All LMPs currently in Offer Received status (live DB count).",
-  "attention.missing-prep-docs":   "Active LMPs missing a prep doc (live DB count, excludes terminal statuses).",
+  "attention.missing-prep-pocs":   "Active LMPs with no Prep POC assignment (prepPocId is null), excluding terminal statuses (Converted, Not Converted, Other Reasons, Closed).",
   "attention.overloaded-pocs":     "POCs whose active_load exceeds their max_threshold.",
 
   // ── POC · personal

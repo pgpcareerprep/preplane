@@ -689,7 +689,15 @@ export function LxHeatmap({
 export function LxAttentionStrip({
   items,
 }: {
-  items: { label: string; value: ReactNode; accent?: LxAccent; info?: string; onClick?: () => void }[];
+  items: {
+    label: string;
+    value: ReactNode;
+    /** Optional supporting text rendered below the primary value in a smaller muted style. */
+    sub?: ReactNode;
+    accent?: LxAccent;
+    info?: string;
+    onClick?: () => void;
+  }[];
 }) {
   return (
     <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-2">
@@ -710,7 +718,7 @@ export function LxAttentionStrip({
               if (clickable && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); it.onClick!(); }
             }}
           >
-            <span className="h-8 w-8 rounded-lg grid place-items-center"
+            <span className="h-8 w-8 rounded-lg grid place-items-center shrink-0"
               style={{ background: SOFT_BG[it.accent ?? "neutral"] }}>
               <span className="h-2 w-2 rounded-full" style={{ background: LX_HEX[it.accent ?? "neutral"] }} />
             </span>
@@ -720,6 +728,11 @@ export function LxAttentionStrip({
                 {it.info && <LxInfo text={it.info} size={11} />}
               </div>
               <div className={cn("text-[13px] font-semibold truncate", clickable && "group-hover:underline")} style={{ color: "var(--lx-text)" }}>{it.value}</div>
+              {it.sub !== undefined && (
+                <div className="text-[10.5px] tabular-nums truncate mt-0.5" style={{ color: "var(--lx-text-3)" }}>
+                  {it.sub}
+                </div>
+              )}
             </div>
           </div>
         );
