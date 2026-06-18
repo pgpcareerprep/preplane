@@ -83,61 +83,62 @@ const QUERY_KEY = ["prep_poc_heatmap_v3"] as const;
 
 const STORAGE_KEY = "heatmap_visible_sections_v1";
 
-// ── Heat palette — 5 levels aligned to Lumina brand colors ───────────────────
+// ── Heat palette — 5 levels, soft Tailwind-based tints ───────────────────────
 // L0=zero  L1=1-25%  L2=26-50%  L3=51-75%  L4=76-100%
-// Dark text throughout — no white text on pastels.
+// Max fill = color-300; never use color-400/500/600 in heat cells.
+// Dark text throughout (color-800/700 for filled cells); muted for empty.
 
 type ColorPalette = {
   bg: [string, string, string, string, string];
   text: [string, string, string, string, string];
 };
 
-const MUTED_TEXT = "#7A756C"; // lx-text-3
+const MUTED_TEXT = "#a8a29e"; // stone-400 — zero-value / empty cell text
 
-// Warm neutral / LMP Load
+// Amber / LMP Load (warm neutral — workload/volume)
 const P_NEUTRAL: ColorPalette = {
-  bg:   ["#FAFAF8", "#EEECEA", "#DEDAD5", "#CCC8C1", "#B5B0A8"],
-  text: [MUTED_TEXT, "#5C594F", "#3D3A35", "#2A2825", "#1A1916"],
+  bg:   ["#fafaf9", "#fffbeb", "#fef3c7", "#fde68a", "#fcd34d"], // stone-50 · amber-50/100/200/300
+  text: [MUTED_TEXT, "#92400e", "#78350f", "#451a03", "#292524"],
 };
-// Sky / Active Prep
+// Soft blue / Active Prep (Not Started · Prep Ongoing · Prep Done)
 const P_SKY: ColorPalette = {
-  bg:   ["#F6FAFF", "#DEEAF9", "#BAD3F4", "#8DB6EC", "#4A8EE8"],
-  text: [MUTED_TEXT, "#1A4FA0", "#163E88", "#102E6A", "#0A1F4B"],
+  bg:   ["#f8faff", "#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd"], // blue-50/100/200/300
+  text: [MUTED_TEXT, "#1e40af", "#1d4ed8", "#1e3a8a", "#1e3a8a"],
 };
-// Yellow / On Hold (muted warm yellow — distinct from Sky within Active Prep)
+// On Hold lives in Active Prep — use same soft blue family for visual consistency
 const P_YELLOW: ColorPalette = {
-  bg:   ["#FEFDF5", "#FBF5D5", "#F7E99E", "#F2D962", "#E8C72A"],
-  text: [MUTED_TEXT, "#7A5F08", "#614A06", "#4A3805", "#312603"],
+  bg:   ["#f8faff", "#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd"],
+  text: [MUTED_TEXT, "#1e40af", "#1d4ed8", "#1e3a8a", "#1e3a8a"],
 };
-// Sage / Converted
+// Emerald / Converted (positive outcome)
 const P_SAGE: ColorPalette = {
-  bg:   ["#F5FAF4", "#D8EDD5", "#B5D9B0", "#8BC185", "#6A9E62"],
-  text: [MUTED_TEXT, "#2D6A27", "#245520", "#1B4018", "#122B10"],
+  bg:   ["#f7fffe", "#ecfdf5", "#d1fae5", "#a7f3d0", "#6ee7b7"], // emerald-50/100/200/300
+  text: [MUTED_TEXT, "#065f46", "#047857", "#065f46", "#064e3b"],
 };
-// Coral / Not Converted
+// Rose / Not Converted (negative outcome — very soft; max rose-200)
 const P_CORAL: ColorPalette = {
-  bg:   ["#FFF7F5", "#FDE0D8", "#FAC0B0", "#F59380", "#F07040"],
-  text: [MUTED_TEXT, "#8B2800", "#6E2000", "#521800", "#381000"],
+  bg:   ["#fdf8f8", "#fff1f2", "#ffe4e6", "#fecdd3", "#fecdd3"], // rose-50/100/200/200 (cap at 200)
+  text: [MUTED_TEXT, "#9f1239", "#be123c", "#881337", "#881337"],
 };
-// Orange / Other Reasons
+// Orange / Other Reasons (neutral exception — max orange-200)
 const P_ORANGE: ColorPalette = {
-  bg:   ["#FEF9F5", "#FAE6CE", "#F5CFA0", "#EDB169", "#E38330"],
-  text: [MUTED_TEXT, "#7A3E06", "#5E2F04", "#452303", "#2D1702"],
+  bg:   ["#fffaf8", "#fff7ed", "#ffedd5", "#fed7aa", "#fed7aa"], // orange-50/100/200/200 (cap at 200)
+  text: [MUTED_TEXT, "#9a3412", "#c2410c", "#7c2d12", "#7c2d12"],
 };
-// Plum / Responsibility (muted — not AI context here)
+// Indigo / Responsibility (distinct from violet/performance)
 const P_PLUM: ColorPalette = {
-  bg:   ["#FAF8FF", "#EDE5FB", "#D8CAF7", "#BEA9F1", "#8B5CF6"],
-  text: [MUTED_TEXT, "#4A1D96", "#3B1580", "#2C0F60", "#1E0942"],
+  bg:   ["#f8f9ff", "#eef2ff", "#e0e7ff", "#c7d2fe", "#a5b4fc"], // indigo-50/100/200/300
+  text: [MUTED_TEXT, "#3730a3", "#4338ca", "#3730a3", "#312e81"],
 };
-// Teal / Domain Load (in-domain + cross-domain same family)
+// Cyan / Domain Load (in-domain · cross-domain)
 const P_TEAL: ColorPalette = {
-  bg:   ["#F3FBFD", "#C8EDF5", "#92D8EC", "#54BEE0", "#39B6D8"],
-  text: [MUTED_TEXT, "#0E5E78", "#0A4A60", "#07374A", "#042535"],
+  bg:   ["#f6feff", "#ecfeff", "#cffafe", "#a5f3fc", "#67e8f9"], // cyan-50/100/200/300
+  text: [MUTED_TEXT, "#155e75", "#0e7490", "#164e63", "#164e63"],
 };
-// Perf green / Students Placed
+// Violet / Performance (LMP Conversion · Students Placed — final scorecard)
 const P_PERF: ColorPalette = {
-  bg:   ["#F4FAF3", "#CEEACB", "#9DD498", "#6BBC65", "#4DA847"],
-  text: [MUTED_TEXT, "#225220", "#1A4018", "#123010", "#0B200A"],
+  bg:   ["#fdfcff", "#f5f3ff", "#ede9fe", "#ddd6fe", "#c4b5fd"], // violet-50/100/200/300
+  text: [MUTED_TEXT, "#5b21b6", "#6d28d9", "#4c1d95", "#4c1d95"],
 };
 
 function intensityLevel(value: number, colMax: number): 0 | 1 | 2 | 3 | 4 {
@@ -198,26 +199,26 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "lmpLoad",
     label: "LMP LOAD",
     icon: ClipboardList,
-    accent: "var(--lx-text-3)",
-    headerBg: "var(--lx-soft)",
-    subheaderBg: "var(--lx-bg)",
+    accent: "#b45309",          // amber-700
+    headerBg: "#fffbeb",        // amber-50
+    subheaderBg: "#fafaf9",     // stone-50
     cols: [
       {
         dataKey: "totalLmpLoad", metricKey: "total", colType: "heat",
         label: "Total", subLabel: "(Till Today)", minWidth: 68,
-        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        palette: P_NEUTRAL, totalAccent: "#b45309",
         tooltip: "Distinct LMPs assigned to this POC as Primary or Support (all time).",
       },
       {
         dataKey: "currentLmpCount", metricKey: "current", colType: "heat",
         label: "Current", subLabel: "(Ongoing)", minWidth: 68,
-        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        palette: P_NEUTRAL, totalAccent: "#b45309",
         tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done.",
       },
       {
         dataKey: "closedLmpCount", metricKey: "closed", colType: "heat",
         label: "Closed", minWidth: 60,
-        palette: P_NEUTRAL, totalAccent: "#5C594F",
+        palette: P_NEUTRAL, totalAccent: "#b45309",
         tooltip: "LMPs with no remaining current Prep work (Converted + Not Converted + On Hold + Other Reasons).",
       },
     ],
@@ -226,32 +227,32 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "activePrep",
     label: "ACTIVE PREP",
     icon: RefreshCw,
-    accent: "var(--lx-info)",
-    headerBg: "#F0F6FE",
-    subheaderBg: "#E6F0FC",
+    accent: "#1d4ed8",          // blue-700
+    headerBg: "#eff6ff",        // blue-50
+    subheaderBg: "#dbeafe",     // blue-100
     cols: [
       {
         dataKey: "notStartedCount", metricKey: "notStarted", colType: "heat",
         label: "Not Started", minWidth: 78,
-        palette: P_SKY, totalAccent: "#1A4FA0",
+        palette: P_SKY, totalAccent: "#1d4ed8",
         tooltip: "LMPs assigned but preparation has not yet begun.",
       },
       {
         dataKey: "prepOngoingCount", metricKey: "prepOngoing", colType: "heat",
         label: "Prep Ongoing", minWidth: 90,
-        palette: P_SKY, totalAccent: "#1A4FA0",
+        palette: P_SKY, totalAccent: "#1d4ed8",
         tooltip: "Prep currently in progress.",
       },
       {
         dataKey: "prepDoneCount", metricKey: "prepDone", colType: "heat",
         label: "Prep Done", minWidth: 78,
-        palette: P_SKY, totalAccent: "#1A4FA0",
+        palette: P_SKY, totalAccent: "#1d4ed8",
         tooltip: "Prep marked complete, candidate handed to rounds.",
       },
       {
         dataKey: "onHoldCount", metricKey: "onHold", colType: "heat",
         label: "On Hold", minWidth: 72,
-        palette: P_YELLOW, totalAccent: "#7A5F08",
+        palette: P_YELLOW, totalAccent: "#1d4ed8",
         tooltip: "LMPs currently mapped to On Hold status. Shown here for operational visibility — excluded from the conversion denominator and existing load calculations are unchanged.",
       },
     ],
@@ -260,26 +261,26 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "closedOutcomes",
     label: "CLOSED OUTCOMES",
     icon: TrendingUp,
-    accent: "var(--lx-success)",
-    headerBg: "#F2F9F1",
-    subheaderBg: "#E8F5E7",
+    accent: "#047857",          // emerald-700
+    headerBg: "#ecfdf5",        // emerald-50
+    subheaderBg: "#d1fae5",     // emerald-100
     cols: [
       {
         dataKey: "convertedCount", metricKey: "converted", colType: "heat",
         label: "Converted", minWidth: 80,
-        palette: P_SAGE, totalAccent: "#2D6A27",
+        palette: P_SAGE, totalAccent: "#047857",
         tooltip: "Successful conversions credited to this POC.",
       },
       {
         dataKey: "notConvertedCount", metricKey: "notConverted", colType: "heat",
         label: "Not Converted", minWidth: 96,
-        palette: P_CORAL, totalAccent: "#8B2800",
+        palette: P_CORAL, totalAccent: "#be123c",
         tooltip: "LMPs that closed with a Not Converted outcome.",
       },
       {
         dataKey: "otherReasonsCount", metricKey: "otherReasons", colType: "heat",
         label: "Other Reasons", minWidth: 96,
-        palette: P_ORANGE, totalAccent: "#7A3E06",
+        palette: P_ORANGE, totalAccent: "#c2410c",
         tooltip: "Closed for reasons other than Converted or Not Converted (e.g. role pulled, candidate withdrew).",
       },
     ],
@@ -288,20 +289,20 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "responsibility",
     label: "RESPONSIBILITY",
     icon: Users,
-    accent: "var(--lx-ai)",
-    headerBg: "#F7F4FE",
-    subheaderBg: "#F0EBFD",
+    accent: "#4338ca",          // indigo-700
+    headerBg: "#eef2ff",        // indigo-50
+    subheaderBg: "#e0e7ff",     // indigo-100
     cols: [
       {
         dataKey: "primaryCount", metricKey: "primary", colType: "heat",
         label: "Primary", minWidth: 68,
-        palette: P_PLUM, totalAccent: "#4A1D96",
+        palette: P_PLUM, totalAccent: "#4338ca",
         tooltip: "Distinct LMPs where this POC is the Primary Prep owner.",
       },
       {
         dataKey: "supportCount", metricKey: "support", colType: "heat",
         label: "Support", minWidth: 68,
-        palette: P_PLUM, totalAccent: "#4A1D96",
+        palette: P_PLUM, totalAccent: "#4338ca",
         tooltip: "Distinct LMPs where this POC is a Support owner.",
       },
     ],
@@ -310,20 +311,20 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "domainLoad",
     label: "DOMAIN LOAD",
     icon: Briefcase,
-    accent: "var(--lx-teal)",
-    headerBg: "#EDF9FD",
-    subheaderBg: "#E0F5FA",
+    accent: "#0e7490",          // cyan-700
+    headerBg: "#ecfeff",        // cyan-50
+    subheaderBg: "#cffafe",     // cyan-100
     cols: [
       {
         dataKey: "inDomainCount", metricKey: "inDomain", colType: "heat",
         label: "In-domain", minWidth: 80,
-        palette: P_TEAL, totalAccent: "#0E5E78",
+        palette: P_TEAL, totalAccent: "#0e7490",
         tooltip: "Primary LMPs matching at least one domain assigned to this POC.",
       },
       {
         dataKey: "crossDomainCount", metricKey: "crossDomain", colType: "heat",
         label: "Cross-domain", minWidth: 92,
-        palette: P_TEAL, totalAccent: "#0E5E78",
+        palette: P_TEAL, totalAccent: "#0e7490",
         tooltip: "Primary LMPs outside all domains assigned to this POC.",
       },
     ],
@@ -332,21 +333,21 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "performance",
     label: "PERFORMANCE",
     icon: BarChart3,
-    accent: "var(--lx-success)",
-    headerBg: "#F2F9F1",
-    subheaderBg: "#E8F5E7",
+    accent: "#6d28d9",          // violet-700
+    headerBg: "#f5f3ff",        // violet-50
+    subheaderBg: "#ede9fe",     // violet-100
     cols: [
       {
         // dataKey unused for "conversion" colType — special rendering
         dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
         label: "LMP Conversion", minWidth: 108,
-        palette: P_SAGE, totalAccent: "#2D6A27",
+        palette: P_PERF, totalAccent: "#6d28d9",
         tooltip: "Converted ÷ eligible closed LMPs (excludes On Hold). Format: converted/eligible – %.",
       },
       {
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
         label: "Students Placed", minWidth: 96,
-        palette: P_PERF, totalAccent: "#225220",
+        palette: P_PERF, totalAccent: "#6d28d9",
         tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC.",
       },
     ],
@@ -1018,9 +1019,9 @@ export function PrepPocHeatmapCard() {
                 <span>Heat intensity (relative to column max)</span>
                 <span className="flex items-center gap-1 ml-1">
                   <span className="text-[10px]">Low</span>
-                  {(["#EEECEA", "#CCC8C1", "#B5B0A8", "#7A756C", "#5C594F"] as const).map((bg, i) => (
+                  {(["#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd", "#60a5fa"] as const).map((bg, i) => (
                     <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm border"
-                      style={{ background: bg, borderColor: "var(--lx-border)" }} />
+                      style={{ background: bg, borderColor: "#bfdbfe" }} />
                   ))}
                   <span className="text-[10px]">High</span>
                 </span>
