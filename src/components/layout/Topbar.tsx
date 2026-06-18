@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Moon, Sun, Eye, Lock, RotateCcw } from "lucide-react";
+import { FileSpreadsheet, Moon, Sun, Eye, Lock, RotateCcw } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { GlobalSearch, type GlobalSearchHandle } from "@/components/search/GlobalSearch";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/lib/themeContext";
 import { useRole } from "@/lib/rolesContext";
 import { cn } from "@/lib/utils";
+
+const PREPLANE_MASTER_SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1zWNwRCudhOemZS5zCht46i34wuTQNCqho7pkqWGmsIo/edit?usp=sharing";
 
 /**
  * Compact View As badge shown in the Topbar when a privileged user has selected
@@ -96,6 +99,17 @@ export function Topbar() {
       {/* Right: search, theme, notifications */}
       <div className="flex items-center gap-1.5">
         <GlobalSearch ref={searchRef} scope={searchScope} />
+
+        <a
+          href={PREPLANE_MASTER_SHEET_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open PrepLane Sheet"
+          aria-label="Open PrepLane Google Sheet"
+          className="h-8 w-8 rounded-full grid place-items-center text-n500 hover:text-n900 hover:bg-n100 dark:text-d-muted dark:hover:text-d-text dark:hover:bg-d-surface-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/70"
+        >
+          <FileSpreadsheet className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+        </a>
 
         <button
           type="button"
