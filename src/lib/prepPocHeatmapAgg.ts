@@ -35,7 +35,6 @@ export type LmpProcessForHeatmap = {
   daily_progress?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  candidate_count?: number | null;
   domains?: { name: string | null } | null;
 };
 

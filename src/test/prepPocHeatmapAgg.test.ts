@@ -545,3 +545,77 @@ describe("Drill-down filters reconcile with visible heatmap cells", () => {
     expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(false);
   });
 });
+
+// ── Query-contract: candidate_count must not come from lmp_processes ──────────
+
+describe("query contract — no candidate_count from lmp_processes", () => {
+  it("LmpProcessForHeatmap type does not include candidate_count", () => {
+    // Passing a link with no candidate_count (matching the real DB schema) must work.
+    const lmp: LinkRaw = {
+      poc_id: "p1",
+      role: "prep",
+      lmp_id: "lmp1",
+      lmp_processes: {
+        status: "prep-ongoing",
+        domains: { name: "Product" },
+        // candidate_count is intentionally absent — it does not exist on lmp_processes
+      },
+    };
+    expect(lmp.lmp_processes).not.toHaveProperty("candidate_count");
+  });
+
+  it("buildHeatmapData succeeds with links that have no candidate_count field", () => {
+    const pocs = [poc("p1", "Alice", ["Product"])];
+    const links: LinkRaw[] = [
+      link("p1", "lmp1", "prep", "prep-ongoing", "Product"),
+      link("p1", "lmp2", "prep", "converted", "Product"),
+    ];
+    const candidates: CandidateRaw[] = [
+      candidate("lmp2", "s1"),
+      candidate("lmp2", "s2"),
+    ];
+    expect(() => buildHeatmapData(pocs, links, candidates)).not.toThrow();
+    const result = buildHeatmapData(pocs, links, candidates);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].totalLmpLoad).toBe(2);
+  });
+
+  it("mapped-student count comes from distinct lmp_candidates.student_id, not candidate_count", () => {
+    const pocs = [poc("p1", "Alice", ["Product"])];
+    const links: LinkRaw[] = [link("p1", "lmp1", "prep", "converted", "Product")];
+    // Two candidate rows for the same student — dedup must prevent double-count
+    const candidates: CandidateRaw[] = [
+      candidate("lmp1", "student-A"),
+      candidate("lmp1", "student-A"), // duplicate row
+      candidate("lmp1", "student-B"),
+    ];
+    const result = buildHeatmapData(pocs, links, candidates);
+    expect(result.rows[0].studentsPlaced).toBe(2); // deduped, not 3
+    expect(result.summary.uniqueStudentsPlaced).toBe(2);
+  });
+
+  it("heatmap rows render correctly with zero students when no candidates exist", () => {
+    const pocs = [poc("p1", "Alice", ["Product"])];
+    const links: LinkRaw[] = [link("p1", "lmp1", "prep", "not-started", "Product")];
+    const result = buildHeatmapData(pocs, [], []);
+    // No links means p1 has no LMPs — should still produce a row
+    const result2 = buildHeatmapData(pocs, links, []);
+    expect(result2.rows[0].studentsPlaced).toBe(0);
+    expect(result2.summary.uniqueStudentsPlaced).toBe(0);
+  });
+
+  it("summary KPIs calculate correctly when candidate_count is absent from source data", () => {
+    const pocs = [poc("p1", "Alice"), poc("p2", "Bob")];
+    const links: LinkRaw[] = [
+      link("p1", "lmp1", "prep", "converted"),
+      link("p1", "lmp2", "prep", "not-converted"),
+      link("p2", "lmp1", "support", "converted"), // shared LMP — global dedup
+    ];
+    const candidates: CandidateRaw[] = [candidate("lmp1", "s1")];
+    const result = buildHeatmapData(pocs, links, candidates);
+    expect(result.summary.uniqueLmpCount).toBe(2); // lmp1 + lmp2 globally
+    expect(result.summary.uniqueStudentsPlaced).toBe(1); // s1 once
+    expect(result.summary.convertedLmpCount).toBe(1);
+    expect(result.summary.eligibleClosedLmpCount).toBe(2); // converted + not-converted
+  });
+});
