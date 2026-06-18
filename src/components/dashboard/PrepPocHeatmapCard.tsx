@@ -389,9 +389,8 @@ export function PrepPocHeatmapCard() {
 
   // ── Per-column max values for heat intensity ────────────────────────────────
   const colMaxValues = useMemo(() => {
-    const rows = data?.rows ?? [];
     const maxFor = (key: keyof PrepPocHeatmapRow) =>
-      Math.max(1, ...rows.map((r) => (r[key] as number) ?? 0));
+      Math.max(1, ...activeRows.map((r) => (r[key] as number) ?? 0));
     return {
       totalLmpLoad: maxFor("totalLmpLoad"),
       currentLmpCount: maxFor("currentLmpCount"),
@@ -409,7 +408,7 @@ export function PrepPocHeatmapCard() {
       crossDomainCount: maxFor("crossDomainCount"),
       studentsPlaced: maxFor("studentsPlaced"),
     };
-  }, [data]);
+  }, [activeRows]);
 
   // ── CSV export ──────────────────────────────────────────────────────────────
   const handleExport = useCallback(() => {
@@ -482,6 +481,9 @@ export function PrepPocHeatmapCard() {
       studentsPlaced: summary.uniqueStudentsPlaced, // globally deduped
     };
   }, [data]);
+
+  // Only show POCs who have at least one LMP assignment (participating in POC allocation)
+  const activeRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
 
   const openDrilldown = useCallback((row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => {
     if (displayedCount !== null && displayedCount <= 0) return;
@@ -632,7 +634,7 @@ export function PrepPocHeatmapCard() {
           </div>
         )}
 
-        {!isLoading && !isError && data && data.rows.length === 0 && (
+        {!isLoading && !isError && data && activeRows.length === 0 && (
           <div className="py-10 text-center">
             <p className="text-[14px]" style={{ color: "#94a3b8" }}>
               No Prep POC workload data is available for the selected filters.
@@ -640,7 +642,7 @@ export function PrepPocHeatmapCard() {
           </div>
         )}
 
-        {!isLoading && !isError && data && data.rows.length > 0 && (
+        {!isLoading && !isError && data && activeRows.length > 0 && (
           <>
           <div className="overflow-x-auto rounded-2xl border bg-white" style={{ borderColor: "#e7edf4" }}>
             <table
@@ -783,7 +785,7 @@ export function PrepPocHeatmapCard() {
               </thead>
 
               <tbody>
-                {data.rows.map((row) => (
+                {activeRows.map((row) => (
                   <DataRow
                     key={row.pocId}
                     row={row}
