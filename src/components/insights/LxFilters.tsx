@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { LxFilterRow } from "./primitives";
+import { LxFilterRow, type LxFilterOption } from "./primitives";
 import {
-  DOMAIN_OPTIONS, RANGE_OPTIONS, STATUS_OPTIONS, TYPE_OPTIONS, type LmpFilters,
+  RANGE_OPTIONS, DOMAIN_OPTIONS, STATUS_OPTIONS, TYPE_OPTIONS, type LmpFilters,
 } from "@/components/dashboards/filters/useLmpFilters";
+import type { FilterOption } from "@/lib/hooks/useDashboardFilterOptions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format, startOfDay, endOfDay } from "date-fns";
@@ -10,13 +11,28 @@ import type { ReactNode } from "react";
 
 const FMT = "dd MMM yyyy";
 
+function toFilterOptions(options?: FilterOption[]): LxFilterOption[] | undefined {
+  return options?.map((o) => ({ value: o.value, label: o.label }));
+}
+
 export function LxLmpFilters({
-  filters, set, pocOptions, showPrepPoc, showOutreachPoc: _showOutreachPoc, right,
+  filters,
+  set,
+  pocOptions,
+  domainOptions,
+  statusOptions,
+  typeOptions,
+  showPrepPoc,
+  showOutreachPoc: _showOutreachPoc,
+  right,
 }: {
   filters: LmpFilters;
   set: <K extends keyof LmpFilters>(k: K, v: LmpFilters[K]) => void;
   /** Prep POC options. Accept UUID-based { value, label }[] or legacy string[]. */
-  pocOptions: string[] | { value: string; label: string }[];
+  pocOptions: string[] | FilterOption[];
+  domainOptions?: FilterOption[];
+  statusOptions?: FilterOption[];
+  typeOptions?: FilterOption[];
   showPrepPoc?: boolean;
   /** @deprecated Outreach POC filter removed. */
   showOutreachPoc?: boolean;
@@ -24,7 +40,6 @@ export function LxLmpFilters({
 }) {
   const [customFromOpen, setCustomFromOpen] = useState(false);
   const [customToOpen, setCustomToOpen] = useState(false);
-  // Local pending dates before user hits "Apply"
   const [pendingFrom, setPendingFrom] = useState<Date | undefined>(
     filters.customFrom ?? undefined,
   );
@@ -32,57 +47,62 @@ export function LxLmpFilters({
     filters.customTo ?? undefined,
   );
 
-  // Normalise pocOptions: accept both string[] and { value, label }[]
-  const normPocOptions: string[] = useMemo(() => {
-    if (!pocOptions.length) return ["All"];
-    if (typeof pocOptions[0] === "string") return pocOptions as string[];
-    return (pocOptions as { value: string; label: string }[]).map((o) => o.label);
+  const normPocOptions = useMemo((): LxFilterOption[] => {
+    if (!pocOptions.length) return [{ value: "All", label: "All" }];
+    if (typeof pocOptions[0] === "string") {
+      return (pocOptions as string[]).map((name) => ({ value: name, label: name }));
+    }
+    return (pocOptions as FilterOption[]).map((o) => ({ value: o.value, label: o.label }));
   }, [pocOptions]);
 
-  // Map label → value for UUID-based options
-  const pocValueByLabel = useMemo<Map<string, string> | null>(() => {
-    if (!pocOptions.length || typeof pocOptions[0] === "string") return null;
-    const m = new Map<string, string>();
-    (pocOptions as { value: string; label: string }[]).forEach((o) => m.set(o.label, o.value));
-    return m;
-  }, [pocOptions]);
+  const domainFilterOptions = toFilterOptions(domainOptions)
+    ?? DOMAIN_OPTIONS.map((d) => ({ value: d, label: d }));
+  const statusFilterOptions = toFilterOptions(statusOptions)
+    ?? STATUS_OPTIONS.map((d) => ({ value: d, label: d }));
+  const typeFilterOptions = toFilterOptions(typeOptions)
+    ?? TYPE_OPTIONS.map((d) => ({ value: d, label: d }));
 
-  const pocLabelByValue = useMemo<Map<string, string> | null>(() => {
-    if (!pocOptions.length || typeof pocOptions[0] === "string") return null;
-    const m = new Map<string, string>();
-    (pocOptions as { value: string; label: string }[]).forEach((o) => m.set(o.value, o.label));
-    return m;
-  }, [pocOptions]);
-
-  const currentPocLabel =
-    pocLabelByValue?.get(filters.prepPoc) ??
-    (filters.prepPoc === "All" ? "All" : filters.prepPoc);
-
-  const items: { label: string; value: string; options: string[]; onChange: (v: string) => void }[] = [
+  const items: {
+    label: string;
+    value: string;
+    options: LxFilterOption[];
+    onChange: (v: string) => void;
+  }[] = [
     {
-      label: "Range", value: filters.range, options: RANGE_OPTIONS as unknown as string[],
+      label: "Range",
+      value: filters.range,
+      options: RANGE_OPTIONS as unknown as LxFilterOption[],
       onChange: (v: string) => {
         set("range", v as LmpFilters["range"]);
         if (v !== "Custom") { set("customFrom", null); set("customTo", null); }
       },
     },
-    { label: "Domain", value: filters.domain, options: DOMAIN_OPTIONS as unknown as string[],
-      onChange: (v: string) => set("domain", v as LmpFilters["domain"]) },
-    { label: "Status", value: filters.status, options: STATUS_OPTIONS as unknown as string[],
-      onChange: (v: string) => set("status", v as LmpFilters["status"]) },
-    { label: "Type",   value: filters.type,   options: TYPE_OPTIONS as unknown as string[],
-      onChange: (v: string) => set("type",   v as LmpFilters["type"]) },
+    {
+      label: "Domain",
+      value: filters.domain,
+      options: domainFilterOptions,
+      onChange: (v: string) => set("domain", v),
+    },
+    {
+      label: "Status",
+      value: filters.status,
+      options: statusFilterOptions,
+      onChange: (v: string) => set("status", v),
+    },
+    {
+      label: "Type",
+      value: filters.type,
+      options: typeFilterOptions,
+      onChange: (v: string) => set("type", v),
+    },
   ];
 
   if (showPrepPoc) {
     items.push({
       label: "Prep POC",
-      value: currentPocLabel,
+      value: filters.prepPoc,
       options: normPocOptions,
-      onChange: (label: string) => {
-        const val = pocValueByLabel?.get(label) ?? label;
-        set("prepPoc", val);
-      },
+      onChange: (value: string) => set("prepPoc", value),
     });
   }
 
@@ -112,13 +132,11 @@ export function LxLmpFilters({
     <div className="space-y-2">
       <LxFilterRow filters={items} right={right} />
 
-      {/* Custom date range pickers — visible only when "Custom" is selected */}
       {filters.range === "Custom" && (
         <div
           className="flex flex-wrap items-center gap-2"
           style={{ borderLeft: "2px solid var(--lx-border)", paddingLeft: "0.75rem" }}
         >
-          {/* From date picker */}
           <Popover open={customFromOpen} onOpenChange={setCustomFromOpen}>
             <PopoverTrigger asChild>
               <button type="button" className="lx-pill" style={{ cursor: "pointer" }}>
@@ -141,7 +159,6 @@ export function LxLmpFilters({
             </PopoverContent>
           </Popover>
 
-          {/* To date picker */}
           <Popover open={customToOpen} onOpenChange={setCustomToOpen}>
             <PopoverTrigger asChild>
               <button type="button" className="lx-pill" style={{ cursor: "pointer" }}>
@@ -164,7 +181,6 @@ export function LxLmpFilters({
             </PopoverContent>
           </Popover>
 
-          {/* Apply */}
           <button
             type="button"
             disabled={!canApply}
@@ -180,7 +196,6 @@ export function LxLmpFilters({
             Apply
           </button>
 
-          {/* Clear */}
           <button
             type="button"
             onClick={clearCustomDates}
@@ -190,7 +205,6 @@ export function LxLmpFilters({
             Clear
           </button>
 
-          {/* Applied range label */}
           {customLabel && (
             <span className="text-[11px] font-medium" style={{ color: "var(--lx-text-3)" }}>
               Applied: {customLabel}

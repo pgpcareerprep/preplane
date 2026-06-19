@@ -8,6 +8,7 @@ import {
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
+import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
@@ -45,6 +46,7 @@ import {
 import { STATUS_META } from "@/lib/lmpTypes";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
+import type { ReactNode } from "react";
 
 /* ─── Converted-name parsing ───────────────────────────────────────────────
  * Splits a raw final_converted_names string into individual names.
@@ -126,9 +128,15 @@ function canonicalStatus(status: import("@/types/lmp").LmpStatus): ActiveLmpStat
   return status;
 }
 
-export function AdminLmpDashboard() {
+export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
   const { user } = useRole();
-  const { selectOptions: prepPocOptions, pocLmpIdsMap } = useEligiblePrepPocs();
+  const {
+    domainOptions,
+    statusOptions,
+    typeOptions,
+    prepPocOptions,
+  } = useDashboardFilterOptions();
+  const { pocLmpIdsMap } = useEligiblePrepPocs();
   // Total student count from canonical students DB (independent of any filter).
   const { data: totalStudentsDb = 0 } = useQuery({
     queryKey: ["students_total_count"],
@@ -1066,13 +1074,21 @@ export function AdminLmpDashboard() {
         crumb="ADMIN · DASHBOARD"
         title="Operating snapshot"
         subtitle="Where conversion stands today, where load sits, and where attention is needed."
-        right={<LxLivePill />}
+        right={
+          <div className="flex items-center gap-2">
+            {headerExtra}
+            <LxLivePill />
+          </div>
+        }
       />
 
       <LxLmpFilters
         filters={filters}
         set={set}
         pocOptions={prepPocOptions}
+        domainOptions={domainOptions}
+        statusOptions={statusOptions}
+        typeOptions={typeOptions}
         showPrepPoc
         showOutreachPoc
       />

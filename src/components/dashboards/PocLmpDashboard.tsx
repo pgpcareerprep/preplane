@@ -23,7 +23,16 @@ import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown"
 import { info } from "@/lib/dashboardInfo";
 import { lmpsByStatus, lmpsActive, lmpsRisk, snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
-import { isUserOperationalPoc, isUserPocOnRecord } from "@/lib/lmpViewingContext";
+import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
+import type { ReactNode } from "react";
+
+export type PocLmpDashboardProps = {
+  pocIdOverride?: string | null;
+  pocNameOverride?: string;
+  sourceLabel?: string;
+  headerExtra?: ReactNode;
+};
 
 const STATUS_ACCENT: Record<Process["status"], { hex: string; soft: string; fg: string }> = {
   Ongoing:          { hex: LX_HEX.info,    soft: "rgba(74,142,232,0.12)",  fg: LX_HEX.info },
@@ -44,9 +53,16 @@ function StatusPill({ s }: { s: Process["status"] }) {
   );
 }
 
-export function PocLmpDashboard() {
+export function PocLmpDashboard({
+  pocIdOverride,
+  pocNameOverride,
+  sourceLabel,
+  headerExtra,
+}: PocLmpDashboardProps = {}) {
 
   const { user } = useRole();
+  const { activePocLmpIdsMap } = useEligiblePrepPocs();
+  const activePocId = pocIdOverride ?? user.pocProfileId ?? null;
   // Live realtime — POC dashboard refreshes as their LMPs / candidates change.
   useLmpProcessesRealtime();
   useLmpCandidatesRealtime();
@@ -57,9 +73,15 @@ export function PocLmpDashboard() {
   const { processes: liveProcesses } = useLiveProcesses();
   // Always use the signed-in POC's canonical name. Never borrow another
   // POC's identity just because the current user owns zero rows yet.
-  const pocName = (user.pocProfileName ?? user.name ?? user.email ?? "").trim();
+  const pocName = (pocNameOverride ?? user.pocProfileName ?? user.name ?? user.email ?? "").trim();
 
-  const { filtered, filters, set } = useLmpFilters({ role: "poc", userName: pocName, data: liveProcesses.length ? liveProcesses : undefined });
+  const { filtered, filters, set } = useLmpFilters({
+    role: "poc",
+    userName: pocName,
+    data: liveProcesses.length ? liveProcesses : undefined,
+    pocIdScope: activePocId,
+    activePocLmpIdsMap,
+  });
   const { data: lmpRows = [] } = useLmpRows();
   const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
   const filteredRecords = useMemo(() => lmpRows.filter((r) => filteredIds.has(r.id)), [filteredIds, lmpRows]);
@@ -101,7 +123,7 @@ export function PocLmpDashboard() {
 
   // Domain & assignment breakdown (user-specific via allocationTags)
   const myLmpRowById = new Map(
-    lmpRows.filter(r => isUserPocOnRecord(r, pocName)).map(r => [r.id, r])
+    lmpRows.filter(r => isUserOperationalPoc(r, pocName, activePocId)).map(r => [r.id, r])
   );
   const inDomainProcs  = filtered.filter(p => myLmpRowById.get(p.processId)?.allocationTags?.includes("In-Domain") ?? false);
   const crossDomainProcs = filtered.filter(p => myLmpRowById.get(p.processId)?.allocationTags?.includes("Cross-Domain") ?? false);
@@ -147,10 +169,15 @@ export function PocLmpDashboard() {
   return (
     <LuminaShell>
       <LxPageHeader
-        crumb="POC · DASHBOARD"
-        title="My workload"
-        subtitle={`Processes where Prep, Support, or Outreach POC = ${pocName}`}
-        right={<LxLivePill />}
+        crumb={sourceLabel ? "ADMIN · MY POC" : "POC · DASHBOARD"}
+        title={sourceLabel ?? "My workload"}
+        subtitle={`Processes where Prep or Support POC = ${pocName}`}
+        right={
+          <div className="flex items-center gap-2">
+            {headerExtra}
+            <LxLivePill />
+          </div>
+        }
       />
 
       <LxLmpFilters filters={filters} set={set} pocOptions={[pocName]} />

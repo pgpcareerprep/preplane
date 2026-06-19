@@ -760,25 +760,41 @@ export function LxAttentionStrip({
 }
 
 /* ─────────────── Filter pills row ─────────────── */
+export type LxFilterOption = string | { value: string; label: string };
+
+function normalizeFilterOption(option: LxFilterOption): { value: string; label: string } {
+  return typeof option === "string" ? { value: option, label: option } : option;
+}
+
 export function LxFilterRow({
   filters, right,
 }: {
-  filters: { label: string; value: string; options: string[]; onChange: (v: string) => void }[];
+  filters: {
+    label: string;
+    value: string;
+    options: LxFilterOption[];
+    onChange: (v: string) => void;
+  }[];
   right?: ReactNode;
 }) {
   return (
     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-      {filters.map((f) => (
-        <label key={f.label} className="lx-pill">
-          <span className="text-[10.5px] uppercase tracking-[0.6px] font-medium" style={{ color: "var(--lx-text-3)" }}>
-            {f.label}
-          </span>
-          <select value={f.value} onChange={(e) => f.onChange(e.target.value)}>
-            {f.options.map((o) => <option key={o}>{o}</option>)}
-          </select>
-        </label>
-      ))}
-      {right && <div className="ml-auto flex items-center gap-2">{right}</div>}
+      {filters.map((f) => {
+        const normalized = f.options.map(normalizeFilterOption);
+        return (
+          <label key={f.label} className="lx-pill">
+            <span className="text-[10.5px] uppercase tracking-[0.6px] font-medium" style={{ color: "var(--lx-text-3)" }}>
+              {f.label}
+            </span>
+            <select value={f.value} onChange={(e) => f.onChange(e.target.value)}>
+              {normalized.map((o) => (
+                <option key={`${f.label}-${o.value}`} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        );
+      })}
+      {right && <div className="ml-auto flex items-center gap-2 shrink-0">{right}</div>}
     </div>
   );
 }

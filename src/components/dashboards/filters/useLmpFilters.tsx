@@ -30,9 +30,9 @@ export type Role = "admin" | "allocator" | "poc";
 
 export type LmpFilters = {
   range: DateRange;
-  domain: Domain | "All";
-  status: ProcessStatus | "All";
-  type: ProcessType | "All";
+  domain: string;
+  status: string;
+  type: string;
   /** poc_profiles.id UUID or "All". Legacy: may also be a name for backward compat. */
   prepPoc: string;
   outreachPoc: string;
@@ -51,9 +51,20 @@ type UseLmpFiltersOptions = {
    * When provided and prepPoc is a UUID, filter is exact-ID-based (no name matching).
    */
   pocLmpIdsMap?: Map<string, Set<string>>;
+  /** Active prep/support links only — used for POC dashboard scoping by poc_profiles.id. */
+  activePocLmpIdsMap?: Map<string, Set<string>>;
+  /** When set, scope rows to this poc_profiles.id via activePocLmpIdsMap (prep/support only). */
+  pocIdScope?: string | null;
 };
 
-export function useLmpFilters({ role, userName, data, pocLmpIdsMap }: UseLmpFiltersOptions) {
+export function useLmpFilters({
+  role,
+  userName,
+  data,
+  pocLmpIdsMap,
+  activePocLmpIdsMap,
+  pocIdScope,
+}: UseLmpFiltersOptions) {
   const [filters, setFilters] = useState<LmpFilters>({
     range: "30d",
     domain: "All",
@@ -65,7 +76,16 @@ export function useLmpFilters({ role, userName, data, pocLmpIdsMap }: UseLmpFilt
     customTo: null,
   });
 
-  const all = useMemo(() => scopeForRole(data ?? [], role, userName), [role, userName, data]);
+  const all = useMemo(() => {
+    let rows = data ?? [];
+    if (pocIdScope && activePocLmpIdsMap) {
+      const allowed = activePocLmpIdsMap.get(pocIdScope);
+      rows = allowed ? rows.filter((r) => allowed.has(r.processId)) : [];
+    } else {
+      rows = scopeForRole(rows, role, userName);
+    }
+    return rows;
+  }, [data, role, userName, pocIdScope, activePocLmpIdsMap]);
 
   const filtered = useMemo(() => {
     return all.filter((r) => {
@@ -83,9 +103,18 @@ export function useLmpFilters({ role, userName, data, pocLmpIdsMap }: UseLmpFilt
         if (daysSince(r.dateCreated) > cutoff) return false;
       }
 
-      if (filters.domain !== "All" && r.domain !== filters.domain) return false;
-      if (filters.status !== "All" && r.status !== filters.status) return false;
-      if (filters.type !== "All" && r.type !== filters.type) return false;
+      if (filters.domain !== "All") {
+        const rowDomain = r.filterDomain || r.domain;
+        if (rowDomain !== filters.domain) return false;
+      }
+      if (filters.status !== "All") {
+        const rowStatus = r.filterStatus || r.status;
+        if (rowStatus !== filters.status && r.status !== filters.status) return false;
+      }
+      if (filters.type !== "All") {
+        const rowType = r.filterType || r.type;
+        if (rowType !== filters.type && r.type !== filters.type) return false;
+      }
 
       // ── Prep POC filter (UUID-first, name fallback) ──
       if (filters.prepPoc !== "All") {
@@ -146,7 +175,10 @@ export function usePrepPocOptions(): string[] {
   );
 }
 
+/** @deprecated Use useDashboardFilterOptions() for admin dashboard filters. */
 export const DOMAIN_OPTIONS: ("All" | Domain)[] = ["All", ...DOMAINS];
+/** @deprecated Use useDashboardFilterOptions() for admin dashboard filters. */
 export const STATUS_OPTIONS: ("All" | ProcessStatus)[] = ["All", ...STATUS_LIST];
+/** @deprecated Use useDashboardFilterOptions() for admin dashboard filters. */
 export const TYPE_OPTIONS: ("All" | ProcessType)[] = ["All", "Internship", "Full-Time"];
 export const RANGE_OPTIONS: DateRange[] = ["7d", "30d", "90d", "All", "Custom"];

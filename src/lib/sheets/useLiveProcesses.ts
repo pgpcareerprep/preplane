@@ -192,6 +192,9 @@ function lmpToProcess(r: LmpRecord): Process {
     ? lastUpdated : "";
 
   const displayStatus = DISPLAY_STATUS_MAP[r.status] ?? DISPLAY_STATUS_MAP[r.status?.toLowerCase()] ?? status;
+  const filterStatus = String(statusRaw ?? r.status ?? "").trim().toLowerCase();
+  const filterType = String((r as any).type ?? "").trim();
+  const filterDomain = String(r.domain ?? "").trim();
 
   return {
     processId: r.id,
@@ -221,6 +224,9 @@ function lmpToProcess(r: LmpRecord): Process {
     closedReason: "",                      // ⚠ UNMAPPABLE — no column
     lastProgressUpdatedAt: r.lastProgressUpdatedAt || "",
     displayStatus,
+    filterStatus,
+    filterType,
+    filterDomain,
   };
 }
 

@@ -57,6 +57,12 @@ export type Process = {
   lastProgressUpdatedAt?: string;
   /** Human-readable status label derived from the DB slug. Used for display only — do not use for filtering/counting. */
   displayStatus: string;
+  /** Raw DB slug for filter matching (lmp_processes.status). */
+  filterStatus: string;
+  /** Raw DB type string for filter matching (lmp_processes.type). */
+  filterType: string;
+  /** Canonical domain string for filter matching (matches domains.name / lmp_processes.domain). */
+  filterDomain: string;
 };
 
 export const DOMAINS: Domain[] = [
@@ -109,7 +115,7 @@ export function scopeForRole(
   userName: string,
 ): Process[] {
   if (role === "poc") {
-    return rows.filter((r) => r.prepPoc === userName || r.supportPoc === userName || r.outreachPoc === userName);
+    return rows.filter((r) => r.prepPoc === userName || r.supportPoc === userName);
   }
   return rows;
 }
