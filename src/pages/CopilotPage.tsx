@@ -655,7 +655,7 @@ function CopilotPageInner() {
             onClear={() => setActiveContext(null)}
             onTogglePin={() => setActiveContext(c => c ? { ...c, pinned: !c.pinned } : c)}
           />
-          <div className="relative rounded-[18px] border border-n200 bg-card shadow-[0_4px_20px_-8px_rgba(15,23,42,0.08)] focus-within:border-orange-300 focus-within:shadow-[0_0_0_3px_rgba(232,127,55,0.12)] transition-all">
+          <div className="relative rounded-3xl border-[1.5px] border-border bg-card shadow-md focus-within:border-orange-400 focus-within:shadow-ai-ring transition-all duration-150">
 
             {/* Attachments & mentions tags */}
             {(attachments.length > 0 || mentions.length > 0) && (

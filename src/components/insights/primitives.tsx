@@ -16,7 +16,7 @@ export const LX_HEX: Record<LxAccent, string> = {
   success: "#6A9E62",
   risk:    "#F07040",
   info:    "#4A8EE8",
-  ai:      "#6D28D9",
+  ai:      "#8B5CF6",
   teal:    "#39B6D8",
   neutral: "#7A756C",
 };
@@ -35,8 +35,8 @@ const SOFT_BG: Record<LxAccent, string> = {
 /* ─────────────── Shell ─────────────── */
 export function LuminaShell({ children }: { children: ReactNode }) {
   return (
-    <div className="lumina -mx-gutter -my-gutter px-gutter py-gutter min-h-[calc(100vh-64px)]">
-      <div className="w-full flex flex-col gap-6">{children}</div>
+    <div className="w-full max-w-dashboard mx-auto flex flex-col gap-6">
+      {children}
     </div>
   );
 }

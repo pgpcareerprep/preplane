@@ -47,8 +47,8 @@ export function SettingsLayout() {
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* Left nav */}
-        <aside className="w-full lg:w-[240px] shrink-0 lg:sticky lg:top-[76px]">
-          <div className="rounded-2xl bg-card border border-n200 shadow-sm p-3">
+        <aside className="w-full lg:w-[260px] shrink-0 lg:sticky lg:top-[76px]">
+          <div className="rounded-2xl bg-card border border-border shadow-sm p-3">
             <ul className="space-y-0.5">
               {items.map(item => {
                 const active = item.to === "/settings"
@@ -61,8 +61,8 @@ export function SettingsLayout() {
                       className={cn(
                         "relative flex items-center gap-2.5 rounded-md px-3 py-2.5 text-[14px] transition-colors duration-150 ease-smooth",
                         active
-                          ? "bg-orange-50 text-orange-600 font-medium"
-                          : "text-n700 hover:bg-n50 hover:text-n900",
+                          ? "bg-orange-50 text-orange-600 font-medium dark:bg-orange-500/10 dark:text-orange-400"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )}
                     >
                       {active && (

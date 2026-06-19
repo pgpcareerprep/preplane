@@ -86,7 +86,7 @@ export function Topbar() {
         <button
           type="button"
           onClick={() => navigate("/dashboard")}
-          className="flex items-center min-w-0 pr-3 mr-1 border-r border-n200/80 dark:border-d-border hover:opacity-80 transition-opacity"
+          className="flex items-center min-w-0 pr-3 mr-1 border-r border-border hover:opacity-80 transition-opacity"
           aria-label="PrepLane home"
         >
           <span className="text-orange-500 font-bold tracking-tight leading-none text-[19px]">
@@ -106,7 +106,7 @@ export function Topbar() {
           rel="noopener noreferrer"
           title="Open PrepLane Sheet"
           aria-label="Open PrepLane Google Sheet"
-          className="h-8 w-8 rounded-full grid place-items-center text-n500 hover:text-n900 hover:bg-n100 dark:text-d-muted dark:hover:text-d-text dark:hover:bg-d-surface-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/70"
+          className="h-8 w-8 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <FileSpreadsheet className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </a>
@@ -115,7 +115,7 @@ export function Topbar() {
           type="button"
           onClick={toggle}
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="h-8 w-8 rounded-full grid place-items-center text-n500 hover:text-n900 hover:bg-n100 dark:text-d-muted dark:hover:text-d-text dark:hover:bg-d-surface-2 transition-colors duration-150"
+          className="h-8 w-8 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-150"
         >
           {theme === "dark"
             ? <Sun className="h-4 w-4" strokeWidth={1.75} aria-hidden />

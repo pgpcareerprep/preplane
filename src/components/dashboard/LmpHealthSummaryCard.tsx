@@ -100,7 +100,7 @@ function LmpHealthSkeleton() {
   const bone = { background: "rgba(26,25,22,0.13)" };
   return (
     <div
-      className="lumina lx-grad-mu rounded-2xl border overflow-hidden animate-pulse"
+      className="lx-grad-mu rounded-2xl border overflow-hidden animate-pulse"
       style={{ borderColor: "rgba(26,25,22,0.12)", boxShadow: "0 1px 3px rgba(26,25,22,0.08)" }}
     >
       <div className="relative px-5 pt-4 pb-5">
@@ -190,7 +190,7 @@ export function LmpHealthSummaryCard({
   if (isError) {
     return (
       <div
-        className="lumina lx-grad-mu rounded-2xl border px-6 py-10 text-center"
+        className="lx-grad-mu rounded-2xl border px-6 py-10 text-center"
         style={{ borderColor: "rgba(26,25,22,0.12)" }}
       >
         <p className="text-[14px] font-semibold" style={{ color: TXT }}>
@@ -206,7 +206,7 @@ export function LmpHealthSummaryCard({
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
-      className="lumina lx-grad-mu rounded-2xl border overflow-hidden relative"
+      className="lx-grad-mu rounded-2xl border overflow-hidden relative"
       style={{
         borderColor: "rgba(26,25,22,0.12)",
         boxShadow: "0 1px 4px rgba(26,25,22,0.10)",

@@ -102,29 +102,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-n50 dark:bg-d-bg px-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 lumina">
+      <div className="w-full max-w-form">
         <div className="text-center mb-8">
-          <span className="text-orange-500 text-[28px] font-bold tracking-tight">
+          <div className="mx-auto mb-4 h-1 w-16 rounded-full bg-grad-mu" aria-hidden />
+          <span className="text-[32px] font-bold tracking-tight text-foreground">
             PrepLane
           </span>
-          <p className="mt-2 text-[12px] text-n500 dark:text-d-muted font-normal leading-relaxed tracking-wide">
-            Your end-to-end AI-powered career prep platform
+          <p className="mt-2 text-[14px] text-muted-foreground font-normal leading-relaxed">
+            Your end-to-end <span className="font-display text-orange-500">AI-powered</span> career prep platform
           </p>
         </div>
 
-        <div className="bg-white dark:bg-d-surface rounded-xl border border-n200 dark:border-d-border shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-n900 dark:text-d-text text-center">
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-foreground text-center">
             Login to PrepLane Tool
           </h2>
-          <p className="mt-1 text-sm text-n500 dark:text-d-muted text-center">
+          <p className="mt-1 text-sm text-muted-foreground text-center">
             Sign in with your official Google account.
           </p>
 
           {error && (
-            <div className="mt-5 flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            <div className="mt-5 flex items-start gap-2 rounded-lg bg-coral-50 dark:bg-coral-400/10 border border-coral-200 dark:border-coral-400/30 p-3">
+              <AlertCircle className="h-4 w-4 text-coral-400 mt-0.5 shrink-0" />
+              <p className="text-sm text-coral-600 dark:text-coral-400">{error}</p>
             </div>
           )}
 
@@ -133,9 +134,8 @@ export default function LoginPage() {
             onClick={handleGoogleSignIn}
             disabled={isLoading}
             className={cn(
-              "mt-5 w-full flex items-center justify-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
-              "bg-white dark:bg-d-surface-2 text-n900 dark:text-d-text",
-              "border border-n200 dark:border-d-border hover:bg-n50 dark:hover:bg-d-surface",
+              "mt-5 w-full flex items-center justify-center gap-3 rounded-md px-4 py-2.5 text-sm font-medium transition-colors duration-150",
+              "bg-card text-foreground border border-border hover:bg-muted",
               "disabled:opacity-60 disabled:cursor-not-allowed",
             )}
           >
@@ -153,7 +153,7 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <p className="mt-4 text-center text-xs text-n400 dark:text-d-muted">
+        <p className="mt-4 text-center text-xs text-muted-foreground">
           Only approved accounts can sign in. Contact your admin if you need access.
         </p>
       </div>

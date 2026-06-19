@@ -9,17 +9,23 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        /* Lumina Accent/CTA — orange, primary actions (default for backward compat) */
         default: "bg-orange-500 text-white hover:bg-orange-600 shadow-sm",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm",
-        outline: "border border-border bg-card hover:bg-muted hover:text-foreground text-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60",
-        ghost: "hover:bg-muted hover:text-foreground text-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        /* Lumina Primary — #1A1916, high-emphasis (max 1 per view) */
+        primary: "bg-n900 text-white hover:bg-n800 shadow-sm dark:bg-[var(--lx-soft)] dark:text-[var(--lx-text)] dark:hover:bg-[var(--lx-border)] dark:border dark:border-[var(--lx-border)]",
+        accent: "bg-orange-500 text-white hover:bg-orange-600 shadow-sm",
+        destructive: "bg-coral-50 text-coral-600 border border-coral-200 hover:bg-coral-50/80 dark:bg-coral-400/15 dark:text-coral-400 dark:border-coral-400/30",
+        outline: "border border-border bg-card hover:bg-muted text-foreground",
+        secondary: "bg-card text-foreground hover:bg-muted border border-border",
+        ghost: "text-muted-foreground hover:bg-muted hover:text-foreground",
+        link: "text-orange-500 underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-[13px]",
-        lg: "h-11 rounded-md px-6",
+        xs: "h-7 px-2.5 text-xs rounded-sm",
+        sm: "h-8 px-3.5 text-[13px] rounded-md",
+        default: "h-9 px-[18px] py-2 text-sm rounded-md",
+        lg: "h-11 px-6 text-base rounded-md",
+        xl: "h-12 px-7 text-[17px] rounded-lg",
         icon: "h-9 w-9",
       },
     },

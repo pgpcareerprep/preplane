@@ -752,7 +752,7 @@ export function PrepPocHeatmapCard() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="lumina rounded-2xl border overflow-hidden"
+    <div className="rounded-2xl border overflow-hidden"
       style={{ background: "var(--lx-surface)", borderColor: "var(--lx-border)", boxShadow: "0 1px 3px rgba(26,25,22,0.06)" }}>
 
       {/* ── Card header ── */}

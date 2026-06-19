@@ -7,7 +7,7 @@ import { Topbar } from "./Topbar";
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden bg-n50 text-n900 dark:bg-d-bg dark:text-d-text">
+    <div className="lumina h-screen w-full flex flex-col overflow-hidden bg-background text-foreground">
       <Topbar />
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <AppSidebar />

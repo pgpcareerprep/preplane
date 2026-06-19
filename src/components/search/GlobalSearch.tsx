@@ -135,7 +135,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle, { scope?: EntityType;
 
     return (
       <div ref={containerRef} className={cn("relative", className)}>
-        <div className="inline-flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-[8px] border border-n200/80 bg-card/50 dark:bg-d-surface dark:border-d-border transition-all duration-150 min-w-[320px] focus-within:border-n300 focus-within:bg-card">
+        <div className="inline-flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-md border border-border bg-card/50 transition-all duration-150 min-w-[320px] focus-within:border-ring focus-within:bg-card">
           <Search className="h-3.5 w-3.5 text-n400 shrink-0" strokeWidth={1.75} aria-hidden />
           <input
             ref={inputRef}

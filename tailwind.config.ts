@@ -15,11 +15,23 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Manrope', '"Galano Grotesque"', 'Inter', "system-ui", "sans-serif"],
+        sans: ['"Plus Jakarta Sans"', '"Galano Grotesque"', "system-ui", "sans-serif"],
         display: ['Fraunces', "Georgia", "serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       spacing: {
-        gutter: "36px",
+        gutter: "24px",
+        "1": "4px",
+        "2": "8px",
+        "3": "12px",
+        "4": "16px",
+        "5": "20px",
+        "6": "24px",
+        "8": "32px",
+        "10": "40px",
+        "12": "48px",
+        "16": "64px",
+        "20": "80px",
       },
       colors: {
         border: "hsl(var(--border))",
@@ -147,6 +159,7 @@ export default {
         "grad-yellow":  "var(--grad-yellow)",
         "grad-blue":    "var(--grad-blue)",
         "grad-green":   "var(--grad-green)",
+        "grad-text":    "var(--lx-grad-text)",
         "sidebar-warm-dark": "var(--sidebar-gradient)",
       },
       boxShadow: {
@@ -155,6 +168,7 @@ export default {
         lg: "var(--shadow-lg)",
         xl: "var(--shadow-xl)",
         focus: "var(--focus-ring)",
+        "ai-ring": "0 0 0 4px rgba(227,131,48,0.10)",
       },
       transitionTimingFunction: {
         smooth: "cubic-bezier(.4,0,.2,1)",
@@ -164,7 +178,9 @@ export default {
       },
       maxWidth: {
         content: "1280px",
-        form: "680px",
+        dashboard: "1140px",
+        prose: "680px",
+        form: "480px",
       },
       keyframes: {
         "accordion-down": {
