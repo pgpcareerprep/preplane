@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
-  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
-  LxHero, LxKpi, LxStackedBar, LxAttentionStrip, LX_HEX,
+  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader,
+  LxHero, LxKpi, LxAttentionStrip, LX_HEX,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters } from "./filters/useLmpFilters";
@@ -12,7 +12,7 @@ import {
 } from "@/lib/lmpProcessQueries";
 import { canonicalLmpStatus, type CanonicalLmpStatus, type LmpStatus } from "@/types/lmp";
 import { STATUS_META } from "@/lib/lmpTypes";
-import { STATUS_HEX, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
+import { STATUS_HEX } from "@/components/dashboard/LmpHealthSummaryCard";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
@@ -29,6 +29,7 @@ import { snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
+import { LmpStatusDistributionCard } from "@/components/dashboard/LmpStatusDistributionCard";
 import type { ReactNode } from "react";
 
 export type PocLmpDashboardProps = {
@@ -39,16 +40,6 @@ export type PocLmpDashboardProps = {
 };
 
 const ACTIVE_LMP_STATUSES = new Set<LmpStatus>(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
-
-const POC_STATUS_BAR: Array<{ status: ActiveLmpStatus; label: string; accent: keyof typeof LX_HEX }> = [
-  { status: "not-started",   label: "Not Started",   accent: "neutral" },
-  { status: "prep-ongoing",  label: "Prep Ongoing",  accent: "info" },
-  { status: "prep-done",     label: "Prep Done",     accent: "yellow" },
-  { status: "hold",          label: "On hold",       accent: "ai" },
-  { status: "converted",     label: "Converted",     accent: "success" },
-  { status: "not-converted", label: "Not Converted", accent: "risk" },
-  { status: "other-reasons", label: "Other reasons", accent: "orange" },
-];
 
 function StatusPill({ label, slug }: { label: string; slug: string }) {
   const canonical = canonicalLmpStatus(slug as LmpStatus);
@@ -312,20 +303,13 @@ export function PocLmpDashboard({
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
       {/* SECTION 2 — Status distribution */}
-      <LxSection eyebrow="My status" title="My process status distribution" info={info("poc.status-bar")} />
-      <LxCard span={12}>
-        <LxStackedBar
-          onSegmentClick={(s) => {
-            const match = POC_STATUS_BAR.find((row) => row.label === s.label);
-            if (match) openCanonicalStatus(match.status);
-          }}
-          segments={POC_STATUS_BAR.map(({ status, label, accent }) => ({
-            label,
-            value: lsc[status],
-            accent,
-          }))}
+      <LxGrid>
+        <LmpStatusDistributionCard
+          total={filtered.length}
+          lsc={lsc}
+          onStatusClick={openCanonicalStatus}
         />
-      </LxCard>
+      </LxGrid>
 
       {/* SECTION 3 — Checklist + Active table */}
       <LxGrid>
