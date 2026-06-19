@@ -77,7 +77,7 @@ export function LxLivePill() {
 /* ─────────────── Bento Grid (12-col) ─────────────── */
 export function LxGrid({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("grid grid-cols-12 gap-4", className)}>{children}</div>
+    <div className={cn("grid grid-cols-12 gap-6", className)}>{children}</div>
   );
 }
 
@@ -718,7 +718,7 @@ export function LxAttentionStrip({
   }[];
 }) {
   return (
-    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-2">
+    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-6">
       {items.map((it, i) => {
         const clickable = !!it.onClick;
         return (

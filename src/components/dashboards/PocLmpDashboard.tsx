@@ -275,7 +275,7 @@ export function PocLmpDashboard({
           variant="green"
           span={7}
         />
-        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-4">
+        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-6">
           <LxKpi span={6} label="My active load" accent="info"   value={activeLoad} sub="Not started · Prep ongoing · Prep done"
             info={info("poc.kpi.active")} onClick={openActiveLoad} />
           <LxKpi span={6} label="On hold" accent="ai" value={onHold} sub="Paused processes"

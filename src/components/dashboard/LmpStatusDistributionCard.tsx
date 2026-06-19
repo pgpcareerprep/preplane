@@ -110,7 +110,7 @@ export function LmpStatusDistributionCard({
       )}
 
       {/* Status grid */}
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {segments.map((s) => {
           const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
           return (

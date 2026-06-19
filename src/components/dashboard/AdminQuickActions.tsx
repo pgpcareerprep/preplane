@@ -14,7 +14,7 @@ const ACTIONS: Action[] = [
 
 export function AdminQuickActions() {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
       {ACTIONS.map((a, i) => (
         <motion.div
           key={a.label}
