@@ -14,7 +14,7 @@ import { LmpFilterBar, EMPTY_LMP_FILTERS, type LmpFilters } from "@/components/l
 import { LmpKanban } from "@/components/lmp/LmpKanban";
 import { LmpCardList, type SortState } from "@/components/lmp/LmpCardList";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
-import { type LmpBoardScope } from "@/lib/lmpViewingContext";
+import { type LmpBoardScope, isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -41,31 +41,15 @@ function resolveLmpBoardScope(
   if (scope.kind === "all") return records;
 
   if (scope.kind === "self") {
-    // UUID-first: if we have a canonical poc_profiles.id use activePocLmpIdsMap exclusively.
-    if (effectivePocId) {
-      const allowedIds = activePocLmpIdsMap.get(effectivePocId) ?? new Set<string>();
-      return records.filter((r) => allowedIds.has(r.id));
-    }
-    // Legacy name-based fallback — only checks Prep POC and Support POC, not outreach/allocator.
-    if (!effectivePocName) return [];
-    const nameLower = effectivePocName.toLowerCase().trim();
-    return records.filter((r) => {
-      const prepName = (r.prepPoc?.name ?? r.domainPrepPoc?.name ?? "").toLowerCase().trim();
-      const supportName = (r.supportPoc?.name ?? r.behavioralPrepPoc?.name ?? "").toLowerCase().trim();
-      if (!nameLower) return false;
-      const matches = (cell: string) => cell && (
-        cell === nameLower ||
-        cell.startsWith(nameLower.split(" ")[0]) ||
-        nameLower.startsWith(cell.split(" ")[0])
-      );
-      return matches(prepName) || matches(supportName);
-    });
+    return records.filter((r) => isUserOperationalPoc(r, effectivePocName, effectivePocId));
   }
 
-  // POC scope — use activePocLmpIdsMap (active links only).
+  // POC scope — active links first, then operational ownership on the record.
   const allowedIds = activePocLmpIdsMap.get(scope.pocId);
-  if (!allowedIds) return [];
-  return records.filter((r) => allowedIds.has(r.id));
+  if (allowedIds && allowedIds.size > 0) {
+    return records.filter((r) => allowedIds.has(r.id));
+  }
+  return records.filter((r) => isUserOperationalPoc(r, scope.pocName, scope.pocId));
 }
 
 /**

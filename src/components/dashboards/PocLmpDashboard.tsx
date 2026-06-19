@@ -5,7 +5,7 @@ import {
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters } from "./filters/useLmpFilters";
-import { useRole } from "@/lib/rolesContext";
+import { useViewer } from "@/lib/viewerContext";
 import { motion } from "framer-motion";
 import {
   isConverted, isDormant, statusCounts, calculateOutcomeConversionRate, type Process, type ProcessStatus,
@@ -60,9 +60,9 @@ export function PocLmpDashboard({
   headerExtra,
 }: PocLmpDashboardProps = {}) {
 
-  const { user } = useRole();
+  const { effectiveUser, effectivePocId, isViewAsActive } = useViewer();
   const { activePocLmpIdsMap } = useEligiblePrepPocs();
-  const activePocId = pocIdOverride ?? user.pocProfileId ?? null;
+  const activePocId = pocIdOverride ?? effectivePocId ?? null;
   // Live realtime — POC dashboard refreshes as their LMPs / candidates change.
   useLmpProcessesRealtime();
   useLmpCandidatesRealtime();
@@ -71,18 +71,31 @@ export function PocLmpDashboard({
   useRealtimeInvalidate("poc_profiles" as never, [["lmp_rows"], ["poc_profiles_registry"]]);
   const todaySet = useTodayDailyLogIds();
   const { processes: liveProcesses } = useLiveProcesses();
-  // Always use the signed-in POC's canonical name. Never borrow another
-  // POC's identity just because the current user owns zero rows yet.
-  const pocName = (pocNameOverride ?? user.pocProfileName ?? user.name ?? user.email ?? "").trim();
+  const { data: lmpRows = [] } = useLmpRows();
+  const pocName = (
+    pocNameOverride
+    ?? effectiveUser.pocProfileName
+    ?? effectiveUser.name
+    ?? effectiveUser.email
+    ?? ""
+  ).trim();
+
+  // Same ownership rules as the LMP board: prep/support UUID on the record, then names.
+  const pocScopedProcesses = useMemo(() => {
+    const rowById = new Map(lmpRows.map((r) => [r.id, r]));
+    return liveProcesses.filter((p) => {
+      const rec = rowById.get(p.processId);
+      if (rec) return isUserOperationalPoc(rec, pocName, activePocId);
+      if (activePocId && activePocLmpIdsMap.get(activePocId)?.has(p.processId)) return true;
+      return false;
+    });
+  }, [liveProcesses, lmpRows, pocName, activePocId, activePocLmpIdsMap]);
 
   const { filtered, filters, set } = useLmpFilters({
-    role: "poc",
+    role: "admin",
     userName: pocName,
-    data: liveProcesses.length ? liveProcesses : undefined,
-    pocIdScope: activePocId,
-    activePocLmpIdsMap,
+    data: pocScopedProcesses,
   });
-  const { data: lmpRows = [] } = useLmpRows();
   const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
   const filteredRecords = useMemo(() => lmpRows.filter((r) => filteredIds.has(r.id)), [filteredIds, lmpRows]);
 
@@ -169,8 +182,12 @@ export function PocLmpDashboard({
   return (
     <LuminaShell>
       <LxPageHeader
-        crumb={sourceLabel ? "ADMIN · MY POC" : "POC · DASHBOARD"}
-        title={sourceLabel ?? "My workload"}
+        crumb={
+          sourceLabel ? "ADMIN · MY POC"
+          : isViewAsActive ? "VIEW AS · POC DASHBOARD"
+          : "POC · DASHBOARD"
+        }
+        title={sourceLabel ?? (isViewAsActive ? `${pocName}'s workload` : "My workload")}
         subtitle={`Processes where Prep or Support POC = ${pocName}`}
         right={
           <div className="flex items-center gap-2">

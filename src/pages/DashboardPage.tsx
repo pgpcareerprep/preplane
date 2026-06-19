@@ -38,14 +38,11 @@ export default function DashboardPage() {
   ) : null;
 
   if (viewAsRole === "allocator") return <AllocatorLmpDashboard />;
-  if (viewAsRole === "poc") return <PocLmpDashboard />;
 
   if (viewAsRole === "admin") {
     if (dashboardView === "my-poc") {
       return (
         <PocLmpDashboard
-          pocIdOverride={user.pocProfileId}
-          pocNameOverride={user.pocProfileName ?? user.name}
           sourceLabel="My POC Dashboard"
           headerExtra={headerExtra}
         />
