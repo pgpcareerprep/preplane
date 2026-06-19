@@ -110,7 +110,7 @@ export function AllocatorLmpDashboard() {
           span={7}
           onPrimaryClick={() => openLmps(filtered.filter((r) => requiredFieldsForRow(r).missing.length > 0), "LMPs with missing fields", `${filtered.length} in scope`)}
         />
-        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-6">
+        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-gutter">
           <LxKpi span={6} label="Processes in scope" accent="info"   value={filtered.length} sub={`Of ${all.length} total`}
             info={info("alloc.kpi.in-scope")} onClick={() => openLmps(filtered, "Processes in scope")} />
           <LxKpi span={6} label="Total issues"       accent="risk"   value={totalIssues}     sub="Sum of missing fields"

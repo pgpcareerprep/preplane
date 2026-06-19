@@ -130,7 +130,7 @@ function LmpHealthSkeleton() {
           <div className="ml-auto h-[172px] w-[172px] rounded-full" style={bone} />
         </div>
         {/* status card skeletons */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-gutter">
           {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="h-[62px] rounded-xl" style={{ background: "rgba(255,255,255,0.20)" }} />
           ))}
@@ -423,7 +423,7 @@ export function LmpHealthSummaryCard({
             No LMPs are available for the selected filters.
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-gutter">
             {STATUS_CONFIG.map(({ status, label }) => {
               const value = lsc[status as keyof LmpStatusCounts] ?? 0;
               const pct   = total > 0 ? (value / total) * 100 : 0;

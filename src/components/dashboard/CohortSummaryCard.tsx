@@ -157,7 +157,7 @@ export function CohortSummaryCard({
       </div>
 
       {/* Metrics grid — 2 columns desktop, 1 on narrow */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-gutter">
         {segments.map((s) => {
           const click = onSegmentClick ? () => onSegmentClick(s.bucket) : undefined;
           return (

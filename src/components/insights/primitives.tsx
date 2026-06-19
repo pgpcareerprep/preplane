@@ -35,7 +35,7 @@ const SOFT_BG: Record<LxAccent, string> = {
 /* ─────────────── Shell ─────────────── */
 export function LuminaShell({ children }: { children: ReactNode }) {
   return (
-    <div className="w-full flex flex-col gap-6">
+    <div className="w-full flex flex-col gap-gutter">
       {children}
     </div>
   );
@@ -77,7 +77,7 @@ export function LxLivePill() {
 /* ─────────────── Bento Grid (12-col) ─────────────── */
 export function LxGrid({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("grid grid-cols-12 gap-6", className)}>{children}</div>
+    <div className={cn("grid grid-cols-12 gap-gutter", className)}>{children}</div>
   );
 }
 
@@ -718,7 +718,7 @@ export function LxAttentionStrip({
   }[];
 }) {
   return (
-    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-6">
+    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-gutter gap-y-gutter">
       {items.map((it, i) => {
         const clickable = !!it.onClick;
         return (
