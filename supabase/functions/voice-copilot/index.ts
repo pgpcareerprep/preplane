@@ -59,6 +59,8 @@ function voiceEnv(name: string): string | undefined {
 type VoiceRequestState = {
   viewAs: { impersonating: boolean; name: string | null };
   userId: string | null;
+  effectiveName: string;
+  effectiveRole: string;
 };
 
 const voiceRequestStateStorage = new AsyncLocalStorage<VoiceRequestState>();
@@ -252,7 +254,7 @@ const tools = [
           outreach_poc: { type: "string" },
           // assign_poc
           poc_name: { type: "string" },
-          poc_type: { type: "string", enum: ["primary", "support", "outreach"] },
+          poc_type: { type: "string", enum: ["primary", "secondary", "support", "outreach"] },
           // generic field update
           field: { type: "string" },
           value: { type: "string" },
@@ -273,12 +275,67 @@ function sb() {
   );
 }
 
+function privilegedVoiceRole(role: string): boolean {
+  return role === "admin" || role === "allocator";
+}
+
+function voiceBlocksWrites(): boolean {
+  return voiceRequestState().viewAs.impersonating;
+}
+
+function voiceScope(): { effectiveName: string; effectiveRole: string } {
+  const s = voiceRequestState();
+  return { effectiveName: s.effectiveName, effectiveRole: s.effectiveRole };
+}
+
+/** Exact company+role match — avoids partial ilike hitting the wrong LMP. */
+async function findLmpByCompanyRole(company: string, role: string) {
+  const c = sb();
+  const co = company.trim();
+  const ro = role.trim();
+  const { data } = await c
+    .from("lmp_processes")
+    .select("id,company,role,status,domain_raw,type,prep_poc,support_poc,outreach_poc,prep_progress,placement_progress,daily_progress,remarks,prep_doc,closing_date,r1_names,r2_names,r3_names,final_converted_numbers,final_converted_names")
+    .ilike("company", co)
+    .ilike("role", ro)
+    .maybeSingle();
+  return data;
+}
+
+async function lmpIdsForOperationalPoc(pocName: string): Promise<string[] | null> {
+  const c = sb();
+  const name = pocName.trim();
+  if (!name) return null;
+  const pocId = await resolvePocId(name);
+  if (pocId) {
+    const { data: links } = await c
+      .from("lmp_poc_links")
+      .select("lmp_id")
+      .eq("poc_id", pocId)
+      .eq("is_active", true)
+      .in("role", ["prep", "support"]);
+    const ids = (links || []).map((l) => l.lmp_id as string);
+    if (ids.length) return ids;
+  }
+  const { data: rows } = await c
+    .from("lmp_processes")
+    .select("id")
+    .or(`prep_poc.ilike.%${name}%,support_poc.ilike.%${name}%`);
+  return (rows || []).map((r) => r.id as string);
+}
+
 // ─── Read executors ────────────────────────────────────────────────────────
 async function execListEntities(a: { entity_type: string; domain?: string; status?: string }) {
   const c = sb();
   const dom = a.domain?.trim();
+  const { effectiveName, effectiveRole } = voiceScope();
   if (a.entity_type === "poc") {
-    let q = c.from("poc_profiles").select("name,primary_domain,role_type", { count: "exact" }).limit(20);
+    let q = c
+      .from("poc_profiles")
+      .select("name,primary_domain,role_type", { count: "exact" })
+      .neq("role_type", "outreach_poc")
+      .eq("status", "active")
+      .limit(20);
     if (dom) q = q.ilike("primary_domain", `%${dom}%`);
     const { data, count } = await q;
     return { count: count ?? data?.length ?? 0, sample: (data || []).slice(0, 5).map((r: any) => r.name) };
@@ -299,6 +356,11 @@ async function execListEntities(a: { entity_type: string; domain?: string; statu
     let q = c.from("lmp_processes").select("company,role,status,domain_raw", { count: "exact" }).limit(20);
     if (dom) q = q.ilike("domain_raw", `%${dom}%`);
     if (a.status) q = q.ilike("status", `%${a.status}%`);
+    if (effectiveRole === "poc") {
+      const ids = await lmpIdsForOperationalPoc(effectiveName);
+      if (ids?.length) q = q.in("id", ids);
+      else return { count: 0, sample: [] };
+    }
     const { data, count } = await q;
     return {
       count: count ?? data?.length ?? 0,
@@ -365,6 +427,7 @@ async function resolvePocId(name: string): Promise<string | null> {
 
 async function execSearchLmp(a: any) {
   const c = sb();
+  const { effectiveName, effectiveRole } = voiceScope();
   let q = c.from("lmp_processes").select("id,company,role,status,domain_raw,prep_poc,outreach_poc,type,mentor_aligned").limit(a.limit ?? 10);
   if (a.company) q = q.ilike("company", `%${a.company}%`);
   if (a.role) q = q.ilike("role", `%${a.role}%`);
@@ -373,8 +436,6 @@ async function execSearchLmp(a: any) {
   if (a.mentor_aligned === false) q = q.or("mentor_aligned.is.null,mentor_aligned.eq.false");
   else if (a.mentor_aligned === true) q = q.eq("mentor_aligned", true);
   if (a.poc) {
-    // Use the structured link table when we can resolve the POC; falls back to
-    // freeform ilike so unmapped aliases still return something.
     const pocId = await resolvePocId(a.poc);
     if (pocId) {
       const { data: links } = await c.from("lmp_poc_links").select("lmp_id").eq("poc_id", pocId);
@@ -384,6 +445,10 @@ async function execSearchLmp(a: any) {
     } else {
       q = q.or(`prep_poc.ilike.%${a.poc}%,support_poc.ilike.%${a.poc}%,outreach_poc.ilike.%${a.poc}%`);
     }
+  } else if (effectiveRole === "poc") {
+    const ids = await lmpIdsForOperationalPoc(effectiveName);
+    if (!ids?.length) return { rows: [], total: 0 };
+    q = q.in("id", ids);
   }
   const { data } = await q;
   return { rows: data || [], total: (data || []).length };
@@ -416,15 +481,17 @@ async function execAnalytics(a: { metric: string; domain?: string; poc?: string 
     return { metric: a.metric, total: data?.length ?? 0, distribution: dist };
   }
   if (a.metric === "poc_workload") {
-    let pocQ = c.from("poc_profiles").select("name,role_type,active_load,max_threshold,conversion_rate").order("active_load", { ascending: false }).limit(20);
+    let pocQ = c.from("poc_profiles").select("name,role_type,active_load,max_threshold,conversion_rate").neq("role_type", "outreach_poc").order("active_load", { ascending: false }).limit(20);
     if (a.poc) pocQ = pocQ.ilike("name", `%${a.poc}%`);
     const { data: pocData } = await pocQ;
-    const { data: lmpData } = await c.from("lmp_processes").select("prep_poc,outreach_poc,status");
+    const { data: lmpData } = await c.from("lmp_processes").select("prep_poc,support_poc,outreach_poc,status");
     const lmps = lmpData || [];
+    const matchesPoc = (l: { prep_poc?: string | null; support_poc?: string | null; outreach_poc?: string | null }, name: string) =>
+      [l.prep_poc, l.support_poc, l.outreach_poc].some((v) => v && v.toLowerCase() === name.toLowerCase());
     const top = ((pocData || []) as any[]).slice(0, 10).map((r: any) => {
       const name = r.name as string;
-      const ongoing = lmps.filter((l) => (l.prep_poc === name || l.outreach_poc === name) && /ongoing/i.test(l.status || "")).length;
-      const converted = lmps.filter((l) => (l.prep_poc === name || l.outreach_poc === name) && /converted|offer/i.test(l.status || "")).length;
+      const ongoing = lmps.filter((l) => matchesPoc(l, name) && /ongoing/i.test(l.status || "")).length;
+      const converted = lmps.filter((l) => matchesPoc(l, name) && /converted|offer/i.test(l.status || "")).length;
       return {
         name,
         role_type: r.role_type,
@@ -457,34 +524,18 @@ type PendingAction = Record<string, any> & { action: string; _current?: Record<s
 // confirmation (and downstream UI) reflects what's actually in the DB.
 async function snapshotForPending(p: PendingAction): Promise<Record<string, any> | null> {
   if (!p.company || !p.role) return null;
-  const c = sb();
-  const { data } = await c
-    .from("lmp_processes")
-    .select("id,company,role,status,domain_raw,type,prep_poc,support_poc,outreach_poc,prep_progress,placement_progress,daily_progress,remarks,prep_doc,closing_date,r1_names,r2_names,r3_names,final_converted_numbers,final_converted_names")
-    .ilike("company", `%${p.company}%`)
-    .ilike("role", `%${p.role}%`)
-    .limit(1)
-    .maybeSingle();
-  return data || null;
+  return await findLmpByCompanyRole(String(p.company), String(p.role));
 }
 
-// BUG-V2: per-LMP POC ownership check. Admin/allocator bypass.
 async function assertPocOwnsLmp(
   actor: { id: string; role: string },
   p: PendingAction,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  // Per-LMP ownership enforced for EVERY role. Admin/Allocator no longer
-  // bypass — they only get visibility, not write access on other POCs' LMPs.
+  if (privilegedVoiceRole(actor.role)) return { ok: true };
   if (!p.company || !p.role) return { ok: false, reason: "missing company/role to verify ownership" };
-  const c = sb();
-  const { data: lmp } = await c
-    .from("lmp_processes")
-    .select("id,prep_poc,support_poc,outreach_poc")
-    .ilike("company", `%${p.company}%`)
-    .ilike("role", `%${p.role}%`)
-    .limit(1)
-    .maybeSingle();
+  const lmp = await findLmpByCompanyRole(String(p.company), String(p.role));
   if (!lmp?.id) return { ok: false, reason: `LMP ${p.company} – ${p.role} not found` };
+  const c = sb();
   const { data: prof } = await c
     .from("poc_profiles")
     .select("id,name,aliases")
@@ -497,18 +548,19 @@ async function assertPocOwnsLmp(
       .eq("lmp_id", lmp.id)
       .eq("poc_id", prof.id)
       .eq("is_active", true)
+      .in("role", ["prep", "support"])
       .limit(1)
       .maybeSingle();
     if (link?.id) return { ok: true };
   }
-  // Fallback: exact-token name / alias match on denormalized POC columns.
+  // Fallback: exact-token name / alias match on prep/support columns.
   const tokens = new Set<string>();
   if (prof?.name) tokens.add(String(prof.name).trim().toLowerCase());
   if (Array.isArray(prof?.aliases)) {
     for (const a of prof.aliases as string[]) if (a) tokens.add(String(a).trim().toLowerCase());
   }
   if (tokens.size) {
-    const present = [lmp.prep_poc, lmp.support_poc, lmp.outreach_poc]
+    const present = [lmp.prep_poc, lmp.support_poc]
       .flatMap((v) => String(v || "").split(/[,;/&]/))
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
@@ -531,8 +583,9 @@ function summarisePending(p: PendingAction): string {
     case "update_lmp_field":
       return `${fmtChange(`Set ${p.field} on ${p.company} – ${p.role}`, cur[p.field], p.value)}`;
     case "assign_poc": {
-      const col = p.poc_type === "support" ? "support POC" : p.poc_type === "outreach" ? "outreach POC" : "prep POC";
-      const colKey = p.poc_type === "support" ? "support_poc" : p.poc_type === "outreach" ? "outreach_poc" : "prep_poc";
+      const isSupport = p.poc_type === "support" || p.poc_type === "secondary";
+      const col = isSupport ? "support POC" : p.poc_type === "outreach" ? "outreach POC (display tag)" : "prep POC";
+      const colKey = isSupport ? "support_poc" : p.poc_type === "outreach" ? "outreach_poc" : "prep_poc";
       return fmtChange(`Assign ${col} for ${p.company} – ${p.role}`, cur[colKey], p.poc_name);
     }
     case "delete_lmp":
@@ -559,27 +612,32 @@ async function executePending(
     if (p.action === "create_lmp") {
       if (actor.role === "poc") return { ok: false, error: "only admins can create LMPs" };
       if (!p.company || !p.role) return { ok: false, error: "company and role required" };
-      const row: any = {
-        company: p.company,
-        role: p.role,
+      const today = new Date().toISOString().slice(0, 10);
+      let domainId: string | null = null;
+      if (p.domain) {
+        const { data: domRow } = await c.from("domains").select("id").ilike("name", String(p.domain)).limit(1).maybeSingle();
+        domainId = domRow?.id ?? null;
+      }
+      const row: Record<string, unknown> = {
+        company: String(p.company).trim(),
+        role: String(p.role).trim(),
         domain_raw: p.domain || null,
-        type: p.type || null,
-        status: p.status || "Ongoing",
+        domain_id: domainId,
+        type: p.type || "Full Time",
+        status: p.status || "not-started",
+        date: today,
         prep_poc: p.prep_poc || null,
         support_poc: p.support_poc || null,
         outreach_poc: p.outreach_poc || null,
         sync_source: "voice-copilot",
+        daily_progress: "",
       };
       const { error } = await c.from("lmp_processes").insert(row);
       if (error) return { ok: false, error: error.message };
       return { ok: true, summary: `created LMP for ${p.company} – ${p.role}` };
     }
 
-    const findLmp = async () => {
-      const { data } = await c.from("lmp_processes").select("id,company,role")
-        .ilike("company", `%${p.company}%`).ilike("role", `%${p.role}%`).limit(1);
-      return data?.[0];
-    };
+    const findLmp = async () => findLmpByCompanyRole(String(p.company), String(p.role));
 
     if (p.action === "update_lmp_status") {
       const lmp = await findLmp();
@@ -605,7 +663,8 @@ async function executePending(
       if (actor.role === "poc") return { ok: false, error: "only admins can reassign POCs" };
       const lmp = await findLmp();
       if (!lmp) return { ok: false, error: "LMP not found" };
-      const col = p.poc_type === "support" ? "support_poc" : p.poc_type === "outreach" ? "outreach_poc" : "prep_poc";
+      const isSupport = p.poc_type === "support" || p.poc_type === "secondary";
+      const col = isSupport ? "support_poc" : p.poc_type === "outreach" ? "outreach_poc" : "prep_poc";
       const { error } = await c.from("lmp_processes").update({ [col]: p.poc_name }).eq("id", lmp.id);
       if (error) return { ok: false, error: error.message };
       return { ok: true, summary: `assigned ${p.poc_name} as ${col.replace("_", " ")}` };
@@ -752,6 +811,11 @@ async function runTool(name: string, args: any): Promise<{ result: any; pending?
       return { result, block: { type: "analytics", metric: args.metric, data: result } };
     }
     case "prepare_write": {
+      if (voiceBlocksWrites()) {
+        return {
+          result: { blocked: true, reason: "View-as mode is read-only." },
+        };
+      }
       const pending = args as PendingAction;
       // BUG-V3: snapshot current DB values so the spoken summary reflects DB truth.
       try {
@@ -825,12 +889,19 @@ async function handleVoiceRequest(req: Request) {
     const viewAsRole = (bodyViewAsRole || bodyRole || realRole).trim();
     const isImpersonating = !!viewAsName && viewAsName.toLowerCase() !== realName.toLowerCase();
     voiceRequestState().viewAs = { impersonating: isImpersonating, name: isImpersonating ? viewAsName : null };
+    voiceRequestState().effectiveName = isImpersonating ? viewAsName : realName;
+    voiceRequestState().effectiveRole = isImpersonating ? viewAsRole : realRole;
     // Effective identity = who the model should answer "as".
     const effectiveName = isImpersonating ? viewAsName : realName;
     const effectiveRole = isImpersonating ? viewAsRole : realRole;
 
     // Confirmation branch — execute the staged write
     if (confirm) {
+      if (voiceBlocksWrites()) {
+        return new Response(JSON.stringify({
+          spoken: "View-as mode is read-only. Switch back to your own perspective to make changes.",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       userLog.event("confirm_execute", { action: confirm.action });
       const r = await executePending(confirm, { id: auth.user.id, role: realRole });
       userLog.event("confirm_result", { ok: r.ok, error: r.error, ms: Math.round(performance.now() - t0) });
@@ -844,7 +915,7 @@ async function handleVoiceRequest(req: Request) {
     let rosterBlock = "";
     try {
       const sbc = sb();
-      const { data: pocs } = await sbc.from("poc_profiles").select("name,role_type,primary_domain").limit(40);
+      const { data: pocs } = await sbc.from("poc_profiles").select("name,role_type,primary_domain").neq("role_type", "outreach_poc").eq("status", "active").limit(40);
       if (pocs && pocs.length > 0) {
         rosterBlock = "\n\nPOC ROSTER (use these canonical names for mishears):\n" +
           pocs.map((p: any) => `- ${p.name}${p.primary_domain ? ` (${p.primary_domain})` : ""}`).join("\n");
@@ -996,7 +1067,7 @@ async function handleVoiceRequest(req: Request) {
 
 Deno.serve((req: Request) =>
   voiceRequestStateStorage.run(
-    { viewAs: { impersonating: false, name: null }, userId: null },
+    { viewAs: { impersonating: false, name: null }, userId: null, effectiveName: "User", effectiveRole: "poc" },
     () => handleVoiceRequest(req),
   )
 );

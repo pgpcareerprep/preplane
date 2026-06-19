@@ -1108,11 +1108,20 @@ function resetRequestCache() {
   requestState().cache = {};
 }
 
-// Per-LMP ownership check. The signed-in user must be a POC on the LMP
-// (via lmp_poc_links, or as fallback an exact-token match on the denormalized
-// prep_poc / support_poc / outreach_poc columns). Applies to EVERY role —
-// admin/allocator no longer bypass per-LMP ownership in copilot writes.
+function privilegedCopilotRole(role: string): boolean {
+  return role === "admin" || role === "allocator";
+}
+
+function viewAsBlocksWrites(): boolean {
+  return !!requestState().context.isImpersonating;
+}
+
+// Per-LMP ownership check. POCs must be assigned on the LMP (prep/support via
+// lmp_poc_links or denormalized columns). Admin/allocator bypass.
 async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const actorRole = requestState().context.role;
+  if (privilegedCopilotRole(actorRole)) return { ok: true };
+
   const company = String(payload.company || "").trim();
   const role = String(payload.role || "").trim();
   if (!company || !role) return { ok: false, reason: "Missing company/role to verify LMP ownership." };
@@ -1151,11 +1160,12 @@ async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok:
         .eq("lmp_id", lmp.id)
         .eq("poc_id", pocId)
         .eq("is_active", true)
+        .in("role", ["prep", "support"])
         .limit(1)
         .maybeSingle();
       if (link?.id) return { ok: true };
     }
-    // Fallback: exact-token name/alias match on denormalized POC columns.
+    // Fallback: exact-token name/alias match on prep/support columns only.
     const tokens = new Set<string>();
     const pushTok = (s: string | null | undefined) => {
       if (!s) return;
@@ -1164,14 +1174,14 @@ async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok:
     pushTok(pocName);
     pocAliases.forEach(pushTok);
     if (tokens.size) {
-      const cols = [lmp.prep_poc, lmp.support_poc, lmp.outreach_poc];
+      const cols = [lmp.prep_poc, lmp.support_poc];
       const present = cols
         .flatMap((c) => String(c || "").split(/[,;/&]/))
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
       if (present.some((p) => tokens.has(p))) return { ok: true };
     }
-    return { ok: false, reason: `You are not assigned as a POC on ${company} · ${role}. Only the assigned Prep / Support / Outreach POC can edit this LMP.` };
+    return { ok: false, reason: `You are not assigned as a POC on ${company} · ${role}. Only the assigned Prep / Support POC can edit this LMP.` };
   } catch (e) {
     console.warn("assertPocOwnsLmp error:", e);
     return { ok: false, reason: "Unable to verify LMP ownership." };
@@ -1320,6 +1330,26 @@ const MIRROR_FIELD_MAP: Record<string, string> = {
   "Prep Progress": "prep_progress",
   "Placement Progress": "placement_progress",
   "Remarks": "remarks",
+  "Closing Date": "closing_date",
+  "Mentor Aligned": "mentor_aligned",
+  "Prep Doc": "prep_doc",
+  "R1 - Names": "r1_names",
+  "R2 - Names": "r2_names",
+  "R3 - Names": "r3_names",
+  "Final Converted Numbers": "final_converted_numbers",
+  "Converted Names": "final_converted_names",
+  "Final Convert": "final_converted_numbers",
+  "Convert Name(s)": "final_converted_names",
+};
+
+/** Normalize tool-emitted column labels to canonical sheet keys before mirroring. */
+const SHEET_FIELD_ALIASES: Record<string, string> = {
+  "R1 Shortlisted": "R1 - Names",
+  "R2 Shortlisted": "R2 - Names",
+  "R3 Shortlisted": "R3 - Names",
+  "R1 Names": "R1 - Names",
+  "R2 Names": "R2 - Names",
+  "R3 Names": "R3 - Names",
 };
 
 function getMirrorClient() {
@@ -1372,11 +1402,14 @@ async function mirrorLmpUpsert(payload: {
 
 async function mirrorLmpFields(company: string, role: string, sheetFields: Record<string, string>) {
   const dbFields: Record<string, string | null> = {};
-  for (const [sheetCol, value] of Object.entries(sheetFields)) {
+  for (const [rawCol, value] of Object.entries(sheetFields)) {
+    const sheetCol = SHEET_FIELD_ALIASES[rawCol.trim()] ?? rawCol.trim();
     const dbCol = MIRROR_FIELD_MAP[sheetCol];
     if (dbCol) dbFields[dbCol] = value;
   }
-  if (Object.keys(dbFields).length === 0) return { ok: true, skipped: true };
+  if (Object.keys(dbFields).length === 0) {
+    return { ok: false, skipped: true, error: "No recognized LMP fields in update payload." };
+  }
   return mirrorLmpUpsert({ company, role, ...dbFields });
 }
 
@@ -1412,6 +1445,9 @@ async function enforceWriteGuard(
   kind: string,
   args: Record<string, unknown>,
 ): Promise<{ ok: true } | { blocked: true; reason: string }> {
+  if (viewAsBlocksWrites()) {
+    return { blocked: true, reason: "View-as mode is read-only. Switch back to your own perspective to make changes." };
+  }
   // 1. Real-role gate.
   const perm = WRITE_KIND_PERMS[kind];
   if (!perm) return { blocked: true, reason: `Unknown write kind: ${kind}` };
@@ -1419,17 +1455,19 @@ async function enforceWriteGuard(
   if (!permResult.allowed) {
     return { blocked: true, reason: permResult.reason || `Your role (${requestState().context.role}) cannot perform ${perm}.` };
   }
-  // 2. Per-LMP ownership.
-  if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
-      kind === "assign_poc" || kind === "delete_lmp_record") {
-    const own = await assertPocOwnsLmp(args);
-    if (!own.ok) return { blocked: true, reason: own.reason };
-  }
-  if (kind === "bulk_update") {
-    const updates = Array.isArray(args.updates) ? args.updates as Record<string, unknown>[] : [];
-    for (const u of updates) {
-      const own = await assertPocOwnsLmp(u);
-      if (!own.ok) return { blocked: true, reason: `Bulk update blocked: ${own.reason}` };
+  // 2. Per-LMP ownership (POC role only — admin/allocator bypass inside assertPocOwnsLmp).
+  if (requestState().context.role === "poc") {
+    if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
+        kind === "assign_poc" || kind === "delete_lmp_record") {
+      const own = await assertPocOwnsLmp(args);
+      if (!own.ok) return { blocked: true, reason: own.reason };
+    }
+    if (kind === "bulk_update") {
+      const updates = Array.isArray(args.updates) ? args.updates as Record<string, unknown>[] : [];
+      for (const u of updates) {
+        const own = await assertPocOwnsLmp(u);
+        if (!own.ok) return { blocked: true, reason: `Bulk update blocked: ${own.reason}` };
+      }
     }
   }
   // 3. POC field whitelist.
@@ -1501,11 +1539,17 @@ async function executeTool(
         );
 
         if (entityType === "poc") {
-          let q = supa.from("poc_profiles").select("*").order("name").limit(limitVal);
+          let q = supa
+            .from("poc_profiles")
+            .select("id,name,primary_domain,role_type,status", { count: "exact" })
+            .neq("role_type", "outreach_poc")
+            .eq("status", "active")
+            .order("name")
+            .limit(limitVal);
           if (args.domain) q = q.ilike("primary_domain", `%${args.domain}%`);
-          const { data, error } = await q;
+          const { data, count, error } = await q;
           if (error) return JSON.stringify({ error: error.message });
-          return JSON.stringify({ count: data?.length ?? 0, pocs: data ?? [] });
+          return JSON.stringify({ count: count ?? data?.length ?? 0, pocs: data ?? [] });
         }
 
         const { searchEntities: _se } = await import("../_shared/entitySearch.ts");
@@ -1572,6 +1616,13 @@ async function executeTool(
         return JSON.stringify({ ...result, target_summary: targetSummary });
       }
       case "prepare_write": {
+        if (viewAsBlocksWrites()) {
+          return JSON.stringify({
+            blocked: true,
+            allowed: false,
+            reason: "View-as mode is read-only. Switch back to your own perspective to make changes.",
+          });
+        }
         const kind = String(args.kind || "");
         const payload = (args.payload as Record<string, unknown>) || {};
         const targetSummary = typeof args.target_summary === "string" ? args.target_summary : undefined;
@@ -1721,6 +1772,13 @@ async function executeTool(
         });
       }
       case "execute_pending": {
+        if (viewAsBlocksWrites()) {
+          return JSON.stringify({
+            blocked: true,
+            allowed: false,
+            reason: "View-as mode is read-only. Switch back to your own perspective to make changes.",
+          });
+        }
         const id = String(args.pending_action_id || "").trim();
         const kind = String(args.kind || "").trim();
         const payload = (args.payload as Record<string, unknown>) || {};
@@ -1765,20 +1823,22 @@ async function executeTool(
           }
         }
 
-        // Per-LMP POC ownership re-check at execute time — enforced for EVERY role.
-        if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
-            kind === "assign_poc" || kind === "delete_lmp_record") {
-          const own = await assertPocOwnsLmp(payload);
-          if (!own.ok) {
-            return JSON.stringify({ blocked: true, allowed: false, reason: own.reason });
-          }
-        }
-        if (kind === "bulk_update") {
-          const updates = Array.isArray(payload.updates) ? payload.updates as Record<string, unknown>[] : [];
-          for (const u of updates) {
-            const own = await assertPocOwnsLmp(u);
+        // Per-LMP POC ownership re-check at execute time (POC role only).
+        if (requestState().context.role === "poc") {
+          if (kind === "update_lmp_status" || kind === "update_lmp_field" ||
+              kind === "assign_poc" || kind === "delete_lmp_record") {
+            const own = await assertPocOwnsLmp(payload);
             if (!own.ok) {
-              return JSON.stringify({ blocked: true, allowed: false, reason: `Bulk update blocked: ${own.reason}` });
+              return JSON.stringify({ blocked: true, allowed: false, reason: own.reason });
+            }
+          }
+          if (kind === "bulk_update") {
+            const updates = Array.isArray(payload.updates) ? payload.updates as Record<string, unknown>[] : [];
+            for (const u of updates) {
+              const own = await assertPocOwnsLmp(u);
+              if (!own.ok) {
+                return JSON.stringify({ blocked: true, allowed: false, reason: `Bulk update blocked: ${own.reason}` });
+              }
             }
           }
         }
@@ -2438,11 +2498,11 @@ async function executeTool(
             .sort((a, b) => a.load - b.load)
             .slice(0, limit);
 
-        // Primary: role_type=prep, optionally filtered by domain.
+        // Primary: operational prep POCs (exclude outreach-only profiles).
         const primaryQs = new URLSearchParams({
           select: "name,max_threshold",
           status: "eq.active",
-          role_type: "eq.prep",
+          role_type: "eq.prep_poc",
         });
         if (domain) primaryQs.set("primary_domain", `eq.${domain}`);
         const primaryRows = await fetchProfiles(primaryQs.toString());
@@ -2456,12 +2516,12 @@ async function executeTool(
           }).toString(),
         );
 
-        // Outreach: role_type=outreach.
+        // Outreach: display-only tag — list names for labeling, not operational assignment.
         const outreachRows = await fetchProfiles(
           new URLSearchParams({
             select: "name,max_threshold",
             status: "eq.active",
-            role_type: "eq.outreach",
+            role_type: "eq.outreach_poc",
           }).toString(),
         );
 
@@ -2474,7 +2534,12 @@ async function executeTool(
           recommendations: {
             primary: { role: "Primary POC (Domain Prep)", candidates: primaryCandidates, recommended: primaryCandidates[0]?.name },
             secondary: { role: "Secondary POC (Behavioral Prep)", candidates: secondaryCandidates, recommended: secondaryCandidates[0]?.name },
-            outreach: { role: "Outreach POC (Placement Coordinator)", candidates: outreachCandidates, recommended: outreachCandidates[0]?.name },
+            outreach: {
+              role: "Outreach POC (display-only tag)",
+              candidates: outreachCandidates,
+              recommended: outreachCandidates[0]?.name,
+              note: "Outreach POC is a display label only — not an operational assignment slot.",
+            },
           },
         });
       }
@@ -2983,7 +3048,7 @@ You MUST return your responses as a JSON array of UI blocks wrapped in a \`:::bl
    - Row actions use \`{{ColumnName}}\` placeholders that get filled with the row's data
 
 16. **inline-form** — Renders a real editable form INSIDE the chat. Use for ANY data input/creation/update.
-   \`{ "type": "inline-form", "title": "Create New LMP Process", "description": "Fill in the details below", "target_lmp_id": "<uuid>", "action": "edit_daily_progress", "fields": [{ "name": "company", "label": "Company", "field_type": "text", "required": true, "placeholder": "e.g. Google" }, { "name": "role", "label": "Role", "field_type": "text", "required": true }, { "name": "domain", "label": "Domain", "field_type": "select", "options": ["Finance", "PM", "Data", "Marketing", "Sales", "Consulting", "FOCOS", "HR", "Supply Chain"] }, { "name": "type", "label": "Type", "field_type": "select", "options": ["Full Time", "Internship", "Live Project", "Case Competition"] }, { "name": "status", "label": "Status", "field_type": "select", "options": ["Ongoing", "Dormant", "On Hold", "Converted", "Not Converted", "Offer Received", "Closed"], "defaultValue": "Ongoing" }, { "name": "prep_poc", "label": "Prep POC", "field_type": "search-select", "options": ["Radhika", "Dibyendu", "Siddharth", ...] }, { "name": "outreach_poc", "label": "Outreach POC", "field_type": "search-select", "options": [...] }], "submit_label": "Create Process", "submit_action": "Create a new LMP process: Company={{company}}, Role={{role}}, Domain={{domain}}, Type={{type}}, Status={{status}}, Prep POC={{prep_poc}}, Outreach POC={{outreach_poc}}", "cancel_label": "Cancel" }\`
+   \`{ "type": "inline-form", "title": "Create New LMP Process", "description": "Fill in the details below", "target_lmp_id": "<uuid>", "action": "edit_daily_progress", "fields": [{ "name": "company", "label": "Company", "field_type": "text", "required": true, "placeholder": "e.g. Google" }, { "name": "role", "label": "Role", "field_type": "text", "required": true }, { "name": "domain", "label": "Domain", "field_type": "select", "options": ["Finance", "PM", "Data", "Marketing", "Sales", "Consulting", "FOCOS", "HR", "Supply Chain"] }, { "name": "type", "label": "Type", "field_type": "select", "options": ["Full Time", "Internship", "Live Project", "Case Competition"] }, { "name": "status", "label": "Status", "field_type": "select", "options": ["Ongoing", "Dormant", "On Hold", "Converted", "Not Converted", "Offer Received", "Closed"], "defaultValue": "Ongoing" }, { "name": "prep_poc", "label": "Prep POC", "field_type": "search-select", "options": ["<populate from recommend_pocs or list_entities poc>"] }, { "name": "outreach_poc", "label": "Outreach POC (display tag)", "field_type": "search-select", "options": ["<optional display-only outreach names>"] }], "submit_label": "Create Process", "submit_action": "Create a new LMP process: Company={{company}}, Role={{role}}, Domain={{domain}}, Type={{type}}, Status={{status}}, Prep POC={{prep_poc}}, Outreach POC={{outreach_poc}}", "cancel_label": "Cancel" }\`
    Field types: text, textarea, select, multi-select, date, checkbox, search-select
    - **submit_action** uses \`{{field_name}}\` templates that get replaced with user input
    - Use \`search-select\` for POC/mentor/student name pickers (provide options from data)
@@ -3533,8 +3598,34 @@ async function handleRequest(req: Request) {
     }
 
 
+    // Hydrate active context from ?lmp= scope when the client opened copilot from an LMP page.
+    let activeContextForPrompt = requestedActiveContext;
+    const scopedLmpId = typeof body.lmpId === "string" && /^[0-9a-f-]{36}$/i.test(body.lmpId) ? body.lmpId : null;
+    if (!activeContextForPrompt && scopedLmpId) {
+      try {
+        const scopeSb = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        );
+        const { data: scopedLmp } = await scopeSb
+          .from("lmp_processes")
+          .select("id,company,role,domain_raw,status")
+          .eq("id", scopedLmpId)
+          .maybeSingle();
+        if (scopedLmp?.id) {
+          activeContextForPrompt = {
+            entity_type: "lmp",
+            entity_id: scopedLmp.id as string,
+            display_name: `${scopedLmp.company} · ${scopedLmp.role}`,
+            sub: [scopedLmp.domain_raw, scopedLmp.status].filter(Boolean).join(", "),
+            pinned: true,
+          };
+        }
+      } catch { /* non-fatal */ }
+    }
+
     // ── Step 2: AI call with tool-calling loop ──
-    const baseSystemPrompt = buildSystemPrompt(sheetSummary, requestedMode, requestedScope, requestedActiveContext);
+    const baseSystemPrompt = buildSystemPrompt(sheetSummary, requestedMode, requestedScope, activeContextForPrompt);
     const ragContext = shouldPrefetchRag(lastUserMessage)
       ? await retrieveRAGContext(lastUserMessage, createClient(
         Deno.env.get("SUPABASE_URL")!,
@@ -3666,7 +3757,7 @@ async function handleRequest(req: Request) {
           let scopeMatch: "applied" | "missing" | "broadened" | "n/a" = "n/a";
           let filterValue: string | null = null;
           let broadenedReason: string | null = null;
-          const ctx = requestedActiveContext;
+          const ctx = activeContextForPrompt;
           if (filterTools.has(fnName) && ctx?.display_name) {
             const expected = (ctx.display_name || "").toLowerCase();
             const candidateFields = scopeFilterByEntityType[ctx.entity_type] || [];

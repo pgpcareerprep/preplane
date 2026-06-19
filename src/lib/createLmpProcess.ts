@@ -178,9 +178,6 @@ export async function createLmpProcess(payload: CreateLmpPayload) {
     .single();
 
   if (lmpError) {
-    // #region agent log
-    fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3c81bd'},body:JSON.stringify({sessionId:'3c81bd',location:'createLmpProcess.ts:insert',message:'lmp_processes insert failed',data:{code:(lmpError as {code?:string}).code,message:lmpError.message},timestamp:Date.now(),hypothesisId:'H1',runId:'post-fix'})}).catch(()=>{});
-    // #endregion
     throw lmpError;
   }
 

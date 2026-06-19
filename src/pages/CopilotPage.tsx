@@ -293,6 +293,7 @@ function CopilotPageInner() {
           messages: history,
           mode,
           scope,
+          lmpId: lmpScopeId || undefined,
           threadId: activeId && !activeId.startsWith("local-") ? activeId : null,
           mentions: msgMentions.map(m => ({ type: m.type, name: m.name, entity_id: m.entityId, email: m.email })),
           activeContext: activeContext ? {
@@ -424,7 +425,7 @@ function CopilotPageInner() {
         });
       }
     }
-  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, setThreads, persistMessage, renameThreadIfNew, queryClient]);
+  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, lmpScopeId, setThreads, persistMessage, renameThreadIfNew, queryClient]);
 
   const send = (text: string) => {
     const trimmed = text.trim();
@@ -759,7 +760,7 @@ function CopilotPageInner() {
         open={voiceOverlay}
         onClose={() => setVoiceOverlay(false)}
         userName={user.name}
-        role={viewAsRole}
+        role={realRole}
         userId={user.id}
         userEmail={user.email}
         viewAsUserName={viewAsUser?.name || null}

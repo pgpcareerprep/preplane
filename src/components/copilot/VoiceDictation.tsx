@@ -591,11 +591,31 @@ export function VoiceConversationOverlay({
             headers: await authHeaders(),
             body: JSON.stringify({ messages: [], confirm: pending, ...identityPayload }),
           });
-          const data = await resp.json();
+          let data: any = {};
+          try { data = await resp.json(); } catch { /* non-json */ }
+          if (!resp.ok) {
+            const spoken = stripForVoice(
+              data?.spoken || "Couldn't complete that action. Please try again.",
+            );
+            messagesRef.current.push({ role: "assistant", content: spoken });
+            setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
+            setThinking(false);
+            await speak(spoken);
+            window.clearTimeout(timeout);
+            return;
+          }
           pendingActionRef.current = null;
           const spoken = stripForVoice(data.spoken || "Done.");
           messagesRef.current.push({ role: "assistant", content: spoken });
           setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
+          if (threadId && onPersistMessage) {
+            void onPersistMessage(threadId, {
+              id: crypto.randomUUID(),
+              role: "assistant" as const,
+              content: `🎤 ${spoken}`,
+              ts: Date.now(),
+            });
+          }
           setThinking(false);
           await speak(spoken);
         } catch (err) {
@@ -614,7 +634,13 @@ export function VoiceConversationOverlay({
         window.clearTimeout(timeout);
         return;
       }
-      pendingActionRef.current = null;
+      // Ambiguous reply while pending — keep the staged action, ask again.
+      const clarify = "I still have a pending change. Say yes to confirm or no to cancel.";
+      messagesRef.current.push({ role: "assistant", content: clarify });
+      setVisibleMessages(prev => [...prev, { role: "assistant", content: clarify }]);
+      await speak(clarify);
+      window.clearTimeout(timeout);
+      return;
     }
 
     const userMsgTs = Date.now();

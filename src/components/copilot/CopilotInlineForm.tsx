@@ -162,8 +162,9 @@ export function CopilotInlineForm({ block, onAction }: { block: InlineFormBlock;
   };
 
   const preflightCheck = (): { ok: true } | { ok: false; reason: { title: string; body: string; role?: string; action?: string } } => {
-    // Ownership gate — only for forms that edit an existing LMP
+    // Ownership gate — only for forms that edit an existing LMP (admin/allocator bypass).
     if (block.target_lmp_id && block.action && block.action !== "create_lmp") {
+      if (role === "admin" || role === "allocator") return { ok: true };
       if (!targetLmp) {
         // LMP not in current user's visible rows — almost certainly not theirs
         return {
