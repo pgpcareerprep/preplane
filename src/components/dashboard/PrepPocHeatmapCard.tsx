@@ -89,63 +89,79 @@ const QUERY_KEY = ["prep_poc_heatmap_v3"] as const;
 
 const STORAGE_KEY = "heatmap_visible_sections_v1";
 
-// ── Heat palette — 5 levels, soft Tailwind-based tints ───────────────────────
+// ── Heat palette — 5 levels, soft Lumina pastels (GitHub-style intensity) ───
 // L0=zero  L1=1-25%  L2=26-50%  L3=51-75%  L4=76-100%
-// Max fill = color-300; never use color-400/500/600 in heat cells.
-// Dark text throughout (color-800/700 for filled cells); muted for empty.
+// Low saturation; dark readable text only — never white on fills.
 
 type ColorPalette = {
   bg: [string, string, string, string, string];
   text: [string, string, string, string, string];
 };
 
-const MUTED_TEXT = "#a8a29e"; // stone-400 — zero-value / empty cell text
+const MUTED_TEXT = "#A8A398"; // Lumina n400 — zero-value text
+const SURFACE_ZERO = "var(--lx-surface)";
+const CELL_BORDER = "rgba(232, 229, 220, 0.75)";
 
-// Amber / LMP Load (warm neutral — workload/volume)
+// Lumina semantic accents (section borders / total row text)
+const A_NEUTRAL = "#78716c";
+const A_SKY = "#38bdf8";
+const A_SAGE = "#6A9E62";
+const A_CORAL = "#F07040";
+const A_ORANGE = "#E38330";
+const A_PLUM = "#8B5CF6";
+const A_TEAL = "#39B6D8";
+
+const T_NEUTRAL = "#44403c";
+const T_SKY = "#0c4a6e";
+const T_SAGE = "#3d6838";
+const T_CORAL = "#c04a20";
+const T_ORANGE = "#9a3412";
+const T_PLUM = "#6b5280";
+const T_CYAN = "#164e63";
+
+// Warm neutral beige/stone — LMP Load
 const P_NEUTRAL: ColorPalette = {
-  bg:   ["#fafaf9", "#fffbeb", "#fef3c7", "#fde68a", "#fcd34d"], // stone-50 · amber-50/100/200/300
-  text: [MUTED_TEXT, "#92400e", "#78350f", "#451a03", "#292524"],
+  bg:   [SURFACE_ZERO, "#fafaf9", "#f5f5f4", "#e7e5e4", "rgba(214, 211, 209, 0.7)"],
+  text: [MUTED_TEXT, T_NEUTRAL, T_NEUTRAL, T_NEUTRAL, T_NEUTRAL],
 };
-// Soft blue / Active Prep (Not Started · Prep Ongoing · Prep Done)
+// Soft sky — Active Prep (Not Started · Prep Ongoing · Prep Done)
 const P_SKY: ColorPalette = {
-  bg:   ["#f8faff", "#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd"], // blue-50/100/200/300
-  text: [MUTED_TEXT, "#1e40af", "#1d4ed8", "#1e3a8a", "#1e3a8a"],
+  bg:   [SURFACE_ZERO, "rgba(240,249,255,0.5)", "#f0f9ff", "rgba(224,242,254,0.7)", "rgba(186,230,253,0.6)"],
+  text: [MUTED_TEXT, T_SKY, T_SKY, T_SKY, T_SKY],
 };
-// On Hold lives in Active Prep — use same soft blue family for visual consistency
-const P_YELLOW: ColorPalette = {
-  bg:   ["#f8faff", "#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd"],
-  text: [MUTED_TEXT, "#1e40af", "#1d4ed8", "#1e3a8a", "#1e3a8a"],
+// Muted warm orange — On Hold (under Active Prep, not a failure state)
+const P_ON_HOLD: ColorPalette = {
+  bg:   [SURFACE_ZERO, "rgba(255,247,237,0.35)", "rgba(255,247,237,0.55)", "rgba(254,215,170,0.45)", "rgba(253,186,116,0.35)"],
+  text: [MUTED_TEXT, T_ORANGE, T_ORANGE, T_ORANGE, T_ORANGE],
 };
-// Emerald / Converted (positive outcome)
+// Muted sage — Converted & Performance heat cells
 const P_SAGE: ColorPalette = {
-  bg:   ["#f7fffe", "#ecfdf5", "#d1fae5", "#a7f3d0", "#6ee7b7"], // emerald-50/100/200/300
-  text: [MUTED_TEXT, "#065f46", "#047857", "#065f46", "#064e3b"],
+  bg:   [SURFACE_ZERO, "rgba(242,246,241,0.45)", "#f2f6f1", "rgba(184,209,178,0.55)", "rgba(154,197,148,0.45)"],
+  text: [MUTED_TEXT, T_SAGE, T_SAGE, T_SAGE, T_SAGE],
 };
-// Rose / Not Converted (negative outcome — very soft; max rose-200)
+// Pale coral/rose — Not Converted
 const P_CORAL: ColorPalette = {
-  bg:   ["#fdf8f8", "#fff1f2", "#ffe4e6", "#fecdd3", "#fecdd3"], // rose-50/100/200/200 (cap at 200)
-  text: [MUTED_TEXT, "#9f1239", "#be123c", "#881337", "#881337"],
+  bg:   [SURFACE_ZERO, "rgba(255,243,238,0.35)", "rgba(255,243,238,0.55)", "rgba(253,191,163,0.45)", "rgba(253,186,116,0.35)"],
+  text: [MUTED_TEXT, T_CORAL, T_CORAL, T_CORAL, T_CORAL],
 };
-// Orange / Other Reasons (neutral exception — max orange-200)
+// Muted orange — Other Reasons
 const P_ORANGE: ColorPalette = {
-  bg:   ["#fffaf8", "#fff7ed", "#ffedd5", "#fed7aa", "#fed7aa"], // orange-50/100/200/200 (cap at 200)
-  text: [MUTED_TEXT, "#9a3412", "#c2410c", "#7c2d12", "#7c2d12"],
+  bg:   [SURFACE_ZERO, "rgba(255,247,237,0.35)", "rgba(255,247,237,0.55)", "rgba(254,215,170,0.45)", "rgba(253,186,116,0.35)"],
+  text: [MUTED_TEXT, T_ORANGE, T_ORANGE, T_ORANGE, T_ORANGE],
 };
-// Indigo / Responsibility (distinct from violet/performance)
+// Soft plum/violet — Responsibility
 const P_PLUM: ColorPalette = {
-  bg:   ["#f8f9ff", "#eef2ff", "#e0e7ff", "#c7d2fe", "#a5b4fc"], // indigo-50/100/200/300
-  text: [MUTED_TEXT, "#3730a3", "#4338ca", "#3730a3", "#312e81"],
+  bg:   [SURFACE_ZERO, "rgba(245,240,255,0.35)", "rgba(245,240,255,0.55)", "rgba(201,180,245,0.45)", "rgba(167,139,250,0.35)"],
+  text: [MUTED_TEXT, T_PLUM, T_PLUM, T_PLUM, T_PLUM],
 };
-// Cyan / Domain Load (in-domain · cross-domain)
+// Muted aqua/teal — Domain Load (in-domain & cross-domain)
 const P_TEAL: ColorPalette = {
-  bg:   ["#f6feff", "#ecfeff", "#cffafe", "#a5f3fc", "#67e8f9"], // cyan-50/100/200/300
-  text: [MUTED_TEXT, "#155e75", "#0e7490", "#164e63", "#164e63"],
+  bg:   [SURFACE_ZERO, "rgba(236,254,255,0.35)", "rgba(236,254,255,0.55)", "rgba(165,243,252,0.5)", "rgba(103,232,249,0.4)"],
+  text: [MUTED_TEXT, T_CYAN, T_CYAN, T_CYAN, T_CYAN],
 };
-// Violet / Performance (LMP Conversion · Students Placed — final scorecard)
-const P_PERF: ColorPalette = {
-  bg:   ["#fdfcff", "#f5f3ff", "#ede9fe", "#ddd6fe", "#c4b5fd"], // violet-50/100/200/300
-  text: [MUTED_TEXT, "#5b21b6", "#6d28d9", "#4c1d95", "#4c1d95"],
-};
+
+/** Legend swatches — neutral blue-grey ramp */
+const LEGEND_LEVELS = ["#fafaf8", "#f0f9ff", "#e0f2fe", "rgba(186,230,253,0.7)", "rgba(125,211,252,0.6)"] as const;
 
 function intensityLevel(value: number, colMax: number): 0 | 1 | 2 | 3 | 4 {
   if (value === 0 || colMax === 0) return 0;
@@ -205,26 +221,26 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "lmpLoad",
     label: "LMP LOAD",
     icon: ClipboardList,
-    accent: "#b45309",          // amber-700
-    headerBg: "#fffbeb",        // amber-50
-    subheaderBg: "#fafaf9",     // stone-50
+    accent: A_NEUTRAL,
+    headerBg: "rgba(250, 250, 249, 0.95)",
+    subheaderBg: "var(--lx-surface)",
     cols: [
       {
         dataKey: "totalLmpLoad", metricKey: "total", colType: "heat",
         label: "Total", subLabel: "(Till Today)", minWidth: 68,
-        palette: P_NEUTRAL, totalAccent: "#b45309",
+        palette: P_NEUTRAL, totalAccent: A_NEUTRAL,
         tooltip: "Distinct LMPs assigned to this POC as Primary or Support (all time).",
       },
       {
         dataKey: "currentLmpCount", metricKey: "current", colType: "heat",
         label: "Current", subLabel: "(Ongoing)", minWidth: 68,
-        palette: P_NEUTRAL, totalAccent: "#b45309",
+        palette: P_NEUTRAL, totalAccent: A_NEUTRAL,
         tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done.",
       },
       {
         dataKey: "closedLmpCount", metricKey: "closed", colType: "heat",
         label: "Closed", minWidth: 60,
-        palette: P_NEUTRAL, totalAccent: "#b45309",
+        palette: P_NEUTRAL, totalAccent: A_NEUTRAL,
         tooltip: "LMPs with no remaining current Prep work (Converted + Not Converted + On Hold + Other Reasons).",
       },
     ],
@@ -233,32 +249,32 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "activePrep",
     label: "ACTIVE PREP",
     icon: RefreshCw,
-    accent: "#1d4ed8",          // blue-700
-    headerBg: "#eff6ff",        // blue-50
-    subheaderBg: "#dbeafe",     // blue-100
+    accent: A_SKY,
+    headerBg: "rgba(240, 249, 255, 0.45)",
+    subheaderBg: "rgba(240, 249, 255, 0.22)",
     cols: [
       {
         dataKey: "notStartedCount", metricKey: "notStarted", colType: "heat",
         label: "Not Started", minWidth: 78,
-        palette: P_SKY, totalAccent: "#1d4ed8",
+        palette: P_SKY, totalAccent: A_SKY,
         tooltip: "LMPs assigned but preparation has not yet begun.",
       },
       {
         dataKey: "prepOngoingCount", metricKey: "prepOngoing", colType: "heat",
         label: "Prep Ongoing", minWidth: 90,
-        palette: P_SKY, totalAccent: "#1d4ed8",
+        palette: P_SKY, totalAccent: A_SKY,
         tooltip: "Prep currently in progress.",
       },
       {
         dataKey: "prepDoneCount", metricKey: "prepDone", colType: "heat",
         label: "Prep Done", minWidth: 78,
-        palette: P_SKY, totalAccent: "#1d4ed8",
+        palette: P_SKY, totalAccent: A_SKY,
         tooltip: "Prep marked complete, candidate handed to rounds.",
       },
       {
         dataKey: "onHoldCount", metricKey: "onHold", colType: "heat",
         label: "On Hold", minWidth: 72,
-        palette: P_YELLOW, totalAccent: "#1d4ed8",
+        palette: P_ON_HOLD, totalAccent: A_ORANGE,
         tooltip: "LMPs currently mapped to On Hold status. Shown here for operational visibility — excluded from the conversion denominator and existing load calculations are unchanged.",
       },
     ],
@@ -267,26 +283,26 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "closedOutcomes",
     label: "CLOSED OUTCOMES",
     icon: TrendingUp,
-    accent: "#047857",          // emerald-700
-    headerBg: "#ecfdf5",        // emerald-50
-    subheaderBg: "#d1fae5",     // emerald-100
+    accent: A_SAGE,
+    headerBg: "rgba(242, 246, 241, 0.55)",
+    subheaderBg: "rgba(242, 246, 241, 0.3)",
     cols: [
       {
         dataKey: "convertedCount", metricKey: "converted", colType: "heat",
         label: "Converted", minWidth: 80,
-        palette: P_SAGE, totalAccent: "#047857",
+        palette: P_SAGE, totalAccent: A_SAGE,
         tooltip: "Successful conversions credited to this POC.",
       },
       {
         dataKey: "notConvertedCount", metricKey: "notConverted", colType: "heat",
         label: "Not Converted", minWidth: 96,
-        palette: P_CORAL, totalAccent: "#be123c",
+        palette: P_CORAL, totalAccent: A_CORAL,
         tooltip: "LMPs that closed with a Not Converted outcome.",
       },
       {
         dataKey: "otherReasonsCount", metricKey: "otherReasons", colType: "heat",
         label: "Other Reasons", minWidth: 96,
-        palette: P_ORANGE, totalAccent: "#c2410c",
+        palette: P_ORANGE, totalAccent: A_ORANGE,
         tooltip: "Closed for reasons other than Converted or Not Converted (e.g. role pulled, candidate withdrew).",
       },
     ],
@@ -295,20 +311,20 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "responsibility",
     label: "RESPONSIBILITY",
     icon: Users,
-    accent: "#4338ca",          // indigo-700
-    headerBg: "#eef2ff",        // indigo-50
-    subheaderBg: "#e0e7ff",     // indigo-100
+    accent: A_PLUM,
+    headerBg: "rgba(245, 240, 255, 0.4)",
+    subheaderBg: "rgba(245, 240, 255, 0.22)",
     cols: [
       {
         dataKey: "primaryCount", metricKey: "primary", colType: "heat",
         label: "Primary", minWidth: 68,
-        palette: P_PLUM, totalAccent: "#4338ca",
+        palette: P_PLUM, totalAccent: A_PLUM,
         tooltip: "Distinct LMPs where this POC is the Primary Prep owner.",
       },
       {
         dataKey: "supportCount", metricKey: "support", colType: "heat",
         label: "Support", minWidth: 68,
-        palette: P_PLUM, totalAccent: "#4338ca",
+        palette: P_PLUM, totalAccent: A_PLUM,
         tooltip: "Distinct LMPs where this POC is a Support owner.",
       },
     ],
@@ -317,20 +333,20 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "domainLoad",
     label: "DOMAIN LOAD",
     icon: Briefcase,
-    accent: "#0e7490",          // cyan-700
-    headerBg: "#ecfeff",        // cyan-50
-    subheaderBg: "#cffafe",     // cyan-100
+    accent: A_TEAL,
+    headerBg: "rgba(236, 254, 255, 0.4)",
+    subheaderBg: "rgba(236, 254, 255, 0.22)",
     cols: [
       {
         dataKey: "inDomainCount", metricKey: "inDomain", colType: "heat",
         label: "In-domain", minWidth: 80,
-        palette: P_TEAL, totalAccent: "#0e7490",
+        palette: P_TEAL, totalAccent: A_TEAL,
         tooltip: "Primary LMPs matching at least one domain assigned to this POC.",
       },
       {
         dataKey: "crossDomainCount", metricKey: "crossDomain", colType: "heat",
         label: "Cross-domain", minWidth: 92,
-        palette: P_TEAL, totalAccent: "#0e7490",
+        palette: P_TEAL, totalAccent: A_TEAL,
         tooltip: "Primary LMPs outside all domains assigned to this POC.",
       },
     ],
@@ -339,21 +355,20 @@ const SECTION_CONFIG: SectionDef[] = [
     key: "performance",
     label: "PERFORMANCE",
     icon: BarChart3,
-    accent: "#6d28d9",          // violet-700
-    headerBg: "#f5f3ff",        // violet-50
-    subheaderBg: "#ede9fe",     // violet-100
+    accent: A_SAGE,
+    headerBg: "rgba(242, 246, 241, 0.45)",
+    subheaderBg: "rgba(242, 246, 241, 0.22)",
     cols: [
       {
-        // dataKey unused for "conversion" colType — special rendering
         dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
         label: "LMP Conversion", minWidth: 108,
-        palette: P_PERF, totalAccent: "#6d28d9",
+        palette: P_SAGE, totalAccent: A_SAGE,
         tooltip: "Converted ÷ eligible closed LMPs (excludes On Hold). Format: converted/eligible – %.",
       },
       {
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
         label: "Students Placed", minWidth: 96,
-        palette: P_PERF, totalAccent: "#6d28d9",
+        palette: P_SAGE, totalAccent: A_SAGE,
         tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC.",
       },
     ],
@@ -454,8 +469,8 @@ function HeatCell({
   const clickable = value > 0 && Boolean(onOpen);
   return (
     <td
-      className={cn("text-center tabular-nums text-[12.5px] font-semibold transition-colors", className)}
-      style={{ ...style, borderColor: "var(--lx-border)" }}
+      className={cn("text-center tabular-nums text-[12.5px] font-semibold transition-colors border-b", className)}
+      style={{ ...style, borderColor: CELL_BORDER }}
     >
       {clickable ? (
         <button
@@ -908,7 +923,7 @@ export function PrepPocHeatmapCard() {
               ) : (
                 <table
                   className="w-full border-separate text-[12px]"
-                  style={{ borderSpacing: 0, minWidth: 900 }}
+                  style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}
                 >
                   {/* Colgroup — driven by visible sections */}
                   <colgroup>
@@ -923,12 +938,13 @@ export function PrepPocHeatmapCard() {
                     <tr>
                       <th
                         rowSpan={2}
-                        className="text-left align-bottom px-4 pb-3 pt-4 text-[10.5px] font-bold uppercase tracking-widest border-r border-b"
+                        className="text-left align-bottom px-4 pb-3 pt-4 text-[11px] font-semibold uppercase border-r border-b"
                         style={{
                           color: "var(--lx-text-3)",
+                          letterSpacing: "0.04em",
                           position: "sticky", left: 0, zIndex: 3,
                           background: "var(--lx-surface)",
-                          borderColor: "var(--lx-border)",
+                          borderColor: CELL_BORDER,
                         }}
                       >
                         POC
@@ -940,20 +956,20 @@ export function PrepPocHeatmapCard() {
                           <th
                             key={s.key}
                             colSpan={s.cols.length}
-                            className="text-center px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b"
+                            className="text-center px-2 py-2.5 text-[11px] font-semibold uppercase border-b"
                             style={{
                               color: s.accent,
                               background: s.headerBg,
-                              borderTop: `2.5px solid ${s.accent}`,
-                              borderLeft: `1px solid color-mix(in srgb, ${s.accent} 20%, transparent)`,
-                              borderRight: `1px solid color-mix(in srgb, ${s.accent} 20%, transparent)`,
-                              borderBottom: `1px solid color-mix(in srgb, ${s.accent} 15%, transparent)`,
-                              borderRadius: "6px 6px 0 0",
+                              letterSpacing: "0.04em",
+                              borderTop: `2px solid ${s.accent}`,
+                              borderLeft: `0.5px solid color-mix(in srgb, ${s.accent} 18%, transparent)`,
+                              borderRight: `0.5px solid color-mix(in srgb, ${s.accent} 18%, transparent)`,
+                              borderBottom: `1px solid ${CELL_BORDER}`,
                             }}
                           >
                             <span className="inline-flex items-center justify-center gap-1.5">
                               <span className="h-5 w-5 rounded-lg inline-flex items-center justify-center"
-                                style={{ background: `color-mix(in srgb, ${s.accent} 12%, transparent)` }}>
+                                style={{ background: `color-mix(in srgb, ${s.accent} 8%, transparent)` }}>
                                 <Icon size={11} />
                               </span>
                               {s.label}
@@ -983,7 +999,7 @@ export function PrepPocHeatmapCard() {
                               color: "var(--lx-text-2)",
                               verticalAlign: "bottom",
                               background: s.subheaderBg,
-                              borderColor: `color-mix(in srgb, ${s.accent} 12%, transparent)`,
+                              borderColor: CELL_BORDER,
                             }}
                           >
                             <span className="inline-flex flex-col items-center gap-0.5">
@@ -1021,15 +1037,18 @@ export function PrepPocHeatmapCard() {
 
             {/* Footer: heat intensity legend */}
             <div className="flex flex-wrap items-center gap-3 mt-2 px-1">
-              <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--lx-text-3)" }}>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]" style={{ color: "var(--lx-text-3)" }}>
                 <span>Heat intensity (relative to column max)</span>
                 <span className="flex items-center gap-1 ml-1">
                   <span className="text-[10px]">Low</span>
-                  {(["#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd", "#60a5fa"] as const).map((bg, i) => (
+                  {LEGEND_LEVELS.map((bg, i) => (
                     <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm border"
-                      style={{ background: bg, borderColor: "#bfdbfe" }} />
+                      style={{ background: bg, borderColor: CELL_BORDER }} />
                   ))}
                   <span className="text-[10px]">High</span>
+                </span>
+                <span className="text-[10px]" style={{ color: "var(--lx-text-3)" }}>
+                  Heat intensity is relative to the maximum value in each column.
                 </span>
               </div>
             </div>
@@ -1071,7 +1090,7 @@ function DataRow({
           color: "var(--lx-text)",
           position: "sticky", left: 0, zIndex: 1,
           background: "var(--lx-surface)",
-          borderColor: "var(--lx-border)",
+          borderColor: CELL_BORDER,
         }}
       >
         {row.pocName}
@@ -1084,16 +1103,19 @@ function DataRow({
             const dispVal = fmtConversion(row.convertedCount, row.eligibleClosedCount, row.lmpConversionPercentage);
             const hasEligible = row.eligibleClosedCount > 0;
             const isGood = row.lmpConversionPercentage !== null && row.lmpConversionPercentage >= 50;
+            const convColor = !hasEligible
+              ? MUTED_TEXT
+              : isGood
+                ? T_SAGE
+                : T_CORAL;
             return (
               <td
                 key={col.metricKey}
                 className="text-center text-[12px] font-semibold tabular-nums border-b transition-colors"
                 style={{
-                  background: s.subheaderBg,
-                  color: hasEligible
-                    ? isGood ? "var(--lx-success)" : "var(--lx-risk)"
-                    : "var(--lx-text-3)",
-                  borderColor: "var(--lx-border)",
+                  background: "var(--lx-surface)",
+                  color: convColor,
+                  borderColor: CELL_BORDER,
                 }}
               >
                 {hasEligible ? (
@@ -1143,13 +1165,14 @@ function TotalRow({
   return (
     <tr>
       <td
-        className="px-4 py-2.5 text-[11.5px] font-bold uppercase tracking-widest border-r"
+        className="px-4 py-2.5 text-[11px] font-bold uppercase border-r"
         style={{
           color: "var(--lx-text-2)",
+          letterSpacing: "0.04em",
           position: "sticky", left: 0, zIndex: 1,
           background: "var(--lx-soft)",
-          borderTop: "2px solid var(--lx-border)",
-          borderColor: "var(--lx-border)",
+          borderTop: "1px solid var(--lx-border)",
+          borderColor: CELL_BORDER,
         }}
       >
         TOTAL
@@ -1165,8 +1188,8 @@ function TotalRow({
                 className="text-center text-[12px] font-bold tabular-nums py-2.5"
                 style={{
                   background: "var(--lx-soft)",
-                  color: totals.eligibleClosedCount > 0 ? col.totalAccent : "var(--lx-text-3)",
-                  borderTop: "2px solid var(--lx-border)",
+                  color: totals.eligibleClosedCount > 0 ? col.totalAccent : MUTED_TEXT,
+                  borderTop: "1px solid var(--lx-border)",
                 }}
               >
                 {dispVal}
@@ -1181,8 +1204,8 @@ function TotalRow({
               className="text-center text-[12.5px] font-bold tabular-nums py-2.5"
               style={{
                 background: "var(--lx-soft)",
-                color: value > 0 ? col.totalAccent : "var(--lx-text-3)",
-                borderTop: "2px solid var(--lx-border)",
+                color: value > 0 ? col.totalAccent : MUTED_TEXT,
+                borderTop: "1px solid var(--lx-border)",
               }}
             >
               {value}
