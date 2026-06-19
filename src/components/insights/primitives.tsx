@@ -41,6 +41,11 @@ export function LuminaShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Groups a section heading with its cards — 24px between heading and content. */
+export function LxSectionBlock({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("flex flex-col gap-6", className)}>{children}</div>;
+}
+
 /* ─────────────── Page Header ─────────────── */
 export function LxPageHeader({
   crumb, title, subtitle, right,
@@ -77,7 +82,7 @@ export function LxLivePill() {
 /* ─────────────── Bento Grid (12-col) ─────────────── */
 export function LxGrid({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("grid grid-cols-12 gap-gutter", className)}>{children}</div>
+    <div className={cn("grid grid-cols-12 gap-x-6 gap-y-gutter", className)}>{children}</div>
   );
 }
 
@@ -135,7 +140,7 @@ export function LxCardHeader({ eyebrow, title, hint, right, info }:{
 
 export function LxSection({ eyebrow, title, hint, info }: { eyebrow: string; title: string; hint?: string; info?: string }) {
   return (
-    <div className="flex flex-col gap-0.5 mt-2">
+    <div className="flex flex-col gap-0.5">
       <div className="lx-eyebrow">{eyebrow}</div>
       <h2 className="text-[19px] font-semibold tracking-tight inline-flex items-center gap-1.5" style={{ color: "var(--lx-text)" }}>
         <span>{title}</span>
@@ -718,7 +723,7 @@ export function LxAttentionStrip({
   }[];
 }) {
   return (
-    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-gutter gap-y-gutter">
+    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-gutter">
       {items.map((it, i) => {
         const clickable = !!it.onClick;
         return (

@@ -44,7 +44,7 @@ export function MyConversionCard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-gutter">
         <Stat
           label="Domain Conversion"
           sub="Used for ranking"

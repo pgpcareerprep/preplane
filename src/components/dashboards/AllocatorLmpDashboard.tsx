@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
+  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection, LxSectionBlock,
   LxHero, LxKpi, LxStackedBar, LxAttentionStrip, LX_HEX,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
@@ -110,7 +110,7 @@ export function AllocatorLmpDashboard() {
           span={7}
           onPrimaryClick={() => openLmps(filtered.filter((r) => requiredFieldsForRow(r).missing.length > 0), "LMPs with missing fields", `${filtered.length} in scope`)}
         />
-        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-gutter">
+        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-x-6 gap-y-gutter">
           <LxKpi span={6} label="Processes in scope" accent="info"   value={filtered.length} sub={`Of ${all.length} total`}
             info={info("alloc.kpi.in-scope")} onClick={() => openLmps(filtered, "Processes in scope")} />
           <LxKpi span={6} label="Total issues"       accent="risk"   value={totalIssues}     sub="Sum of missing fields"
@@ -123,6 +123,7 @@ export function AllocatorLmpDashboard() {
       </LxGrid>
 
       {/* SECTION 2 — Quality breakdown */}
+      <LxSectionBlock>
       <LxSection eyebrow="Quality" title="Where data quality breaks" info={info("alloc.issue-mix")} hint="Top-level signals across the four most common gap types." />
       <LxGrid>
         <LxKpi span={3} label="Missing prep docs"  accent="risk"   value={missingPrep}      sub="Ongoing or Offer Received"
@@ -134,6 +135,7 @@ export function AllocatorLmpDashboard() {
         <LxKpi span={3} label="Status missing"     accent="ai"     value={statusMissing}    sub="Status field blank"
           info={info("alloc.kpi.status-missing")} onClick={() => openLmps(lmpsStatusMissing(filtered), "Status missing")} />
       </LxGrid>
+      </LxSectionBlock>
 
       {/* Snapshot strip — live flag counts */}
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
@@ -189,6 +191,7 @@ export function AllocatorLmpDashboard() {
       </LxGrid>
 
       {/* SECTION 4 — Issue mix (stacked) */}
+      <LxSectionBlock>
       <LxSection eyebrow="Issue mix" title="Where the gaps live" info={info("alloc.issue-mix")} hint="Distribution across the four most common gap types." />
       <LxCard span={12}>
         <LxStackedBar
@@ -206,8 +209,10 @@ export function AllocatorLmpDashboard() {
           ]}
         />
       </LxCard>
+      </LxSectionBlock>
 
       {/* ─── LMP Tracker summary ─── */}
+      <LxSectionBlock>
       <LxSection eyebrow="LMP Tracker · Live" title="Process snapshot" />
       <LxGrid>
         <LxKpi span={3} label="Total LMPs" accent="info" value={filtered.length} sub="From LMP Tracker"
@@ -244,6 +249,7 @@ export function AllocatorLmpDashboard() {
           />
         </LxCard>
       </LxGrid>
+      </LxSectionBlock>
 
       {/* Action required (allocation gaps focus) + Recent activity */}
       <LxGrid>

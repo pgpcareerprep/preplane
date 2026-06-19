@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import {
-  LxGrid, LxCard, LxCardHeader, LxSection, LX_HEX,
+  LxGrid, LxCard, LxCardHeader, LxSection, LxSectionBlock, LX_HEX,
 } from "@/components/insights/primitives";
 import {
   domainAllocation, pocPurityMatrix,
@@ -27,7 +27,7 @@ export function DomainAllocationSection({ rows, pocName, records }: Props) {
   const matrixRows = personal ? purity.filter((p) => p.poc === pocName) : purity.slice(0, 10);
 
   return (
-    <>
+    <LxSectionBlock>
       <LxSection
         eyebrow="Allocation"
         title={personal ? "My Domain Allocation" : "Domain Allocation Intelligence"}
@@ -96,7 +96,7 @@ export function DomainAllocationSection({ rows, pocName, records }: Props) {
           </div>
         </LxCard>
       </LxGrid>
-    </>
+    </LxSectionBlock>
   );
 }
 

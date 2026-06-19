@@ -570,7 +570,7 @@ function ColumnsPopover({
 function HeatmapSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
-      <div className="flex gap-gutter">
+      <div className="flex gap-6">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="h-14 flex-1 rounded-xl" style={{ background: "var(--lx-soft)" }} />
         ))}
@@ -849,7 +849,7 @@ export function PrepPocHeatmapCard() {
 
         {/* KPI cards */}
         {!isLoading && data && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-gutter mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-gutter mt-4">
             <KpiCard icon={Users} label="Active POCs" value={data.summary.activePocCount}
               accentCss="var(--lx-orange)"
               tooltip="Distinct active POCs with at least one LMP assignment included in the heatmap." />
@@ -866,7 +866,7 @@ export function PrepPocHeatmapCard() {
           </div>
         )}
         {isLoading && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-gutter mt-4 animate-pulse">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-gutter mt-4 animate-pulse">
             {[1, 2, 3, 4].map((i) => <div key={i} className="h-14 rounded-2xl" style={{ background: "var(--lx-soft)" }} />)}
           </div>
         )}
@@ -1399,7 +1399,7 @@ function HeatmapDrilldownModal({
 
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50/60 px-6 py-4">
           {result?.recordType === "conversion" && (
-            <div className="mb-4 grid gap-gutter sm:grid-cols-3">
+            <div className="mb-4 grid gap-x-6 gap-y-gutter sm:grid-cols-3">
               <MetricSummaryCard label="Converted LMPs" value={result.convertedLmps.length} tone="green" />
               <MetricSummaryCard label="Eligible Closed LMPs" value={result.denominatorLmps.length} tone="slate" />
               <MetricSummaryCard label="Conversion" value={fmtConversion(result.convertedLmps.length, result.denominatorLmps.length, result.denominatorLmps.length ? (result.convertedLmps.length / result.denominatorLmps.length) * 100 : null)} tone="green" />

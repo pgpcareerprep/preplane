@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
+  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection, LxSectionBlock,
   LxKpi, LxRankedBar, LxAttentionStrip,
   LX_HEX, type LxAccent,
 } from "@/components/insights/primitives";
@@ -883,6 +883,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       <PrepPocHeatmapCard />
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
+      <LxSectionBlock>
       <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Domain-wise load and outcomes snapshot from the current filtered scope." />
       <LxGrid>
         <LxCard span={12} className="overflow-hidden">
@@ -936,7 +937,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             }
           />
 
-          <div className="mb-4 grid grid-cols-1 gap-gutter sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-4 grid grid-cols-1 gap-x-6 gap-y-gutter sm:grid-cols-2 xl:grid-cols-4">
             {[
               { label: "Total Domains", value: domainTotals.totalDomains.toLocaleString(), sub: "In selected scope", accent: "info" as LxAccent },
               { label: "Total LMPs", value: domainTotals.totalLmps.toLocaleString(), sub: "Till today", accent: "neutral" as LxAccent },
@@ -1091,8 +1092,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
           )}
         </LxCard>
       </LxGrid>
+      </LxSectionBlock>
 
       {/* ─────── SECTION 4.5: Student analytics ─────── */}
+      <LxSectionBlock>
       <LxSection
         eyebrow="Student analytics"
         title="Student distribution, participation, and inactivity snapshot"
@@ -1101,7 +1104,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
       {/* Row 1 — 8 KPI cards in one row */}
       <div className="overflow-x-auto -mx-1 px-1 pb-1">
-        <div className="grid grid-cols-8 gap-gutter min-w-[1124px]">
+        <div className="grid grid-cols-8 gap-6 min-w-[1040px]">
         <LxKpi compact label="Total Students" accent="info" value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
@@ -1192,6 +1195,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             })
         )}
       </LxGrid>
+      </LxSectionBlock>
 
       {/* Action required (high-priority only) + Recent activity */}
       <LxGrid>
@@ -1287,12 +1291,14 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       />
 
       {/* ─────── Flagged LMPs (moved to bottom) ─────── */}
+      <LxSectionBlock>
       <LxSection
         eyebrow="Flagged LMPs"
         title="Processes requiring operational attention."
         hint="Action flags from the current filtered scope — stale, overdue, missing documents."
       />
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
+      </LxSectionBlock>
 
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />
     </LuminaShell>
