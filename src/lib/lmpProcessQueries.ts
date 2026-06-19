@@ -108,6 +108,43 @@ export function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
+/**
+ * Tolerant POC name match (legacy fallback — used when no UUID map is available).
+ *
+ * NOTE: Two POCs sharing a first name (e.g. "Mansi Bhargava" / "Mansi Jain") will
+ * collide. Always prefer UUID-based filtering via `activePocLmpIdsMap` when available.
+ */
+export function matchesPocName(rowName: string | undefined | null, selected: string): boolean {
+  const row = (rowName ?? "").trim().toLowerCase();
+  const sel = selected.trim().toLowerCase();
+  if (!row || !sel) return false;
+  if (row === sel) return true;
+  const rowTokens = row.split(/\s+/).filter(Boolean);
+  const selTokens = sel.split(/\s+/).filter(Boolean);
+  return rowTokens.some((t) => selTokens.includes(t));
+}
+
+/**
+ * Scope processes to a POC's operational workload (prep or support only).
+ * Mirrors `isUserOperationalPoc` on the LMP board: active link UUIDs first,
+ * then prep/support name match when links are missing or stale.
+ */
+export function scopeProcessesToOperationalPoc(
+  rows: Process[],
+  pocId: string | null | undefined,
+  userName: string,
+  activePocLmpIdsMap?: Map<string, Set<string>>,
+): Process[] {
+  const linked = pocId ? activePocLmpIdsMap?.get(pocId) : undefined;
+  return rows.filter((r) => {
+    if (linked?.has(r.processId)) return true;
+    return (
+      matchesPocName(r.prepPoc, userName) ||
+      matchesPocName(r.supportPoc, userName)
+    );
+  });
+}
+
 /** Filter rows visible to a given user/role. */
 export function scopeForRole(
   rows: Process[],
@@ -115,7 +152,11 @@ export function scopeForRole(
   userName: string,
 ): Process[] {
   if (role === "poc") {
-    return rows.filter((r) => r.prepPoc === userName || r.supportPoc === userName);
+    return rows.filter(
+      (r) =>
+        matchesPocName(r.prepPoc, userName) ||
+        matchesPocName(r.supportPoc, userName),
+    );
   }
   return rows;
 }

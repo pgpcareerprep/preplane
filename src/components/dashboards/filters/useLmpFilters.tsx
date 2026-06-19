@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { DOMAINS, STATUS_LIST, type Domain, type Process, type ProcessStatus, type ProcessType, daysSince, scopeForRole } from "@/lib/lmpProcessQueries";
+import {
+  DOMAINS, STATUS_LIST, type Domain, type Process, type ProcessStatus, type ProcessType,
+  daysSince, matchesPocName, scopeForRole, scopeProcessesToOperationalPoc,
+} from "@/lib/lmpProcessQueries";
 import { startOfDay, endOfDay } from "date-fns";
 
 export type DateRange = "7d" | "30d" | "90d" | "All" | "Custom";
@@ -9,22 +12,6 @@ export type DateRange = "7d" | "30d" | "90d" | "All" | "Custom";
 const RANGE_DAYS: Record<Exclude<DateRange, "Custom">, number> = {
   "7d": 7, "30d": 30, "90d": 90, All: 100000,
 };
-
-/**
- * Tolerant POC name match (legacy fallback — used when no UUID map is available).
- *
- * NOTE: Two POCs sharing a first name (e.g. "Mansi Bhargava" / "Mansi Jain") will
- * collide. Always prefer UUID-based filtering via `pocLmpIdsMap` when available.
- */
-function matchesPocSelection(rowName: string | undefined | null, selected: string): boolean {
-  const row = (rowName ?? "").trim().toLowerCase();
-  const sel = selected.trim().toLowerCase();
-  if (!row || !sel) return false;
-  if (row === sel) return true;
-  const rowTokens = row.split(/\s+/).filter(Boolean);
-  const selTokens = sel.split(/\s+/).filter(Boolean);
-  return rowTokens.some((t) => selTokens.includes(t));
-}
 
 export type Role = "admin" | "allocator" | "poc";
 
@@ -78,9 +65,8 @@ export function useLmpFilters({
 
   const all = useMemo(() => {
     let rows = data ?? [];
-    if (pocIdScope && activePocLmpIdsMap) {
-      const allowed = activePocLmpIdsMap.get(pocIdScope);
-      rows = allowed ? rows.filter((r) => allowed.has(r.processId)) : [];
+    if (pocIdScope) {
+      rows = scopeProcessesToOperationalPoc(rows, pocIdScope, userName, activePocLmpIdsMap);
     } else {
       rows = scopeForRole(rows, role, userName);
     }
@@ -124,11 +110,11 @@ export function useLmpFilters({
           if (!allowedIds || !allowedIds.has(r.processId)) return false;
         } else {
           // Legacy name-based fallback
-          if (!matchesPocSelection(r.prepPoc, filters.prepPoc)) return false;
+          if (!matchesPocName(r.prepPoc, filters.prepPoc)) return false;
         }
       }
 
-      if (filters.outreachPoc !== "All" && !matchesPocSelection(r.outreachPoc, filters.outreachPoc)) return false;
+      if (filters.outreachPoc !== "All" && !matchesPocName(r.outreachPoc, filters.outreachPoc)) return false;
       return true;
     });
   }, [all, filters, pocLmpIdsMap]);
