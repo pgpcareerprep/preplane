@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { clearCachePrefix } from "@/lib/hooks/useDbData";
+import { isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
 
 type DbRole = "admin" | "allocator" | "poc";
 const ROLE_LABEL: Record<DbRole, string> = { admin: "Admin", allocator: "Allocator", poc: "POC" };
@@ -37,7 +38,7 @@ const isGranted = (u: { access_status: string; is_active: boolean }) =>
   u.access_status === "approved" && u.is_active !== false;
 
 
-const FILTERS = ["All", "Admins", "Allocators", "POCs"] as const;
+const FILTERS = ["All", "Admins", "Allocators", "Prep POCs"] as const;
 type Filter = typeof FILTERS[number];
 
 const initialsOf = (n: string) =>
@@ -55,13 +56,34 @@ function fmtLastActive(iso: string | null): string {
 }
 
 async function fetchUsers(): Promise<UserRow[]> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id,user_id,display_name,email,role,is_active,access_status,last_login_at")
-    .order("display_name", { ascending: true })
-    .limit(1000);
-  if (error) throw error;
-  return (data ?? []).map((r): UserRow => ({
+  const [profilesRes, pocRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id,user_id,display_name,email,role,is_active,access_status,last_login_at")
+      .order("display_name", { ascending: true })
+      .limit(1000),
+    supabase
+      .from("poc_profiles")
+      .select("email, role_type"),
+  ]);
+  if (profilesRes.error) throw profilesRes.error;
+  if (pocRes.error) throw pocRes.error;
+
+  const outreachEmails = new Set<string>();
+  for (const p of pocRes.data ?? []) {
+    if (!isOutreachOnlyPoc(p.role_type as string)) continue;
+    const email = ((p.email as string | null) ?? "").trim().toLowerCase();
+    if (email) outreachEmails.add(email);
+  }
+
+  return (profilesRes.data ?? [])
+    .filter((r) => {
+      const role = ((r.role as string | null) ?? "poc").toLowerCase();
+      if (role === "admin" || role === "allocator") return true;
+      const email = ((r.email as string | null) ?? "").trim().toLowerCase();
+      return !email || !outreachEmails.has(email);
+    })
+    .map((r): UserRow => ({
     id: r.id as string,
     user_id: (r.user_id as string | null) ?? null,
     display_name: (r.display_name as string | null) ?? (r.email as string | null) ?? "—",
@@ -109,7 +131,7 @@ export default function UserManagementPage() {
     const q = query.trim().toLowerCase();
     return users.filter(u => {
       if (filter === "Allocators" && u.role !== "allocator") return false;
-      if (filter === "POCs" && u.role !== "poc") return false;
+      if (filter === "Prep POCs" && u.role !== "poc") return false;
       if (filter === "Admins" && u.role !== "admin") return false;
       if (!q) return true;
       return u.display_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
