@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection,
-  LxKpi, LxStackedBar, LxRankedBar, LxAttentionStrip,
+  LxKpi, LxRankedBar, LxAttentionStrip,
   LX_HEX, type LxAccent,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
@@ -46,6 +46,7 @@ import {
 import { STATUS_META } from "@/lib/lmpTypes";
 import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
+import { CohortSummaryCard } from "@/components/dashboard/CohortSummaryCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 import type { ReactNode } from "react";
 
@@ -1373,7 +1374,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
               const active = c.single + c.multiple;
               const cohortConverted = convertedPerCohort.get(cohort) ?? 0;
               const convPct = eligible > 0 ? (cohortConverted / eligible) * 100 : null;
-              const pctOf = (n: number, denom: number) => (denom > 0 ? (n / denom) * 100 : 0);
               const openCohort = (bucket: "single" | "multiple" | "no-active" | "opted-out" | "all", subtitle: string) =>
                 setDrill({ kind: "students", title: `${cohort} · ${subtitle}`, rows: studentsInBucket(studentRoster, { cohort, bucket }) });
 
@@ -1385,44 +1385,30 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
               };
 
               return (
-                <LxCard key={cohort} span={6}>
-                  <LxCardHeader
-                    eyebrow="Cohort"
-                    title={cohort}
-                    info={info("admin.students.cohort")}
-                    hint={`${c.total} total · ${eligible} eligible · ${active} active · ${cohortConverted} converted`}
-                    right={
-                      <div className="flex items-center gap-2">
-                        {convPct !== null && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border"
-                            style={{ background: `${LX_HEX.success}18`, color: LX_HEX.success, borderColor: `${LX_HEX.success}40` }}>
-                            {cohortConverted}/{eligible} conv · {convPct.toFixed(0)}%
-                          </span>
-                        )}
-                        <button onClick={exportCohortCsv} title="Export CSV"
-                          className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[10.5px] border hover:bg-[var(--lx-soft)] transition-colors"
-                          style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-3)" }}>
-                          <Download size={10} />
-                        </button>
-                      </div>
-                    }
-                  />
-                  <LxStackedBar
-                    total={c.total}
-                    onSegmentClick={(s) => {
-                      if (s.label === "In 1 Active Process")    openCohort("single",    "in 1 active process");
-                      else if (s.label === "In 2+ Active Processes") openCohort("multiple", "in 2+ active processes");
-                      else if (s.label === "No Active Process") openCohort("no-active", "no active process");
-                      else if (s.label === "Opted Out")         openCohort("opted-out", "opted out");
-                    }}
-                    segments={[
-                      { label: "In 1 Active Process",    value: c.single,   accent: "success", info: info("admin.students.one-active") },
-                      { label: "In 2+ Active Processes", value: c.multiple, accent: "info",    info: info("admin.students.two-plus-active") },
-                      { label: "No Active Process",      value: c.inactive, accent: "risk",    info: info("admin.students.no-active") },
-                      { label: "Opted Out",              value: c.optedOut, accent: "orange",  info: info("admin.students.opted-out") },
-                    ]}
-                  />
-                </LxCard>
+                <CohortSummaryCard
+                  key={cohort}
+                  cohort={cohort}
+                  total={c.total}
+                  eligible={eligible}
+                  active={active}
+                  converted={cohortConverted}
+                  cohortConverted={cohortConverted}
+                  convPct={convPct}
+                  single={c.single}
+                  multiple={c.multiple}
+                  inactive={c.inactive}
+                  optedOut={c.optedOut}
+                  onSegmentClick={(bucket) => {
+                    const subtitles: Record<typeof bucket, string> = {
+                      single: "in 1 active process",
+                      multiple: "in 2+ active processes",
+                      "no-active": "no active process",
+                      "opted-out": "opted out",
+                    };
+                    openCohort(bucket, subtitles[bucket]);
+                  }}
+                  onExport={exportCohortCsv}
+                />
               );
             })
         )}
