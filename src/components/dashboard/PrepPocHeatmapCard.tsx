@@ -1019,8 +1019,8 @@ export function PrepPocHeatmapCard() {
               )}
             </div>
 
-            {/* Footer: legend + On Hold note */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mt-2 px-1">
+            {/* Footer: heat intensity legend */}
+            <div className="flex flex-wrap items-center gap-3 mt-2 px-1">
               <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--lx-text-3)" }}>
                 <span>Heat intensity (relative to column max)</span>
                 <span className="flex items-center gap-1 ml-1">
@@ -1032,10 +1032,6 @@ export function PrepPocHeatmapCard() {
                   <span className="text-[10px]">High</span>
                 </span>
               </div>
-              <p className="text-[10.5px] flex items-center gap-1" style={{ color: "var(--lx-text-3)" }}>
-                <LxInfo text="On Hold is shown under Active Prep for operational visibility. Load and conversion calculations remain unchanged." size={10} />
-                On Hold shown under Active Prep · load &amp; conversion calculations unchanged.
-              </p>
             </div>
           </>
         )}
