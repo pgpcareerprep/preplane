@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
+import { resolveOperationalPocEmails } from "../_shared/resolvePocEmails.ts";
 import { DEFAULT_APP_ORIGIN, getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -12,8 +13,14 @@ const corsHeaders: Record<string, string> = {
 async function resolveEmailForName(supabase: any, name?: string | null): Promise<string | null> {
   const n = (name || "").trim();
   if (!n) return null;
-  const { data: pp } = await supabase.from("poc_profiles").select("email").eq("name", n).maybeSingle();
+  const { data: pp } = await supabase.from("poc_profiles").select("email, aliases").eq("name", n).maybeSingle();
   if (pp?.email) return String(pp.email).trim();
+  const { data: profiles } = await supabase.from("poc_profiles").select("email, aliases");
+  for (const p of profiles ?? []) {
+    if ((p.aliases || []).some((a: string) => (a || "").trim().toLowerCase() === n.toLowerCase()) && p.email) {
+      return String(p.email).trim();
+    }
+  }
   const { data: pf } = await supabase.from("profiles").select("email").eq("display_name", n).maybeSingle();
   return pf?.email ? String(pf.email).trim() : null;
 }
@@ -38,20 +45,27 @@ Deno.serve(async (req) => {
 
     const { data: lmp } = await supabase
       .from("lmp_processes")
-      .select("company, role, domain_raw, prep_poc, support_poc")
+      .select("company, role, domain_raw, prep_poc, support_poc, prep_poc_id, support_poc_id")
       .eq("id", lmp_id)
       .single();
 
-    // Build recipient list
+    // Build recipient list — prep + support operational POCs only (never outreach).
     let recipients: string[] = [];
     if (auth.user.role === "admin" && Array.isArray(to_emails) && to_emails.length > 0) {
       recipients = to_emails.filter(Boolean).map((e: string) => String(e).trim());
     } else if (auth.user.role === "admin" && to_email) {
       recipients = [String(to_email).trim()];
     } else {
-      const prepEmail = await resolveEmailForName(supabase, (lmp as any)?.prep_poc);
-      const supportEmail = await resolveEmailForName(supabase, (lmp as any)?.support_poc);
-      recipients = [prepEmail, supportEmail].filter(Boolean) as string[];
+      recipients = await resolveOperationalPocEmails(
+        supabase,
+        {
+          prep_poc_id: (lmp as any)?.prep_poc_id,
+          support_poc_id: (lmp as any)?.support_poc_id,
+          prep_poc: (lmp as any)?.prep_poc,
+          support_poc: (lmp as any)?.support_poc,
+        },
+        to_email,
+      );
     }
 
     // Dedupe (case-insensitive)

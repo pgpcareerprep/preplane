@@ -22,7 +22,8 @@ import { isCircuitOpen, recordSuccess, recordFailure } from "../_shared/circuitB
 import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
 import { checkPermission } from "../_shared/rbac.ts";
 import { POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts";
-import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { DEFAULT_APP_ORIGIN, getAppOrigin } from "../_shared/appConfig.ts";
 
 // corsHeaders is set dynamically per-request via buildCorsHeaders(req) at handler entry.
@@ -3412,11 +3413,29 @@ async function handleRequest(req: Request) {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
     const [{ data: profiles, error: profilesError }, { data: lmps, error: lmpsError }] = await Promise.all([
-      fastSb.from("poc_profiles").select("name,role_type,primary_domain,active_load,max_threshold,conversion_rate").order("name"),
+      fastSb.from("poc_profiles").select("name,role_type,primary_domain,active_load,max_threshold,conversion_rate,status").order("name"),
       fastSb.from("lmp_processes").select("status,prep_poc,support_poc,outreach_poc").limit(3000),
     ]);
-    if (!profilesError && !lmpsError) {
-      const rows = (profiles || []).map((p) => {
+    if (profilesError || lmpsError) {
+      requestState().log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
+      const errText = [
+        "I couldn't load the live POC progress data right now.",
+        "",
+        ":::blocks",
+        JSON.stringify([{ type: "alert-cards", alerts: [{ severity: "error", title: "Data fetch failed", message: profilesError?.message || lmpsError?.message || "Unknown database error" }] }]),
+        ":::",
+      ].join("\n");
+      telemetry.intent = "poc_workload_fast_path_error";
+      void logTurn({ status: "error", error_message: profilesError?.message || lmpsError?.message, response_chars: errText.length });
+      return new Response(buildPlainSseResponse(errText), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      });
+    }
+    const operationalProfiles = (profiles || []).filter((p) =>
+      (p.status ?? "active") === "active" && p.role_type !== "outreach_poc",
+    );
+    if (operationalProfiles.length) {
+      const rows = operationalProfiles.map((p) => {
         const assigned = (lmps || []).filter((l) =>
           [l.prep_poc, l.support_poc, l.outreach_poc].some((name) => name && name.toLowerCase() === p.name?.toLowerCase())
         );
@@ -3445,24 +3464,86 @@ async function handleRequest(req: Request) {
         };
       }).sort((a, b) => b.capacity - a.capacity);
       const overCapacity = rows.filter((r) => r.capacity > 80).length;
+      const reportTitle = isPocProgressReportQuery(lastUserMessage) ? "Prep POC progress report" : "POC workload";
       const text = [
         `${rows.length} POCs reviewed. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`,
         "",
         ":::blocks",
         JSON.stringify([
-          { type: "executive-summary", content: `${rows.length} POCs reviewed using live POC profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
+          { type: "executive-summary", content: `${rows.length} prep POCs reviewed using live profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
           { type: "kpi-row", items: [{ label: "POCs", value: rows.length }, { label: "Above 80% capacity", value: overCapacity }] },
-          { type: "table", title: "POC workload", headers: ["POC", "Active load", "Max threshold", "Capacity", "Conversion rate", "Processes by status"], rows: rows.map((r) => r.row) },
+          { type: "table", title: reportTitle, headers: ["POC", "Active load", "Max threshold", "Capacity", "Conversion rate", "Processes by status"], rows: rows.map((r) => r.row) },
         ]),
         ":::",
       ].join("\n");
-      telemetry.intent = "poc_workload_fast_path";
+      telemetry.intent = isPocProgressReportQuery(lastUserMessage) ? "poc_progress_report_fast_path" : "poc_workload_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": telemetry.intent },
       });
     }
-    requestState().log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
+    const emptyText = [
+      "No active prep POC profiles were found to build a progress report.",
+      "",
+      ":::blocks",
+      JSON.stringify([{ type: "executive-summary", content: "No active prep POC profiles are configured in the system yet." }]),
+      ":::",
+    ].join("\n");
+    telemetry.intent = "poc_workload_fast_path_empty";
+    void logTurn({ status: "ok", response_chars: emptyText.length });
+    return new Response(buildPlainSseResponse(emptyText), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+    });
+  }
+
+  if (isConversionReportQuery(lastUserMessage)) {
+    const fastSb = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const [pocsRes, linksRes, candidatesRes, studentsRes, lmpsRes] = await Promise.all([
+      fastSb.from("poc_profiles").select("id, name, primary_domain, domain_tags, role_type, status").order("name"),
+      fastSb.from("lmp_poc_links").select("poc_id, role, lmp_id, lmp_processes(id, status, domain_raw, domains(name))").in("role", ["prep", "support"]),
+      fastSb.from("lmp_candidates").select("lmp_id, student_id").not("student_id", "is", null),
+      fastSb.from("students").select("id, name, primary_domain, secondary_domain, placement_status"),
+      fastSb.from("lmp_processes").select("id, status, domain_raw, domains(name)").limit(5000),
+    ]);
+    const queryError = pocsRes.error || linksRes.error || candidatesRes.error || studentsRes.error || lmpsRes.error;
+    if (queryError) {
+      requestState().log.warn("conversion_report_fast_path_failed", {
+        error: queryError.message,
+        pocs: pocsRes.error?.message,
+        links: linksRes.error?.message,
+        candidates: candidatesRes.error?.message,
+        students: studentsRes.error?.message,
+        lmps: lmpsRes.error?.message,
+      });
+      const errText = [
+        "I couldn't load the live conversion data right now.",
+        "",
+        ":::blocks",
+        JSON.stringify([{ type: "alert-cards", alerts: [{ severity: "error", title: "Data fetch failed", message: queryError.message }] }]),
+        ":::",
+      ].join("\n");
+      telemetry.intent = "conversion_report_fast_path_error";
+      void logTurn({ status: "error", error_message: queryError.message, response_chars: errText.length });
+      return new Response(buildPlainSseResponse(errText), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      });
+    }
+    const report = buildConversionReport(
+      pocsRes.data ?? [],
+      linksRes.data ?? [],
+      candidatesRes.data ?? [],
+      studentsRes.data ?? [],
+      lmpsRes.data ?? [],
+    );
+    const text = formatConversionReportSse(report);
+    telemetry.intent = "conversion_report_fast_path";
+    void logTurn({ status: "ok", response_chars: text.length });
+    return new Response(buildPlainSseResponse(text), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": telemetry.intent },
+    });
   }
 
   if (isConversionCountQuery(lastUserMessage)) {
@@ -3505,10 +3586,22 @@ async function handleRequest(req: Request) {
       telemetry.intent = "conversion_count_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL },
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": "conversion_count_fast_path" },
       });
     }
     requestState().log.warn("conversion_count_fast_path_failed", { error: error.message });
+    const errText = [
+      "I couldn't load conversion counts right now.",
+      "",
+      ":::blocks",
+      JSON.stringify([{ type: "alert-cards", alerts: [{ severity: "error", title: "Data fetch failed", message: error.message }] }]),
+      ":::",
+    ].join("\n");
+    telemetry.intent = "conversion_count_fast_path_error";
+    void logTurn({ status: "error", error_message: error.message, response_chars: errText.length });
+    return new Response(buildPlainSseResponse(errText), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+    });
   }
 
   const ACTION_MODES = new Set(["update", "assign"]);
@@ -3680,7 +3773,7 @@ async function handleRequest(req: Request) {
           code: "ALL_AI_PROVIDERS_UNAVAILABLE",
           message: "AI services are temporarily unavailable. Please retry in a moment.",
           detail: errMsg,
-        }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "X-Copilot-Intent": "ai_gateway_error" } });
       }
 
       const aiResult = await aiResponse.json();

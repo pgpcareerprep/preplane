@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { normalizeNextProgressType, NEXT_PROGRESS_TYPES } from "@/lib/nextProgressType";
 
 // Sheets → DB auto-pull is removed. DB is the source of truth; the
 // `sheets-retry-sweeper` cron handles DB → Sheet mirroring server-side.
@@ -114,14 +115,7 @@ export function DailyProgressCard({
 
   const [text, setText] = useState("");
   const [nextDate, setNextDate] = useState<string>(nextProgressDateFromDb || "");
-  const normalizeReminderType = (v?: string | null): string => {
-    const s = (v || "").trim();
-    if (!s) return "Follow - Up";
-    if (s === "Follow-up" || s === "Follow-Up" || s === "Follow up") return "Follow - Up";
-    if (s === "Movement" || s === "Moved to Next Round") return "Moved to next round";
-    return s;
-  };
-  const [nextKind, setNextKind] = useState<string>(normalizeReminderType(reminderTypeFromDb));
+  const [nextKind, setNextKind] = useState<string>(normalizeNextProgressType(reminderTypeFromDb));
   const [showHistory, setShowHistory] = useState(false);
   const [dateSaved, setDateSaved] = useState(false);
   const [sendConfirmation, setSendConfirmation] = useState(true);
@@ -146,8 +140,8 @@ export function DailyProgressCard({
     if (nextProgressDateFromDb && !nextDate) setNextDate(nextProgressDateFromDb);
   }, [nextProgressDateFromDb, nextDate]);
   useEffect(() => {
-    const norm = normalizeReminderType(reminderTypeFromDb);
-    if (reminderTypeFromDb && norm !== nextKind) setNextKind(norm);
+    const norm = normalizeNextProgressType(reminderTypeFromDb);
+    if (norm !== nextKind) setNextKind(norm);
   }, [reminderTypeFromDb, nextKind]);
 
   // Sheets → DB ingest is disabled. DB is the source of truth — daily
@@ -300,13 +294,13 @@ export function DailyProgressCard({
       progressType: "progress_update",
       createdBy: currentAuthorLabel,
       nextProgressDateSnapshot: nextDate || null,
-      reminderTypeSnapshot: nextKind,
+      reminderTypeSnapshot: nextKind || null,
     });
 
     updateLastProgress.mutate(lmpId);
 
     if (nextDate) {
-      saveNextDate.mutate({ lmpId, nextDate, reminderType: nextKind, pocEmail: pocEmail || undefined });
+      saveNextDate.mutate({ lmpId, nextDate, reminderType: nextKind || "", pocEmail: pocEmail || undefined });
     }
 
     setText("");
@@ -320,14 +314,15 @@ export function DailyProgressCard({
       progressType: "no_update",
       createdBy: currentAuthorLabel,
       nextProgressDateSnapshot: nextDate || null,
-      reminderTypeSnapshot: nextKind,
+      reminderTypeSnapshot: nextKind || null,
     });
   };
 
   const clearNudge = () => {
     setNextDate("");
-    saveNextDate.mutate({ lmpId, nextDate: null, reminderType: nextKind, pocEmail: pocEmail || undefined, skipReminder: true });
-    onSaveNextDate?.("", nextKind, false);
+    setNextKind("");
+    saveNextDate.mutate({ lmpId, nextDate: null, reminderType: "", pocEmail: pocEmail || undefined, skipReminder: true });
+    onSaveNextDate?.("", "", false);
     toast.success("Nudge cleared");
   };
 
@@ -381,7 +376,7 @@ export function DailyProgressCard({
               <span className="text-n800 font-medium">
                 {(() => { const d = parseISO(nextDate); return isNaN(d.getTime()) ? nextDate : format(d, "dd MMM"); })()}
               </span>
-              <span className="text-n500"> · {nextKind}</span>
+              {nextKind ? <span className="text-n500"> · {nextKind}</span> : null}
             </span>
           ) : nextEntry?.nextExpectedAt ? (
             <span>
@@ -478,7 +473,7 @@ export function DailyProgressCard({
               const newDate = e.target.value;
               setNextDate(newDate);
               if (newDate) {
-                onSaveNextDate?.(newDate, nextKind, sendConfirmation);
+                onSaveNextDate?.(newDate, nextKind || "", sendConfirmation);
                 setDateSaved(true);
                 setTimeout(() => setDateSaved(false), 2500);
               } else {
@@ -500,12 +495,10 @@ export function DailyProgressCard({
             }}
             className="h-7 rounded-md border border-n200 bg-card px-2 text-[12px] text-n800 focus:outline-none focus:border-orange-300"
           >
-            <option>Follow - Up</option>
-            <option>Interview</option>
-            <option>Feedback</option>
-            <option>Mentor Session</option>
-            <option>Moved to next round</option>
-            <option>Other</option>
+            <option value="">Select type</option>
+            {NEXT_PROGRESS_TYPES.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
           </select>
           {dateSaved && (
             <span className="text-[11px] text-emerald-600 flex items-center gap-1 animate-fade-in">

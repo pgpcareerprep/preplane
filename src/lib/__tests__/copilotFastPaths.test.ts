@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isConversionCountQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
+import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
 
 describe("Copilot fast paths", () => {
   it("recognizes ongoing LMPs missing mentor alignment", () => {
@@ -18,8 +18,21 @@ describe("Copilot fast paths", () => {
     expect(isPocWorkloadQuery("Find the POC for Google")).toBe(false);
   });
 
+  it("recognizes prep POC progress report requests", () => {
+    expect(isPocProgressReportQuery("create a progress report of all the prep poc")).toBe(true);
+    expect(isPocWorkloadQuery("create a progress report of all the prep poc")).toBe(true);
+    expect(isPocProgressReportQuery("Show conversion trends by domain")).toBe(false);
+  });
+
   it("recognizes simple conversion count questions", () => {
     expect(isConversionCountQuery("Tell me how many are converted?")).toBe(true);
     expect(isConversionCountQuery("Show conversion trends by domain")).toBe(false);
+    expect(isConversionCountQuery("please create a lmp conversion and student place conversion report")).toBe(false);
+  });
+
+  it("recognizes LMP and student placement conversion report requests", () => {
+    expect(isConversionReportQuery("please create a lmp conversion and student place conversion report")).toBe(true);
+    expect(isConversionReportQuery("Generate an LMP conversion report")).toBe(true);
+    expect(isConversionReportQuery("Tell me how many are converted?")).toBe(false);
   });
 });

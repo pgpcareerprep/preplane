@@ -88,6 +88,10 @@ export const SHEET_STATUS_TO_DB: Record<string, string> = {
   "Other reasons": "other-reasons",
 };
 
+import { normalizeNextProgressTypeForSheet, NEXT_PROGRESS_TYPES } from "./nextProgressType.ts";
+
+export { normalizeNextProgressTypeForSheet, NEXT_PROGRESS_TYPES };
+
 /** Normalize any stored status form to the canonical sheet dropdown label. */
 export function normalizeStatusForSheet(raw: unknown): string {
   const s = String(raw ?? "").trim();

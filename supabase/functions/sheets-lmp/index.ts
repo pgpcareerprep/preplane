@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
-import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet } from "../_shared/fieldMap.ts";
+import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet, normalizeNextProgressTypeForSheet } from "../_shared/fieldMap.ts";
+import { applyNextProgressTypeSheetValidation, findNextProgressTypeColumnIndex } from "../_shared/nextProgressTypeSheet.ts";
 import {
   buildLmpPipelineSheetPatch,
   LMP_PIPELINE_SHEET_HEADERS,
@@ -1195,7 +1196,11 @@ Deno.serve(async (req: Request) => {
           if (!actual) continue;
           // Status must be written using the exact sheet dropdown label so
           // the cell keeps its data-validation color coding.
-          sheetPatch[actual] = dbCol === "status" ? normalizeStatusForSheet(val) : val;
+          sheetPatch[actual] = dbCol === "status"
+            ? normalizeStatusForSheet(val)
+            : dbCol === "next_progress_type"
+              ? normalizeNextProgressTypeForSheet(val)
+              : val;
         }
 
         // Auto-stamp Closing Date when Status flips to a terminal value.
@@ -1456,6 +1461,18 @@ Deno.serve(async (req: Request) => {
           ? headerValidation.lmpIdColumn
           : LMP_ID_COLUMN_INDEX;
 
+        try {
+          await applyNextProgressTypeSheetValidation(
+            sheetsClient,
+            SPREADSHEET_ID,
+            tab,
+            headerRow,
+            findNextProgressTypeColumnIndex(sheetHeaders),
+          );
+        } catch (validationErr) {
+          console.warn("[lmp-reconcile] next progress type validation update failed:", validationErr);
+        }
+
         // Build: sheetCode → [rowIndexes in sheetRows (1-based index, sheetRows[1]=row15)]
         const sheetCodeToIndexes = new Map<string, number[]>();
         for (let i = 1; i < sheetRows.length; i++) {
@@ -1565,6 +1582,13 @@ Deno.serve(async (req: Request) => {
             const actual = resolveHeader(sheetCol);
             if (!actual) continue;
             const val = lmp[dbCol];
+            if (dbCol === "next_progress_type") {
+              const typeVal = lmp.next_progress_date
+                ? normalizeNextProgressTypeForSheet(lmp.next_progress_type ?? lmp.next_progress_reminder_type)
+                : "";
+              patch[actual] = typeVal;
+              continue;
+            }
             if (val === undefined || val === null || val === "") continue;
             patch[actual] = dbCol === "status" ? normalizeStatusForSheet(val) : val;
           }

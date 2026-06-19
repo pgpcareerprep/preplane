@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
 import { useAddLmpCandidates, useLmpCandidates, usePocProfiles, useLmpProcesses } from "@/lib/hooks/useDbData";
 import { resolvePocEmail } from "@/lib/poc/resolvePocEmail";
+import { normalizeNextProgressType } from "@/lib/nextProgressType";
 import { useDbLmpId } from "@/lib/hooks/useDbLmpId";
 import { type LmpRecord } from "@/lib/lmpTypes";
 import { DailyProgressCard } from "./bento/DailyProgressCard";
@@ -120,23 +121,23 @@ const { update: updateMutation } = useLmpMutation();
   };
 
   const handleSaveNextDate = useCallback((date: string, type?: string, enableReminder: boolean = true) => {
-    const reminderType = type || "Follow-up";
+    const reminderType = normalizeNextProgressType(type);
     const safeDate = date && date.trim() !== "" ? date : null;
-    // 1. Write to Google Sheet (column L date + column M type)
-    updateMutation.mutate({ id: rec.id, patch: { nextExpectedProgress: safeDate ?? "", nextExpectedType: reminderType } });
+    updateMutation.mutate({
+      id: rec.id,
+      patch: { nextExpectedProgress: safeDate ?? "", nextExpectedType: reminderType || "" },
+    });
 
-    // 2. Write reminder record to Supabase DB (needed for email cron).
-    //    skipReminder when checkbox is off — date still saved, but no scheduled email.
     if (dbLmpId) {
       saveNextDateDb.mutate({
         lmpId: dbLmpId,
         nextDate: safeDate,
-        reminderType,
-        pocEmail: prepPocEmail || undefined,
+        reminderType: reminderType || "",
+        pocEmail: pocEmails.length ? pocEmails.join(", ") : undefined,
         skipReminder: !enableReminder,
       });
     }
-  }, [rec.id, dbLmpId, updateMutation, saveNextDateDb, prepPocEmail]);
+  }, [rec.id, dbLmpId, updateMutation, saveNextDateDb, pocEmails]);
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
   const handleChecklistToggle = useCallback((sheetKey: string, newValue: boolean) => {
@@ -267,7 +268,7 @@ const { update: updateMutation } = useLmpMutation();
             sheetDailyProgress={rec.dailyProgress}
             nextProgressDateFromDb={(rec as any).next_progress_date || rec.nextExpectedProgress || null}
             reminderTypeFromDb={(rec as any).next_progress_reminder_type || null}
-            pocEmail={prepPocEmail}
+            pocEmail={pocEmails[0] || prepPocEmail}
             lastProgressUpdatedAt={(rec as any).last_progress_updated_at || null}
             prepPocName={rec.prepPoc?.name || null}
             prepPocEmail={prepPocEmail}

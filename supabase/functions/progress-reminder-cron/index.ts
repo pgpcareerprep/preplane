@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAdminOrInternal } from "../_shared/requireAuth.ts";
+import { resolveOperationalPocEmails } from "../_shared/resolvePocEmails.ts";
 import { DEFAULT_APP_ORIGIN, getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -167,7 +168,7 @@ Deno.serve(async (req) => {
 
       const { data: lmp, error: lmpErr } = await supabase
         .from("lmp_processes")
-        .select("id, company, role, domain_raw, status, reminder_version, prep_poc, support_poc, next_progress_date")
+        .select("id, company, role, domain_raw, status, reminder_version, prep_poc, support_poc, prep_poc_id, support_poc_id, next_progress_date")
         .eq("id", reminder.lmp_id)
         .single();
       if (lmpErr) console.error(`[REMINDER] LMP lookup failed for ${reminder.lmp_id}:`, lmpErr);
@@ -203,29 +204,27 @@ Deno.serve(async (req) => {
       const prepName = (lmp as any)?.prep_poc;
       const supportName = (lmp as any)?.support_poc;
 
-      const resolveEmail = async (name?: string | null): Promise<string | null> => {
-        const n = (name || "").trim();
-        if (!n) return null;
-        const { data: pp } = await supabase.from("poc_profiles").select("email").eq("name", n).maybeSingle();
-        if (pp?.email) return String(pp.email).trim();
-        const { data: pf } = await supabase.from("profiles").select("email").eq("display_name", n).maybeSingle();
-        return pf?.email ? String(pf.email).trim() : null;
-      };
+      const recipients = await resolveOperationalPocEmails(
+        supabase,
+        {
+          prep_poc_id: (lmp as any)?.prep_poc_id,
+          support_poc_id: (lmp as any)?.support_poc_id,
+          prep_poc: prepName,
+          support_poc: supportName,
+        },
+        reminder.poc_email,
+      );
 
-      const prepEmail = await resolveEmail(prepName);
-      const supportEmail = await resolveEmail(supportName);
-
-      // Dedupe (case-insensitive). Fall back to legacy reminder.poc_email if both lookups fail.
-      const seen = new Set<string>();
-      let recipients: string[] = [prepEmail, supportEmail].filter(Boolean) as string[];
-      recipients = recipients.filter((e) => {
-        const k = e.toLowerCase();
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      if (recipients.length === 0 && reminder.poc_email) {
-        recipients = [reminder.poc_email];
+      const emailToName = new Map<string, string>();
+      for (const pocId of [(lmp as any)?.prep_poc_id, (lmp as any)?.support_poc_id]) {
+        if (!pocId) continue;
+        const { data: profile } = await supabase
+          .from("poc_profiles")
+          .select("email, name")
+          .eq("id", pocId)
+          .maybeSingle();
+        const email = profile?.email ? String(profile.email).trim().toLowerCase() : "";
+        if (email && profile?.name) emailToName.set(email, profile.name);
       }
 
       const company = (lmp as any)?.company || "Unknown";
@@ -248,9 +247,7 @@ Deno.serve(async (req) => {
       const failedTo: string[] = [];
       for (const recipient of recipients) {
         // Personalize greeting per recipient when possible
-        let greetingName: string | null = null;
-        if (prepEmail && prepEmail.toLowerCase() === recipient.toLowerCase()) greetingName = prepName || null;
-        else if (supportEmail && supportEmail.toLowerCase() === recipient.toLowerCase()) greetingName = supportName || null;
+        const greetingName = emailToName.get(recipient.toLowerCase()) ?? null;
 
         const { subject, html, text } = buildEmail({
           pocName: greetingName,

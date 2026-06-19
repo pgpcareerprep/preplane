@@ -1305,30 +1305,31 @@ export function AdminLmpDashboard() {
         info={info("admin.students.in-process")}
       />
 
-      {/* Row 1 — 8 KPI cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <LxKpi label="Total Students" accent="info" value={totalStudentsDb}
+      {/* Row 1 — 8 KPI cards in one row */}
+      <div className="overflow-x-auto -mx-1 px-1 pb-1">
+        <div className="grid grid-cols-8 gap-2 min-w-[880px]">
+        <LxKpi compact label="Total Students" accent="info" value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
-        <LxKpi label="Students in Selected LMPs" accent="teal" value={studentsInSelectedLmps.count}
+        <LxKpi compact label="Students in Selected LMPs" accent="teal" value={studentsInSelectedLmps.count}
           sub="Unique via lmp_candidates" info={info("admin.students.selected-lmps")}
           onClick={() => setDrill({ kind: "students", title: "Students in selected LMPs", subtitle: `${studentsInSelectedLmps.count} unique students in current scope`, rows: studentsInSelectedLmps.rows })} />
-        <LxKpi label="Students in Active Processes" accent="success" value={studentStats.activeStudents}
+        <LxKpi compact label="Students in Active Processes" accent="success" value={studentStats.activeStudents}
           sub="active_lmp_count ≥ 1" info={info("admin.students.active-processes")}
           onClick={() => setDrill({ kind: "students", title: "Students in active processes", subtitle: "≥ 1 active LMP", rows: studentsInBucket(studentRoster, { bucket: "active" }) })} />
-        <LxKpi label="In 1 Active Process" accent="success" value={studentStats.singleProcess}
+        <LxKpi compact label="In 1 Active Process" accent="success" value={studentStats.singleProcess}
           sub="Exactly 1 active LMP" info={info("admin.students.one-active")}
           onClick={() => setDrill({ kind: "students", title: "In 1 active process", rows: studentsInBucket(studentRoster, { bucket: "single" }) })} />
-        <LxKpi label="In 2+ Active Processes" accent="ai" value={studentStats.multipleProcesses}
+        <LxKpi compact label="In 2+ Active Processes" accent="ai" value={studentStats.multipleProcesses}
           sub="2+ active LMPs" info={info("admin.students.two-plus-active")}
           onClick={() => setDrill({ kind: "students", title: "In 2+ active processes", rows: studentsInBucket(studentRoster, { bucket: "multiple" }) })} />
-        <LxKpi label="No Active Process" accent="risk" value={studentStats.noActiveProcess}
+        <LxKpi compact label="No Active Process" accent="risk" value={studentStats.noActiveProcess}
           sub="Excl. opted-out" info={info("admin.students.no-active")}
           onClick={() => setDrill({ kind: "students", title: "No active process", subtitle: "Eligible students with zero active LMPs", rows: studentsInBucket(studentRoster, { bucket: "no-active" }) })} />
-        <LxKpi label="Opted Out" accent="orange" value={studentStats.optedOutStudents}
+        <LxKpi compact label="Opted Out" accent="orange" value={studentStats.optedOutStudents}
           sub="Withdrawn / not participating" info={info("admin.students.opted-out")}
           onClick={() => setDrill({ kind: "students", title: "Opted-out students", subtitle: "placement_status = opted-out or equivalent", rows: studentsInBucket(studentRoster, { bucket: "opted-out" }) })} />
-        <LxKpi label="Converted Students" accent="success"
+        <LxKpi compact label="Converted Students" accent="success"
           value={convertedStudentsData.uniqueCount}
           sub={studentStats.eligibleStudents > 0 ? `${((convertedStudentsData.uniqueCount / studentStats.eligibleStudents) * 100).toFixed(0)}% of eligible` : "Unique in scope"}
           info={info("admin.students.converted")}
@@ -1338,6 +1339,7 @@ export function AdminLmpDashboard() {
             subtitle: `${convertedStudentsData.uniqueCount} unique · ${convertedStudentsData.recordCount} records`,
             rows: convertedStudentsData.rows,
           })} />
+        </div>
       </div>
 
       {/* Row 2 — cohort distribution */}

@@ -17,6 +17,7 @@ import type { PocCapability } from "@/lib/pocCapability";
 import { SHEET_TO_DB as SHEET_COL_TO_DB, appPatchToDbPatch } from "./fieldMap";
 import { derivePrepDocLink } from "@/lib/lmp/prepDocLink";
 import type { DocumentLink } from "@/components/lmp/bento/DocumentsCard";
+import { normalizeNextProgressTypeForSheet } from "@/lib/nextProgressType";
 export { SHEET_COL_TO_DB };
 
 
@@ -544,6 +545,9 @@ export function useLmpMutation() {
   const coerceForSheet = (key: string, value: unknown): unknown => {
     if (BOOL_SHEET_KEYS.has(key) && typeof value === "boolean") {
       return value ? "Yes" : "No";
+    }
+    if (key === "nextExpectedType") {
+      return normalizeNextProgressTypeForSheet(String(value ?? ""));
     }
     return value;
   };

@@ -20,6 +20,7 @@ import { useLmpMutation } from "@/lib/sheets/hooks";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { useLmpProcesses, usePocProfiles } from "@/lib/hooks/useDbData";
 import { resolvePocEmail } from "@/lib/poc/resolvePocEmail";
+import { normalizeNextProgressType } from "@/lib/nextProgressType";
 import { getJd, fetchJdFromDb, useJd, type JdData } from "@/lib/jdStore";
 import { supabase } from "@/integrations/supabase/client";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
@@ -67,6 +68,26 @@ export function UnifiedOverviewTab({
     [pocProfiles, dbRow?.prep_poc_id, lmp.prepPoc?.name],
   );
 
+  const supportPocEmail = useMemo(
+    () =>
+      resolvePocEmail(pocProfiles as any[], {
+        id: dbRow?.support_poc_id,
+        name: lmp.supportPoc?.name,
+      }),
+    [pocProfiles, dbRow?.support_poc_id, lmp.supportPoc?.name],
+  );
+
+  const pocEmails = useMemo(() => {
+    const list = [prepPocEmail, supportPocEmail].filter(Boolean) as string[];
+    const seen = new Set<string>();
+    return list.filter((e) => {
+      const k = e.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [prepPocEmail, supportPocEmail]);
+
   const handleSaveProgress = useCallback(
     async (text: string) => {
       if (operationalReadOnly) return;
@@ -94,21 +115,25 @@ export function UnifiedOverviewTab({
 
 
   const handleSaveNextDate = useCallback(
-    (date: string, type?: string) => {
+    (date: string, type?: string, enableReminder: boolean = true) => {
       if (operationalReadOnly) return;
-      const reminderType = type || "Follow-up";
+      const reminderType = normalizeNextProgressType(type);
       const safeDate = date && date.trim() !== "" ? date : null;
-      updateMutation.mutate({ id: lmp.id, patch: { nextExpectedProgress: safeDate ?? "", nextExpectedType: reminderType } });
+      updateMutation.mutate({
+        id: lmp.id,
+        patch: { nextExpectedProgress: safeDate ?? "", nextExpectedType: reminderType || "" },
+      });
       if (dbLmpId) {
         saveNextDateDb.mutate({
           lmpId: dbLmpId,
           nextDate: safeDate,
-          reminderType,
-          pocEmail: prepPocEmail || undefined,
+          reminderType: reminderType || "",
+          pocEmail: pocEmails.length ? pocEmails.join(", ") : undefined,
+          skipReminder: !enableReminder,
         });
       }
     },
-    [lmp.id, prepPocEmail, dbLmpId, operationalReadOnly, updateMutation, saveNextDateDb],
+    [lmp.id, pocEmails, dbLmpId, operationalReadOnly, updateMutation, saveNextDateDb],
   );
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
@@ -233,7 +258,7 @@ export function UnifiedOverviewTab({
         sheetDailyProgress={lmp.dailyProgress}
         nextProgressDateFromDb={safeNextDate}
         reminderTypeFromDb={(lmp as any).next_progress_reminder_type || null}
-        pocEmail={prepPocEmail}
+        pocEmail={pocEmails[0] || prepPocEmail}
         lastProgressUpdatedAt={(lmp as any).last_progress_updated_at || null}
       />
 

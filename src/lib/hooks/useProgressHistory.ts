@@ -3,8 +3,10 @@
  * Works with lmp_progress_history, lmp_progress_reminders, and lmp_processes tables.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/lib/rolesContext";
+import { normalizeNextProgressType } from "@/lib/nextProgressType";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: string | undefined | null) => !!v && UUID_RE.test(v);
@@ -124,13 +126,14 @@ export function useAddProgressEntry() {
       if (!isUuid(entry.lmpId)) return;
       const authorName = entry.createdBy || user.pocProfileName || user.name || "POC";
       const authorEmail = user.email || null;
+      const reminderChip = normalizeNextProgressType(entry.reminderTypeSnapshot);
       const { error } = await (supabase as any).from("lmp_daily_logs").insert({
         lmp_id: entry.lmpId,
         entry_type: "progress",
         text: entry.progressText,
         author_name: authorName,
         author_email: authorEmail,
-        chips: entry.reminderTypeSnapshot ? [entry.reminderTypeSnapshot] : [],
+        chips: reminderChip ? [reminderChip] : [],
         metadata: {
           progress_type: entry.progressType,
           next_progress_date: entry.nextProgressDateSnapshot || null,
@@ -161,16 +164,17 @@ export function useSaveNextProgressDate() {
     mutationFn: async (params: {
       lmpId: string;
       nextDate: string | null;
-      reminderType: string;
+      reminderType?: string | null;
       pocEmail?: string;
       skipReminder?: boolean;
     }) => {
       if (!isUuid(params.lmpId)) return 0;
-      // Coerce empty/whitespace strings to null — Postgres rejects "" for date columns
       const nextDate = params.nextDate && String(params.nextDate).trim() !== ""
         ? params.nextDate
         : null;
-      // Get current reminder_version
+      const normalizedType = normalizeNextProgressType(params.reminderType);
+      const typeToSave = normalizedType || null;
+
       const { data: current } = await supabase
         .from("lmp_processes")
         .select("reminder_version" as any)
@@ -179,12 +183,21 @@ export function useSaveNextProgressDate() {
 
       const newVersion = (((current as any)?.reminder_version as number) || 0) + 1;
 
-      const updatePayload: Record<string, any> = {
-        next_progress_date: nextDate,
-        next_progress_reminder_type: params.reminderType,
-        next_progress_status: nextDate ? "pending" : null,
-        reminder_version: newVersion,
-      };
+      const updatePayload: Record<string, any> = nextDate
+        ? {
+            next_progress_date: nextDate,
+            next_progress_type: typeToSave,
+            next_progress_reminder_type: typeToSave,
+            next_progress_status: "pending",
+            reminder_version: newVersion,
+          }
+        : {
+            next_progress_date: null,
+            next_progress_type: null,
+            next_progress_reminder_type: null,
+            next_progress_status: null,
+            reminder_version: newVersion,
+          };
 
       const { error } = await supabase
         .from("lmp_processes")
@@ -192,16 +205,15 @@ export function useSaveNextProgressDate() {
         .eq("id", params.lmpId);
       if (error) {
         console.warn("Failed to update lmp_processes next progress:", error.message);
+        throw error;
       }
 
-      // Always cancel old pending reminders (avoid stale sends after toggling off)
       await (supabase as any)
         .from("lmp_progress_reminders")
         .update({ status: "cancelled" })
         .eq("lmp_id", params.lmpId)
         .eq("status", "pending");
 
-      // Only create a new pending reminder if a date is set AND scheduled email is enabled
       if (nextDate && !params.skipReminder) {
         await (supabase as any).from("lmp_progress_reminders").insert({
           lmp_id: params.lmpId,
@@ -210,23 +222,30 @@ export function useSaveNextProgressDate() {
           reminder_version: newVersion,
           status: "pending",
         });
-        supabase.functions.invoke("send-progress-confirmation-email", {
-          body: {
-            lmp_id: params.lmpId,
-            next_date: nextDate,
-            reminder_type: params.reminderType || "Follow-up",
-            ...(params.pocEmail ? { to_email: params.pocEmail } : {}),
+
+        const { error: emailError, data: emailData } = await supabase.functions.invoke(
+          "send-progress-confirmation-email",
+          {
+            body: {
+              lmp_id: params.lmpId,
+              next_date: nextDate,
+              ...(normalizedType ? { reminder_type: normalizedType } : {}),
+              ...(params.pocEmail ? { to_email: params.pocEmail } : {}),
+            },
           },
-        }).then(({ error, data }) => {
-          if (error) console.error("[progress-email] invoke error:", error);
-          else if (data && !data.ok) console.warn("[progress-email] send failed:", data);
-        });
+        );
+        if (emailError || (emailData && !emailData.ok)) {
+          toast.error("Reminder saved, but confirmation email failed.");
+          console.error("[progress-email] send failed:", emailError ?? emailData);
+        }
       }
 
       return newVersion;
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["lmp_processes"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-process", vars.lmpId] });
     },
   });
 }

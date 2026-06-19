@@ -2,11 +2,11 @@
 // Requires GOOGLE_SA_EMAIL and GOOGLE_SA_PRIVATE_KEY Supabase secrets.
 // The service account must have domain-wide delegation with the Gmail send scope.
 
-import { getGoogleAccessToken } from "./googleAuth.ts";
+import { getGmailAccessToken } from "./googleAuth.ts";
+import { FROM_NAME, GMAIL_FROM } from "./emailConstants.ts";
+import { sendViaSmtp, hasSmtpCredentials } from "./smtp-send.ts";
 
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-export const GMAIL_FROM = "pgpcareerprep@mastersunion.org";
-const FROM_NAME = "PGP Career Prep";
+export { GMAIL_FROM } from "./emailConstants.ts";
 
 function base64UrlEncode(data: Uint8Array): string {
   let binary = "";
@@ -29,27 +29,50 @@ function buildRawMessage(opts: { to: string; subject: string; html: string }): s
   return base64UrlEncode(new TextEncoder().encode(lines.join("\r\n")));
 }
 
+async function sendViaGmailApi(opts: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ id: string; threadId: string; method: "gmail-api" }> {
+  const delegatedUser = Deno.env.get("GOOGLE_DELEGATED_USER") || "pgpcareerprep@mastersunion.org";
+  const token = await getGmailAccessToken();
+  const raw = buildRawMessage(opts);
+
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(delegatedUser)}/messages/send`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw }),
+    },
+  );
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Gmail API send failed for ${delegatedUser} [${res.status}]: ${JSON.stringify(data)}`,
+    );
+  }
+  return { id: data.id, threadId: data.threadId, method: "gmail-api" };
+}
+
 export async function sendGmail(opts: {
   to: string;
   subject: string;
   html: string;
   text?: string;
-}): Promise<{ id: string; threadId: string }> {
-  const token = await getGoogleAccessToken([GMAIL_SCOPE]);
-  const raw = buildRawMessage(opts);
-
-  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ raw }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Gmail API send failed [${res.status}]: ${JSON.stringify(data)}`);
+}): Promise<{ id: string; threadId: string; method?: string }> {
+  if (hasSmtpCredentials()) {
+    try {
+      const smtp = await sendViaSmtp(opts);
+      return { id: smtp.messageId, threadId: "", method: "smtp" };
+    } catch (smtpErr) {
+      console.warn("SMTP send failed, trying Gmail API:", (smtpErr as Error)?.message);
+    }
   }
-  return { id: data.id, threadId: data.threadId };
+
+  return await sendViaGmailApi(opts);
 }

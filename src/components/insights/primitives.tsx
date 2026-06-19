@@ -292,6 +292,7 @@ function LxRing({ pct }: { pct: number }) {
 /* ─────────────── Compact KPI ─────────────── */
 export function LxKpi({
   label, value, sub, accent = "neutral", span = 3, delay = 0, info, onClick, className: outerClassName,
+  compact = false,
 }: {
   label: string; value: ReactNode; sub?: string;
   accent?: LxAccent; span?: 2 | 3 | 4 | 6; delay?: number;
@@ -299,6 +300,8 @@ export function LxKpi({
   onClick?: () => void;
   /** Extra classes applied to the card root — use for grid-span overrides (e.g. "!col-span-1"). */
   className?: string;
+  /** Denser layout for multi-column KPI rows. */
+  compact?: boolean;
 }) {
   const dotColor = LX_HEX[accent];
   const clickable = !!onClick;
@@ -306,8 +309,10 @@ export function LxKpi({
     <LxCard
       span={span}
       delay={delay}
+      padded={!compact}
       className={cn(
-        "flex flex-col gap-3 relative overflow-hidden group",
+        "flex flex-col relative overflow-hidden group",
+        compact ? "gap-1.5 p-3 !col-span-1" : "gap-3",
         clickable && "cursor-pointer transition-shadow hover:shadow-md focus-within:shadow-md",
         outerClassName,
       )}
@@ -328,23 +333,31 @@ export function LxKpi({
           }
         }}
       >
-        <div className="text-[11px] font-medium uppercase tracking-[0.7px] truncate inline-flex items-center gap-1.5" style={{ color: "var(--lx-text-3)" }}>
+        <div className={cn(
+          "text-[11px] font-medium uppercase tracking-[0.7px] truncate inline-flex items-center gap-1.5",
+          compact && "text-[10px] tracking-[0.5px]",
+        )} style={{ color: "var(--lx-text-3)" }}>
           <span className="truncate">{label}</span>
-          {info && <LxInfo text={info} size={12} />}
+          {info && <LxInfo text={info} size={compact ? 11 : 12} />}
         </div>
         <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
       </div>
       <div
         onClick={onClick}
         className={cn(
-          "text-[28px] leading-none font-semibold tracking-tight tabular-nums",
+          "leading-none font-semibold tracking-tight tabular-nums",
+          compact ? "text-[22px]" : "text-[28px]",
           clickable && "group-hover:underline underline-offset-4",
         )}
         style={{ color: "var(--lx-text)" }}
       >
         {value}
       </div>
-      {sub && <div className="text-[11.5px] truncate" style={{ color: "var(--lx-text-3)" }}>{sub}</div>}
+      {sub && (
+        <div className={cn("truncate", compact ? "text-[10.5px]" : "text-[11.5px]")} style={{ color: "var(--lx-text-3)" }}>
+          {sub}
+        </div>
+      )}
     </LxCard>
   );
 }
@@ -381,7 +394,7 @@ export function LxStackedBar({
           );
         })}
       </div>
-      <ul className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-y-2 gap-x-4 text-[12px]">
+      <ul className="mt-4 grid grid-cols-4 gap-x-3 gap-y-2 text-[12px]">
         {segments.map((s) => {
           const pct = (s.value / safe) * 100;
           const click = s.onClick ?? (onSegmentClick ? () => onSegmentClick(s) : undefined);
@@ -389,7 +402,7 @@ export function LxStackedBar({
             <li
               key={s.label}
               className={cn(
-                "flex items-center gap-2 min-w-0 rounded-md -mx-1 px-1 py-0.5",
+                "flex items-start gap-2 min-w-0 rounded-md -mx-1 px-1 py-0.5",
                 click && "cursor-pointer hover:bg-[var(--lx-soft)] transition-colors",
               )}
               onClick={click}
@@ -399,13 +412,18 @@ export function LxStackedBar({
                 if (click && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); click(); }
               }}
             >
-              <span className="h-2 w-2 rounded-sm shrink-0" style={{ background: LX_HEX[s.accent] }} />
-              <span className="truncate inline-flex items-center gap-1" style={{ color: "var(--lx-text-2)" }}>
+              <span className="h-2 w-2 rounded-sm shrink-0 mt-1" style={{ background: LX_HEX[s.accent] }} />
+              <span className="flex-1 min-w-0 truncate inline-flex items-center gap-1" style={{ color: "var(--lx-text-2)" }}>
                 <span className="truncate">{s.label}</span>
                 {s.info && <LxInfo text={s.info} size={11} />}
               </span>
-              <span className="ml-auto font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>
-                {s.value}<span className="ml-1" style={{ color: "var(--lx-text-3)" }}>· {pct.toFixed(0)}%</span>
+              <span className="ml-auto shrink-0 text-right font-mono tabular-nums leading-tight">
+                <span className="block text-[12px] font-semibold" style={{ color: "var(--lx-text)" }}>
+                  {pct.toFixed(0)}%
+                </span>
+                <span className="block text-[11px]" style={{ color: "var(--lx-text-3)" }}>
+                  {s.value}
+                </span>
               </span>
             </li>
           );

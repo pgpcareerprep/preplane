@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Clock, Save, Loader2, Send, Mail } from "lucide-react";
+import { Bell, Clock, Save, Loader2, Send, Mail, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -218,15 +218,45 @@ function TimePicker12({
   );
 }
 
+type EmailDiagnostic = {
+  delegatedUser: string;
+  serviceAccountEmail: string | null;
+  serviceAccountClientId: string | null;
+  hasSaEmail: boolean;
+  hasPrivateKey: boolean;
+  hasSmtpPassword: boolean;
+  saKeyValid: boolean;
+  saKeyError: string | null;
+  gmailDelegationAuthorized: boolean;
+  gmailDelegationError: string | null;
+  fixSteps: string[];
+};
+
 export default function NotificationsPage() {
   const { role } = useRole();
   const canEdit = role === "admin" || role === "allocator";
+  const isAdmin = role === "admin";
   const [schedule, setSchedule] = useState<ReminderSchedule>(DEFAULT_SCHEDULE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
+  const [emailDiag, setEmailDiag] = useState<EmailDiagnostic | null>(null);
+  const [emailReady, setEmailReady] = useState<boolean | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const loadEmailDiagnostic = async () => {
+    if (!isAdmin) return;
+    setDiagLoading(true);
+    try {
+      const { data } = await supabase.functions.invoke("email-auth-diagnose");
+      if (data?.diagnostic) setEmailDiag(data.diagnostic as EmailDiagnostic);
+      if (typeof data?.readyToSend === "boolean") setEmailReady(data.readyToSend);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -242,7 +272,8 @@ export default function NotificationsPage() {
       if (userData?.user?.email) setTestEmail(userData.user.email);
       setLoading(false);
     })();
-  }, []);
+    void loadEmailDiagnostic();
+  }, [isAdmin]);
 
   const toggleDay = (day: string) => {
     setSchedule((s) => ({
@@ -280,9 +311,21 @@ export default function NotificationsPage() {
       if (error) {
         toast.error("Failed: " + error.message);
       } else if (data?.ok) {
-        toast.success(`Test email sent to ${data.to}`, { description: "Check inbox (and spam folder)." });
+        setEmailReady(true);
+        void loadEmailDiagnostic();
+        toast.success(`Test email sent to ${data.to}`, {
+          description: `Delivered via ${data.method || "gmail-api"}. Check inbox (and spam folder).`,
+        });
       } else {
-        toast.error("SMTP error", { description: data?.error || "Unknown error" });
+        if (data?.diagnostic) {
+          setEmailDiag(data.diagnostic as EmailDiagnostic);
+          setEmailReady(false);
+        }
+        const hint = data?.fixHint || data?.diagnostic?.fixSteps?.[0];
+        toast.error("Email delivery failed", {
+          description: hint ? `${data?.error}\n\n${hint}` : (data?.error || "Unknown error"),
+          duration: 12000,
+        });
       }
     } catch (e: any) {
       toast.error("Request failed: " + (e?.message || String(e)));
@@ -433,6 +476,58 @@ export default function NotificationsPage() {
           </button>
         </div>
       </fieldset>
+
+      {/* Email delivery status (admin) */}
+      {isAdmin && (
+        <div className={cn(
+          "rounded-xl border shadow-sm overflow-hidden",
+          emailReady ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200",
+        )}>
+          <div className="px-5 py-4 flex items-start gap-3">
+            {diagLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-n500 mt-0.5" />
+            ) : emailReady ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+            )}
+            <div className="flex-1 min-w-0">
+              <h4 className="text-[15px] font-semibold text-n900">
+                {diagLoading ? "Checking email configuration…" : emailReady ? "Email delivery configured" : "Email delivery not configured"}
+              </h4>
+              {!diagLoading && emailDiag && !emailReady && (
+                <div className="mt-2 space-y-2 text-[12px] text-n700 leading-relaxed">
+                  {emailDiag.serviceAccountEmail && (
+                    <p>Service account: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.serviceAccountEmail}</code></p>
+                  )}
+                  <p>Sender mailbox: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.delegatedUser}</code></p>
+                  {emailDiag.gmailDelegationError && (
+                    <p className="text-amber-800">Gmail delegation: {emailDiag.gmailDelegationError}</p>
+                  )}
+                  <ol className="list-decimal list-inside space-y-1 mt-2">
+                    {emailDiag.fixSteps.map((step, i) => (
+                      <li key={i}>{step}</li>
+                    ))}
+                  </ol>
+                  <p className="mt-2 font-medium text-n800">
+                    Fastest fix: set a Google App Password for {emailDiag.delegatedUser}, then run{" "}
+                    <code className="text-[11px] bg-white/60 px-1 rounded">npx supabase secrets set GMAIL_APP_PASSWORD=your-app-password --project-ref sgqwnjajvgjcwqergnsr</code>
+                  </p>
+                </div>
+              )}
+            </div>
+            {!diagLoading && (
+              <button
+                type="button"
+                onClick={() => void loadEmailDiagnostic()}
+                className="text-[12px] text-n600 hover:text-n900 underline shrink-0"
+              >
+                Refresh
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Test email delivery */}
       {canEdit && <div className="rounded-xl bg-card border border-n200 shadow-sm overflow-hidden">

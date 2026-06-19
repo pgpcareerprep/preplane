@@ -1,6 +1,7 @@
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
+import { diagnoseEmailAuth } from "../_shared/emailDiagnose.ts";
 import { DEFAULT_APP_ORIGIN, getBrandName } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -28,21 +29,35 @@ Deno.serve(async (req) => {
 
     try {
       const brand = getBrandName();
+      const sentAt = new Date().toISOString();
       const info = await sendGmail({
         to,
-        subject: `${brand} — test email (Gmail OAuth working)`,
+        subject: `${brand} — test email`,
         html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;color:#1f2937;">
           <h3 style="margin:0 0 8px;">✅ Email sending works</h3>
-          <p>This is a test email from <b>${brand}</b>, sent from <b>${GMAIL_FROM}</b> via Gmail OAuth (no password).</p>
-          <p style="color:#6b7280;font-size:12px;">Sent at ${new Date().toISOString()}</p>
+          <p>This is a test email from <b>${brand}</b>, sent from <b>${GMAIL_FROM}</b>.</p>
+          <p style="color:#6b7280;font-size:12px;">Sent at ${sentAt}</p>
         </div>`,
       });
-      return new Response(JSON.stringify({ ok: true, messageId: info.id, to, from: GMAIL_FROM }), {
+      return new Response(JSON.stringify({
+        ok: true,
+        messageId: info.id,
+        to,
+        from: GMAIL_FROM,
+        method: info.method || "gmail-api",
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (sendErr) {
-      console.error("Test email send failed:", sendErr);
-      return new Response(JSON.stringify({ ok: false, error: String((sendErr as Error)?.message || sendErr) }), {
+      const diagnostic = await diagnoseEmailAuth();
+      const errMsg = String((sendErr as Error)?.message || sendErr);
+      console.error("Test email send failed:", errMsg, JSON.stringify(diagnostic));
+      return new Response(JSON.stringify({
+        ok: false,
+        error: errMsg,
+        diagnostic,
+        fixHint: diagnostic.fixSteps[0] || null,
+      }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
