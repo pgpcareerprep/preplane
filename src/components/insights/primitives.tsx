@@ -35,7 +35,7 @@ const SOFT_BG: Record<LxAccent, string> = {
 /* ─────────────── Shell ─────────────── */
 export function LuminaShell({ children }: { children: ReactNode }) {
   return (
-    <div className="w-full max-w-dashboard mx-auto flex flex-col gap-6">
+    <div className="w-full flex flex-col gap-6">
       {children}
     </div>
   );

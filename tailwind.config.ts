@@ -20,7 +20,7 @@ export default {
         mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       spacing: {
-        gutter: "24px",
+        gutter: "36px",
         "1": "4px",
         "2": "8px",
         "3": "12px",
