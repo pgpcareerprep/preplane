@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader,
-  LxHero, LxKpi, LxAttentionStrip, LX_HEX,
+  LX_HEX,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters } from "./filters/useLmpFilters";
@@ -12,7 +12,6 @@ import {
 } from "@/lib/lmpProcessQueries";
 import { canonicalLmpStatus, type CanonicalLmpStatus, type LmpStatus } from "@/types/lmp";
 import { STATUS_META } from "@/lib/lmpTypes";
-import { STATUS_HEX } from "@/components/dashboard/LmpHealthSummaryCard";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
@@ -21,7 +20,6 @@ import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 
 import { useTodayDailyLogIds } from "@/lib/hooks/useTodayDailyLogIds";
 import { ActionRequiredCard } from "./sections/ActionRequiredCard";
-import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
 import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
@@ -29,7 +27,9 @@ import { snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
-import { LmpStatusDistributionCard } from "@/components/dashboard/LmpStatusDistributionCard";
+import { PocOverviewHeroCard } from "@/components/dashboard/poc/PocOverviewHeroCard";
+import { PocMyLoadCards } from "@/components/dashboard/poc/PocMyLoadCards";
+import { PocOperationalFlags } from "@/components/dashboard/poc/PocOperationalFlags";
 import type { ReactNode } from "react";
 
 export type PocLmpDashboardProps = {
@@ -43,7 +43,10 @@ const ACTIVE_LMP_STATUSES = new Set<LmpStatus>(["not-started", "prep-ongoing", "
 
 function StatusPill({ label, slug }: { label: string; slug: string }) {
   const canonical = canonicalLmpStatus(slug as LmpStatus);
-  const hex = STATUS_HEX[canonical] ?? LX_HEX.neutral;
+  const hex = canonical === "converted" ? LX_HEX.success
+    : canonical === "not-converted" ? LX_HEX.risk
+    : canonical === "prep-ongoing" ? LX_HEX.info
+    : LX_HEX.neutral;
   const soft = `${hex}1F`;
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border"
@@ -103,12 +106,10 @@ export function PocLmpDashboard({
 
   const convertedCount = filteredRecords.filter((r) => r.status === "converted" || r.status === "offer-received").length;
   const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
+  const eligibleCount = convertedCount + notConvertedCount;
   const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
+  const totalLmpCount = filteredRecords.length;
   const lsc = lmpStatusCounts(filteredRecords);
-  const activeLoad = lsc["not-started"] + lsc["prep-ongoing"] + lsc["prep-done"];
-  const onHold = lsc.hold;
-  const riskLoad = lsc["not-converted"] + lsc["other-reasons"];
-  const converted = lsc.converted;
 
   // Task completion
   const prepDone = filtered.filter((r) => r.prepDoc === "Sent").length;
@@ -196,29 +197,16 @@ export function PocLmpDashboard({
       `${filtered.length} in my scope`,
     );
   };
-  const openActiveLoad = () => {
-    const ids = new Set(
-      filteredRecords.filter((r) => ACTIVE_LMP_STATUSES.has(r.status)).map((r) => r.id),
-    );
-    openLmps(
-      filtered.filter((p) => ids.has(p.processId)),
-      "Active load · my LMPs",
-      `${activeLoad} in my scope`,
-    );
-  };
-  const openRiskLoad = () => {
+  const openEligibleLmps = () => {
     const ids = new Set(
       filteredRecords
-        .filter((r) => {
-          const bucket = canonicalLmpStatus(r.status);
-          return bucket === "not-converted" || bucket === "other-reasons";
-        })
+        .filter((r) => r.status === "converted" || r.status === "offer-received" || r.status === "not-converted")
         .map((r) => r.id),
     );
     openLmps(
       filtered.filter((p) => ids.has(p.processId)),
-      "Risk load · my LMPs",
-      `${riskLoad} in my scope`,
+      "Eligible LMPs · outcomes",
+      `${eligibleCount} with terminal outcome`,
     );
   };
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
@@ -261,57 +249,39 @@ export function PocLmpDashboard({
         typeOptions={typeOptions}
       />
 
-      {/* SECTION 1 — Personal hero + KPIs */}
-      <LxGrid>
-        <LxHero
-          eyebrow="My Conversion"
-          title="My final-conversion rate across owned processes"
-          primaryValue={`${conversionRate.toFixed(1)}%`}
-          primaryLabel="my conversion"
-          info={info("poc.hero.conversion")}
-          onPrimaryClick={() => openCanonicalStatus("converted")}
-          statement={`${converted} of ${filtered.length} processes converted`}
-          ringPct={conversionRate}
-          variant="green"
-          span={7}
-        />
-        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-x-6 gap-y-gutter">
-          <LxKpi span={6} label="My active load" accent="info"   value={activeLoad} sub="Not started · Prep ongoing · Prep done"
-            info={info("poc.kpi.active")} onClick={openActiveLoad} />
-          <LxKpi span={6} label="On hold" accent="ai" value={onHold} sub="Paused processes"
-            info={info("poc.kpi.offer")} onClick={() => openCanonicalStatus("hold")} />
-          <LxKpi span={6} label="My risk load"   accent="risk"   value={riskLoad}    sub="Not converted · Other reasons"
-            info={info("poc.kpi.risk")} onClick={openRiskLoad} />
-          <LxKpi span={6} label="Total processes" accent="teal"  value={filtered.length} sub="In my scope"
-            info={info("poc.kpi.total")} onClick={() => openLmps(filtered, "All my LMPs", `${filtered.length} processes`)} />
-        </div>
-      </LxGrid>
+      {/* Combined hero — conversion + summary + status distribution */}
+      <PocOverviewHeroCard
+        conversionPct={conversionRate}
+        convertedCount={convertedCount}
+        eligibleCount={eligibleCount}
+        totalLmpCount={totalLmpCount}
+        lsc={lsc}
+        conversionInfo={info("poc.hero.conversion")}
+        onConversionClick={() => openCanonicalStatus("converted")}
+        onTotalClick={() => openLmps(filtered, "All my LMPs", `${totalLmpCount} processes`)}
+        onConvertedClick={() => openCanonicalStatus("converted")}
+        onEligibleClick={openEligibleLmps}
+        onStatusClick={openCanonicalStatus}
+      />
 
-      {/* SECTION 1b — Domain & assignment breakdown */}
-      <LxGrid>
-        <LxKpi span={3} label="In-domain LMPs"  accent="success" value={inDomainProcs.length}   sub="Matches my domains"
-          info={info("poc.kpi.indomain")}    onClick={() => openLmps(inDomainProcs,   "In-domain LMPs",    `${inDomainProcs.length} of ${filtered.length}`)} />
-        <LxKpi span={3} label="Cross-domain"    accent="orange"  value={crossDomainProcs.length} sub="Outside my domains"
-          info={info("poc.kpi.crossdomain")} onClick={() => openLmps(crossDomainProcs, "Cross-domain LMPs", `${crossDomainProcs.length} of ${filtered.length}`)} />
-        <LxKpi span={3} label="Primary POC"     accent="teal"    value={primaryProcs.length}     sub="Prep / primary role"
-          info={info("poc.kpi.primary")}     onClick={() => openLmps(primaryProcs,    "Primary POC LMPs",  `${primaryProcs.length} processes`)} />
-        <LxKpi span={3} label="Support POC"     accent="ai"      value={supportProcs.length}     sub="Support / secondary role"
-          info={info("poc.kpi.support")}     onClick={() => openLmps(supportProcs,    "Support POC LMPs",  `${supportProcs.length} processes`)} />
-      </LxGrid>
+      <PocMyLoadCards
+        inDomainCount={inDomainProcs.length}
+        crossDomainCount={crossDomainProcs.length}
+        primaryPocCount={primaryProcs.length}
+        supportPocCount={supportProcs.length}
+        inDomainInfo={info("poc.kpi.indomain")}
+        crossDomainInfo={info("poc.kpi.crossdomain")}
+        primaryInfo={info("poc.kpi.primary")}
+        supportInfo={info("poc.kpi.support")}
+        onInDomainClick={() => openLmps(inDomainProcs, "In-domain LMPs", `${inDomainProcs.length} of ${totalLmpCount}`)}
+        onCrossDomainClick={() => openLmps(crossDomainProcs, "Cross-domain LMPs", `${crossDomainProcs.length} of ${totalLmpCount}`)}
+        onPrimaryClick={() => openLmps(primaryProcs, "Primary POC LMPs", `${primaryProcs.length} processes`)}
+        onSupportClick={() => openLmps(supportProcs, "Support POC LMPs", `${supportProcs.length} processes`)}
+      />
 
-      {/* Live snapshot strip — counts of overdue / pending / stale items */}
-      <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
+      <PocOperationalFlags rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
 
-      {/* SECTION 2 — Status distribution */}
-      <LxGrid>
-        <LmpStatusDistributionCard
-          total={filtered.length}
-          lsc={lsc}
-          onStatusClick={openCanonicalStatus}
-        />
-      </LxGrid>
-
-      {/* SECTION 3 — Checklist + Active table */}
+      {/* Checklist + Active table */}
       <LxGrid>
         <LxCard span={5}>
           <LxCardHeader eyebrow="My checklist" title="LMP task completion"
@@ -412,20 +382,6 @@ export function PocLmpDashboard({
         />
         <RecentActivityCard lmpIds={filtered.map((r) => r.processId)} limit={12} span={5} />
       </LxGrid>
-
-
-      <LxAttentionStrip
-        items={[
-          { label: "My conversion", value: `${conversionRate.toFixed(1)}%`, accent: "success", info: info("poc.hero.conversion"),
-            onClick: () => openCanonicalStatus("converted") },
-          { label: "Active load",   value: activeLoad,                          accent: "info",   info: info("poc.kpi.active"),
-            onClick: openActiveLoad },
-          { label: "On hold", value: onHold,                         accent: "ai", info: info("poc.kpi.offer"),
-            onClick: () => openCanonicalStatus("hold") },
-          { label: "Risk load",     value: riskLoad,                             accent: "risk",   info: info("poc.kpi.risk"),
-            onClick: openRiskLoad },
-        ]}
-      />
 
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />
     </LuminaShell>
