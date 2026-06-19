@@ -82,3 +82,14 @@ export const STATUSES: LmpStatus[] = [
   "not-converted",
   "other-reasons",
 ];
+
+/** Canonical product statuses — the seven dropdown values. */
+export type CanonicalLmpStatus = (typeof STATUSES)[number];
+
+/** Collapse legacy DB slugs onto the seven canonical product statuses. */
+export function canonicalLmpStatus(status: LmpStatus): CanonicalLmpStatus {
+  if (status === "ongoing") return "prep-ongoing";
+  if (status === "offer-received") return "converted";
+  if (status === "dormant" || status === "closed" || status === "converted-na") return "other-reasons";
+  return status as CanonicalLmpStatus;
+}

@@ -8,8 +8,12 @@ import { useLmpFilters } from "./filters/useLmpFilters";
 import { useViewer } from "@/lib/viewerContext";
 import { motion } from "framer-motion";
 import {
-  isConverted, isDormant, statusCounts, calculateOutcomeConversionRate, type Process, type ProcessStatus,
+  calculateOutcomeConversionRate, lmpStatusCounts, type Process,
 } from "@/lib/lmpProcessQueries";
+import { canonicalLmpStatus, type CanonicalLmpStatus, type LmpStatus } from "@/types/lmp";
+import { STATUS_META } from "@/lib/lmpTypes";
+import { STATUS_HEX, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
+import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
@@ -21,7 +25,7 @@ import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
 import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
-import { lmpsByStatus, lmpsActive, lmpsRisk, snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
+import { snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
@@ -34,21 +38,26 @@ export type PocLmpDashboardProps = {
   headerExtra?: ReactNode;
 };
 
-const STATUS_ACCENT: Record<Process["status"], { hex: string; soft: string; fg: string }> = {
-  Ongoing:          { hex: LX_HEX.info,    soft: "rgba(74,142,232,0.12)",  fg: LX_HEX.info },
-  "Offer Received": { hex: LX_HEX.yellow,  soft: "rgba(247,211,68,0.18)",  fg: "var(--lx-text)" },
-  Converted:        { hex: LX_HEX.success, soft: "rgba(106,158,98,0.12)",  fg: LX_HEX.success },
-  "On Hold":        { hex: LX_HEX.ai,      soft: "rgba(139,92,246,0.12)",  fg: LX_HEX.ai },
-  Dormant:          { hex: LX_HEX.orange,  soft: "rgba(227,131,48,0.10)",  fg: "var(--lx-text)" },
-  Closed:           { hex: LX_HEX.risk,    soft: "rgba(240,112,64,0.12)",  fg: LX_HEX.risk },
-};
+const ACTIVE_LMP_STATUSES = new Set<LmpStatus>(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
 
-function StatusPill({ s }: { s: Process["status"] }) {
-  const a = STATUS_ACCENT[s];
+const POC_STATUS_BAR: Array<{ status: ActiveLmpStatus; label: string; accent: keyof typeof LX_HEX }> = [
+  { status: "not-started",   label: "Not Started",   accent: "neutral" },
+  { status: "prep-ongoing",  label: "Prep Ongoing",  accent: "info" },
+  { status: "prep-done",     label: "Prep Done",     accent: "yellow" },
+  { status: "hold",          label: "On hold",       accent: "ai" },
+  { status: "converted",     label: "Converted",     accent: "success" },
+  { status: "not-converted", label: "Not Converted", accent: "risk" },
+  { status: "other-reasons", label: "Other reasons", accent: "orange" },
+];
+
+function StatusPill({ label, slug }: { label: string; slug: string }) {
+  const canonical = canonicalLmpStatus(slug as LmpStatus);
+  const hex = STATUS_HEX[canonical] ?? LX_HEX.neutral;
+  const soft = `${hex}1F`;
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border"
-      style={{ background: a.soft, color: a.fg, borderColor: `${a.hex}55` }}>
-      {s}
+      style={{ background: soft, color: "var(--lx-text)", borderColor: `${hex}55` }}>
+      {label}
     </span>
   );
 }
@@ -99,18 +108,16 @@ export function PocLmpDashboard({
   const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
   const filteredRecords = useMemo(() => lmpRows.filter((r) => filteredIds.has(r.id)), [filteredIds, lmpRows]);
 
-  const convertedCount = filteredRecords.filter((r) => r.status === "converted").length;
+  const { domainOptions, statusOptions, typeOptions } = useDashboardFilterOptions();
+
+  const convertedCount = filteredRecords.filter((r) => r.status === "converted" || r.status === "offer-received").length;
   const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
   const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
-  const converted = convertedCount;
-  const ongoing = filtered.filter((r) => r.status === "Ongoing").length;
-  const offer = filtered.filter((r) => r.status === "Offer Received").length;
-  const risk =
-    filtered.filter((r) => r.status === "On Hold").length +
-    filtered.filter(isDormant).length +
-    filtered.filter((r) => r.status === "Closed").length;
-
-  const sc = statusCounts(filtered);
+  const lsc = lmpStatusCounts(filteredRecords);
+  const activeLoad = lsc["not-started"] + lsc["prep-ongoing"] + lsc["prep-done"];
+  const onHold = lsc.hold;
+  const riskLoad = lsc["not-converted"] + lsc["other-reasons"];
+  const converted = lsc.converted;
 
   // Task completion
   const prepDone = filtered.filter((r) => r.prepDoc === "Sent").length;
@@ -120,11 +127,26 @@ export function PocLmpDashboard({
     r.placementProgress === "R3" || r.placementProgress === "Offer" ||
     r.placementProgress === "Converted",
   ).length;
-  const finished = filtered.filter((r) => r.status === "Closed" || isConverted(r));
-  const outcomeLogged = finished.filter((r) =>
-    (r.status === "Closed" && r.closedReason) ||
-    (isConverted(r) && r.convertNames),
-  ).length;
+  const finishedIds = useMemo(
+    () => new Set(
+      filteredRecords
+        .filter((r) => {
+          const bucket = canonicalLmpStatus(r.status);
+          return bucket === "converted" || bucket === "not-converted" || bucket === "other-reasons";
+        })
+        .map((r) => r.id),
+    ),
+    [filteredRecords],
+  );
+  const finished = filtered.filter((p) => finishedIds.has(p.processId));
+  const outcomeLogged = finished.filter((p) => {
+    const rec = filteredRecords.find((r) => r.id === p.processId);
+    if (!rec) return false;
+    const bucket = canonicalLmpStatus(rec.status);
+    if (bucket === "not-converted") return true;
+    if (bucket === "converted") return !!p.convertNames;
+    return bucket === "other-reasons";
+  }).length;
 
   const checklist = [
     { label: "Confirm selection",   done: filtered.filter((r) => r.placementProgress !== "Not Started").length, total: filtered.length },
@@ -155,17 +177,59 @@ export function PocLmpDashboard({
     return sn === un || (sn.split(/\s+/)[0].length >= 3 && sn.split(/\s+/)[0] === un.split(/\s+/)[0]);
   });
 
-  // Active processes
+  const activeRowIds = useMemo(
+    () => new Set(
+      filteredRecords
+        .filter((r) => ACTIVE_LMP_STATUSES.has(r.status) || r.status === "hold")
+        .map((r) => r.id),
+    ),
+    [filteredRecords],
+  );
   const activeRows = filtered
-    .filter((r) => r.status === "Ongoing" || r.status === "Offer Received" || r.status === "On Hold")
+    .filter((p) => activeRowIds.has(p.processId))
     .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
     .slice(0, 12);
 
   const [drill, setDrill] = useState<DrillState | null>(null);
   const openLmps = (rows: Process[], title: string, subtitle?: string) =>
     setDrill({ kind: "lmps", title, subtitle, rows });
-  const openStatus = (st: ProcessStatus) =>
-    openLmps(lmpsByStatus(filtered, st), `${st} · my LMPs`, `${filtered.length} in my scope`);
+  const openCanonicalStatus = (status: CanonicalLmpStatus) => {
+    const ids = new Set(
+      filteredRecords
+        .filter((row) => canonicalLmpStatus(row.status) === status)
+        .map((row) => row.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      `${STATUS_META[status].label} · my LMPs`,
+      `${filtered.length} in my scope`,
+    );
+  };
+  const openActiveLoad = () => {
+    const ids = new Set(
+      filteredRecords.filter((r) => ACTIVE_LMP_STATUSES.has(r.status)).map((r) => r.id),
+    );
+    openLmps(
+      filtered.filter((p) => ids.has(p.processId)),
+      "Active load · my LMPs",
+      `${activeLoad} in my scope`,
+    );
+  };
+  const openRiskLoad = () => {
+    const ids = new Set(
+      filteredRecords
+        .filter((r) => {
+          const bucket = canonicalLmpStatus(r.status);
+          return bucket === "not-converted" || bucket === "other-reasons";
+        })
+        .map((r) => r.id),
+    );
+    openLmps(
+      filtered.filter((p) => ids.has(p.processId)),
+      "Risk load · my LMPs",
+      `${riskLoad} in my scope`,
+    );
+  };
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
     const { rows, title } = snapshotDrill(kind, filtered, todaySet);
     openLmps(rows, `My ${title.toLowerCase()}`, `${rows.length} of ${filtered.length} in my scope`);
@@ -197,7 +261,14 @@ export function PocLmpDashboard({
         }
       />
 
-      <LxLmpFilters filters={filters} set={set} pocOptions={[pocName]} />
+      <LxLmpFilters
+        filters={filters}
+        set={set}
+        pocOptions={[pocName]}
+        domainOptions={domainOptions}
+        statusOptions={statusOptions}
+        typeOptions={typeOptions}
+      />
 
       {/* SECTION 1 — Personal hero + KPIs */}
       <LxGrid>
@@ -207,19 +278,19 @@ export function PocLmpDashboard({
           primaryValue={`${conversionRate.toFixed(1)}%`}
           primaryLabel="my conversion"
           info={info("poc.hero.conversion")}
-          onPrimaryClick={() => openLmps(filtered.filter(isConverted), "My converted LMPs", `${converted} of ${filtered.length}`)}
+          onPrimaryClick={() => openCanonicalStatus("converted")}
           statement={`${converted} of ${filtered.length} processes converted`}
           ringPct={conversionRate}
           variant="green"
           span={7}
         />
         <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-4">
-          <LxKpi span={6} label="My active load" accent="info"   value={ongoing} sub="Status = Ongoing"
-            info={info("poc.kpi.active")} onClick={() => openStatus("Ongoing")} />
-          <LxKpi span={6} label="Offer received" accent="yellow" value={offer}   sub="Awaiting outcome"
-            info={info("poc.kpi.offer")} onClick={() => openStatus("Offer Received")} />
-          <LxKpi span={6} label="My risk load"   accent="risk"   value={risk}    sub="Hold + Dormant + Closed"
-            info={info("poc.kpi.risk")} onClick={() => openLmps(lmpsRisk(filtered), "My risk load", `${risk} LMPs`)} />
+          <LxKpi span={6} label="My active load" accent="info"   value={activeLoad} sub="Not started · Prep ongoing · Prep done"
+            info={info("poc.kpi.active")} onClick={openActiveLoad} />
+          <LxKpi span={6} label="On hold" accent="ai" value={onHold} sub="Paused processes"
+            info={info("poc.kpi.offer")} onClick={() => openCanonicalStatus("hold")} />
+          <LxKpi span={6} label="My risk load"   accent="risk"   value={riskLoad}    sub="Not converted · Other reasons"
+            info={info("poc.kpi.risk")} onClick={openRiskLoad} />
           <LxKpi span={6} label="Total processes" accent="teal"  value={filtered.length} sub="In my scope"
             info={info("poc.kpi.total")} onClick={() => openLmps(filtered, "All my LMPs", `${filtered.length} processes`)} />
         </div>
@@ -244,15 +315,15 @@ export function PocLmpDashboard({
       <LxSection eyebrow="My status" title="My process status distribution" info={info("poc.status-bar")} />
       <LxCard span={12}>
         <LxStackedBar
-          onSegmentClick={(s) => openStatus(s.label as ProcessStatus)}
-          segments={[
-            { label: "Ongoing",        value: sc.Ongoing,            accent: "info" },
-            { label: "Offer Received", value: sc["Offer Received"], accent: "yellow" },
-            { label: "Converted",      value: sc.Converted,          accent: "success" },
-            { label: "On Hold",        value: sc["On Hold"],        accent: "ai" },
-            { label: "Dormant",        value: sc.Dormant,            accent: "orange" },
-            { label: "Closed",         value: sc.Closed,             accent: "risk" },
-          ]}
+          onSegmentClick={(s) => {
+            const match = POC_STATUS_BAR.find((row) => row.label === s.label);
+            if (match) openCanonicalStatus(match.status);
+          }}
+          segments={POC_STATUS_BAR.map(({ status, label, accent }) => ({
+            label,
+            value: lsc[status],
+            accent,
+          }))}
         />
       </LxCard>
 
@@ -302,7 +373,7 @@ export function PocLmpDashboard({
         <LxCard span={7}>
           <LxCardHeader eyebrow="My active processes" title="Active & pending"
             info={info("poc.active-table")}
-            hint="Ongoing, Offer Received, On Hold." />
+            hint="Not started, prep ongoing, prep done, and on hold." />
           <div className="overflow-x-auto -mx-1 px-1">
             <table className="w-full text-[12px] border-separate border-spacing-y-1.5">
               <thead>
@@ -326,7 +397,7 @@ export function PocLmpDashboard({
                       onClick={() => openLmps([r], `${r.company} · ${r.role}`)}>
                       <td className="px-2 py-1.5 truncate max-w-[140px]" style={{ color: "var(--lx-text)" }}>{r.company}</td>
                       <td className="px-2 py-1.5 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.role}</td>
-                      <td className="px-2 py-1.5"><StatusPill s={r.status} /></td>
+                      <td className="px-2 py-1.5"><StatusPill label={r.displayStatus} slug={r.filterStatus} /></td>
                       <td className="px-2 py-1.5 font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>{r.prepProgress}%</td>
                       <td className="px-2 py-1.5">
                         {r.prepDoc === "Sent"
@@ -362,13 +433,13 @@ export function PocLmpDashboard({
       <LxAttentionStrip
         items={[
           { label: "My conversion", value: `${conversionRate.toFixed(1)}%`, accent: "success", info: info("poc.hero.conversion"),
-            onClick: () => openLmps(filtered.filter(isConverted), "My converted LMPs") },
-          { label: "Active load",   value: ongoing,                          accent: "info",   info: info("poc.kpi.active"),
-            onClick: () => openStatus("Ongoing") },
-          { label: "Awaiting outcome", value: offer,                         accent: "yellow", info: info("poc.kpi.offer"),
-            onClick: () => openStatus("Offer Received") },
-          { label: "Risk load",     value: risk,                             accent: "risk",   info: info("poc.kpi.risk"),
-            onClick: () => openLmps(lmpsRisk(filtered), "My risk load") },
+            onClick: () => openCanonicalStatus("converted") },
+          { label: "Active load",   value: activeLoad,                          accent: "info",   info: info("poc.kpi.active"),
+            onClick: openActiveLoad },
+          { label: "On hold", value: onHold,                         accent: "ai", info: info("poc.kpi.offer"),
+            onClick: () => openCanonicalStatus("hold") },
+          { label: "Risk load",     value: riskLoad,                             accent: "risk",   info: info("poc.kpi.risk"),
+            onClick: openRiskLoad },
         ]}
       />
 

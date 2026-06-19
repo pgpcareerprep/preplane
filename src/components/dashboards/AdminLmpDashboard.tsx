@@ -44,6 +44,7 @@ import {
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
 } from "@/lib/dashboardDrill";
 import { STATUS_META } from "@/lib/lmpTypes";
+import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 import type { ReactNode } from "react";
@@ -121,11 +122,8 @@ function pctClass(value: number | null): LxAccent {
   return "risk";
 }
 
-function canonicalStatus(status: import("@/types/lmp").LmpStatus): ActiveLmpStatus {
-  if (status === "ongoing") return "prep-ongoing";
-  if (status === "offer-received") return "converted";
-  if (status === "dormant" || status === "closed" || status === "converted-na") return "other-reasons";
-  return status;
+function canonicalStatus(status: import("@/types/lmp").LmpStatus): CanonicalLmpStatus {
+  return canonicalLmpStatus(status);
 }
 
 export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
