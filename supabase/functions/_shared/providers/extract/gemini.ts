@@ -1,5 +1,5 @@
-import { estimateTokens, logAiUsage } from "../ai-usage.ts";
-import { GEMINI_API_URL, GEMINI_FREE_MODEL } from "./config.ts";
+import { estimateTokens, logAiUsage } from "../../ai-usage.ts";
+import { GEMINI_API_URL, GEMINI_FREE_MODEL } from "../config.ts";
 
 export const EXTRACTION_SCHEMA_PROMPT =
   "Extract the profile owner's professional info as it literally appears on the page. " +
