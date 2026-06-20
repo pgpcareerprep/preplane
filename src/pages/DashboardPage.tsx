@@ -43,7 +43,7 @@ export default function DashboardPage() {
     if (dashboardView === "my-poc") {
       return (
         <PocLmpDashboard
-          sourceLabel="My POC Dashboard"
+          sourceLabel="My LMP Health"
           headerExtra={headerExtra}
         />
       );

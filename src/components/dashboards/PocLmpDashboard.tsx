@@ -230,8 +230,7 @@ export function PocLmpDashboard({
           : isViewAsActive ? "VIEW AS · POC DASHBOARD"
           : "POC · DASHBOARD"
         }
-        title={sourceLabel ?? (isViewAsActive ? `${pocName}'s workload` : "My workload")}
-        subtitle={`Processes where Prep or Support POC = ${pocName}`}
+        title={sourceLabel ?? (isViewAsActive ? `${pocName}'s LMP Health` : "My LMP Health")}
         right={
           <div className="flex items-center gap-2">
             {headerExtra}

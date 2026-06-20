@@ -18,7 +18,8 @@ export const DASHBOARD_INFO = {
   // ── Snapshot / activity strip
   "snapshot.active-lmps":          "LMPs in Ongoing, Offer Received, or On Hold status — i.e. anything still actively being worked.",
   "snapshot.high-priority":        "LMPs with at least one high-priority flag (overdue, mentor pending 20d+, stale 14d+).",
-  "snapshot.overdue":              "Active LMPs past their closing date.",
+  "snapshot.overdue":              "Active LMPs past their next expected progress update date.",
+  "snapshot.zero-candidates":      "Active LMPs with no students linked yet.",
   "snapshot.update-due-today":     "Active LMPs without a daily progress log recorded today.",
   "snapshot.mentor-20d":           "Active LMPs older than 20 days with no aligned mentor.",
   "snapshot.prep-doc-pending":     "Active LMPs whose prep document has not been marked Sent.",

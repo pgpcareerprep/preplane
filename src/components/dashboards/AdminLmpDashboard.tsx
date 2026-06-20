@@ -38,8 +38,8 @@ import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState, type ConvertedStudentDrillRow } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
 import {
-  lmpsByStatus, lmpsForDomain, lmpsForPoc,
-  studentsInBucket, studentsByPrimaryDomain, snapshotDrill,
+  lmpsForDomain, lmpsForPoc,
+  studentsInBucket, studentsByPrimaryDomain, snapshotDrill, countZeroCandidateLmps,
 } from "@/lib/dashboardDrill";
 import { STATUS_META } from "@/lib/lmpTypes";
 import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
@@ -280,6 +280,12 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     return m;
   }, [filteredCandidates]);
 
+  const candidateCountByLmp = useMemo(() => {
+    const m = new Map<string, number>();
+    candidatesByLmp.forEach((rows, lmpId) => m.set(lmpId, rows.length));
+    return m;
+  }, [candidatesByLmp]);
+
   /* ─────── Status counts (canonical 7-bucket model) ─────── */
   const lsc = lmpStatusCounts(filteredRecords);
 
@@ -335,10 +341,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
   /* ─────── Attention strip — computed from filtered scope ─────── */
 
-  // All attention/performance counts respect active filters via filteredRecords / filteredCapacity.
-
-  // Pending Offers — LMPs in Offer Received status (unchanged).
-  const attentionPendingOffers = filteredRecords.filter((r) => r.status === "offer-received").length;
+  const zeroCandidateLmpsCount = useMemo(
+    () => countZeroCandidateLmps(filtered, candidateCountByLmp),
+    [filtered, candidateCountByLmp],
+  );
 
   const mostOverloadedPocName = useMemo(
     () => (filteredCapacity.length > 0
@@ -807,7 +813,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     );
   };
   const openSnapshot = (kind: "active" | "high" | Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind as any, filtered, todaySet);
+    const { rows, title } = snapshotDrill(kind as any, filtered, todaySet, candidateCountByLmp);
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
@@ -815,8 +821,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     <LuminaShell>
       <LxPageHeader
         crumb="ADMIN · DASHBOARD"
-        title="Operating snapshot"
-        subtitle="Where conversion stands today, where load sits, and where attention is needed."
+        title="LMP Health"
         right={
           <div className="flex items-center gap-2">
             {headerExtra}
@@ -1177,6 +1182,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       </LxGrid>
 
       <LxAttentionStrip
+        stretch
         items={[
           {
             label: "Highest Performing POC",
@@ -1209,19 +1215,17 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             info: info("attention.most-overloaded-poc"),
             onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`),
           },
-          {
-            label: "Pending Offers",
-            value: attentionPendingOffers,
-            accent: "yellow",
-            info: info("attention.pending-offers"),
-            onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`),
-          },
         ]}
       />
 
       {/* ─────── Flagged LMPs (moved to bottom) ─────── */}
       <LxSectionBlock>
-      <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
+      <RecentSnapshotStrip
+        rows={filtered}
+        todaySet={todaySet}
+        zeroCandidateCount={zeroCandidateLmpsCount}
+        onItemClick={openSnapshot}
+      />
       </LxSectionBlock>
 
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />

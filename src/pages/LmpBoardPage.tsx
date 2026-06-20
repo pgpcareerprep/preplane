@@ -226,63 +226,59 @@ export default function LmpBoardPage() {
       <PageHeader
         title="Last Mile Prep"
         subtitle="Process-level placement tracking across all stages"
-      />
+        right={
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-n500 dark:text-d-muted font-medium shrink-0">
+                Viewing:
+              </span>
 
-      {/* Board scope selector OR View As indicator + CSV export */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-n500 dark:text-d-muted font-medium shrink-0">
-            Viewing:
-          </span>
+              {isViewAsActive ? (
+                <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-amber-50 dark:bg-amber-900/20 text-[12.5px] text-amber-800 dark:text-amber-200 font-medium">
+                  {viewAsDisplayName}'s LMPs
+                </span>
+              ) : canChangeBoardScope ? (
+                <select
+                  id="board-scope"
+                  value={scopeSelectorValue}
+                  onChange={(e) => handleScopeChange(e.target.value)}
+                  className="h-8 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface px-2 text-[12.5px] text-n800 dark:text-d-text focus:outline-none focus:ring-1 focus:ring-orange-500"
+                >
+                  <option value="__self__">My LMPs</option>
+                  <option value="__all__">All POCs</option>
+                  {prepPocOptions
+                    .filter((o) => o.value !== "All")
+                    .map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-n50 dark:bg-d-surface text-[12.5px] text-n700 dark:text-d-text">
+                  My LMPs
+                </span>
+              )}
+            </div>
 
-          {isViewAsActive ? (
-            /* During View As: non-editable indicator */
-            <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-amber-50 dark:bg-amber-900/20 text-[12.5px] text-amber-800 dark:text-amber-200 font-medium">
-              {viewAsDisplayName}'s LMPs
-            </span>
-          ) : canChangeBoardScope ? (
-            /* Normal admin/allocator: editable scope dropdown */
-            <select
-              id="board-scope"
-              value={scopeSelectorValue}
-              onChange={(e) => handleScopeChange(e.target.value)}
-              className="h-8 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface px-2 text-[12.5px] text-n800 dark:text-d-text focus:outline-none focus:ring-1 focus:ring-orange-500"
+            <button
+              type="button"
+              disabled={filtered.length === 0}
+              onClick={() => exportLmpBoardCsv(filtered, csvScope)}
+              title={filtered.length === 0 ? "No records to export" : `Export ${filtered.length} records as CSV`}
+              className={cn(
+                "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12px] font-medium transition-colors",
+                filtered.length === 0
+                  ? "border-n200 bg-n50 text-n400 cursor-not-allowed dark:border-d-border dark:bg-d-surface dark:text-d-muted"
+                  : "border-n200 bg-white text-n700 hover:bg-n50 hover:border-n300 dark:border-d-border dark:bg-d-surface dark:text-d-text dark:hover:bg-d-surface-2",
+              )}
             >
-              <option value="__self__">My LMPs</option>
-              <option value="__all__">All POCs</option>
-              {prepPocOptions
-                .filter((o) => o.value !== "All")
-                .map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-            </select>
-          ) : (
-            /* POC: fixed "My LMPs" indicator */
-            <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-n50 dark:bg-d-surface text-[12.5px] text-n700 dark:text-d-text">
-              My LMPs
-            </span>
-          )}
-        </div>
-
-        {/* CSV Export button — always visible, disabled when no filtered records */}
-        <button
-          type="button"
-          disabled={filtered.length === 0}
-          onClick={() => exportLmpBoardCsv(filtered, csvScope)}
-          title={filtered.length === 0 ? "No records to export" : `Export ${filtered.length} records as CSV`}
-          className={cn(
-            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12px] font-medium transition-colors",
-            filtered.length === 0
-              ? "border-n200 bg-n50 text-n400 cursor-not-allowed dark:border-d-border dark:bg-d-surface dark:text-d-muted"
-              : "border-n200 bg-white text-n700 hover:bg-n50 hover:border-n300 dark:border-d-border dark:bg-d-surface dark:text-d-text dark:hover:bg-d-surface-2",
-          )}
-        >
-          <Download className="h-3.5 w-3.5" />
-          Export as CSV
-        </button>
-      </div>
+              <Download className="h-3.5 w-3.5" />
+              Export as CSV
+            </button>
+          </div>
+        }
+      />
 
       {isError && (
         <div className="rounded-lg border border-coral-200 bg-coral-50 px-4 py-3 text-[13px] text-coral-700">

@@ -711,6 +711,7 @@ export function LxHeatmap({
 /* ─────────────── Attention strip ─────────────── */
 export function LxAttentionStrip({
   items,
+  stretch = false,
 }: {
   items: {
     label: string;
@@ -721,17 +722,24 @@ export function LxAttentionStrip({
     info?: string;
     onClick?: () => void;
   }[];
+  /** When true, items expand equally to fill the card width (for compact metric strips). */
+  stretch?: boolean;
 }) {
   return (
-    <div className="lx-card p-3 flex flex-wrap items-stretch gap-x-6 gap-y-gutter">
+    <div className={cn(
+      "lx-card p-3 flex items-stretch",
+      stretch ? "flex-nowrap gap-0" : "flex-wrap gap-x-6 gap-y-gutter",
+    )}>
       {items.map((it, i) => {
         const clickable = !!it.onClick;
         return (
           <div
             key={i}
             className={cn(
-              "flex items-center gap-3 min-w-0 pr-6 border-r last:border-0 rounded-md",
-              clickable && "cursor-pointer hover:bg-[var(--lx-soft)] transition-colors -mx-1 px-1",
+              "flex items-center gap-3 min-w-0 rounded-md border-r last:border-0",
+              stretch ? "flex-1 px-4" : "pr-6",
+              clickable && "cursor-pointer hover:bg-[var(--lx-soft)] transition-colors",
+              clickable && !stretch && "-mx-1 px-1",
             )}
             style={{ borderColor: "var(--lx-border)" }}
             onClick={it.onClick}

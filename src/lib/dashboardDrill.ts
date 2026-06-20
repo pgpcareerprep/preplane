@@ -69,14 +69,36 @@ export function lmpsHighPriority(rows: Process[], todaySet: Set<string>): Proces
   return flagRows(rows, todaySet).filter((f) => f.topPriority === "high").map((f) => f.process);
 }
 
+export function lmpsZeroCandidates(
+  rows: Process[],
+  candidateCountByLmp: Map<string, number>,
+): Process[] {
+  return rows.filter((r) => {
+    if (!["Ongoing", "Offer Received", "On Hold"].includes(r.status)) return false;
+    return (candidateCountByLmp.get(r.processId) ?? 0) === 0;
+  });
+}
+
+export function countZeroCandidateLmps(
+  rows: Process[],
+  candidateCountByLmp: Map<string, number>,
+): number {
+  return lmpsZeroCandidates(rows, candidateCountByLmp).length;
+}
+
 /** Resolve a snapshot-strip key to a drill row set + human title. */
 export function snapshotDrill(
-  kind: "active" | "high" | LmpFlagKey,
+  kind: "active" | "high" | "zero-candidates" | LmpFlagKey,
   rows: Process[],
   todaySet: Set<string>,
+  candidateCountByLmp?: Map<string, number>,
 ): { rows: Process[]; title: string } {
   if (kind === "active") return { rows: lmpsActive(rows), title: "Active LMPs" };
   if (kind === "high")   return { rows: lmpsHighPriority(rows, todaySet), title: "High-priority LMPs" };
+  if (kind === "zero-candidates") {
+    const map = candidateCountByLmp ?? new Map<string, number>();
+    return { rows: lmpsZeroCandidates(rows, map), title: "LMPs with no students" };
+  }
   const LABEL: Record<LmpFlagKey, string> = {
     "overdue":                "Overdue LMPs",
     "daily-progress-pending": "LMPs without an update today",

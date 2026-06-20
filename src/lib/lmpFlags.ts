@@ -56,11 +56,15 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
   const age = ageDaysOf(p);
   const sinceUpdate = daysSince(p.lastProgressUpdatedAt || p.lastUpdated);
 
-  // Overdue — past closing date while still active
-  if (isActive && p.closingDate) {
-    const closing = new Date(p.closingDate).getTime();
-    if (Number.isFinite(closing) && closing < Date.now()) {
-      out.push({ ...FLAG_META["overdue"], reason: `Past closing date (${p.closingDate.slice(0, 10)})` });
+  // Overdue — past next expected progress date (same logic as LMP board)
+  if (isActive && p.nextExpectedProgress) {
+    const today = new Date(new Date().toDateString());
+    const due = new Date(p.nextExpectedProgress);
+    if (!isNaN(due.getTime()) && due < today) {
+      out.push({
+        ...FLAG_META["overdue"],
+        reason: `Progress update overdue since ${p.nextExpectedProgress.slice(0, 10)}`,
+      });
     }
   }
 

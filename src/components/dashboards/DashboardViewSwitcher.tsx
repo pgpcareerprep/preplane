@@ -18,7 +18,7 @@ export function DashboardViewSwitcher({
     >
       {([
         { id: "admin" as const, label: "Admin Dashboard" },
-        { id: "my-poc" as const, label: "My POC Dashboard" },
+        { id: "my-poc" as const, label: "My LMP Health" },
       ]).map((opt) => (
         <button
           key={opt.id}

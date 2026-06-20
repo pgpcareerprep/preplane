@@ -4,14 +4,15 @@ import { summarizeFlags } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import { info } from "@/lib/dashboardInfo";
 
-export type SnapshotDrillKind = "active" | "high" | LmpFlagKey;
+export type SnapshotDrillKind = "active" | "high" | "zero-candidates" | LmpFlagKey;
 
 export function RecentSnapshotStrip({
-  rows, todaySet, onItemClick,
+  rows, todaySet, onItemClick, zeroCandidateCount = 0,
 }: {
   rows: Process[];
   todaySet: Set<string>;
   onItemClick?: (kind: SnapshotDrillKind) => void;
+  zeroCandidateCount?: number;
 }) {
   const s = summarizeFlags(rows, todaySet);
   const active = rows.filter((r) => ["Ongoing", "Offer Received", "On Hold"].includes(r.status)).length;
@@ -22,6 +23,7 @@ export function RecentSnapshotStrip({
         { label: "Active LMPs",      value: active,                          accent: "info",   info: info("snapshot.active-lmps"),     onClick: click("active") },
         { label: "High priority",    value: s.high,                          accent: "risk",   info: info("snapshot.high-priority"),   onClick: click("high") },
         { label: "Overdue",          value: s.byKey["overdue"],              accent: "risk",   info: info("snapshot.overdue"),         onClick: click("overdue") },
+        { label: "Zero candidates",  value: zeroCandidateCount,              accent: "orange", info: info("snapshot.zero-candidates"), onClick: click("zero-candidates") },
         { label: "Update due today", value: s.byKey["daily-progress-pending"], accent: "yellow", info: info("snapshot.update-due-today"), onClick: click("daily-progress-pending") },
         { label: "Mentor 20d+",      value: s.byKey["mentor-pending-20d"],   accent: "risk",   info: info("snapshot.mentor-20d"),      onClick: click("mentor-pending-20d") },
         { label: "Prep doc pending", value: s.byKey["prep-doc-pending"],     accent: "orange", info: info("snapshot.prep-doc-pending"), onClick: click("prep-doc-pending") },

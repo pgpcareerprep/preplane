@@ -167,26 +167,6 @@ export function GenericHeatmapTable({
   visibleConfig: AltSectionDef[];
   colMaxValues: Record<string, number>;
 }) {
-  // #region agent log
-  fetch("http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "3c81bd" },
-    body: JSON.stringify({
-      sessionId: "3c81bd",
-      runId: "post-fix",
-      hypothesisId: "A",
-      location: "PrepPocHeatmapAlternateViews.tsx:GenericHeatmapTable",
-      message: "GenericHeatmapTable render",
-      data: {
-        rowHeader,
-        rowCount: rows.length,
-        colTypes: visibleConfig.flatMap((s) => s.cols.map((c) => c.colType)),
-        tSageDefined: typeof T_SAGE === "string",
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   return (
     <table className="w-full border-separate text-[12px]" style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}>
       <colgroup>

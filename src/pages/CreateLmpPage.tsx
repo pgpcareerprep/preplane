@@ -11,7 +11,7 @@ import { createLmpProcess, DuplicateLmpError, type ConfirmedPocSelection, type E
 import { TABS } from "@/lib/sheets";
 import { useRole } from "@/lib/rolesContext";
 import { PlaceholderView } from "@/components/PlaceholderView";
-import { PlusCircle, Sparkles } from "lucide-react";
+import { PlusCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { saveDraft, deleteDraft, type LmpDraft } from "@/lib/lmpDrafts";
@@ -282,10 +282,6 @@ export default function CreateLmpPage() {
         <div className="pointer-events-none absolute -top-12 -right-10 h-48 w-48 rounded-full bg-orange-200/50 blur-3xl" />
         <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-yellow-200/60 blur-3xl" />
         <div className="relative max-w-2xl">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-card/70 border border-white px-2.5 py-1 mb-3 backdrop-blur-sm">
-            <Sparkles className="h-3 w-3 text-orange-500" strokeWidth={2.25} />
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.6px] text-orange-600">AI-Assisted</span>
-          </div>
           <h2 className="text-[36px] leading-[1.15] font-bold tracking-[-1px] text-n900">
             Create a <span className="font-display text-orange-500 text-[34px]">process</span>
           </h2>

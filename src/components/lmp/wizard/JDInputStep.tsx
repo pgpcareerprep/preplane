@@ -67,7 +67,6 @@ export function JDInputStep({
 
   // Collapsible sections
   const [jdOpen, setJdOpen] = useState(!!initial?.jdText);
-  const [candidatesOpen, setCandidatesOpen] = useState((initial?.selectedCandidates?.length ?? 0) > 0);
 
   // JD section state
   const [jdText, setJdText] = useState(initial?.jdText ?? "");
@@ -321,48 +320,51 @@ export function JDInputStep({
           </div>
         </CollapsibleSection>
 
-        {/* Collapsible: Candidates */}
-        <CollapsibleSection
-          open={candidatesOpen}
-          onToggle={() => setCandidatesOpen((v) => !v)}
-          icon={<Users className="h-4 w-4 text-n500" strokeWidth={1.75} />}
-          title="Candidates (optional)"
-          subtitle="Pick from the student database or bulk upload CVs"
-          badge={selectedCandidates.length > 0 ? `${selectedCandidates.length} added` : undefined}
+        {/* Students — click opens add modal */}
+        <button
+          type="button"
+          onClick={() => setCandidateModalOpen(true)}
+          className="w-full flex items-center justify-between rounded-xl border border-n200 bg-card px-4 py-3.5 text-left hover:border-orange-400 hover:bg-orange-50/40 transition-colors"
         >
-          <div className="space-y-3">
-            <button
-              onClick={() => setCandidateModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-n300 bg-card hover:border-orange-400 hover:bg-orange-50/40 px-4 py-2.5 text-[13px] font-medium text-n800 transition-colors"
-            >
-              <Plus className="h-4 w-4 text-orange-500" strokeWidth={2} />
-              Add Candidates
-            </button>
-
-            {selectedCandidates.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {selectedCandidates.map((c) => (
-                  <span
-                    key={c.id}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-n100 border border-n200 pl-2.5 pr-1 py-1 text-[12px] text-n800"
-                  >
-                    <span className={cn("h-5 w-5 rounded-full grid place-items-center text-[9px] font-semibold", c.color || "bg-n200 text-n700")}>
-                      {c.initials || "??"}
-                    </span>
-                    <span className="truncate max-w-[140px]">{c.name}</span>
-                    <button
-                      onClick={() => setSelectedCandidates((p) => p.filter((x) => x.id !== c.id))}
-                      className="ml-0.5 h-4 w-4 grid place-items-center rounded-full hover:bg-n200 text-n500"
-                      aria-label={`Remove ${c.name}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="h-9 w-9 rounded-lg bg-n100 grid place-items-center shrink-0">
+              <Users className="h-4 w-4 text-n500" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-n800">Students (optional)</div>
+              <div className="text-[11px] text-n500">Pick from the student database or bulk upload CVs</div>
+            </div>
           </div>
-        </CollapsibleSection>
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-orange-600 shrink-0">
+            <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+            Add
+            {selectedCandidates.length > 0 ? ` (${selectedCandidates.length})` : ""}
+          </span>
+        </button>
+
+        {selectedCandidates.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 -mt-1">
+            {selectedCandidates.map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-1.5 rounded-full bg-n100 border border-n200 pl-2.5 pr-1 py-1 text-[12px] text-n800"
+              >
+                <span className={cn("h-5 w-5 rounded-full grid place-items-center text-[9px] font-semibold", c.color || "bg-n200 text-n700")}>
+                  {c.initials || "??"}
+                </span>
+                <span className="truncate max-w-[140px]">{c.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCandidates((p) => p.filter((x) => x.id !== c.id))}
+                  className="ml-0.5 h-4 w-4 grid place-items-center rounded-full hover:bg-n200 text-n500"
+                  aria-label={`Remove ${c.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Continue */}

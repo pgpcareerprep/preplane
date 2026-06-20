@@ -365,18 +365,16 @@ describe("tests 14–17: Existing operational metric logic preserved", () => {
 // ── 10. Performance strip layout ─────────────────────────────────────────────
 
 describe("performance strip", () => {
-  it("the strip items array contains exactly 4 metrics in the specified order", () => {
+  it("the strip items array contains exactly 3 metrics in the specified order", () => {
     const labels = [
       "Highest Performing POC",
       "Best Performing Domain",
       "Most Overloaded POC",
-      "Pending Offers",
     ];
-    expect(labels).toHaveLength(4);
+    expect(labels).toHaveLength(3);
     expect(labels[0]).toBe("Highest Performing POC");
     expect(labels[1]).toBe("Best Performing Domain");
     expect(labels[2]).toBe("Most Overloaded POC");
-    expect(labels[3]).toBe("Pending Offers");
   });
 
   it("test 1: Highest Risk Domain is NOT in the label list", () => {
@@ -384,13 +382,13 @@ describe("performance strip", () => {
       "Highest Performing POC",
       "Best Performing Domain",
       "Most Overloaded POC",
-      "Pending Offers",
     ];
     expect(labels).not.toContain("Highest risk domain");
     expect(labels).not.toContain("Highest Risk Domain");
     expect(labels).not.toContain("Best Performing POD");
     expect(labels).not.toContain("Missing Prep POCs");
     expect(labels).not.toContain("Overloaded POCs");
+    expect(labels).not.toContain("Pending Offers");
   });
 });
 
