@@ -333,21 +333,43 @@ export function DailyProgressCard({
       <div className="rounded-2xl bg-n50/40 border border-n200 p-4">
         <div className="flex items-center justify-between mb-2">
           <h4 className="text-[13px] font-semibold text-n800">Daily Progress</h4>
-          {latest ? (
-            <div className="flex items-center gap-1.5">
-              {latest.source === "sheet" && <FileSpreadsheet className="h-3 w-3 text-emerald-500" />}
-              <span className="text-[10.5px] text-n500">
-                {latest.source === "local" ? formatRelativeTime(latest.ts) : latest.dateDisplay}
-              </span>
-            </div>
-          ) : (
-            <span className="text-[10.5px] text-n400 italic">No updates yet</span>
-          )}
+          <div className="flex items-center gap-2">
+            {totalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHistory((v) => !v)}
+                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-n200 bg-card text-[11.5px] text-n600 hover:text-n900 hover:border-n300 transition-colors"
+              >
+                <History className="h-3.5 w-3.5" />
+                {showHistory ? "Hide history" : "View all history"}
+                <span className="text-n400 tabular-nums">({totalCount})</span>
+                <ChevronDown className={cn("h-3 w-3 transition-transform", showHistory && "rotate-180")} />
+              </button>
+            )}
+            {latest ? (
+              <div className="flex items-center gap-1.5">
+                {latest.source === "sheet" && <FileSpreadsheet className="h-3 w-3 text-emerald-500" />}
+                <span className="text-[10.5px] text-n500">
+                  {latest.source === "local" ? formatRelativeTime(latest.ts) : latest.dateDisplay}
+                </span>
+              </div>
+            ) : (
+              <span className="text-[10.5px] text-n400 italic">No updates yet</span>
+            )}
+          </div>
         </div>
         {latest ? (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-[11px] text-n500">
               <span className="tabular-nums">{latest.dateDisplay}</span>
+              {(latest.source === "local" || latest.source === "db") && (
+                <>
+                  <span className="text-n300">·</span>
+                  <span className="tabular-nums">
+                    {new Date(latest.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  </span>
+                </>
+              )}
               <span className="text-n300">·</span>
               <span className="font-medium text-n700">{latest.author}</span>
               {latest.source === "sheet" && (
@@ -361,6 +383,56 @@ export function DailyProgressCard({
           </div>
         ) : (
           <p className="text-[12.5px] text-n500 italic">No progress logged yet.</p>
+        )}
+        {showHistory && (
+          <div className="mt-3 pt-3 border-t border-n200/70 space-y-3 max-h-[320px] overflow-y-auto">
+            {groupedByDate.length === 0 ? (
+              <p className="text-[12.5px] text-n400 italic py-2 text-center">No progress entries yet.</p>
+            ) : (
+              groupedByDate.map(([date, dateEntries]) => (
+                <div key={date}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="h-px flex-1 bg-n200" />
+                    <span className="text-[10.5px] font-semibold text-n500 tabular-nums tracking-wide uppercase">
+                      {dateEntries[0].dateDisplay}
+                    </span>
+                    <div className="h-px flex-1 bg-n200" />
+                  </div>
+                  <div className="space-y-1.5">
+                    {dateEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className={cn(
+                          "rounded-lg border p-2.5",
+                          entry.source === "sheet"
+                            ? "border-emerald-200 bg-emerald-50/40"
+                            : entry.source === "db"
+                            ? "border-blue-200 bg-blue-50/30"
+                            : "border-n200 bg-card",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-[11.5px] font-medium text-n700 truncate">{entry.author}</span>
+                          <span className="text-[10.5px] text-n400 tabular-nums shrink-0">
+                            {entry.dateDisplay}
+                            {(entry.source === "local" || entry.source === "db") && (
+                              <>
+                                {" · "}
+                                {new Date(entry.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-[12.5px] text-n800 leading-snug whitespace-pre-wrap">
+                          {entry.noUpdate ? <span className="italic text-n500">No update</span> : entry.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         )}
         {sheetCount > 0 && (
           <div className="mt-2 text-[10.5px] text-emerald-600 flex items-center gap-1">

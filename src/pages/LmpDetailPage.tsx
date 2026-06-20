@@ -59,7 +59,8 @@ export default function LmpDetailPage() {
   // Otherwise a Support POC would briefly see the read-only banner on every
   // page load while `pocProfileName` is still being fetched.
   const pocProfileReady = role === "admin" || !!user.pocProfileName || !!user.name;
-  const readOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
+  const operationalReadOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
+  const showViewOnlyBanner = operationalReadOnly;
 
   const backHref = from === "kanban" ? "/lmp" : "/lmp?view=cards";
 
@@ -93,12 +94,12 @@ export default function LmpDetailPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> Last Mile Prep
       </Link>
 
-      <StickyHeaderWithCount lmp={lmp} readOnly={readOnly} />
+      <StickyHeaderWithCount lmp={lmp} operationalReadOnly={operationalReadOnly} />
 
-      {readOnly && (
+      {showViewOnlyBanner && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[12.5px] flex items-center gap-2">
           <Eye className="h-3.5 w-3.5" />
-          Read-only view — you are not a POC on this LMP, so edits, mentor matching, scheduling, and feedback submission are disabled.
+          View-only process access — you can review LMP details, documents, mentors, sessions and activity. POC-only actions are disabled.
         </div>
       )}
 
@@ -122,22 +123,18 @@ export default function LmpDetailPage() {
         </nav>
       </div>
 
-      <div
-        className="pt-2"
-        {...(readOnly ? { inert: "" as unknown as boolean } : {})}
-        aria-disabled={readOnly || undefined}
-      >
+      <div className="pt-2">
         {/* Keep all tabs mounted — toggle visibility so react-query caches,
             realtime subscriptions and local component state persist across
             tab switches (prevents candidate list / mentor shortlist flicker). */}
         <div hidden={tab !== "Overview"}>
-          <UnifiedOverviewTab lmp={lmp} onOpenSessionsTab={() => setTab("Mentors")} readOnly={readOnly} />
+          <UnifiedOverviewTab lmp={lmp} onOpenSessionsTab={() => setTab("Mentors")} operationalReadOnly={operationalReadOnly} />
         </div>
         <div hidden={tab !== "Mentors"}>
-          <MentorsTab reqId={lmpId} role={lmp.role} company={lmp.company} domain={lmp.domain} industry={lmp.domain} candidates={candidates} readOnly={readOnly} />
+          <MentorsTab reqId={lmpId} role={lmp.role} company={lmp.company} domain={lmp.domain} industry={lmp.domain} candidates={candidates} operationalReadOnly={operationalReadOnly} />
         </div>
         <div hidden={tab !== "Feedback"}>
-          <FeedbackTab reqId={lmpId} readOnly={readOnly} />
+          <FeedbackTab reqId={lmpId} operationalReadOnly={operationalReadOnly} />
         </div>
 
       </div>
@@ -145,7 +142,7 @@ export default function LmpDetailPage() {
   );
 }
 
-function StickyHeaderWithCount({ lmp, readOnly }: { lmp: NonNullable<ReturnType<typeof useLmpById>["data"]>; readOnly?: boolean }) {
+function StickyHeaderWithCount({ lmp, operationalReadOnly }: { lmp: NonNullable<ReturnType<typeof useLmpById>["data"]>; operationalReadOnly?: boolean }) {
   const { data: liveCandidates = [] } = useLmpCandidatesLive(lmp.id);
   const count = Math.max(lmp.candidates ?? 0, liveCandidates.length);
   const { update } = useLmpMutation();
@@ -166,8 +163,8 @@ function StickyHeaderWithCount({ lmp, readOnly }: { lmp: NonNullable<ReturnType<
       <StickyHeader
         lmp={lmp}
         candidateCount={count}
-        readOnly={readOnly}
-        onChangeStatus={readOnly ? undefined : handleChangeStatus}
+        operationalReadOnly={operationalReadOnly}
+        onChangeStatus={operationalReadOnly ? undefined : handleChangeStatus}
       />
       <OutreachFeedbackModal
         open={feedbackOpen}

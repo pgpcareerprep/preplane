@@ -28,11 +28,11 @@ import { useLmpPermission } from "@/lib/hooks/usePermissions";
 export function UnifiedOverviewTab({
   lmp,
   onOpenSessionsTab,
-  readOnly,
+  operationalReadOnly,
 }: {
   lmp: LmpRecord;
   onOpenSessionsTab?: () => void;
-  readOnly?: boolean;
+  operationalReadOnly?: boolean;
 }) {
   const lmpId = lmp.id;
   const { update: updateMutation } = useLmpMutation();
@@ -47,8 +47,8 @@ export function UnifiedOverviewTab({
     support_poc_id: lmp.supportPocId,
     outreach_poc_ids: lmp.outreachPocIds,
   });
-  const operationalReadOnly = readOnly || !canOperateLmp;
-  const canEditDocuments = !readOnly && (canManageLmp || canOperateLmp);
+  const operationalReadOnlyMode = operationalReadOnly ?? !canOperateLmp;
+  const canEditDocuments = canManageLmp || canOperateLmp;
 
   const dbRow = useMemo(() => {
     return (dbProcesses as any[]).find(
@@ -90,7 +90,7 @@ export function UnifiedOverviewTab({
 
   const handleSaveProgress = useCallback(
     async (text: string) => {
-      if (operationalReadOnly) return;
+      if (operationalReadOnlyMode) return;
       const today = new Date().toLocaleDateString("en-IN", {
         day: "2-digit",
         month: "2-digit",
@@ -110,13 +110,13 @@ export function UnifiedOverviewTab({
         patch: { dailyProgress: next },
       });
     },
-    [lmp.id, operationalReadOnly, updateMutation],
+    [lmp.id, operationalReadOnlyMode, updateMutation],
   );
 
 
   const handleSaveNextDate = useCallback(
     (date: string, type?: string, enableReminder: boolean = true) => {
-      if (operationalReadOnly) return;
+      if (operationalReadOnlyMode) return;
       const reminderType = normalizeNextProgressType(type);
       const safeDate = date && date.trim() !== "" ? date : null;
       updateMutation.mutate({
@@ -133,13 +133,13 @@ export function UnifiedOverviewTab({
         });
       }
     },
-    [lmp.id, pocEmails, dbLmpId, operationalReadOnly, updateMutation, saveNextDateDb],
+    [lmp.id, pocEmails, dbLmpId, operationalReadOnlyMode, updateMutation, saveNextDateDb],
   );
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
   const handleChecklistToggle = useCallback(
     (sheetKey: string, newValue: boolean) => {
-      if (operationalReadOnly) return;
+      if (operationalReadOnlyMode) return;
       setPendingChecklist((p) => ({ ...p, [sheetKey]: newValue }));
       updateMutation.mutate(
         { id: lmp.id, patch: { [sheetKey]: newValue } },
@@ -155,7 +155,7 @@ export function UnifiedOverviewTab({
       );
       toast.success(newValue ? "Checklist item marked done" : "Checklist item reopened");
     },
-    [lmp.id, operationalReadOnly, updateMutation],
+    [lmp.id, operationalReadOnlyMode, updateMutation],
   );
 
   // Documents — shared JSON array on lmp_processes.documents (checklist + general).
@@ -246,12 +246,12 @@ export function UnifiedOverviewTab({
 
   return (
     <div className="space-y-4">
-      <JdCollapsible lmp={lmp} readOnly={!canManageLmp} />
+      <JdCollapsible lmp={lmp} canManageJd={canManageLmp} />
 
       {/* Daily Progress — full-width action card */}
       <DailyProgressCard
         lmpId={lmpId}
-        mode={operationalReadOnly ? "summary" : "action"}
+        mode={operationalReadOnlyMode ? "summary" : "action"}
         onSaveProgress={handleSaveProgress}
         onSaveNextDate={handleSaveNextDate}
         initialPrepProgress={lmp.prepProgress}
@@ -266,7 +266,7 @@ export function UnifiedOverviewTab({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChecklistCard
           lmpId={lmpId}
-          mode={operationalReadOnly ? "summary" : "action"}
+          mode={operationalReadOnlyMode ? "summary" : "action"}
           sheetValues={{
             mentorAligned: pendingChecklist.mentorAligned ?? lmp.mentorAligned,
             prepDocShared: pendingChecklist.prepDocShared ?? lmp.prepDocShared,
@@ -279,11 +279,11 @@ export function UnifiedOverviewTab({
           onUpdateDocument={handleUpdateDocument}
           onRemoveDocument={handleRemoveDocument}
         />
-        <SessionsActionCard reqId={lmpId} onOpenSessionsTab={onOpenSessionsTab} readOnly={operationalReadOnly} />
+        <SessionsActionCard reqId={lmpId} onOpenSessionsTab={onOpenSessionsTab} readOnly={operationalReadOnlyMode} />
       </div>
 
       {/* Pipeline */}
-      <InteractivePipelineCard lmpId={lmpId} lmp={lmp} readOnly={operationalReadOnly} canManage={canManageLmp} />
+      <InteractivePipelineCard lmpId={lmpId} lmp={lmp} readOnly={operationalReadOnlyMode} canManage={canManageLmp} />
 
 
       {/* Documents */}
@@ -296,7 +296,7 @@ export function UnifiedOverviewTab({
       />
 
       {/* Activity Timeline */}
-      <ActivityTimelineCard lmpId={lmpId} readOnly={operationalReadOnly} />
+      <ActivityTimelineCard lmpId={lmpId} readOnly={operationalReadOnlyMode} />
 
       {/* POC Assignment */}
       <PocRow lmp={lmp} />
@@ -359,7 +359,7 @@ function PocRow({ lmp }: { lmp: LmpRecord }) {
   );
 }
 
-function JdCollapsible({ lmp, readOnly = false }: { lmp: LmpRecord; readOnly?: boolean }) {
+function JdCollapsible({ lmp, canManageJd = false }: { lmp: LmpRecord; canManageJd?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [jd] = useJd(lmp.id);
 
@@ -402,7 +402,7 @@ function JdCollapsible({ lmp, readOnly = false }: { lmp: LmpRecord; readOnly?: b
               company={lmp.company || ""}
               domain={lmp.domain}
               compact
-              readOnly={readOnly}
+              canManageJd={canManageJd}
             />
 
           </div>

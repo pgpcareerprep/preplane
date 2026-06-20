@@ -9,9 +9,10 @@ interface JdPreviewModalProps {
   jdData: JdData;
   onRemoved: () => void;
   onReplace: () => void;
+  canManageJd?: boolean;
 }
 
-export function JdPreviewModal({ open, onOpenChange, jdData, onRemoved, onReplace }: JdPreviewModalProps) {
+export function JdPreviewModal({ open, onOpenChange, jdData, onRemoved, onReplace, canManageJd = true }: JdPreviewModalProps) {
   const handleRemove = () => {
     deleteJd(jdData.lmpId);
     void clearJdInDb(jdData.lmpId);
@@ -98,6 +99,7 @@ export function JdPreviewModal({ open, onOpenChange, jdData, onRemoved, onReplac
           )}
 
           {/* Actions */}
+          {canManageJd && (
           <div className="flex items-center gap-2 pt-2 border-t border-n100">
             <Button
               variant="outline"
@@ -116,6 +118,7 @@ export function JdPreviewModal({ open, onOpenChange, jdData, onRemoved, onReplac
               <Trash2 className="h-3 w-3" /> Remove
             </Button>
           </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

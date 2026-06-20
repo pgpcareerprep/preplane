@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { Check, MessageSquare, Paperclip, FileSpreadsheet } from "lucide-react";
+import { Check, MessageSquare, Paperclip, FileSpreadsheet, ChevronDown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChecklistNotes } from "@/lib/lmpExecutionEngine";
 import { DocumentLinkModal, type DocumentLinkInput } from "./DocumentLinkModal";
@@ -7,6 +7,7 @@ import { ChecklistNotesModal } from "./ChecklistNotesModal";
 import type { DocumentLink, DocumentAddContext } from "./DocumentsCard";
 import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type CheckItem = {
   id: string;
@@ -101,6 +102,7 @@ export function ChecklistCard({
 
   const [notesModalFor, setNotesModalFor] = useState<{ id: string; label: string } | null>(null);
   const [linkModalFor, setLinkModalFor] = useState<{ id: string; label: string } | null>(null);
+  const [summaryExpanded, setSummaryExpanded] = useState(true);
 
   const linksByItem = useMemo(() => {
     const map = new Map<string, DocumentLink[]>();
@@ -131,16 +133,25 @@ export function ChecklistCard({
     const pct = total ? Math.round((done / total) * 100) : 0;
     return (
       <div className="rounded-2xl bg-n50/40 border border-n200 p-4">
-        <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          onClick={() => setSummaryExpanded((v) => !v)}
+          className="w-full flex items-center justify-between mb-2 text-left"
+          aria-expanded={summaryExpanded}
+        >
           <h4 className="text-[13px] font-semibold text-n800">Execution Checklist</h4>
-          <div className="flex items-center gap-1.5">
-            <FileSpreadsheet className="h-3 w-3 text-emerald-500" />
-            <span className="text-[11px] text-n500 tabular-nums">{done} / {total}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <FileSpreadsheet className="h-3 w-3 text-emerald-500" />
+              <span className="text-[11px] text-n500 tabular-nums">{done} / {total}</span>
+            </div>
+            <ChevronDown className={cn("h-3.5 w-3.5 text-n500 transition-transform", summaryExpanded && "rotate-180")} />
           </div>
-        </div>
+        </button>
         <div className="h-1 rounded-full bg-n200/70 overflow-hidden mb-2">
           <div className="h-full bg-orange-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
+        {summaryExpanded && (
         <ul className="space-y-1">
           {items.map((it) => {
             const links = linksByItem.get(it.id) ?? [];
@@ -154,15 +165,13 @@ export function ChecklistCard({
                   <span className="text-[10px] text-n500 bg-n100 rounded-full px-1.5 py-[1px]">{it.owner}</span>
                 )}
                 {links.length > 0 && (
-                  <span className="inline-flex items-center gap-0.5 text-orange-600" title={`${links.length} link${links.length > 1 ? "s" : ""} attached`}>
-                    <Paperclip className="h-3 w-3" />
-                    {links.length > 1 && <span className="text-[10px] tabular-nums">{links.length}</span>}
-                  </span>
+                  <ChecklistLinksPopover links={links} count={links.length} />
                 )}
               </li>
             );
           })}
         </ul>
+        )}
       </div>
     );
   }
@@ -222,6 +231,42 @@ export function ChecklistCard({
         />
       )}
     </>
+  );
+}
+
+function ChecklistLinksPopover({ links, count }: { links: DocumentLink[]; count: number }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-0.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded px-1 py-0.5 transition-colors"
+          title={`${count} attached link${count > 1 ? "s" : ""}`}
+          aria-label={`View ${count} attached link${count > 1 ? "s" : ""}`}
+        >
+          <Paperclip className="h-3 w-3" />
+          {count > 1 && <span className="text-[10px] tabular-nums">{count}</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-2">
+        <p className="text-[11px] font-medium text-n700 mb-1.5 px-1">Attached links</p>
+        <ul className="space-y-1 max-h-48 overflow-y-auto">
+          {links.map((link) => (
+            <li key={link.id}>
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-orange-600 hover:bg-orange-50 hover:text-orange-700 truncate"
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">{link.label || link.url}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 

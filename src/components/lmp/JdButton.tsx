@@ -15,11 +15,14 @@ interface JdButtonProps {
   compact?: boolean;
   /** Called when JD data changes (uploaded or removed) */
   onChange?: (data: JdData | null) => void;
-  /** Disable the Add-JD action when the current user can't edit this LMP */
+  /** Disable the Add-JD action when the current user can't manage JD */
+  canManageJd?: boolean;
+  /** @deprecated Use canManageJd instead */
   readOnly?: boolean;
 }
 
-export function JdButton({ lmpId, role, company, domain, seniority, compact, onChange, readOnly }: JdButtonProps) {
+export function JdButton({ lmpId, role, company, domain, seniority, compact, onChange, canManageJd, readOnly }: JdButtonProps) {
+  const manageJd = canManageJd ?? !readOnly;
   const [jdData, setJdData] = useJd(lmpId);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -40,15 +43,15 @@ export function JdButton({ lmpId, role, company, domain, seniority, compact, onC
   }, []);
 
   const hasJd = !!jdData;
-  // Allow viewing an existing JD even in read-only; only block uploads.
-  const disabled = !!readOnly && !hasJd;
+  // Allow viewing an existing JD even in view-only; only block uploads.
+  const disabled = !manageJd && !hasJd;
 
   return (
     <>
       <button
         onClick={() => hasJd ? setPreviewOpen(true) : setUploadOpen(true)}
         disabled={disabled}
-        title={disabled ? "Read-only — you are not a POC on this LMP" : undefined}
+        title={disabled ? "View only — you cannot add a JD on this LMP" : undefined}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
           compact
@@ -91,6 +94,7 @@ export function JdButton({ lmpId, role, company, domain, seniority, compact, onC
           jdData={jdData}
           onRemoved={handleRemoved}
           onReplace={handleReplace}
+          canManageJd={manageJd}
         />
       )}
     </>

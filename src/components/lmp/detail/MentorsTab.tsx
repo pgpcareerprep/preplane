@@ -85,7 +85,10 @@ type MentorsTabProps = {
   industry?: string;
   candidates?: Candidate[];
   rounds?: Round[];
+  /** @deprecated Use operationalReadOnly */
   readOnly?: boolean;
+  /** When true, POC-only mutations are disabled but viewing remains enabled. */
+  operationalReadOnly?: boolean;
 };
 
 export function MentorsTab(props: MentorsTabProps) {
@@ -105,7 +108,9 @@ function MentorsTabImpl({
   candidates = [],
   rounds = DEFAULT_ROUNDS,
   readOnly = false,
+  operationalReadOnly = false,
 }: MentorsTabProps) {
+  const pocReadOnly = operationalReadOnly || readOnly;
 
   const [state, setState] = useMentorsTabState(reqId);
   const { phase, subTab, suggested, shortlisted, assignments, filters, sort, activeSources, reviewMode } = state;
@@ -281,7 +286,7 @@ function MentorsTabImpl({
   }, [suggested, filters, sort]);
 
   const openMatchContext = () => {
-    if (!readOnly) setMatchContextOpen(true);
+    if (!pocReadOnly) setMatchContextOpen(true);
   };
 
   const yieldFrame = (ms = 80) => new Promise<void>((r) => setTimeout(r, ms));
@@ -291,7 +296,7 @@ function MentorsTabImpl({
   };
 
   const runMatching = (context: MatchContext) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     setMatchContextOpen(false);
     setMatchingErrors([]);
     cancelMatchingRef.current = false;
@@ -496,7 +501,7 @@ function MentorsTabImpl({
   }
 
   const toggleShortlist = async (m: Mentor) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     if (shortlistedIds.has(m.id)) {
       setState((prev) => ({
         shortlisted: prev.shortlisted.filter((s) => s.mentor.id !== m.id),
@@ -535,7 +540,7 @@ function MentorsTabImpl({
   };
 
   const removeShortlist = (id: string) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     setState((prev) => ({
       shortlisted: prev.shortlisted.filter((s) => s.mentor.id !== id),
       suggested: prev.suggested.map((x) => x.id === id ? { ...x, shortlisted: false } : x),
@@ -547,12 +552,12 @@ function MentorsTabImpl({
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const removeFromReview = (id: string) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     setState((prev) => ({ suggested: prev.suggested.filter((m) => m.id !== id) }));
   };
 
   const handleReviewDragEnd = (e: DragEndEvent) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     setState((prev) => {
@@ -564,7 +569,7 @@ function MentorsTabImpl({
   };
 
   const confirmTop5 = async () => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     const prev = state;
     const top = prev.suggested.slice(0, 5);
     const stamp = nowStamp();
@@ -601,7 +606,7 @@ function MentorsTabImpl({
   };
 
   const confirmAssignment = async (draft: AssignmentDraft) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     const mentor = assignTarget;
     const round = rounds.find((r) => r.id === draft.roundId);
     if (!mentor || !round) return;
@@ -669,7 +674,7 @@ function MentorsTabImpl({
   };
 
   const unassign = async (id: string) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     const target = state.assignments.find((a) => a.id === id);
     setState((prev) => ({ assignments: prev.assignments.filter((a) => a.id !== id) }));
     // Persist deletion: clear mentor_id from the specific candidate row only,
@@ -714,7 +719,7 @@ function MentorsTabImpl({
   // Direct align (manual mentor pick) — upserts to lmp_mentors and pushes into shortlisted
   // so the empty state cannot re-appear after refresh.
   const alignMentorDirect = async (mentor: Mentor, replace = false) => {
-    if (readOnly) return;
+    if (pocReadOnly) return;
     const { data, error: upErr } = await (supabase as any).rpc("align_mentor_to_lmp", {
       p_lmp_id: reqId,
       p_mentor: mentor,
@@ -757,10 +762,10 @@ function MentorsTabImpl({
         <MentorsEmptyState
           onRun={openMatchContext}
           onAlign={() => setAlignOpen(true)}
-          readOnly={readOnly}
+          pocReadOnly={pocReadOnly}
         />
         <MatchContextModal
-          open={matchContextOpen && !readOnly}
+          open={matchContextOpen && !pocReadOnly}
           onOpenChange={setMatchContextOpen}
           lmpId={reqId}
           role={role}
@@ -771,7 +776,7 @@ function MentorsTabImpl({
           dbMentorCount={allMentors.length}
         />
         <AlignMentorModal
-          open={alignOpen && !readOnly}
+          open={alignOpen && !pocReadOnly}
           onOpenChange={setAlignOpen}
           onAlign={alignMentorDirect}
           role={role}
@@ -837,8 +842,8 @@ function MentorsTabImpl({
           {suggested.length === 0 ? (
             <button
               onClick={openMatchContext}
-              disabled={readOnly}
-              title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+              disabled={pocReadOnly}
+              title={pocReadOnly ? "Read-only — you are not a POC on this LMP" : undefined}
               className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-4 py-2 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
             >
               <Sparkles className="h-3.5 w-3.5" /> Find Mentors
@@ -846,8 +851,8 @@ function MentorsTabImpl({
           ) : (
             <button
               onClick={openMatchContext}
-              disabled={readOnly}
-              title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+              disabled={pocReadOnly}
+              title={pocReadOnly ? "Read-only — you are not a POC on this LMP" : undefined}
               className="inline-flex items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 hover:bg-orange-100 text-orange-700 text-[13px] font-medium px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-50"
             >
               <RefreshCw className="h-3.5 w-3.5" /> Rerun
@@ -855,8 +860,8 @@ function MentorsTabImpl({
           )}
           <button
             onClick={() => setAlignOpen(true)}
-            disabled={readOnly}
-            title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+            disabled={pocReadOnly}
+            title={pocReadOnly ? "Read-only — you are not a POC on this LMP" : undefined}
             className="inline-flex items-center gap-1.5 rounded-md border border-plum-200 bg-card hover:bg-plum-50 text-plum-700 text-[13px] font-medium px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"
           >
             <UserPlus className="h-3.5 w-3.5" /> Align Mentor
@@ -905,16 +910,16 @@ function MentorsTabImpl({
                 <div className="flex flex-wrap items-center gap-2 justify-center">
                   <button
                     onClick={openMatchContext}
-                    disabled={readOnly}
-                    title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+                    disabled={pocReadOnly}
+                    title={pocReadOnly ? "Read-only — you are not a POC on this LMP" : undefined}
                     className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-4 py-2 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
                   >
                     <Sparkles className="h-3.5 w-3.5" /> Find Mentors
                   </button>
                   <button
                     onClick={() => setAlignOpen(true)}
-                    disabled={readOnly}
-                    title={readOnly ? "Read-only — you are not a POC on this LMP" : undefined}
+                    disabled={pocReadOnly}
+                    title={pocReadOnly ? "Read-only — you are not a POC on this LMP" : undefined}
                     className="inline-flex items-center gap-1.5 rounded-md border border-plum-200 bg-card hover:bg-plum-50 text-plum-700 text-[13px] font-medium px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-card"
                   >
                     <UserPlus className="h-3.5 w-3.5" /> Align Mentor
@@ -986,7 +991,7 @@ function MentorsTabImpl({
                           onView={() => setProfile(m)}
                           onSelect={() => setAssignTarget(m)}
                           onRemove={removeFromReview}
-                          readOnly={readOnly}
+                          pocReadOnly={pocReadOnly}
                         />
                       ))}
                     </div>
@@ -1034,7 +1039,7 @@ function MentorsTabImpl({
                               onShortlist={() => toggleShortlist(m)}
                               onView={() => setProfile(m)}
                               onSelect={() => setAssignTarget(m)}
-                              readOnly={readOnly}
+                              pocReadOnly={pocReadOnly}
                             />
                           ))}
                         </div>
@@ -1076,15 +1081,15 @@ function MentorsTabImpl({
           })()}
           onAssign={(m) => setAssignTarget(m)}
           onRemove={removeShortlist}
-          readOnly={readOnly}
+          pocReadOnly={pocReadOnly}
         />
       )}
 
       {subTab === "assigned" && (
         <div className="space-y-6">
-          <AssignedTable assignments={assignments} onUnassign={unassign} readOnly={readOnly} />
+          <AssignedTable assignments={assignments} onUnassign={unassign} pocReadOnly={pocReadOnly} />
           <div className="rounded-2xl border border-n200 bg-card p-4 shadow-sm">
-            <SessionsLiveTab lmpId={reqId} readOnly={readOnly} />
+            <SessionsLiveTab lmpId={reqId} pocReadOnly={pocReadOnly} />
           </div>
         </div>
       )}
@@ -1096,7 +1101,7 @@ function MentorsTabImpl({
       />
 
       <AssignMentorModal
-        open={!!assignTarget && !readOnly}
+        open={!!assignTarget && !pocReadOnly}
         onOpenChange={(o) => !o && setAssignTarget(null)}
         mentor={assignTarget}
         candidates={candidates}
@@ -1134,7 +1139,7 @@ function MentorsTabImpl({
       </Dialog>
 
       <MatchContextModal
-        open={matchContextOpen && !readOnly}
+        open={matchContextOpen && !pocReadOnly}
         onOpenChange={setMatchContextOpen}
         lmpId={reqId}
         role={role}
@@ -1146,7 +1151,7 @@ function MentorsTabImpl({
       />
 
       <AlignMentorModal
-        open={alignOpen && !readOnly}
+        open={alignOpen && !pocReadOnly}
         onOpenChange={setAlignOpen}
         onAlign={alignMentorDirect}
         role={role}

@@ -30,8 +30,8 @@ const STATUS_PILL: Record<string, string> = {
 };
 
 export function StickyHeader({
-  lmp, candidateCount, onConfigureRounds, readOnly, onChangeStatus,
-}: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; readOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
+  lmp, candidateCount, onConfigureRounds, onChangeStatus,
+}: { lmp: LmpRecord; candidateCount: number; onConfigureRounds?: () => void; operationalReadOnly?: boolean; onChangeStatus?: (next: LmpStatus) => void }) {
   const domain = lmp.prepPoc || lmp.domainPrepPoc;
   const behavioral = lmp.supportPoc || lmp.behavioralPrepPoc;
   const isDual = !behavioral || (domain && behavioral.name === domain.name);
@@ -51,8 +51,8 @@ export function StickyHeader({
     support_poc_id: lmp.supportPocId,
     outreach_poc_ids: lmp.outreachPocIds,
   });
-  const canManage = !readOnly && canManageLmp;
-  const canOperate = !readOnly && canOperateLmp;
+  const canManage = canManageLmp;
+  const canOperate = canOperateLmp;
   const canDelete = canManage && canDeleteLmp;
   const canReassignPoc = canManage;
   const [jdData, setJdData] = useJd(lmp.id);
@@ -228,6 +228,7 @@ export function StickyHeader({
           jdData={jdData}
           onRemoved={() => setJdData(null)}
           onReplace={() => { setPreviewOpen(false); setUploadOpen(true); }}
+          canManageJd={canManageLmp}
         />
       )}
 
