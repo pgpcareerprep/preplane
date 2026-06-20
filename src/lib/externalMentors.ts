@@ -271,13 +271,33 @@ export function setExternalSearchContext(input: AISearchInput) {
   aiSearchInput = input;
 }
 
+function purgeStaleEmptyExternalCaches() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith("ai_ext_cache_")) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as { v?: unknown[] };
+      if (Array.isArray(parsed?.v) && parsed.v.length === 0) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platforms?: ExternalPlatform[], region?: string): Promise<FetchResult> {
+  purgeStaleEmptyExternalCaches();
   const ttlMs = ttlHours * 60 * 60 * 1000;
   const ctx = aiSearchInput || {};
   const activePlatforms = platforms?.length ? platforms : [platform];
   const cacheKey = `ai_ext_cache_${hashQuery(JSON.stringify({ ...ctx, platforms: activePlatforms, region }))}`;
   const cached = getCache<ExternalMentor[]>(cacheKey, ttlMs);
-  if (cached) return { mentors: cached, errors: [] };
+  if (cached && cached.length > 0) {
+    return { mentors: cached, errors: [] };
+  }
 
   try {
     const { data, error } = await supabase.functions.invoke("external-mentor-search", {
@@ -287,10 +307,16 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
     if (error) {
       return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${error.message}`, recoverable: false }] };
     }
-    if (data?.error) {
-      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${data.error}`, recoverable: false }] };
+    const dataError = typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : null;
+    const dataReason = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
+    if (dataError) {
+      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${dataError}`, recoverable: false }] };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
+    if (list.length === 0) {
+      const detail = dataReason || "External discovery returned no mentors for this role.";
+      return { mentors: [], errors: [{ source: "EXT", message: detail, recoverable: true }] };
+    }
     const mentors: ExternalMentor[] = list.map((m) => ({
       mentor_id: uuid(),
       source: "external",
@@ -322,7 +348,8 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
         linkedin: m.linkedin ? linkedinHref(m.linkedin) : null,
       },
     }));
-    setCache(cacheKey, mentors);
+    // Never cache empty results — a failed run should not block retries for hours.
+    if (mentors.length > 0) setCache(cacheKey, mentors);
     return { mentors, errors: [] };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -144,7 +144,7 @@ export function normaliseExternal(e: ExternalMentor): ScoringCandidate {
     external_links: e.external_links,
     sessions_taken: e.sessions_taken,
     rating: e.rating,
-    web_relevance: !!e.source_url,
+    web_relevance: true,
   };
 }
 
@@ -347,6 +347,11 @@ export function runPipeline(
     const designationHit = designationTokens.some(kw => c.role.toLowerCase().includes(kw));
     const industryHit = industryTokens.some(t => (c.industry || "").toLowerCase().includes(t));
     const skillHit = matched.length > 0;
+    // Always surface edge-validated external mentors — upstream already filters by confidence.
+    if (c.source === "EXT" && (c.web_relevance || (c.extraTags?.length ?? 0) > 0)) {
+      eligible.push({ c, matched, missing });
+      continue;
+    }
     const hasExtraTags = (c.extraTags?.length ?? 0) > 0;
     const hasExternalWebRelevance = c.source === "EXT" && c.web_relevance;
     // Always surface tagged mentors (previously aligned, prior sessions) and

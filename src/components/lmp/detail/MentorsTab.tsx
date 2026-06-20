@@ -33,7 +33,7 @@ import { useMentorsTabState } from "@/lib/mentorsTabStore";
 import { useLmpMentorsLive } from "@/lib/hooks/useLmpMentorsLive";
 import { lmpMentorRowToMentor } from "./mentors/mapDbMentor";
 import { resolveMentorDbId } from "@/lib/mentorResolver";
-import { getExternalDiscoveryConfig } from "@/lib/externalDiscoveryConfig";
+import { getExternalDiscoveryConfig, fetchExternalDiscoveryConfig } from "@/lib/externalDiscoveryConfig";
 import {
   fetchExternalMentors,
   generateExternalQueries, setExternalSearchContext,
@@ -118,6 +118,9 @@ function MentorsTabImpl({
 
   const { data: allMentors = [] } = useAllMentors();
   const { mentors: alumniMentors } = useAlumniMentors();
+  useEffect(() => {
+    fetchExternalDiscoveryConfig().catch(() => { /* keep defaults */ });
+  }, []);
   useEffect(() => {
     fetchMentorCompanyTiers().catch(() => { /* use versioned defaults */ });
   }, []);
@@ -409,12 +412,17 @@ function MentorsTabImpl({
         });
 
         // Pass JD context to AI-backed external discovery
+        const jdText =
+          (context?.jdMode === "jd" && context.jdData?.rawText)
+          || getJd(reqId)?.rawText
+          || "";
         setExternalSearchContext({
           role: jdRole,
           company: jdCompany,
           industry: jdIndustry,
           skills: jdSkills,
           seniority: jdSeniority,
+          jdText,
         });
 
         const emptyResult = { mentors: [] as ExternalMentor[], errors: [] as MatchingError[] };
@@ -430,6 +438,9 @@ function MentorsTabImpl({
           if (res.errors.length > 0) {
             setMatchingErrors(res.errors);
             notifyMatchingErrors(res.errors);
+            if (res.mentors.length === 0) {
+              toast.warning(`External discovery: ${res.errors.map((e) => e.message).join(" · ")}`);
+            }
           }
           externalCandidates = res.mentors.map(normaliseExternal);
           setExternalStatus({ phase: "done", platforms: enabledLabels, counts });
@@ -445,10 +456,28 @@ function MentorsTabImpl({
       } else if (step.id === "RANK") {
         if (rawCandidates.length === 0 && externalCandidates.length === 0) {
           setState({ suggested: [], phase: "results", subTab: "suggested", reviewMode: false });
-          // (loading overlay handles dismissal automatically)
-          toast.warning("No mentor data found in selected sources. Upload CSVs in Data Sources first.");
+          const onlyExt = context.sources.length === 1 && context.sources[0] === "EXT";
+          const extSelected = context.sources.includes("EXT");
+          toast.warning(
+            onlyExt
+              ? "External discovery found no mentors. Check External Discovery settings in Data Sources, then rerun."
+              : extSelected && rawCandidates.length === 0
+                ? "No mentors in MU/ALU sources — upload CSVs in Data Sources, or wait for data to finish loading and rerun."
+                : "No mentor data found in selected sources. Upload CSVs in Data Sources first.",
+          );
         } else {
           const merged = [...rawCandidates, ...externalCandidates];
+          const extKnownKeys = new Set(
+            rawCandidates.map((c) =>
+              c.linkedin?.toLowerCase().trim()
+              || `${c.name.toLowerCase().trim()}|${(c.company || "").toLowerCase().trim()}`,
+            ),
+          );
+          const extNovelCount = externalCandidates.filter((c) => {
+            const key = c.linkedin?.toLowerCase().trim()
+              || `${c.name.toLowerCase().trim()}|${(c.company || "").toLowerCase().trim()}`;
+            return !extKnownKeys.has(key);
+          }).length;
           const fullScored = runPipeline(
             merged,
             jdInfo,
@@ -458,7 +487,11 @@ function MentorsTabImpl({
           );
           setState({ suggested: fullScored, phase: "results", subTab: "suggested", reviewMode: true });
           // (loading overlay handles dismissal automatically)
-          emitMatchToast(fullScored);
+          emitMatchToast(fullScored, {
+            extSelected: context.sources.includes("EXT"),
+            extFetched: externalCandidates.length,
+            extNovel: extNovelCount,
+          });
           // Persist results to DB so they survive device/browser changes.
           const { error: persistErr } = await supabase
             .from("lmp_processes")
@@ -481,7 +514,10 @@ function MentorsTabImpl({
     setCurrentStep(steps.length);
   };
 
-  function emitMatchToast(scored: Mentor[]) {
+  function emitMatchToast(
+    scored: Mentor[],
+    extMeta?: { extSelected: boolean; extFetched: number; extNovel: number },
+  ) {
     const muResults = scored.filter(m => m.source === "MU").length;
     const aluResults = scored.filter(m => m.source === "ALU").length;
     const extResults = scored.filter(m => m.source === "EXT").length;
@@ -495,6 +531,15 @@ function MentorsTabImpl({
       toast.success(
         `Found ${scored.length} mentors · ${parts} · Top score: ${top.score}/45 (${top.tier_label})`,
       );
+      if (extMeta?.extSelected && extResults === 0) {
+        if (extMeta.extFetched === 0) {
+          toast.warning("External discovery returned no mentors — verify GEMINI_API_KEY and External Discovery settings in Data Sources.");
+        } else if (extMeta.extNovel === 0) {
+          toast.warning("External search found profiles, but all matched people already in your MU/ALU pool.");
+        } else {
+          toast.warning("External mentors were found but none ranked into the top suggestions — try broadening skills or role.");
+        }
+      }
     } else {
       toast("No matches found in any source — broaden the role or upload more data.");
     }
@@ -751,7 +796,7 @@ function MentorsTabImpl({
   // from reappearing on LMPs that already have aligned mentors but whose
   // local store was cleared / never populated on this device.
   if (
-    phase !== "results" &&
+    phase === "empty" &&
     suggested.length === 0 &&
     shortlisted.length === 0 &&
     assignments.length === 0 &&

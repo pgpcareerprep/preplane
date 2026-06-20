@@ -5,9 +5,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { getJd, saveJd, fetchJdFromDb, useJd, extractSkillsFromText, extractSeniority, SKILL_KEYWORDS, type JdData } from "@/lib/jdStore";
-import { getALUStore } from "@/lib/alumniStore";
-import { useAlumniMentors } from "@/lib/hooks/useDbData";
-import { getExternalDiscoveryConfig } from "@/lib/externalDiscoveryConfig";
+import { useAlumniMentors, useAllMentors } from "@/lib/hooks/useDbData";
+import { getExternalDiscoveryConfig, fetchExternalDiscoveryConfig } from "@/lib/externalDiscoveryConfig";
 import type { MentorSource } from "@/lib/mentor";
 import type { MatchMode } from "@/lib/mentorMatching";
 
@@ -33,18 +32,7 @@ const MATCH_MODES: { id: MatchMode; emoji: string; label: string; description: s
   { id: "company",  emoji: "🏢", label: "Company-First",  description: "Prioritise mentors who worked at the target company." },
 ];
 
-// We can't import getMUStore if it doesn't exist - read from DB mentors hook instead
-// But for source counts we check localStorage directly
-function getMUCount(): number {
-  try {
-    const raw = localStorage.getItem("mu_mentors_v1");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return parsed.totalCount || 0;
-    }
-  } catch { /* ignore */ }
-  return 0;
-}
+// Source counts come from live Supabase hooks — not legacy localStorage caches.
 
 type Props = {
   open: boolean;
@@ -55,21 +43,27 @@ type Props = {
   domain: string;
   activeSources: MentorSource[];
   onConfirm: (context: MatchContext) => void;
-  /** Fallback MU count from DB if localStorage is empty */
+  /** @deprecated MU count is read from useAllMentors inside the modal */
   dbMentorCount?: number;
 };
 
 export function MatchContextModal({
-  open, onOpenChange, lmpId, role, company, domain, activeSources, onConfirm, dbMentorCount = 0,
+  open, onOpenChange, lmpId, role, company, domain, activeSources, onConfirm,
 }: Props) {
   const [jdData] = useJd(lmpId);
   const [jdLoading, setJdLoading] = useState(false);
+  const { data: allMentors = [] } = useAllMentors();
   const { mentors: aluMentors } = useAlumniMentors();
-  const aluStore = getALUStore();
-  const muCount = getMUCount() || dbMentorCount;
-  const aluCount = aluMentors.length || aluStore.totalCount;
+  const muCount = allMentors.filter((m) => (m.source || "MU") === "MU").length;
+  const aluCount = aluMentors.length;
 
-  const extCfg = useMemo(() => getExternalDiscoveryConfig(), []);
+  const [extCfg, setExtCfg] = useState(() => getExternalDiscoveryConfig());
+  useEffect(() => {
+    if (!open) return;
+    fetchExternalDiscoveryConfig()
+      .then(() => setExtCfg(getExternalDiscoveryConfig()))
+      .catch(() => {});
+  }, [open]);
   const extEnabledPlatforms = useMemo(() => {
     const list: string[] = [];
     if (extCfg.topmate) list.push("Topmate");

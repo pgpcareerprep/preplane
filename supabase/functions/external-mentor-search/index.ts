@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         log.warn("gemini_grounding_failed", { err_msg: (e as Error).message });
       }
-      return new Response(JSON.stringify({ mentors: [], reason: "no_free_provider_result" }), {
+      return new Response(JSON.stringify({ mentors: [], error: "no_free_provider_result", reason: "no_free_provider_result" }), {
         status: 200, headers: { ...corsH, "Content-Type": "application/json" },
       });
     }
