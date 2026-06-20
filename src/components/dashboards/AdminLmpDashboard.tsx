@@ -884,14 +884,12 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
       <LxSectionBlock>
-      <LxSection eyebrow="Domains" title="Where is the load concentrated?" info={info("admin.domain.bar")} hint="Domain-wise load and outcomes snapshot from the current filtered scope." />
       <LxGrid>
         <LxCard span={12} className="overflow-hidden">
           <LxCardHeader
             eyebrow="Active load"
             title="Domain load"
             info={info("admin.domain.bar")}
-            hint="Total LMPs, active load, placements, student opt-ins, and conversion from live filtered data."
             right={
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
@@ -1292,11 +1290,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
       {/* ─────── Flagged LMPs (moved to bottom) ─────── */}
       <LxSectionBlock>
-      <LxSection
-        eyebrow="Flagged LMPs"
-        title="Processes requiring operational attention."
-        hint="Action flags from the current filtered scope — stale, overdue, missing documents."
-      />
       <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
       </LxSectionBlock>
 

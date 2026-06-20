@@ -38,7 +38,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Users, Briefcase, GraduationCap, TrendingUp,
-  Download, RefreshCw, WifiOff, ClipboardList, Search,
+  Download, RefreshCw, ClipboardList, Search,
   ArrowUpDown, EyeOff, Columns3, BarChart3,
 } from "lucide-react";
 
@@ -400,32 +400,6 @@ function saveVisibleSections(set: Set<SectionKey>) {
 
 // ── Helper components ─────────────────────────────────────────────────────────
 
-function LiveBadge({ isFetching, isError }: { isFetching: boolean; isError: boolean }) {
-  if (isError) {
-    return (
-      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium border"
-        style={{ background: "color-mix(in srgb, var(--lx-risk) 10%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-risk) 30%, transparent)", color: "var(--lx-risk)" }}>
-        <WifiOff size={9} /> Error
-      </span>
-    );
-  }
-  if (isFetching) {
-    return (
-      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium border"
-        style={{ background: "color-mix(in srgb, var(--lx-yellow) 15%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-yellow) 40%, transparent)", color: "#9A7408" }}>
-        <RefreshCw size={9} className="animate-spin" /> Refreshing
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full text-[11px] font-medium border"
-      style={{ background: "color-mix(in srgb, var(--lx-success) 10%, var(--lx-surface))", borderColor: "color-mix(in srgb, var(--lx-success) 25%, transparent)", color: "var(--lx-success)" }}>
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--lx-success)" }} />
-      Live
-    </span>
-  );
-}
-
 function KpiCard({
   icon: Icon, label, value, accentCss, tooltip,
 }: {
@@ -620,7 +594,7 @@ export function PrepPocHeatmapCard() {
   const showAll = useCallback(() => setVisibleSections(new Set(ALL_SECTION_KEYS)), []);
 
   // ── Data fetch ──────────────────────────────────────────────────────────────
-  const { data, isLoading, isFetching, isError, refetch } = useQuery<PrepPocHeatmapResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<PrepPocHeatmapResponse>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
       const [pocsRes, linksRes, candidatesRes] = await Promise.all([
@@ -779,13 +753,6 @@ export function PrepPocHeatmapCard() {
             <h2 className="text-[24px] font-bold mt-0.5 tracking-tight" style={{ color: "var(--lx-text)" }}>
               Prep POC Heatmap
             </h2>
-            <p className="text-[13px] mt-1" style={{ color: "var(--lx-text-3)" }}>
-              Live workload, preparation stage, outcomes and ownership by Prep POC.
-            </p>
-            <p className="text-[12px] mt-1.5 flex items-center gap-2" style={{ color: "var(--lx-text-3)" }}>
-              Live from POC DB • LMP DB
-              <LiveBadge isFetching={isFetching && !isLoading} isError={isError} />
-            </p>
           </div>
 
           {/* Controls */}
