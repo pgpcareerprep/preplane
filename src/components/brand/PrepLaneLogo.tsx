@@ -1,9 +1,12 @@
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/lib/themeContext";
 import { PrepLaneMark } from "./PrepLaneMark";
 
 type PrepLaneLogoProps = {
   size?: "sm" | "md" | "lg";
   showIcon?: boolean;
+  /** "text" = inline wordmark; "image" = theme-specific PNG (top nav). */
+  variant?: "text" | "image";
   className?: string;
 };
 
@@ -19,7 +22,25 @@ const ICON_SIZE = {
   lg: "h-[22px] w-[36px]",
 } as const;
 
-export function PrepLaneLogo({ size = "md", showIcon = true, className }: PrepLaneLogoProps) {
+const IMAGE_HEIGHT = {
+  sm: "h-6",
+  md: "h-7",
+  lg: "h-10",
+} as const;
+
+export function PrepLaneLogo({ size = "md", showIcon = true, variant = "text", className }: PrepLaneLogoProps) {
+  const { theme } = useTheme();
+
+  if (variant === "image") {
+    return (
+      <img
+        src={theme === "dark" ? "/preplane-logo-dark.png" : "/preplane-logo-light.png"}
+        alt="PrepLane"
+        className={cn(IMAGE_HEIGHT[size], "w-auto object-contain", className)}
+      />
+    );
+  }
+
   return (
     <span className={cn("inline-flex items-center gap-2 min-w-0", className)}>
       {showIcon && <PrepLaneMark className={ICON_SIZE[size]} />}

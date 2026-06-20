@@ -90,7 +90,7 @@ export function Topbar() {
           className="flex items-center min-w-0 pr-3 mr-1 border-r border-border hover:opacity-80 transition-opacity"
           aria-label="PrepLane home"
         >
-          <PrepLaneLogo size="md" />
+          <PrepLaneLogo size="md" variant="image" />
         </button>
         <ViewAsBadge />
       </div>
