@@ -59,8 +59,14 @@ function subFor(r: RawResult): string {
 
 export type GlobalSearchHandle = { focus: () => void };
 
-export const GlobalSearch = forwardRef<GlobalSearchHandle, { scope?: EntityType; className?: string }>(
-  function GlobalSearch({ scope, className }, ref) {
+export const GlobalSearch = forwardRef<GlobalSearchHandle, {
+  scope?: EntityType;
+  className?: string;
+  /** Full-width layout for mobile search sheet. */
+  mobile?: boolean;
+  onNavigate?: () => void;
+}>(
+  function GlobalSearch({ scope, className, mobile = false, onNavigate }, ref) {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<RawResult[]>([]);
     const [loading, setLoading] = useState(false);
@@ -125,6 +131,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle, { scope?: EntityType;
       setFocused(false);
       setQuery("");
       navigate(routeFor(r));
+      onNavigate?.();
     };
 
     const placeholder = scope
@@ -134,8 +141,11 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle, { scope?: EntityType;
     const showPanel = focused && (query.trim().length > 0);
 
     return (
-      <div ref={containerRef} className={cn("relative", className)}>
-        <div className="inline-flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-md border border-border bg-card/50 transition-all duration-150 min-w-[320px] focus-within:border-ring focus-within:bg-card">
+      <div ref={containerRef} className={cn("relative", mobile ? "w-full" : "", className)}>
+        <div className={cn(
+          "inline-flex items-center gap-2 h-10 md:h-8 pl-2.5 pr-2 rounded-md border border-border bg-card/50 transition-all duration-150 focus-within:border-ring focus-within:bg-card",
+          mobile ? "w-full" : "w-full md:w-auto md:min-w-[320px]",
+        )}>
           <Search className="h-3.5 w-3.5 text-n400 shrink-0" strokeWidth={1.75} aria-hidden />
           <input
             ref={inputRef}
@@ -158,7 +168,10 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle, { scope?: EntityType;
         </div>
 
         {showPanel && (
-          <div className="absolute right-0 top-[calc(100%+6px)] w-[420px] max-h-[440px] overflow-y-auto rounded-[10px] border border-n200 dark:border-d-border bg-card dark:bg-d-surface shadow-lg z-50">
+          <div className={cn(
+            "absolute top-[calc(100%+6px)] max-h-[440px] overflow-y-auto rounded-[10px] border border-n200 dark:border-d-border bg-card dark:bg-d-surface shadow-lg z-50",
+            mobile ? "left-0 right-0 w-full" : "right-0 w-full md:w-[420px]",
+          )}>
             {loading && (
               <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…

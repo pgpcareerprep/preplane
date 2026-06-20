@@ -15,35 +15,77 @@
 
 @layer base {
   :root {
-    /* Brand palette — HSL */
+    /* Brand palette — HSL (complete 50–900 ramps) */
     --orange-50:  28 100% 95%;
     --orange-100: 33 100% 87%;
     --orange-200: 31 100% 74%;
-    --orange-400: 28 84%  63%;
-    --orange-500: 26 76%  54%;
-    --orange-600: 28 71%  44%;
-    --orange-800: 27 85%  26%;
+    --orange-300: 29 92% 68%;
+    --orange-400: 28 84% 63%;
+    --orange-500: 26 76% 54%;
+    --orange-600: 28 71% 44%;
+    --orange-700: 28 78% 35%;
+    --orange-800: 27 85% 26%;
+    --orange-900: 27 88% 18%;
+    --yellow-50:  49 100% 95%;
+    --yellow-100: 49 95% 88%;
+    --yellow-200: 49 90% 80%;
+    --yellow-300: 49 91% 71%;
     --yellow-400: 49 91% 62%;
     --yellow-500: 49 89% 61%;
-    --yellow-50:  49 100% 95%;
     --yellow-600: 38 70% 42%;
-    --yellow-200: 49 90% 80%;
-    --coral-400: 14 85% 60%;
+    --yellow-700: 38 65% 32%;
+    --yellow-800: 38 60% 24%;
+    --yellow-900: 38 55% 16%;
     --coral-50:  14 100% 95%;
+    --coral-100: 14 95% 88%;
     --coral-200: 14 90% 82%;
+    --coral-300: 14 88% 71%;
+    --coral-400: 14 85% 60%;
+    --coral-500: 14 78% 52%;
     --coral-600: 14 70% 45%;
-    --sage-400:  113 25% 50%;
+    --coral-700: 14 65% 36%;
+    --coral-800: 14 60% 28%;
+    --coral-900: 14 55% 20%;
     --sage-50:   113 30% 94%;
+    --sage-100:  113 28% 88%;
     --sage-200:  113 30% 78%;
+    --sage-300:  113 28% 64%;
+    --sage-400:  113 25% 50%;
+    --sage-500:  113 28% 42%;
     --sage-600:  113 30% 35%;
+    --sage-700:  113 32% 28%;
+    --sage-800:  113 34% 22%;
+    --sage-900:  113 36% 16%;
+    --sky-50:    215 85% 96%;
+    --sky-100:   215 82% 90%;
+    --sky-200:   215 80% 82%;
+    --sky-300:   215 79% 71%;
     --sky-400:   215 78% 60%;
-    --plum-400:  258 90% 67%;
+    --sky-500:   215 75% 52%;
+    --sky-600:   215 72% 44%;
+    --sky-700:   215 68% 36%;
+    --sky-800:   215 65% 28%;
+    --sky-900:   215 62% 20%;
+    --plum-50:   258 80% 96%;
     --plum-100:  258 70% 92%;
     --plum-200:  258 75% 86%;
-    --teal-400:  191 67% 54%;
+    --plum-300:  258 82% 77%;
+    --plum-400:  258 90% 67%;
+    --plum-500:  258 85% 58%;
+    --plum-600:  258 78% 48%;
+    --plum-700:  258 72% 38%;
+    --plum-800:  258 68% 30%;
+    --plum-900:  258 65% 22%;
     --teal-50:   191 70% 94%;
+    --teal-100:  191 65% 86%;
     --teal-200:  191 60% 78%;
+    --teal-300:  191 64% 66%;
+    --teal-400:  191 67% 54%;
+    --teal-500:  191 62% 46%;
     --teal-600:  191 60% 35%;
+    --teal-700:  191 58% 28%;
+    --teal-800:  191 55% 22%;
+    --teal-900:  191 52% 16%;
 
     /* Neutrals — Lumina warm-tinted grays (N50–N900) */
     --n50:  48 20% 98%;   /* #FAFAF8 — app canvas */
@@ -89,6 +131,23 @@
     --warning-foreground: 0 0% 100%;
     --info: 215 78% 60%;
     --info-foreground: 0 0% 100%;
+
+    /* Semantic surface tokens (light) — for Phase 4+ component migration */
+    --success-bg:     113 30% 94%;
+    --success-text:   113 32% 28%;
+    --success-border: 113 30% 78%;
+    --risk-bg:        14 100% 95%;
+    --risk-text:      14 65% 36%;
+    --risk-border:    14 90% 82%;
+    --warning-bg:     28 100% 95%;
+    --warning-text:   28 78% 35%;
+    --warning-border: 31 100% 74%;
+    --info-bg:        215 85% 96%;
+    --info-text:      215 68% 36%;
+    --info-border:    215 80% 82%;
+    --ai-bg:          258 80% 96%;
+    --ai-text:        258 72% 38%;
+    --ai-border:      258 75% 86%;
 
     --border: var(--n200);
     --input: var(--n300);
@@ -222,6 +281,23 @@
     --warning-foreground: 40 8% 10%;
     --info: var(--d-blue);
     --info-foreground: 40 8% 10%;
+
+    --success-bg:     113 30% 14%;
+    --success-text:   113 28% 72%;
+    --success-border: 113 30% 22%;
+    --risk-bg:        14 60% 14%;
+    --risk-text:      14 85% 72%;
+    --risk-border:    14 55% 22%;
+    --warning-bg:     28 60% 14%;
+    --warning-text:   28 84% 72%;
+    --warning-border: 28 50% 22%;
+    --info-bg:        215 60% 14%;
+    --info-text:      215 78% 72%;
+    --info-border:    215 50% 22%;
+    --ai-bg:          258 50% 16%;
+    --ai-text:        258 90% 78%;
+    --ai-border:      258 40% 24%;
+
     --border: var(--d-border-soft);
     --input: var(--d-border-soft);
     --ring: var(--d-focus);

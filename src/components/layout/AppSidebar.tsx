@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard,
-  PlusCircle,
-  Target,
-  BarChart2,
-  Database,
-  Settings,
-  Users,
-  Sparkles,
   ChevronsLeft,
   ChevronsRight,
   ChevronDown,
@@ -19,11 +11,11 @@ import {
   Eye,
   RotateCcw,
   User as UserIcon,
-  type LucideIcon,
 } from "lucide-react";
 import { useRole, type Role, type ApprovedUser } from "@/lib/rolesContext";
 import { useTheme } from "@/lib/themeContext";
 import { cn } from "@/lib/utils";
+import { filterNavGroups, roleBadgeClass } from "./navConfig";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,59 +31,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const ROLE_ORDER: Role[] = ["admin", "allocator", "poc"];
 const ROLE_LABELS: Record<Role, string> = { admin: "Admins", allocator: "Allocators", poc: "Prep POCs" };
-
-type NavItem = {
-  label: string;
-  to: string;
-  icon: LucideIcon;
-  roles?: Role[];
-};
-
-type NavGroup = {
-  label: string;
-  items: NavItem[];
-  roles?: Role[];
-};
-
-const GROUPS: NavGroup[] = [
-  {
-    label: "Workspace",
-    items: [
-      { label: "Dashboard",      to: "/dashboard",     icon: LayoutDashboard },
-      { label: "Last Mile Prep", to: "/lmp",           icon: Target },
-      { label: "Create Process", to: "/processes/new", icon: PlusCircle, roles: ["admin", "allocator"] },
-      { label: "Mentors",        to: "/mentors",       icon: Users },
-      { label: "LMP Copilot",    to: "/copilot",       icon: Sparkles },
-    ],
-  },
-  {
-    label: "Admin",
-    roles: ["admin"],
-    items: [
-      { label: "Data Sources", to: "/data-sources", icon: Database },
-    ],
-  },
-  {
-    label: "Repository",
-    roles: ["allocator", "poc"],
-    items: [
-      { label: "Repository", to: "/data-sources", icon: Database },
-    ],
-  },
-  {
-    label: "Account",
-    roles: ["admin", "allocator", "poc"],
-    items: [{ label: "Settings", to: "/settings", icon: Settings }],
-  },
-];
-
-function roleBadgeClass(role: Role) {
-  switch (role) {
-    case "admin":     return "bg-plum-400/15 text-plum-400 border-plum-400/30";
-    case "allocator": return "bg-orange-500/15 text-orange-400 border-orange-500/30";
-    case "poc":       return "bg-teal-400/15 text-teal-400 border-teal-400/30";
-  }
-}
 
 function roleColor(role: string) {
   switch (role) {
@@ -175,9 +114,7 @@ export function AppSidebar() {
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2.5 pt-2 pb-2 space-y-5">
-          {GROUPS.filter(g => !g.roles || g.roles.includes(effectiveRole)).map((group) => {
-            const items = group.items.filter(i => !i.roles || i.roles.includes(effectiveRole));
-            if (items.length === 0) return null;
+          {filterNavGroups(effectiveRole).map(({ group, items }) => {
             const showLabel = group.label !== "Workspace" && !collapsed;
             return (
               <div key={group.label}>

@@ -8,12 +8,12 @@ const read = (relativePath: string) => fs.readFileSync(path.join(root, relativeP
 describe("POC and allocator Repository access", () => {
   it("allows all product roles into the Repository route while preserving role-specific labels", () => {
     const app = read("src/App.tsx");
-    const sidebar = read("src/components/layout/AppSidebar.tsx");
+    const navConfig = read("src/components/layout/navConfig.ts");
 
     expect(app).toContain('allowed={["admin", "allocator", "poc"]}>\n        <DataSourcesPage />');
-    expect(sidebar).toContain('{ label: "Data Sources", to: "/data-sources", icon: Database }');
-    expect(sidebar).toContain('roles: ["allocator", "poc"]');
-    expect(sidebar).toContain('{ label: "Repository", to: "/data-sources", icon: Database }');
+    expect(navConfig).toContain('{ label: "Data Sources", to: "/data-sources", icon: Database }');
+    expect(navConfig).toContain('roles: ["allocator", "poc"]');
+    expect(navConfig).toContain('{ label: "Repository", to: "/data-sources", icon: Database }');
   });
 
   it("keeps Repository mutations admin-only", () => {
