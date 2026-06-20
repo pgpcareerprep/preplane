@@ -38,11 +38,11 @@ describe("critical security wiring", () => {
   });
 
   it("isolates Copilot and voice state per request", () => {
-    const copilot = read("supabase/functions/copilot-ai/index.ts");
+    const copilot = read("supabase/functions/copilot-ai/requestContext.ts");
     const voice = read("supabase/functions/voice-copilot/index.ts");
     expect(copilot).toContain("new AsyncLocalStorage<CopilotRequestState>()");
     expect(copilot).not.toContain("CURRENT_REQUEST");
-    expect(copilot).not.toMatch(/\blet _reqCache\b/);
+    expect(read("supabase/functions/copilot-ai/index.ts")).not.toMatch(/\blet _reqCache\b/);
     expect(voice).toContain("new AsyncLocalStorage<VoiceRequestState>()");
     expect(voice).not.toContain("CURRENT_VIEW_AS");
     expect(voice).not.toContain("CURRENT_VOICE_USER_ID");
@@ -116,7 +116,7 @@ describe("critical security wiring", () => {
   it("uses one permission contract and transactional mentor assignment", () => {
     const frontend = read("src/lib/permissions.ts");
     const edgeRbac = read("supabase/functions/_shared/rbac.ts");
-    const copilot = read("supabase/functions/copilot-ai/index.ts");
+    const copilot = read("supabase/functions/copilot-ai/tools/runtime.ts");
     const migration = read("supabase/migrations/20260610180000_transactional_mentor_assignment.sql");
     expect(frontend).toContain('from "../../supabase/functions/_shared/permissionContract"');
     expect(edgeRbac).toContain('from "./permissionContract.ts"');

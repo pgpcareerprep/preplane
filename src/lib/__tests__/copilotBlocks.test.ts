@@ -66,4 +66,27 @@ describe("parseBlocks (Copilot acceptance suite)", () => {
       "mentor-shortlist-card",
     ]);
   });
+
+  it("accepts cv-gap-card with ATS payload fields", () => {
+    const content = `:::blocks\n${JSON.stringify([
+      {
+        type: "cv-gap-card",
+        candidate_name: "Priya Sharma",
+        lmp_company: "Google",
+        lmp_role: "PM Intern",
+        ats_score: 72,
+        grade: "B",
+        missing_mandatory: ["SQL"],
+        missing_preferred: ["Tableau"],
+        top_recommendations: ["Add quantified project outcomes", "Highlight SQL coursework"],
+      },
+    ])}\n:::`;
+    const { blocks } = parseBlocks(content);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("cv-gap-card");
+    if (blocks[0].type === "cv-gap-card") {
+      expect(blocks[0].ats_score).toBe(72);
+      expect(blocks[0].missing_mandatory).toEqual(["SQL"]);
+    }
+  });
 });
