@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { checkPermission } from "../_shared/rbac.ts";
-import { POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts";
+import { checkPermission } from "../../_shared/rbac.ts";
+import { POC_WRITABLE_LMP_COLUMNS } from "../../_shared/permissionContract.ts";
 import {
   requestState,
   aiProvider,
@@ -445,7 +445,7 @@ export async function executeTool(
           return JSON.stringify({ count: count ?? data?.length ?? 0, pocs: data ?? [] });
         }
 
-        const { searchEntities: _se } = await import("../_shared/entitySearch.ts");
+        const { searchEntities: _se } = await import("../../_shared/entitySearch.ts");
         let regData = await _se({ query: "", types: [entityType], limit: limitVal, perTypeLimit: limitVal });
         if (args.domain) {
           const dq = String(args.domain).toLowerCase();
@@ -777,7 +777,7 @@ export async function executeTool(
         const preferredScope = (args.preferred_scope as string) || "global";
         const limit = Math.max(1, Math.min(20, (args.limit as number) || 6));
 
-        const { searchEntities: _se2 } = await import("../_shared/entitySearch.ts");
+        const { searchEntities: _se2 } = await import("../../_shared/entitySearch.ts");
         const candidates = await _se2({ query, limit: 50, perTypeLimit: 30 });
 
         const q = query.toLowerCase();
