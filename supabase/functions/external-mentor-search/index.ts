@@ -155,7 +155,7 @@ function sanitizeYears(v: unknown, hay: string): number | null {
   return n;
 }
 
-// ─── Gemini Flash via Lovable AI Gateway ───────────────────────────────────
+// ─── Gemini Flash ──────────────────────────────────────────────────────────
 
 async function callGemini(
   apiKey: string,
@@ -606,7 +606,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
 
   let body: Body = {};
   try { body = await req.json(); } catch { body = {}; }
@@ -628,7 +628,7 @@ Deno.serve(async (req) => {
     company: company || "(none)",
     platforms: activePlatforms,
     hasFirecrawl: Boolean(FIRECRAWL_API_KEY),
-    hasGemini: Boolean(LOVABLE_API_KEY),
+    hasGemini: Boolean(GEMINI_API_KEY),
   });
 
   if (!role && skills.length === 0) {
@@ -639,7 +639,7 @@ Deno.serve(async (req) => {
 
   // Gemini-native fallback: use Google Search grounding when Firecrawl is unavailable.
   if (!FIRECRAWL_API_KEY) {
-    if (!LOVABLE_API_KEY) {
+    if (!GEMINI_API_KEY) {
       console.warn("[external-mentor-search] no API keys configured");
       return new Response(
         JSON.stringify({ mentors: [], error: "External mentor search requires FIRECRAWL_API_KEY or GEMINI_API_KEY. Neither is configured." }),
@@ -649,7 +649,7 @@ Deno.serve(async (req) => {
     try {
       console.log("[external-mentor-search] no Firecrawl — using Gemini search fallback");
       const geminiMentors = await discoverViаGeminiSearch(
-        LOVABLE_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
+        GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
       );
       console.log(`[external-mentor-search] Gemini search returned ${geminiMentors.length} mentors`);
       if (!geminiMentors.length) {
@@ -677,7 +677,7 @@ Deno.serve(async (req) => {
   const regionLabel = region !== "global" ? (REGION_LABEL[region] || "") : "";
 
   // 1. Query expansion
-  const queries = await expandQueries(LOVABLE_API_KEY, effectiveRole, company, industry, skills, seniority, jdText);
+  const queries = await expandQueries(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText);
   const platformDomain: Record<Platform, string> = {
     LinkedIn: "linkedin.com/in",
     Topmate: "topmate.io",

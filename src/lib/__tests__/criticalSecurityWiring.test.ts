@@ -160,6 +160,8 @@ describe("critical security wiring", () => {
     expect(read("supabase/functions/mentor-profile-enrich/index.ts")).not.toContain(
       '"https://ai.gateway.lovable.dev',
     );
+    expect(read("supabase/functions/mentor-profile-enrich/index.ts")).toContain("GEMINI_API_KEY");
+    expect(read("supabase/functions/mentor-profile-enrich/index.ts")).not.toContain("LOVABLE_API_KEY");
   });
 
   it("keeps view-as as a data perspective while preserving backend RLS", () => {

@@ -1,5 +1,5 @@
 // Edge function: parse-jd
-// Uses Lovable AI Gateway to turn raw JD text (or a URL) into structured JD data.
+// Uses Gemini to turn raw JD text (or a URL) into structured JD data.
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 

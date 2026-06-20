@@ -2,7 +2,7 @@
 //
 // Given a mentor id (or ad-hoc name/role/company/linkedin), fetches public
 // info via Firecrawl (LinkedIn scrape + web search fallback) and structures
-// it through the Lovable AI gateway (Gemini Flash) into a stable JSON shape:
+// it through Gemini Flash into a stable JSON shape:
 //
 //   {
 //     overview: string,            // 2-3 sentence bio
@@ -190,9 +190,9 @@ Deno.serve(async (req: Request) => {
   const refresh = body?.refresh === true;
 
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!FIRECRAWL_API_KEY || !LOVABLE_API_KEY) {
-    return jsonResp({ error: "Missing FIRECRAWL_API_KEY or LOVABLE_API_KEY" }, 500, cors);
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
+  if (!FIRECRAWL_API_KEY || !GEMINI_API_KEY) {
+    return jsonResp({ error: "Missing FIRECRAWL_API_KEY or GEMINI_API_KEY" }, 500, cors);
   }
 
   const admin = createClient(
@@ -256,7 +256,7 @@ Deno.serve(async (req: Request) => {
     if (md) { sources.push(`search:${q}`); corpora.push(`# Web search results\n${md}`); }
   }
 
-  const enrichment = await structureWithAi(LOVABLE_API_KEY, {
+  const enrichment = await structureWithAi(GEMINI_API_KEY, {
     name, role, company,
     sources,
     corpus: corpora.join("\n\n---\n\n"),

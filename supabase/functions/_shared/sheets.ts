@@ -60,7 +60,6 @@ export interface SheetsClientOpts {
   /** Base backoff in ms. Default 1000 ms. */
   baseBackoffMs?: number;
   // Legacy compat fields — ignored
-  lovableApiKey?: string;
   sheetsApiKey?: string;
 }
 

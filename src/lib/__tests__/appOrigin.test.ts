@@ -31,9 +31,10 @@ describe("PKCE auth client", () => {
   });
 
   it("routes OAuth callbacks to the canonical login URL", () => {
-    const lovable = read("src/integrations/lovable/index.ts");
+    const authModule = read("src/integrations/auth/index.ts");
     const login = read("src/pages/LoginPage.tsx");
-    expect(lovable).toContain("buildLoginRedirectUrl");
+    expect(authModule).toContain("buildLoginRedirectUrl");
+    expect(login).toContain("signInWithOAuth");
     expect(login).toContain("buildLoginRedirectUrl");
     expect(login).toContain('searchParams.has("code")');
   });

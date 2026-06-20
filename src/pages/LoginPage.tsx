@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { lovable } from "@/integrations/lovable";
+import { signInWithOAuth } from "@/integrations/auth";
 import { useRole } from "@/lib/rolesContext";
 import { buildLoginRedirectUrl, redirectToCanonicalOriginIfNeeded } from "@/lib/appOrigin";
 import { cn } from "@/lib/utils";
@@ -101,7 +101,7 @@ export default function LoginPage() {
     setError("");
     setSignInLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
+      const result = await signInWithOAuth("google", {
         redirect_uri: buildLoginRedirectUrl(redirectTarget),
       });
 
