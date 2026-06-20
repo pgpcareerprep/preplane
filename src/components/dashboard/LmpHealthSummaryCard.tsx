@@ -61,14 +61,13 @@ const CARD_SURFACE = {
   border: "0.5px solid var(--lx-border)",
   borderRadius: 16,
   boxShadow: "var(--shadow-sm)",
-  background:
-    "linear-gradient(to right, rgba(255,255,255,0.72), rgba(255,255,255,0.42)), var(--lx-grad-yellow)",
+  background: "var(--lmp-health-card-bg)",
   minHeight: 260,
 } as const;
 
 const MINI_CARD = {
-  background: "rgba(255,255,255,0.35)",
-  border: "0.5px solid rgba(232,229,220,0.75)",
+  background: "var(--lmp-health-mini-bg)",
+  border: "0.5px solid var(--lmp-health-mini-border)",
   borderRadius: 10,
   padding: 12,
 } as const;
@@ -292,10 +291,8 @@ export function LmpHealthSummaryCard({
           </div>
 
           <span
-            className="shrink-0 inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium"
+            className="shrink-0 inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium bg-card/90 border border-border"
             style={{
-              background: "rgba(255,255,255,0.85)",
-              border: "0.5px solid var(--lx-border)",
               color: TXT,
               boxShadow: "var(--shadow-sm)",
             }}

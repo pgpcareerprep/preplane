@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataSourceViewDrawer } from "./DataSourceViewDrawer";
 import { Input } from "@/components/ui/input";
 import { ArrowDown, ArrowUp, Loader2, Search } from "lucide-react";
 import { useAllDomains, useMappedPocCountsByDomain } from "@/lib/hooks/useDbData";
@@ -95,13 +95,12 @@ export function ViewAllDomainsModal({ open, onOpenChange }: { open: boolean; onO
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-0 shrink-0">
-            <DialogTitle>Domain Database — All Domains</DialogTitle>
-          </DialogHeader>
-
-          <div className="flex items-center gap-3 px-5 pt-3 pb-2 shrink-0 flex-wrap">
+      <DataSourceViewDrawer
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Domain Database — All Domains"
+      >
+          <div className="flex items-center gap-3 px-5 pt-3 pb-2 shrink-0 flex-wrap border-b border-border">
             {view === "database" && (
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--lx-text-3)" }} />
@@ -178,8 +177,7 @@ export function ViewAllDomainsModal({ open, onOpenChange }: { open: boolean; onO
               )}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+      </DataSourceViewDrawer>
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />
     </>
   );

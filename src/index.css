@@ -206,6 +206,10 @@
     --grad-blue:      linear-gradient(135deg, #C4DFF2 0%, #6FA8CE 100%);
     --grad-green:     linear-gradient(135deg, #C8DBB7 0%, #8AB07F 100%);
 
+    --lmp-health-card-bg: linear-gradient(to right, rgba(255,255,255,0.72), rgba(255,255,255,0.42)), var(--lx-grad-yellow);
+    --lmp-health-mini-bg: rgba(255,255,255,0.35);
+    --lmp-health-mini-border: rgba(232,229,220,0.75);
+
     /* Sidebar shadcn tokens (legacy) */
     --sidebar-background: var(--n900);
     --sidebar-foreground: var(--n400);
@@ -240,7 +244,7 @@
     --d-border-soft: 42 7% 22%;  /* inner dividers */
     --d-text:      48 20% 98%;   /* #FAFAF8 */
     --d-text-2:    38 8%  64%;   /* #A8A398 secondary */
-    --d-muted:     33 7%  45%;   /* #7A756C muted */
+    --d-muted:     38 8%  58%;   /* readable muted on dark surfaces */
     --d-accent:    26 76% 54%;   /* #E38330 orange CTA */
     --d-accent-hover:  28 71% 44%;
     --d-accent-pressed:27 85% 26%;
@@ -259,7 +263,7 @@
     --n200: 42 7%  22%;
     --n300: 40 7%  33%;
     --n400: 38 8%  64%;
-    --n500: 33 7%  45%;
+    --n500: 38 8%  58%;
     --n600: 38 8%  64%;
     --n700: 45 14% 95%;
     --n800: 48 20% 98%;
@@ -326,6 +330,19 @@
     --lx-hero-divider: rgba(250,250,248,0.10);
     --lx-cell-border: rgba(232, 229, 220, 0.08);
 
+    /* Gradient surfaces — dark (replace light cream/yellow heroes) */
+    --grad-mu:        linear-gradient(135deg, hsl(var(--d-accent) / 0.18) 0%, hsl(var(--d-surface-2)) 100%);
+    --grad-feature:   linear-gradient(135deg, hsl(var(--d-accent) / 0.14) 0%, hsl(var(--d-surface-1)) 100%);
+    --grad-yellow:    linear-gradient(135deg, hsl(var(--d-amber) / 0.12) 0%, hsl(var(--d-surface-1)) 100%);
+    --grad-blue:      linear-gradient(135deg, hsl(var(--d-blue) / 0.12) 0%, hsl(var(--d-surface-1)) 100%);
+    --grad-green:     linear-gradient(135deg, hsl(var(--d-green) / 0.12) 0%, hsl(var(--d-surface-1)) 100%);
+    --grad-ai-aura:   linear-gradient(135deg, hsl(var(--d-purple) / 0.14) 0%, hsl(var(--d-surface-2)) 100%);
+
+    /* LMP health summary card — theme-aware inline style targets */
+    --lmp-health-card-bg: linear-gradient(135deg, hsl(var(--d-accent) / 0.10), hsl(var(--d-surface-1)));
+    --lmp-health-mini-bg: hsl(var(--d-surface-2));
+    --lmp-health-mini-border: hsl(var(--d-border-soft));
+
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);
     --shadow-md: 0 4px 16px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.30);
     --shadow-lg: 0 8px 32px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.35);
@@ -383,6 +400,17 @@
   .dark .label-eyebrow,
   .dark .lx-eyebrow {
     letter-spacing: 0.01em;
+  }
+
+  .dark .surface-feature {
+    border-color: hsl(var(--d-accent) / 0.22) !important;
+  }
+  .dark .surface-feature > .pointer-events-none {
+    opacity: 0.15;
+  }
+  .dark .surface-feature .text-n900,
+  .dark .surface-feature h2 {
+    color: hsl(var(--d-text));
   }
 
   /* Calm hero banner for dark mode — soft orange wash, no glow */

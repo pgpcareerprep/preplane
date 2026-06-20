@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataSourceViewDrawer } from "./DataSourceViewDrawer";
 import { Input } from "@/components/ui/input";
 import { ArrowDown, ArrowUp, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAllPocProfiles, usePocLiveLoads } from "@/lib/hooks/useDbData";
@@ -130,13 +130,13 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[85vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle>POC Database — All POCs</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex items-center gap-3 pt-2 flex-wrap">
+    <>
+    <DataSourceViewDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="POC Database — All POCs"
+    >
+        <div className="flex items-center gap-3 px-5 pt-3 pb-3 flex-wrap shrink-0 border-b border-border">
           <div className="relative flex-1 min-w-[220px] max-w-sm">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-n400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, role, domain…" className="pl-9" />
@@ -182,7 +182,8 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
           )}
         </div>
 
-        <div className="overflow-auto border border-n200 rounded-md mt-3">
+        <div className="flex-1 min-h-0 overflow-auto px-5 pb-5">
+        <div className="overflow-auto border border-border rounded-md">
           <table className="w-full text-[13px]">
             <thead className="bg-n50 sticky top-0">
               <tr className="text-left">
@@ -285,7 +286,8 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
             </tbody>
           </table>
         </div>
-      </DialogContent>
+        </div>
+    </DataSourceViewDrawer>
 
       <PocEditDrawer open={drawerOpen} onOpenChange={setDrawerOpen} poc={editPoc} />
       {deletePoc && (
@@ -296,6 +298,6 @@ export function ViewAllPocsModal({ open, onOpenChange }: { open: boolean; onOpen
           onDeleted={() => setDeletePoc(null)}
         />
       )}
-    </Dialog>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Search, X, ExternalLink, GraduationCap, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataSourceViewDrawer } from "./DataSourceViewDrawer";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -78,30 +78,37 @@ export function AlumniViewAllModal({
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[1100px] max-h-[88vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b border-n200 shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle className="text-[16px] font-semibold text-n900">All Alumni</DialogTitle>
-              <p className="text-[12px] text-n500 mt-0.5">
-                Showing {filtered.length} of {alumni.length} alumni
-              </p>
+    <>
+    <DataSourceViewDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="All Alumni"
+      subtitle={`Showing ${filtered.length} of ${alumni.length} alumni`}
+      headerExtra={!readOnly && (
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={alumni.length === 0 || deleting}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete All
+          </button>
+      )}
+      footer={
+        filtered.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between px-6 py-3 text-[12px]">
+            <span className="text-muted-foreground">Page {page} of {totalPages}</span>
+            <div className="flex items-center gap-2">
+              <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40">Prev</button>
+              <button disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40">Next</button>
             </div>
-            {!readOnly && (
-              <button
-                onClick={() => setConfirmOpen(true)}
-                disabled={alumni.length === 0 || deleting}
-                className="mr-8 inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-red-200 text-red-600 hover:bg-red-50 text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete All
-              </button>
-            )}
           </div>
-        </DialogHeader>
-
-        <div className="px-6 py-3 border-b border-n200 shrink-0 flex items-center gap-2 flex-wrap">
+        ) : undefined
+      }
+    >
+        <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-n400" />
             <input
@@ -183,19 +190,7 @@ export function AlumniViewAllModal({
             </table>
           )}
         </div>
-
-        {filtered.length > PAGE_SIZE && (
-          <div className="px-6 py-3 border-t border-n200 flex items-center justify-between text-[12px]">
-            <span className="text-n500">Page {page} of {totalPages}</span>
-            <div className="flex items-center gap-2">
-              <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-                className="px-2 py-1 rounded-md border border-n300 disabled:opacity-40">Prev</button>
-              <button disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                className="px-2 py-1 rounded-md border border-n300 disabled:opacity-40">Next</button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
+    </DataSourceViewDrawer>
 
       <AlertDialog open={!readOnly && confirmOpen} onOpenChange={(v) => { setConfirmOpen(v); if (!v) setConfirmText(""); }}>
         <AlertDialogContent>
@@ -227,7 +222,7 @@ export function AlumniViewAllModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </>
   );
 }
 

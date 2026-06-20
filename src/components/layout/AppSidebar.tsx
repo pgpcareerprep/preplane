@@ -48,9 +48,6 @@ function initialsFrom(name: string): string {
 
 export function AppSidebar() {
   const { viewAsRole, role, user, logout, approvedUsers, viewAsUser, setViewAsUser, setViewAsRole } = useRole();
-  // #region agent log
-  fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3c81bd'},body:JSON.stringify({sessionId:'3c81bd',location:'AppSidebar.tsx:render',message:'AppSidebar mount — Settings icon availability',data:{settingsDefined:typeof (globalThis as Record<string,unknown>).Settings,hypothesis:'H1-missing-import',role},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();

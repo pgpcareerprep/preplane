@@ -14,7 +14,7 @@ import {
   Pencil,
   X,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { DataSourceViewDrawer } from "./DataSourceViewDrawer";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -585,37 +585,33 @@ export function ViewAllLmpsModal({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-[96vw] w-[96vw] max-h-[88vh] p-0 overflow-hidden flex flex-col">
-          <DialogHeader className="px-6 pt-6 pb-3 border-b border-n200">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <DialogTitle className="text-[18px] font-medium text-n900">
-                  All LMP Processes{" "}
-                  <span className="text-n500 text-[14px] font-normal">
-                    · {rows.length} of {totalCount}
-                  </span>
-                </DialogTitle>
-                <DialogDescription className="text-[12px] text-n500">
-                  Live from lmp_processes · click any row to open the LMP detail view
-                </DialogDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 mr-8 text-[12px]"
-                onClick={() => {
-                  onOpenChange(false);
-                  navigate("/lmp");
-                }}
-              >
-                Open Last Mile Prep board →
-              </Button>
-            </div>
-          </DialogHeader>
-
-
-          <div className="px-6 py-3 border-b border-n100 flex flex-wrap items-center gap-3">
+      <DataSourceViewDrawer
+        open={open}
+        onOpenChange={onOpenChange}
+        title={
+          <>
+            All LMP Processes{" "}
+            <span className="text-muted-foreground text-[14px] font-normal">
+              · {rows.length} of {totalCount}
+            </span>
+          </>
+        }
+        subtitle="Live from lmp_processes · click any row to open the LMP detail view"
+        headerExtra={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-[12px]"
+            onClick={() => {
+              onOpenChange(false);
+              navigate("/lmp");
+            }}
+          >
+            Open Last Mile Prep board →
+          </Button>
+        }
+      >
+          <div className="px-6 py-3 border-b border-border flex flex-wrap items-center gap-3 shrink-0">
             <div className="relative flex-1 min-w-[220px] max-w-sm">
               <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-n400" />
               <Input
@@ -808,8 +804,7 @@ export function ViewAllLmpsModal({
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+      </DataSourceViewDrawer>
 
       <AlertDialog open={!readOnly && confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

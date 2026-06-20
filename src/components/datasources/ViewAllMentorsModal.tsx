@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Search, X, ExternalLink } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataSourceViewDrawer } from "./DataSourceViewDrawer";
 import { useAllMentors } from "@/lib/hooks/useDbData";
 import { useResolveDomain } from "@/lib/hooks/useResolveDomain";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -46,26 +46,34 @@ export function ViewAllMentorsModal({
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[1200px] max-h-[88vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b border-n200 shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle className="text-[16px] font-semibold text-n900">All Mentor Union mentors</DialogTitle>
-              <p className="text-[12px] text-n500 mt-0.5">
-                Showing {filtered.length} of {muMentors.length} mentors
-              </p>
+    <DataSourceViewDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="All Mentor Union mentors"
+      subtitle={`Showing ${filtered.length} of ${muMentors.length} mentors`}
+      headerExtra={
+        <ClearDataSourceButton
+          source="mentor_union"
+          label="mentors"
+          count={mentors.length}
+          onCleared={() => onOpenChange(false)}
+        />
+      }
+      footer={
+        filtered.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between px-6 py-3 text-[12px]">
+            <span className="text-muted-foreground">Page {page} of {totalPages}</span>
+            <div className="flex items-center gap-2">
+              <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40">Prev</button>
+              <button disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40">Next</button>
             </div>
-            <ClearDataSourceButton
-              source="mentor_union"
-              label="mentors"
-              count={mentors.length}
-              onCleared={() => onOpenChange(false)}
-            />
           </div>
-        </DialogHeader>
-
-        <div className="px-6 py-3 border-b border-n200 shrink-0 flex items-center gap-2 flex-wrap">
+        ) : undefined
+      }
+    >
+        <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-n400" />
             <input
@@ -146,20 +154,7 @@ export function ViewAllMentorsModal({
             </table>
           )}
         </div>
-
-        {filtered.length > PAGE_SIZE && (
-          <div className="px-6 py-3 border-t border-n200 flex items-center justify-between text-[12px]">
-            <span className="text-n500">Page {page} of {totalPages}</span>
-            <div className="flex items-center gap-2">
-              <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-                className="px-2 py-1 rounded-md border border-n300 disabled:opacity-40">Prev</button>
-              <button disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                className="px-2 py-1 rounded-md border border-n300 disabled:opacity-40">Next</button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+    </DataSourceViewDrawer>
   );
 }
 
