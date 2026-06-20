@@ -17,15 +17,14 @@ import {
 const POC_HERO_SURFACE = {
   border: "0.5px solid var(--lx-border)",
   borderRadius: 16,
-  boxShadow: "0 1px 2px rgba(26,25,22,0.04)",
-  background:
-    "linear-gradient(to right, rgba(255,255,255,0.78), rgba(255,255,255,0.48)), var(--lx-grad-yellow)",
+  boxShadow: "var(--shadow-sm)",
+  background: "var(--lmp-health-card-bg)",
   minHeight: 280,
 } as const;
 
 const POC_MINI_CARD = {
-  background: "rgba(255,255,255,0.42)",
-  border: "0.5px solid rgba(232,229,220,0.85)",
+  background: "var(--lmp-health-mini-bg)",
+  border: "0.5px solid var(--lmp-health-mini-border)",
   borderRadius: 10,
 } as const;
 
@@ -76,7 +75,7 @@ function PocConversionSummary({
         disabled={!onConversionClick}
         className={cn(
           "flex flex-col items-center justify-center flex-1 mt-3 min-h-[140px] w-full rounded-xl transition-colors",
-          onConversionClick && "hover:bg-white/45 cursor-pointer group",
+          onConversionClick && "hover:bg-card/40 dark:hover:bg-card/20 cursor-pointer group",
         )}
       >
         <div className="relative shrink-0" style={{ width: 120, height: 120 }} aria-hidden>
@@ -351,7 +350,7 @@ export function PocOverviewHeroCard({
     >
       <div
         className="relative z-[1] grid grid-cols-1 md:grid-cols-[1.15fr_0.95fr_1.35fr] items-stretch divide-y md:divide-y-0 md:divide-x min-h-[280px]"
-        style={{ borderColor: "rgba(232,229,220,0.75)" }}
+        style={{ borderColor: "var(--lx-border)" }}
       >
         <PocConversionSummary
           conversionPct={conversionPct}

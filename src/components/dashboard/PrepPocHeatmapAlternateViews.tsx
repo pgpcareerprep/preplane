@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { useMemo, useState } from "react";
+import { useTheme } from "@/lib/themeContext";
 import { ClipboardList, RefreshCw, TrendingUp, BarChart3, GraduationCap } from "lucide-react";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { fmtConversion } from "@/lib/prepPocHeatmapAgg";
@@ -7,6 +8,7 @@ import type { DomainWiseRow, StudentWiseRow } from "@/lib/prepPocHeatmapViews";
 import {
   A_NEUTRAL, A_SKY, A_SAGE, A_CORAL, A_ORANGE, CELL_BORDER, MUTED_TEXT, T_SAGE,
   P_CORAL, P_NEUTRAL, P_ON_HOLD, P_ORANGE, P_SAGE, P_SKY, cellStyle,
+  sectionHeaderBg, sectionSubheaderBg,
 } from "@/components/dashboard/prepPocHeatmapPalettes";
 
 export type AltColType = "heat" | "conversion" | "rate" | "text";
@@ -168,6 +170,8 @@ export function GenericHeatmapTable({
   visibleConfig: AltSectionDef[];
   colMaxValues: Record<string, number>;
 }) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   return (
     <table className="w-full border-separate text-[12px]" style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}>
       <colgroup>
@@ -185,7 +189,7 @@ export function GenericHeatmapTable({
             return (
               <th key={s.key} colSpan={s.cols.length}
                 className="text-center px-2 py-2.5 text-[11px] font-semibold uppercase border-b"
-                style={{ color: s.accent, background: s.headerBg, letterSpacing: "0.04em", borderTop: `2px solid ${s.accent}`, borderBottom: `1px solid ${CELL_BORDER}` }}>
+                style={{ color: s.accent, background: sectionHeaderBg(s.accent, s.headerBg, isDark), letterSpacing: "0.04em", borderTop: `2px solid ${s.accent}`, borderBottom: `1px solid ${CELL_BORDER}` }}>
                 <span className="inline-flex items-center justify-center gap-1.5">
                   <span className="h-5 w-5 rounded-lg inline-flex items-center justify-center" style={{ background: `color-mix(in srgb, ${s.accent} 8%, transparent)` }}>
                     <Icon size={11} />
@@ -199,7 +203,7 @@ export function GenericHeatmapTable({
         <tr>
           {visibleConfig.flatMap((s) => s.cols.map((col) => (
             <th key={col.dataKey} className="text-center px-1 pt-1.5 pb-2.5 text-[10px] font-semibold border-b"
-              style={{ color: "var(--lx-text-2)", verticalAlign: "bottom", background: s.subheaderBg, borderColor: CELL_BORDER }}>
+              style={{ color: "var(--lx-text-2)", verticalAlign: "bottom", background: sectionSubheaderBg(s.accent, s.subheaderBg, isDark), borderColor: CELL_BORDER }}>
               <span className="inline-flex flex-col items-center gap-0.5">
                 <span className="leading-tight text-center whitespace-nowrap">{col.label}</span>
                 {col.subLabel && <span className="text-[9px] leading-tight" style={{ color: "var(--lx-text-3)" }}>{col.subLabel}</span>}
@@ -249,7 +253,7 @@ export function GenericHeatmapTable({
               const colMax = colMaxValues[col.dataKey] ?? 1;
               return (
                 <td key={col.dataKey} className="text-center text-[12.5px] font-semibold tabular-nums border-b min-h-[38px] py-2"
-                  style={{ ...cellStyle(value, colMax, col.palette), borderColor: CELL_BORDER }}>
+                  style={{ ...cellStyle(value, colMax, col.palette, isDark), borderColor: CELL_BORDER }}>
                   {value}
                 </td>
               );

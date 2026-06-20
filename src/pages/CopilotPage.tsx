@@ -877,25 +877,25 @@ function EmptyHero({ firstName, onPick }: { firstName: string; onPick: (p: strin
         <h3 className="mt-4 text-[24px] font-bold tracking-[-0.3px] text-n900">
           Hey {firstName} — what's our LMP quest today?
         </h3>
-        <p className="mt-1.5 text-[13px] text-n500">
+        <p className="mt-1.5 text-[13px] text-muted-foreground">
           Ask in plain English. I'll search the LMP Tracker &amp; Mastersheet and give you data-backed answers.
         </p>
       </div>
 
       <div className="mt-8">
-        <div className="text-[11px] uppercase tracking-[0.5px] text-n500 font-medium mb-2.5 px-1">Quick prompts</div>
+        <div className="text-[11px] uppercase tracking-[0.5px] text-muted-foreground font-medium mb-2.5 px-1">Quick prompts</div>
         <div className="grid grid-cols-2 md:grid-cols-2 gap-2.5">
           {QUICK_PROMPTS.map(q => {
             const Icon = QUICK_ICONS[q.title] ?? Sparkles;
             return (
-              <button key={q.title} onClick={() => onPick(q.prompt)} className="group text-left rounded-xl bg-card border border-n200 p-3 hover:border-orange-300 hover:shadow-sm transition-all">
+              <button key={q.title} onClick={() => onPick(q.prompt)} className="group text-left rounded-xl bg-card border border-border p-3 hover:border-orange-400/60 hover:shadow-sm transition-all">
                 <div className="flex items-center gap-2">
-                  <span className="h-7 w-7 rounded-lg bg-n100 text-n600 grid place-items-center group-hover:bg-orange-50 group-hover:text-orange-500 transition-colors">
+                  <span className="h-7 w-7 rounded-lg bg-muted text-muted-foreground grid place-items-center group-hover:bg-orange-500/15 group-hover:text-orange-500 transition-colors">
                     <Icon className="h-3.5 w-3.5" />
                   </span>
-                  <div className="text-[13px] font-semibold text-n900 truncate">{q.title}</div>
+                  <div className="text-[13px] font-semibold text-foreground truncate">{q.title}</div>
                 </div>
-                <div className="mt-1.5 text-[11.5px] text-n500 line-clamp-2">{q.sub}</div>
+                <div className="mt-1.5 text-[11.5px] text-muted-foreground line-clamp-2">{q.sub}</div>
               </button>
             );
           })}

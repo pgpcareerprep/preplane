@@ -100,7 +100,7 @@ export function ViewAllMentorsModal({
           ) : (
             <table className="w-full text-[12px] whitespace-nowrap">
               <thead className="sticky top-0 bg-card z-10">
-                <tr className="text-left text-n500 text-[10px] uppercase tracking-[0.5px] border-b border-n200">
+                <tr className="text-left text-muted-foreground text-[10px] uppercase tracking-[0.5px] border-b border-border">
                   <th className="font-medium px-2 py-2">Mentor Type</th>
                   <th className="font-medium px-2 py-2">Name</th>
                   <th className="font-medium px-2 py-2 text-right">Years of Exp</th>
@@ -119,12 +119,12 @@ export function ViewAllMentorsModal({
               </thead>
               <tbody>
                 {pageRows.map(m => (
-                  <tr key={m.id} className="border-b border-n100 hover:bg-n50/50">
-                    <td className="px-2 py-2 text-n600">{m.seniority || "—"}</td>
-                    <td className="px-2 py-2 text-n900 font-medium">{m.name}</td>
-                    <td className="px-2 py-2 text-right text-n700 tabular-nums">{(m as any).years_of_experience ?? "—"}</td>
-                    <td className="px-2 py-2 text-n600">{m.designation || "—"}</td>
-                    <td className="px-2 py-2 text-n600">{m.company || "—"}</td>
+                  <tr key={m.id} className="border-b border-border hover:bg-muted/40">
+                    <td className="px-2 py-2 text-muted-foreground">{m.seniority || "—"}</td>
+                    <td className="px-2 py-2 text-foreground font-medium">{m.name}</td>
+                    <td className="px-2 py-2 text-right text-foreground tabular-nums">{(m as any).years_of_experience ?? "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.designation || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.company || "—"}</td>
                     <td className="px-2 py-2">
                       {m.linkedin ? (
                         <a href={m.linkedin.startsWith("http") ? m.linkedin : `https://${m.linkedin}`}
@@ -132,14 +132,14 @@ export function ViewAllMentorsModal({
                           className="text-sky-600 hover:underline inline-flex items-center"><ExternalLink className="h-3 w-3" /></a>
                       ) : "—"}
                     </td>
-                    <td className="px-2 py-2 text-n600">{m.email || "—"}</td>
-                    <td className="px-2 py-2 text-n600">{m.phone || "—"}</td>
-                    <td className="px-2 py-2 text-n600">{domainDisplay(m.functional_domain)}</td>
-                    <td className="px-2 py-2 text-n600">{m.industry || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.email || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.phone || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{domainDisplay(m.functional_domain)}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.industry || "—"}</td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-1 max-w-[220px]">
                         {(m.skill_tags || []).slice(0, 4).map(s => (
-                          <span key={s} className="text-[10px] uppercase tracking-[0.5px] font-medium bg-n100 text-n600 border border-n200 rounded-full px-1.5 py-[1px]">
+                          <span key={s} className="text-[10px] uppercase tracking-[0.5px] font-medium bg-muted text-muted-foreground border border-border rounded-full px-1.5 py-[1px]">
                             {s}
                           </span>
                         ))}

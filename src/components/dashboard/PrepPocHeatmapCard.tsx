@@ -20,6 +20,14 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { downloadCsv, dateStamp } from "@/lib/exportCsv";
+import { useTheme } from "@/lib/themeContext";
+import {
+  A_NEUTRAL, A_SKY, A_SAGE, A_CORAL, A_ORANGE, A_PLUM, A_TEAL,
+  CELL_BORDER, LEGEND_LEVELS, LEGEND_LEVELS_DARK,
+  P_CORAL, P_NEUTRAL, P_ON_HOLD, P_ORANGE, P_PLUM, P_SAGE, P_SKY, P_TEAL,
+  cellStyle, sectionHeaderBg, sectionSubheaderBg, MUTED_TEXT, T_SAGE, T_CORAL,
+  type ColorPalette,
+} from "@/components/dashboard/prepPocHeatmapPalettes";
 import {
   filterHeatmapMetricRecords,
   fmtConversion,
@@ -104,94 +112,6 @@ const STORAGE_KEY_DOMAIN = "heatmap_visible_sections_domain_v1";
 
 const ALL_STUDENT_SECTION_KEYS = STUDENT_SECTION_CONFIG.map((s) => s.key);
 const ALL_DOMAIN_SECTION_KEYS = DOMAIN_SECTION_CONFIG.map((s) => s.key);
-
-// ── Heat palette — 5 levels, soft Lumina pastels (GitHub-style intensity) ───
-// L0=zero  L1=1-25%  L2=26-50%  L3=51-75%  L4=76-100%
-// Low saturation; dark readable text only — never white on fills.
-
-type ColorPalette = {
-  bg: [string, string, string, string, string];
-  text: [string, string, string, string, string];
-};
-
-const MUTED_TEXT = "#A8A398"; // Lumina n400 — zero-value text
-const SURFACE_ZERO = "var(--lx-surface)";
-const CELL_BORDER = "rgba(232, 229, 220, 0.75)";
-
-// Lumina semantic accents (section borders / total row text)
-const A_NEUTRAL = "#78716c";
-const A_SKY = "#38bdf8";
-const A_SAGE = "#6A9E62";
-const A_CORAL = "#F07040";
-const A_ORANGE = "#E38330";
-const A_PLUM = "#8B5CF6";
-const A_TEAL = "#39B6D8";
-
-const T_NEUTRAL = "#44403c";
-const T_SKY = "#0c4a6e";
-const T_SAGE = "#3d6838";
-const T_CORAL = "#c04a20";
-const T_ORANGE = "#9a3412";
-const T_PLUM = "#6b5280";
-const T_CYAN = "#164e63";
-
-// Warm neutral beige/stone — LMP Load
-const P_NEUTRAL: ColorPalette = {
-  bg:   [SURFACE_ZERO, "#fafaf9", "#f5f5f4", "#e7e5e4", "rgba(214, 211, 209, 0.7)"],
-  text: [MUTED_TEXT, T_NEUTRAL, T_NEUTRAL, T_NEUTRAL, T_NEUTRAL],
-};
-// Soft sky — Active Prep (Not Started · Prep Ongoing · Prep Done)
-const P_SKY: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(240,249,255,0.5)", "#f0f9ff", "rgba(224,242,254,0.7)", "rgba(186,230,253,0.6)"],
-  text: [MUTED_TEXT, T_SKY, T_SKY, T_SKY, T_SKY],
-};
-// Muted warm orange — On Hold (under Active Prep, not a failure state)
-const P_ON_HOLD: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(255,247,237,0.35)", "rgba(255,247,237,0.55)", "rgba(254,215,170,0.45)", "rgba(253,186,116,0.35)"],
-  text: [MUTED_TEXT, T_ORANGE, T_ORANGE, T_ORANGE, T_ORANGE],
-};
-// Muted sage — Converted & Performance heat cells
-const P_SAGE: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(242,246,241,0.45)", "#f2f6f1", "rgba(184,209,178,0.55)", "rgba(154,197,148,0.45)"],
-  text: [MUTED_TEXT, T_SAGE, T_SAGE, T_SAGE, T_SAGE],
-};
-// Pale coral/rose — Not Converted
-const P_CORAL: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(255,243,238,0.35)", "rgba(255,243,238,0.55)", "rgba(253,191,163,0.45)", "rgba(253,186,116,0.35)"],
-  text: [MUTED_TEXT, T_CORAL, T_CORAL, T_CORAL, T_CORAL],
-};
-// Muted orange — Other Reasons
-const P_ORANGE: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(255,247,237,0.35)", "rgba(255,247,237,0.55)", "rgba(254,215,170,0.45)", "rgba(253,186,116,0.35)"],
-  text: [MUTED_TEXT, T_ORANGE, T_ORANGE, T_ORANGE, T_ORANGE],
-};
-// Soft plum/violet — Responsibility
-const P_PLUM: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(245,240,255,0.35)", "rgba(245,240,255,0.55)", "rgba(201,180,245,0.45)", "rgba(167,139,250,0.35)"],
-  text: [MUTED_TEXT, T_PLUM, T_PLUM, T_PLUM, T_PLUM],
-};
-// Muted aqua/teal — Domain Load (in-domain & cross-domain)
-const P_TEAL: ColorPalette = {
-  bg:   [SURFACE_ZERO, "rgba(236,254,255,0.35)", "rgba(236,254,255,0.55)", "rgba(165,243,252,0.5)", "rgba(103,232,249,0.4)"],
-  text: [MUTED_TEXT, T_CYAN, T_CYAN, T_CYAN, T_CYAN],
-};
-
-/** Legend swatches — neutral blue-grey ramp */
-const LEGEND_LEVELS = ["#fafaf8", "#f0f9ff", "#e0f2fe", "rgba(186,230,253,0.7)", "rgba(125,211,252,0.6)"] as const;
-
-function intensityLevel(value: number, colMax: number): 0 | 1 | 2 | 3 | 4 {
-  if (value === 0 || colMax === 0) return 0;
-  const r = value / colMax;
-  if (r <= 0.25) return 1;
-  if (r <= 0.50) return 2;
-  if (r <= 0.75) return 3;
-  return 4;
-}
-
-function cellStyle(value: number, colMax: number, palette: ColorPalette) {
-  const lvl = intensityLevel(value, colMax);
-  return { background: palette.bg[lvl], color: palette.text[lvl] };
-}
 
 // ── Section / column schema ───────────────────────────────────────────────────
 
@@ -446,7 +366,7 @@ function KpiCard({
 }
 
 function HeatCell({
-  value, palette, colMax, className, ariaLabel, onOpen,
+  value, palette, colMax, className, ariaLabel, onOpen, isDark = false,
 }: {
   value: number;
   palette: ColorPalette;
@@ -454,8 +374,9 @@ function HeatCell({
   className?: string;
   ariaLabel?: string;
   onOpen?: () => void;
+  isDark?: boolean;
 }) {
-  const style = cellStyle(value, colMax, palette);
+  const style = cellStyle(value, colMax, palette, isDark);
   const clickable = value > 0 && Boolean(onOpen);
   return (
     <td
@@ -596,6 +517,8 @@ export function PrepPocHeatmapCard({
   filteredLmpIds?: string[];
   filters?: Record<string, unknown>;
 } = {}) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   const [activeView, setActiveView] = useState<"lmp" | "student" | "domain">("lmp");
   const [selection, setSelection] = useState<HeatmapDrilldownSelection | null>(null);
   const [visibleLmpSections, setVisibleLmpSections] = useState<Set<SectionKey>>(() => loadVisibleSections(STORAGE_KEY_LMP, ALL_SECTION_KEYS) as Set<SectionKey>);
@@ -1120,7 +1043,7 @@ export function PrepPocHeatmapCard({
                             className="text-center px-2 py-2.5 text-[11px] font-semibold uppercase border-b"
                             style={{
                               color: s.accent,
-                              background: s.headerBg,
+                              background: sectionHeaderBg(s.accent, s.headerBg, isDark),
                               letterSpacing: "0.04em",
                               borderTop: `2px solid ${s.accent}`,
                               borderLeft: `0.5px solid color-mix(in srgb, ${s.accent} 18%, transparent)`,
@@ -1159,7 +1082,7 @@ export function PrepPocHeatmapCard({
                             style={{
                               color: "var(--lx-text-2)",
                               verticalAlign: "bottom",
-                              background: s.subheaderBg,
+                              background: sectionSubheaderBg(s.accent, s.subheaderBg, isDark),
                               borderColor: CELL_BORDER,
                             }}
                           >
@@ -1186,10 +1109,11 @@ export function PrepPocHeatmapCard({
                         colMaxValues={colMaxValues}
                         visibleConfig={visibleConfig as SectionDef[]}
                         onOpenDrilldown={openDrilldown}
+                        isDark={isDark}
                       />
                     ))}
                     {totals && (
-                      <TotalRow totals={totals} visibleConfig={visibleConfig as SectionDef[]} />
+                      <TotalRow totals={totals} visibleConfig={visibleConfig as SectionDef[]} isDark={isDark} />
                     )}
                   </tbody>
                 </table>
@@ -1216,7 +1140,7 @@ export function PrepPocHeatmapCard({
                 <span>Heat intensity (relative to column max)</span>
                 <span className="flex items-center gap-1 ml-1">
                   <span className="text-[10px]">Low</span>
-                  {LEGEND_LEVELS.map((bg, i) => (
+                  {(isDark ? LEGEND_LEVELS_DARK : LEGEND_LEVELS).map((bg, i) => (
                     <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm border"
                       style={{ background: bg, borderColor: CELL_BORDER }} />
                   ))}
@@ -1246,12 +1170,13 @@ export function PrepPocHeatmapCard({
 // ── DataRow ───────────────────────────────────────────────────────────────────
 
 function DataRow({
-  row, colMaxValues, visibleConfig, onOpenDrilldown,
+  row, colMaxValues, visibleConfig, onOpenDrilldown, isDark = false,
 }: {
   row: PrepPocHeatmapRow;
   colMaxValues: Record<string, number>;
   visibleConfig: SectionDef[];
   onOpenDrilldown: (row: PrepPocHeatmapRow, metricKey: HeatmapMetricKey, displayedValue: number | string, displayedCount: number | null) => void;
+  isDark?: boolean;
 }) {
   const open = (metricKey: HeatmapMetricKey, val: number | string, count: number | null = typeof val === "number" ? val : null) =>
     () => onOpenDrilldown(row, metricKey, val, count);
@@ -1281,8 +1206,8 @@ function DataRow({
             const convColor = !hasEligible
               ? MUTED_TEXT
               : isGood
-                ? T_SAGE
-                : T_CORAL;
+                ? (isDark ? "#86EFAC" : T_SAGE)
+                : (isDark ? "#FDA4AF" : T_CORAL);
             return (
               <td
                 key={col.metricKey}
@@ -1319,6 +1244,7 @@ function DataRow({
               value={value}
               palette={col.palette}
               colMax={colMax}
+              isDark={isDark}
               ariaLabel={`View ${value} ${col.label} LMPs for ${row.pocName}`}
               onOpen={open(col.metricKey, value)}
             />
@@ -1332,10 +1258,11 @@ function DataRow({
 // ── TotalRow ──────────────────────────────────────────────────────────────────
 
 function TotalRow({
-  totals, visibleConfig,
+  totals, visibleConfig, isDark = false,
 }: {
   totals: TotalsShape;
   visibleConfig: SectionDef[];
+  isDark?: boolean;
 }) {
   return (
     <tr>
@@ -1518,11 +1445,11 @@ function HeatmapDrilldownModal({
   return (
     <Dialog open={open} onOpenChange={resetModalControls}>
       <DialogContent className="flex max-h-[92vh] w-[min(1180px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:rounded-3xl">
-        <DialogHeader className="border-b bg-gradient-to-br from-white via-white to-slate-50 px-6 py-5 text-left">
-          <DialogTitle className="text-[21px] font-bold tracking-[-0.02em] text-slate-900">
+        <DialogHeader className="border-b border-border bg-card px-6 py-5 text-left">
+          <DialogTitle className="text-[21px] font-bold tracking-[-0.02em] text-foreground">
             {selection ? `${selection.pocName} · ${selection.metricLabel}` : "Heatmap details"}
           </DialogTitle>
-          <DialogDescription className="text-[12.5px] text-slate-500">
+          <DialogDescription className="text-[12.5px] text-muted-foreground">
             {originalCount.toLocaleString()} records contributing to this metric
             {searchTerm.trim() && ` · ${modalRows.length.toLocaleString()} matching search`}
             {selection?.metricKey === "lmpConversion" && result && (
@@ -1541,14 +1468,14 @@ function HeatmapDrilldownModal({
           </div>
         </DialogHeader>
 
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b bg-white px-6 py-3">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-card px-6 py-3">
           <label className="relative min-w-[240px] flex-1">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               placeholder="Search records..."
-              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-[13px] text-foreground outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20"
             />
           </label>
           {result?.recordType === "student" ? (
@@ -1566,13 +1493,13 @@ function HeatmapDrilldownModal({
             type="button"
             onClick={exportDrilldown}
             disabled={!result || originalCount === 0}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm transition hover:bg-muted disabled:opacity-40"
           >
             <Download size={14} /> Download CSV
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-50/60 px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-auto bg-muted/30 px-6 py-4">
           {result?.recordType === "conversion" && (
             <div className="mb-4 grid gap-x-6 gap-y-gutter sm:grid-cols-3">
               <MetricSummaryCard label="Converted LMPs" value={result.convertedLmps.length} tone="green" />
@@ -1581,7 +1508,7 @@ function HeatmapDrilldownModal({
             </div>
           )}
           {!result || originalCount === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-[13px] text-slate-500">
+            <div className="rounded-2xl border border-border bg-card px-6 py-10 text-center text-[13px] text-muted-foreground">
               No records found for this metric.
             </div>
           ) : result.recordType === "student" ? (
@@ -1594,18 +1521,18 @@ function HeatmapDrilldownModal({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-white px-6 py-3 text-[12px] text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-3 text-[12px] text-muted-foreground">
           <span>
             Showing {modalRows.length ? (safePage - 1) * pageSize + 1 : 0}–{Math.min(safePage * pageSize, modalRows.length)} of {modalRows.length}
           </span>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40">
+              className="rounded-lg border border-border px-3 py-1.5 font-medium text-foreground disabled:opacity-40">
               Previous
             </button>
             <span>Page {safePage} / {totalPages}</span>
             <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 disabled:opacity-40">
+              className="rounded-lg border border-border px-3 py-1.5 font-medium text-foreground disabled:opacity-40">
               Next
             </button>
           </div>
@@ -1617,33 +1544,33 @@ function HeatmapDrilldownModal({
 
 function LmpDrilldownTable({ rows, onView }: { rows: HeatmapDrilldownLmpRecord[]; onView: (id: string) => void }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <table className="w-full min-w-[980px] text-left text-[12px]">
-        <thead className="sticky top-0 z-10 bg-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
+        <thead className="sticky top-0 z-10 bg-muted text-[10.5px] uppercase tracking-wide text-muted-foreground">
           <tr>
             {["LMP / Company", "Process ID", "Domain", "Primary POC", "Support POC", "Status", "Students", "Created", "Updated", "Actions"].map((h) => (
-              <th key={h} className="border-b border-slate-200 px-3 py-3 font-bold">{h}</th>
+              <th key={h} className="border-b border-border px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.lmpId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-              <td className="px-3 py-3"><div className="font-semibold text-slate-900">{r.company || "Untitled"}</div><div className="text-slate-500">{r.role || "No role"}</div></td>
-              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{r.lmpCode || r.lmpId}</td>
-              <td className="px-3 py-3 text-slate-700">{r.domain || "Unmapped"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.primaryPoc || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.supportPoc || "—"}</td>
+            <tr key={r.lmpId} className="border-b border-border last:border-b-0 hover:bg-muted/50">
+              <td className="px-3 py-3"><div className="font-semibold text-foreground">{r.company || "Untitled"}</div><div className="text-muted-foreground">{r.role || "No role"}</div></td>
+              <td className="px-3 py-3 font-mono text-[11px] text-muted-foreground">{r.lmpCode || r.lmpId}</td>
+              <td className="px-3 py-3 text-foreground">{r.domain || "Unmapped"}</td>
+              <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
               <td className="px-3 py-3">
-                <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{r.statusLabel}</span>
-                {r.outcomeReason && <div className="mt-1 text-[11px] text-slate-500">{r.outcomeReason}</div>}
+                <span className="rounded-full bg-muted px-2 py-1 font-semibold text-foreground">{r.statusLabel}</span>
+                {r.outcomeReason && <div className="mt-1 text-[11px] text-muted-foreground">{r.outcomeReason}</div>}
               </td>
-              <td className="px-3 py-3 text-slate-700">{r.studentsMapped} mapped · {r.studentsPlaced} placed</td>
-              <td className="px-3 py-3 text-slate-600">{formatDate(r.createdAt)}</td>
-              <td className="px-3 py-3 text-slate-600">{formatDate(r.updatedAt)}</td>
+              <td className="px-3 py-3 text-foreground">{r.studentsMapped} mapped · {r.studentsPlaced} placed</td>
+              <td className="px-3 py-3 text-muted-foreground">{formatDate(r.createdAt)}</td>
+              <td className="px-3 py-3 text-muted-foreground">{formatDate(r.updatedAt)}</td>
               <td className="px-3 py-3">
                 <button type="button" onClick={() => onView(r.lmpId)}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-600 hover:bg-slate-50">
+                  className="rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground hover:bg-muted">
                   View LMP
                 </button>
               </td>
@@ -1657,31 +1584,31 @@ function LmpDrilldownTable({ rows, onView }: { rows: HeatmapDrilldownLmpRecord[]
 
 function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[] }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <table className="w-full min-w-[920px] text-left text-[12px]">
-        <thead className="sticky top-0 z-10 bg-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
+        <thead className="sticky top-0 z-10 bg-muted text-[10.5px] uppercase tracking-wide text-muted-foreground">
           <tr>
             {["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((h) => (
-              <th key={h} className="border-b border-slate-200 px-3 py-3 font-bold">{h}</th>
+              <th key={h} className="border-b border-border px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.studentId} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-              <td className="px-3 py-3 font-semibold text-slate-900">{r.studentName}</td>
-              <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{r.studentCode || r.studentId}</td>
-              <td className="px-3 py-3 text-slate-700">{r.email || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.phone || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.primaryDomain || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.secondaryDomain || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.cohort || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.company || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.lmpCode || r.lmpId}</td>
-              <td className="px-3 py-3 text-slate-700">{r.domain || "Unmapped"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.placementStatus} · {formatDate(r.placementDate)}</td>
-              <td className="px-3 py-3 text-slate-700">{r.primaryPoc || "—"}</td>
-              <td className="px-3 py-3 text-slate-700">{r.supportPoc || "—"}</td>
+            <tr key={r.studentId} className="border-b border-border last:border-b-0 hover:bg-muted/50">
+              <td className="px-3 py-3 font-semibold text-foreground">{r.studentName}</td>
+              <td className="px-3 py-3 font-mono text-[11px] text-muted-foreground">{r.studentCode || r.studentId}</td>
+              <td className="px-3 py-3 text-foreground">{r.email || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.phone || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.primaryDomain || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.secondaryDomain || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.cohort || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.company || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.lmpCode || r.lmpId}</td>
+              <td className="px-3 py-3 text-foreground">{r.domain || "Unmapped"}</td>
+              <td className="px-3 py-3 text-foreground">{r.placementStatus} · {formatDate(r.placementDate)}</td>
+              <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
             </tr>
           ))}
         </tbody>
@@ -1692,9 +1619,9 @@ function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[]
 
 function SortSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-600 shadow-sm">
+    <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm">
       <ArrowUpDown size={13} />
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent outline-none">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent text-foreground outline-none">
         {options.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
     </label>
@@ -1703,7 +1630,12 @@ function SortSelect({ value, onChange, options }: { value: string; onChange: (v:
 
 function MetricSummaryCard({ label, value, tone }: { label: string; value: string | number; tone: "green" | "slate" }) {
   return (
-    <div className={cn("rounded-2xl border px-4 py-3", tone === "green" ? "border-green-100 bg-green-50 text-green-800" : "border-slate-200 bg-white text-slate-800")}>
+    <div className={cn(
+      "rounded-2xl border px-4 py-3",
+      tone === "green"
+        ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200"
+        : "border-border bg-card text-foreground",
+    )}>
       <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{label}</div>
       <div className="mt-1 text-[22px] font-bold">{value}</div>
     </div>
@@ -1712,7 +1644,7 @@ function MetricSummaryCard({ label, value, tone }: { label: string; value: strin
 
 function ContextChip({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+    <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
       {children}
     </span>
   );

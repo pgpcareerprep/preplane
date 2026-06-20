@@ -11,7 +11,7 @@ type Props = {
   footer?: ReactNode;
 };
 
-/** Half-screen right drawer for Data Sources "View all" database browsers. */
+/** Wide right drawer (~68vw) for Data Sources "View all" database browsers. */
 export function DataSourceViewDrawer({
   open,
   onOpenChange,
@@ -25,7 +25,7 @@ export function DataSourceViewDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full max-w-none flex-col gap-0 overflow-hidden p-0 sm:w-[50vw] sm:max-w-[50vw]"
+        className="flex w-full max-w-none flex-col gap-0 overflow-hidden p-0 sm:w-[68vw] sm:max-w-[68vw]"
       >
         <SheetHeader className="shrink-0 space-y-0 border-b border-border px-6 pb-3 pt-5 text-left">
           <div className="flex items-start justify-between gap-3 pr-8">
