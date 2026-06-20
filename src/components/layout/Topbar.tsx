@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { FileSpreadsheet, Moon, Sun, Eye, Lock, RotateCcw } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { GlobalSearch, type GlobalSearchHandle } from "@/components/search/GlobalSearch";
+import { PrepLaneLogo } from "@/components/brand/PrepLaneLogo";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/lib/themeContext";
 import { useRole } from "@/lib/rolesContext";
@@ -89,9 +90,7 @@ export function Topbar() {
           className="flex items-center min-w-0 pr-3 mr-1 border-r border-border hover:opacity-80 transition-opacity"
           aria-label="PrepLane home"
         >
-          <span className="text-orange-500 font-bold tracking-tight leading-none text-[19px]">
-            PrepLane
-          </span>
+          <PrepLaneLogo size="md" />
         </button>
         <ViewAsBadge />
       </div>

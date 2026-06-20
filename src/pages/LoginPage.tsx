@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithOAuth } from "@/integrations/auth";
+import { PrepLaneLogo } from "@/components/brand/PrepLaneLogo";
 import { useRole } from "@/lib/rolesContext";
 import { buildLoginRedirectUrl, redirectToCanonicalOriginIfNeeded } from "@/lib/appOrigin";
 import { cn } from "@/lib/utils";
@@ -122,10 +123,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4 lumina">
       <div className="w-full max-w-form">
         <div className="text-center mb-8">
-          <div className="mx-auto mb-4 h-1 w-16 rounded-full bg-grad-mu" aria-hidden />
-          <span className="text-[32px] font-bold tracking-tight text-foreground">
-            PrepLane
-          </span>
+          <div className="mx-auto mb-4 flex justify-center">
+            <PrepLaneLogo size="lg" />
+          </div>
           <p className="mt-2 text-[14px] text-muted-foreground font-normal leading-relaxed">
             Your end-to-end <span className="font-display text-orange-500">AI-powered</span> career prep platform
           </p>
