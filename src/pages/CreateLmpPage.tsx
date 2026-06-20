@@ -17,6 +17,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { saveDraft, deleteDraft, type LmpDraft } from "@/lib/lmpDrafts";
 import { saveJd, type JdData } from "@/lib/jdStore";
 
+type JdWithProcessType = ParsedJD & { processType?: "internship" | "full-time" };
+
+function resolveProcessType(jd: JdWithProcessType | null | undefined): "Internship" | "Full Time" {
+  return jd?.processType === "internship" ? "Internship" : "Full Time";
+}
+
 export default function CreateLmpPage() {
   const { role, user } = useRole();
   const navigate = useNavigate();
@@ -104,7 +110,7 @@ export default function CreateLmpPage() {
         company: jd.company,
         role: jd.role,
         domain: jd.domain,
-        type: "Full Time",
+        type: resolveProcessType(jd),
         jd_text: extras.jdText,
         jd_file_name: extras.jdFile?.name,
         selected_candidates: extras.selectedCandidates,
@@ -125,7 +131,7 @@ export default function CreateLmpPage() {
       company: jd?.company?.trim().toLowerCase() ?? "",
       role: jd?.role?.trim().toLowerCase() ?? "",
       domain: jd?.domain?.trim().toLowerCase() ?? "",
-      type: (jd as any)?.processType === "internship" ? "Internship" : "Full Time",
+      type: resolveProcessType(jd),
       prep: selection.prepPoc.pocId ?? selection.prepPoc.name,
       support: selection.supportPoc?.pocId ?? selection.supportPoc?.name ?? null,
       outreach: selection.outreachPoc?.pocId ?? selection.outreachPoc?.name ?? null,
@@ -171,7 +177,7 @@ export default function CreateLmpPage() {
         company: jd.company,
         role: jd.role,
         domain: jd.domain,
-        type: (jd as any)?.processType === "internship" ? "Internship" : "Full Time",
+        type: resolveProcessType(jd),
         createdById: user.id,
         createdByName: user.name,
         selection,
