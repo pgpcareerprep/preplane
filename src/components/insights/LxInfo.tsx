@@ -1,12 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const GAP = 6;
+const MAX_W = 280;
+const MIN_W = 180;
+
 /**
  * Compact "i" button that shows an explanation popover on hover AND click.
- * - Hover (desktop): opens after a small delay, closes on leave.
- * - Click/keyboard: toggles, stays open until explicit close (outside click / Esc).
- * - Click is captured (stopPropagation) so it never triggers parent drill-down handlers.
+ * Renders the popover in a portal so it is not clipped by overflow-hidden parents.
  */
 export function LxInfo({
   text,
@@ -24,18 +27,82 @@ export function LxInfo({
   ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pinned, setPinned] = useState(false); // true when opened by click
+  const [pinned, setPinned] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number; transform: string } | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapRef = useRef<HTMLSpanElement | null>(null);
+  const tipRef = useRef<HTMLSpanElement | null>(null);
 
-  // Close pinned popover when clicking outside or hitting Esc.
+  const updateCoords = () => {
+    const anchor = wrapRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const tipEl = tipRef.current;
+    const tipW = tipEl?.offsetWidth ?? MAX_W;
+    const tipH = tipEl?.offsetHeight ?? 48;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 8;
+
+    let placement = side;
+    if (placement === "top" && rect.top - tipH - GAP < margin) placement = "bottom";
+    if (placement === "bottom" && rect.bottom + tipH + GAP > vh - margin) placement = "top";
+
+    let top = 0;
+    let left = 0;
+    let transform = "";
+
+    if (placement === "bottom") {
+      top = rect.bottom + GAP;
+      left = align === "start" ? rect.left : align === "end" ? rect.right : rect.left + rect.width / 2;
+      transform = align === "center" ? "translateX(-50%)" : align === "end" ? "translateX(-100%)" : "";
+    } else if (placement === "left") {
+      top = rect.top + rect.height / 2;
+      left = rect.left - GAP;
+      transform = "translate(-100%, -50%)";
+    } else if (placement === "right") {
+      top = rect.top + rect.height / 2;
+      left = rect.right + GAP;
+      transform = "translateY(-50%)";
+    } else {
+      top = rect.top - GAP;
+      left = align === "start" ? rect.left : align === "end" ? rect.right : rect.left + rect.width / 2;
+      transform = align === "center" ? "translate(-50%, -100%)" : align === "end" ? "translate(-100%, -100%)" : "translateY(-100%)";
+    }
+
+    const halfW = tipW / 2;
+    if (align === "center" || placement === "top" || placement === "bottom") {
+      left = Math.min(Math.max(left, margin + (align === "center" ? halfW : 0)), vw - margin - (align === "center" ? halfW : tipW));
+    }
+    top = Math.min(Math.max(top, margin), vh - margin);
+
+    setCoords({ top, left, transform });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    updateCoords();
+    const id = requestAnimationFrame(updateCoords);
+    const onScrollOrResize = () => updateCoords();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open, side, align, text]);
+
   useEffect(() => {
     if (!pinned) return;
     const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) {
-        setPinned(false);
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target) || tipRef.current?.contains(target)) return;
+      setPinned(false);
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { setPinned(false); setOpen(false); }
@@ -59,13 +126,32 @@ export function LxInfo({
     hoverTimer.current = setTimeout(() => setOpen(false), 80);
   };
 
-  // Position offsets based on side.
-  const posStyle: React.CSSProperties = (() => {
-    if (side === "bottom") return { top: "calc(100% + 6px)", left: align === "start" ? 0 : align === "end" ? "auto" : "50%", right: align === "end" ? 0 : "auto", transform: align === "center" ? "translateX(-50%)" : undefined };
-    if (side === "left") return { right: "calc(100% + 6px)", top: "50%", transform: "translateY(-50%)" };
-    if (side === "right") return { left: "calc(100% + 6px)", top: "50%", transform: "translateY(-50%)" };
-    return { bottom: "calc(100% + 6px)", left: align === "start" ? 0 : align === "end" ? "auto" : "50%", right: align === "end" ? 0 : "auto", transform: align === "center" ? "translateX(-50%)" : undefined };
-  })();
+  const tooltip = open && typeof document !== "undefined"
+    ? createPortal(
+      <span
+        ref={tipRef}
+        role="tooltip"
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        className="fixed z-[9999] rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug shadow-md pointer-events-auto normal-case"
+        style={{
+          top: coords?.top ?? -9999,
+          left: coords?.left ?? -9999,
+          transform: coords?.transform,
+          visibility: coords ? "visible" : "hidden",
+          background: "var(--lx-surface, white)",
+          color: "var(--lx-text, #1A1916)",
+          borderColor: "var(--lx-border, rgba(0,0,0,0.08))",
+          maxWidth: MAX_W,
+          minWidth: MIN_W,
+          whiteSpace: "normal",
+        }}
+      >
+        {text}
+      </span>,
+      document.body,
+    )
+    : null;
 
   return (
     <span
@@ -92,26 +178,7 @@ export function LxInfo({
       >
         <Info style={{ width: size, height: size }} aria-hidden />
       </button>
-
-      {open && (
-        <span
-          role="tooltip"
-          onMouseEnter={onEnter}
-          onMouseLeave={onLeave}
-          className="absolute z-50 rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug shadow-md pointer-events-auto"
-          style={{
-            ...posStyle,
-            background: "var(--lx-surface, white)",
-            color: "var(--lx-text, #1A1916)",
-            borderColor: "var(--lx-border, rgba(0,0,0,0.08))",
-            maxWidth: 280,
-            minWidth: 180,
-            whiteSpace: "normal",
-          }}
-        >
-          {text}
-        </span>
-      )}
+      {tooltip}
     </span>
   );
 }

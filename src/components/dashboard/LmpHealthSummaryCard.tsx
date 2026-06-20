@@ -266,7 +266,7 @@ export function LmpHealthSummaryCard({
 
   return (
     <div
-      className="lx-grad-yellow rounded-2xl overflow-hidden relative"
+      className="lx-grad-yellow rounded-2xl relative"
       style={CARD_SURFACE}
     >
       <div className="relative p-6 flex flex-col gap-5">
@@ -322,6 +322,7 @@ export function LmpHealthSummaryCard({
                 <LxInfo
                   text="Distinct LMP processes in the current filtered scope."
                   size={12}
+                  side="bottom"
                 />
               </div>
               <div
@@ -346,11 +347,9 @@ export function LmpHealthSummaryCard({
               >
                 Process-wise Conversion
                 <LxInfo
-                  text={
-                    "Converted LMPs ÷ (Total Processes − Closed Processes) × 100.\n" +
-                    "Closed = Other Reasons bucket (includes dormant, archived, converted-na)."
-                  }
+                  text="Converted LMPs ÷ (Total Processes − Closed Processes) × 100"
                   size={12}
+                  side="bottom"
                 />
               </div>
               <div
