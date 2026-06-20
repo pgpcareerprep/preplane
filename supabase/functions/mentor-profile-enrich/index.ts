@@ -1,31 +1,21 @@
-// Live mentor profile enrichment.
+// Live mentor profile enrichment — Zero-Spend provider stack + Gemini (free tier).
 //
-// Given a mentor id (or ad-hoc name/role/company/linkedin), fetches public
-// info via Firecrawl (LinkedIn scrape + web search fallback) and structures
-// it through Gemini Flash into a stable JSON shape:
-//
-//   {
-//     overview: string,            // 2-3 sentence bio
-//     experience: [{ role, company, years }],
-//     languages: string[],
-//     decisionRationale: { rationale: string, tags: string[] },
-//     remuneration: { min_inr: number|null, max_inr: number|null, notes: string },
-//     sources: string[],
-//   }
-//
-// Results are cached on public.mentors.enrichment for 30 days so repeated
-// drawer opens don't burn Firecrawl credits. Never returns mock data — if
-// no source material is available, fields are left null/empty.
+// Fetches public info via free search/scrape providers (no paid Firecrawl).
+// LinkedIn is never scraped directly — search snippets only.
+// Results cached on public.mentors.enrichment for 30 days.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { createLogger } from "../_shared/logger.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { getAiGatewayUrl } from "../_shared/appConfig.ts";
+import { GEMINI_FREE_MODEL } from "../_shared/providers/config.ts";
+import { searchHitsToCorpus } from "../_shared/providers/discovery/gemini-grounding.ts";
+import { cachedScrape, cachedSearch } from "../_shared/providers/pipeline.ts";
+import { loadSecret } from "../_shared/providers/secrets.ts";
 
-const FIRECRAWL = "https://api.firecrawl.dev/v2";
 const AI_GATEWAY = getAiGatewayUrl();
-const AI_MODEL = "google/gemini-3-flash-preview";
-const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type Enrichment = {
   overview: string;
@@ -42,51 +32,6 @@ function jsonResp(body: unknown, status: number, cors: Record<string, string>) {
     status,
     headers: { ...cors, "Content-Type": "application/json" },
   });
-}
-
-async function firecrawlScrape(url: string, apiKey: string): Promise<string | null> {
-  try {
-    const r = await fetch(`${FIRECRAWL}/scrape`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const md = data?.data?.markdown ?? data?.markdown ?? null;
-    return typeof md === "string" && md.length > 50 ? md.slice(0, 8000) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function firecrawlSearch(query: string, apiKey: string): Promise<string | null> {
-  try {
-    const r = await fetch(`${FIRECRAWL}/search`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        limit: 4,
-        scrapeOptions: { formats: ["markdown"] },
-      }),
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    const results: any[] = data?.data?.web ?? data?.data ?? data?.web ?? [];
-    if (!Array.isArray(results) || results.length === 0) return null;
-    const chunks = results
-      .map((res: any) => {
-        const title = res.title ?? "";
-        const url = res.url ?? "";
-        const md = (res.markdown ?? res.description ?? "").slice(0, 1500);
-        return `### ${title}\n${url}\n${md}`;
-      })
-      .join("\n\n");
-    return chunks.slice(0, 8000);
-  } catch {
-    return null;
-  }
 }
 
 async function structureWithAi(
@@ -125,7 +70,7 @@ Output JSON schema:
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: AI_MODEL,
+        model: GEMINI_FREE_MODEL,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -133,10 +78,7 @@ Output JSON schema:
         response_format: { type: "json_object" },
       }),
     });
-    if (!r.ok) {
-      console.warn("[enrich] AI gateway failed", r.status, await r.text());
-      return null;
-    }
+    if (!r.ok) return null;
     const data = await r.json();
     const content = data?.choices?.[0]?.message?.content;
     if (!content) return null;
@@ -145,21 +87,21 @@ Output JSON schema:
       overview: String(parsed.overview ?? "").trim(),
       experience: Array.isArray(parsed.experience)
         ? parsed.experience
-            .map((e: any) => ({
+            .map((e: Record<string, unknown>) => ({
               role: String(e?.role ?? "").trim(),
               company: String(e?.company ?? "").trim(),
               years: String(e?.years ?? "").trim(),
             }))
-            .filter((e: any) => e.role || e.company)
+            .filter((e: { role: string; company: string }) => e.role || e.company)
             .slice(0, 8)
         : [],
       languages: Array.isArray(parsed.languages)
-        ? parsed.languages.map((l: any) => String(l).trim()).filter(Boolean).slice(0, 6)
+        ? parsed.languages.map((l: unknown) => String(l).trim()).filter(Boolean).slice(0, 6)
         : [],
       decisionRationale: {
         rationale: String(parsed.decisionRationale?.rationale ?? "").trim(),
         tags: Array.isArray(parsed.decisionRationale?.tags)
-          ? parsed.decisionRationale.tags.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 6)
+          ? parsed.decisionRationale.tags.map((t: unknown) => String(t).trim()).filter(Boolean).slice(0, 6)
           : [],
       },
       remuneration: {
@@ -170,29 +112,29 @@ Output JSON schema:
       sources: ctx.sources,
       fetched_at: new Date().toISOString(),
     };
-  } catch (e) {
-    console.warn("[enrich] AI structure failed", e);
+  } catch {
     return null;
   }
 }
 
 Deno.serve(async (req: Request) => {
   const cors = buildCorsHeaders(req);
+  const log = createLogger("mentor-profile-enrich", req);
+
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   const auth = await requireAuth(req, cors);
   if ("error" in auth) return auth.error;
 
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400, cors); }
 
-  const mentorId: string | null = body?.mentorId ?? null;
+  const mentorId: string | null = (body?.mentorId as string) ?? null;
   const refresh = body?.refresh === true;
 
-  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
-  if (!FIRECRAWL_API_KEY || !GEMINI_API_KEY) {
-    return jsonResp({ error: "Missing FIRECRAWL_API_KEY or GEMINI_API_KEY" }, 500, cors);
+  const GEMINI_API_KEY = (await loadSecret("GEMINI_API_KEY")) ?? Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
+  if (!GEMINI_API_KEY) {
+    return jsonResp({ error: "Missing GEMINI_API_KEY" }, 500, cors);
   }
 
   const admin = createClient(
@@ -201,14 +143,13 @@ Deno.serve(async (req: Request) => {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  // Resolve mentor row (cache lookup) or fall back to ad-hoc payload.
   let name: string = String(body?.name ?? "").trim();
   let role: string = String(body?.role ?? "").trim();
   let company: string = String(body?.company ?? "").trim();
-  let linkedin: string | null = body?.linkedin ?? null;
-  let existing: any = null;
-
+  let linkedin: string | null = (body?.linkedin as string) ?? null;
+  let existing: Record<string, unknown> | null = null;
   let mentorRowFound = false;
+
   if (mentorId) {
     const { data, error } = await admin
       .from("mentors")
@@ -231,29 +172,44 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
-    // If row not found, fall through and enrich ad-hoc using the supplied
-    // name/role/company/linkedin from the request body (external/shortlist
-    // mentors live outside the `mentors` table).
   }
-
 
   if (!name) return jsonResp({ error: "Missing mentor name" }, 400, cors);
 
-  // Build source material.
   const sources: string[] = [];
   const corpora: string[] = [];
 
+  // LinkedIn: search snippets only — never scrape linkedin.com
   if (linkedin) {
-    const li = linkedin.startsWith("http") ? linkedin : `https://www.linkedin.com/in/${linkedin.replace(/^\/+/, "")}`;
-    const md = await firecrawlScrape(li, FIRECRAWL_API_KEY);
-    if (md) { sources.push(li); corpora.push(`# LinkedIn (${li})\n${md}`); }
+    const handle = linkedin.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//i, "").replace(/\/$/, "");
+    const q = `"${name}" ${handle} linkedin profile`;
+    const hits = await cachedSearch(q, 4, log);
+    if (hits.length) {
+      sources.push(linkedin.startsWith("http") ? linkedin : `https://www.linkedin.com/in/${handle}`);
+      corpora.push(`# LinkedIn search snippets\n${searchHitsToCorpus(hits)}`);
+    }
   }
 
-  // Always do a web search to broaden coverage.
-  const q = [name, role, company].filter(Boolean).join(" ");
+  const q = [name, role, company, "topmate OR adplist mentor"].filter(Boolean).join(" ");
   if (q) {
-    const md = await firecrawlSearch(`${q} profile`, FIRECRAWL_API_KEY);
-    if (md) { sources.push(`search:${q}`); corpora.push(`# Web search results\n${md}`); }
+    const hits = await cachedSearch(q, 6, log);
+    if (hits.length) {
+      sources.push(`search:${q}`);
+      corpora.push(`# Web search results\n${searchHitsToCorpus(hits)}`);
+
+      // Scrape first non-LinkedIn booking profile for richer corpus
+      const scrapeTarget = hits.find((h) =>
+        !/linkedin\.com/i.test(h.url) &&
+        (/topmate\.io|adplist\.org|superpeer\.com/i.test(h.url)),
+      );
+      if (scrapeTarget) {
+        const scraped = await cachedScrape(scrapeTarget.url, log, GEMINI_API_KEY);
+        if (scraped?.markdown) {
+          sources.push(scrapeTarget.url);
+          corpora.push(`# Profile page (${scrapeTarget.url})\n${scraped.markdown.slice(0, 6000)}`);
+        }
+      }
+    }
   }
 
   const enrichment = await structureWithAi(GEMINI_API_KEY, {
@@ -285,10 +241,9 @@ Deno.serve(async (req: Request) => {
         enrichment_updated_at: new Date().toISOString(),
       }).eq("id", mentorId);
     } catch (e) {
-      console.warn("[enrich] cache write failed", e);
+      log.warn("cache_write_failed", { err_msg: (e as Error).message });
     }
   }
-
 
   return jsonResp({ enrichment, cached: false }, 200, cors);
 });

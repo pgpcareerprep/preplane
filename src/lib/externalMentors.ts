@@ -31,6 +31,10 @@ export type ExternalMentor = {
   years_experience?: number | null;
   pricing?: ExternalPricing | null;
   source_url?: string;
+  /** Evidence-grounded relevance from external-mentor-search (optional). */
+  confidence?: number;
+  matched_fields?: string[];
+  evidence?: string;
   external_links: {
     platform: string;
     booking: string | null;
@@ -243,6 +247,9 @@ type AIDiscoveredMentor = {
   years_experience?: number | null;
   pricing?: ExternalPricing | null;
   source_url?: string;
+  confidence?: number;
+  matched_fields?: string[];
+  evidence?: string;
 };
 
 type AISearchInput = {
@@ -306,6 +313,9 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       remuneration_inr:
         m.pricing && (m.pricing.currency || "INR").toUpperCase() === "INR" ? m.pricing.amount : undefined,
       source_url: m.source_url,
+      confidence: typeof m.confidence === "number" ? m.confidence : undefined,
+      matched_fields: Array.isArray(m.matched_fields) ? m.matched_fields : undefined,
+      evidence: typeof m.evidence === "string" ? m.evidence : undefined,
       external_links: {
         platform: ((m.platform || platform) as string).toLowerCase(),
         booking: m.booking_url || null,

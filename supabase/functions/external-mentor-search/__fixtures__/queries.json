@@ -1,0 +1,51 @@
+[
+  {
+    "id": "product-manager-google",
+    "body": {
+      "role": "Product Manager",
+      "company": "Google",
+      "industry": "Technology",
+      "skills": ["Product Strategy", "Roadmapping"],
+      "seniority": "Senior",
+      "region": "us",
+      "limit": 12
+    }
+  },
+  {
+    "id": "software-engineer-skills-only",
+    "body": {
+      "role": "Software Engineer",
+      "skills": ["System Design", "Java", "Distributed Systems"],
+      "limit": 12
+    }
+  },
+  {
+    "id": "data-analyst-india",
+    "body": {
+      "role": "Data Analyst",
+      "company": "Flipkart",
+      "industry": "E-commerce",
+      "skills": ["SQL", "Python"],
+      "region": "in",
+      "limit": 12
+    }
+  },
+  {
+    "id": "marketing-manager-us",
+    "body": {
+      "role": "Marketing Manager",
+      "industry": "SaaS",
+      "skills": ["Growth", "Brand"],
+      "region": "us",
+      "limit": 12
+    }
+  },
+  {
+    "id": "sparse-jd-consultant",
+    "body": {
+      "role": "Management Consultant",
+      "jdText": "Looking for ex-MBB consultant to help with case interview prep. Focus on structured problem solving.",
+      "limit": 10
+    }
+  }
+]

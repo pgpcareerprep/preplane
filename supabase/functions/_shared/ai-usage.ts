@@ -16,7 +16,7 @@ function getClient() {
   return _client;
 }
 
-export type AiFeature = "copilot" | "voice" | "tts" | "parse_jd" | "embeddings";
+export type AiFeature = "copilot" | "voice" | "tts" | "parse_jd" | "embeddings" | "mentor_search";
 
 export interface LogAiUsageInput {
   userId?: string | null;

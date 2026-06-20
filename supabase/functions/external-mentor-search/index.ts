@@ -1,18 +1,41 @@
-// External mentor discovery via Firecrawl (free tier) + Gemini Flash.
+// External mentor discovery — Zero-Spend provider stack + Gemini (free tier).
 //
 // Pipeline:
-//   1. Query expansion (Gemini Flash) — fall back to hand-built site: queries.
-//   2. Firecrawl /v2/search across LinkedIn / Topmate / ADPList / Superpeer.
-//   3. Firecrawl /v2/scrape — markdown + JSON schema extraction.
-//   4. Validation pass (Gemini Flash) — keep only fields literally present in the
-//      scraped markdown. Regex post-filter on email/phone. Never fabricate.
-//   5. Dedupe + rank.
+//   1. Query expansion (Gemini free tier) — JD-aware site: queries.
+//   2. Free search chain: cache → SearXNG (if set) → Jina s.jina.ai.
+//   3. LinkedIn → snippet-only mentors (no scrape).
+//   4. Scrape chain: cache → Crawl4AI (if set) → Jina r.jina.ai + Gemini extraction.
+//   5. Verbatim guards on email/phone/pricing/years.
+//   6. Evidence-grounded re-rank + confidence scoring.
 //
-// Returns the same envelope as before — `{ mentors: [...] }` — with extra
-// optional fields: email, phone, years_experience, pricing, source_url.
+// Returns `{ mentors: [...] }` with optional confidence/matched_fields/evidence.
 
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { createLogger } from "../_shared/logger.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
+import { assertZeroSpendConfig, MIN_CONFIDENCE } from "../_shared/providers/config.ts";
+import {
+  buildLinkedInFromSnippet,
+  buildPlatformFromSnippet,
+  discoverViaGeminiSearch,
+} from "../_shared/providers/discovery/gemini-grounding.ts";
+import { expandQueries, rerankMentors, validateExtraction } from "../_shared/providers/extract/gemini.ts";
+import {
+  dedupeKey,
+  fuzzyContains,
+  namesMatch,
+  normToken,
+  platformFromUrl,
+  sanitizeEmail,
+  sanitizePhone,
+  sanitizePricing,
+  sanitizeYears,
+  tokensOf,
+  cleanLinkedin,
+} from "../_shared/providers/mentorSanitize.ts";
+import { cachedScrape, cachedSearch } from "../_shared/providers/pipeline.ts";
+import { loadSecret } from "../_shared/providers/secrets.ts";
+import type { DiscoveredMentor, Platform, SearchHit } from "../_shared/providers/types.ts";
 
 type Body = {
   role?: string;
@@ -35,845 +58,351 @@ const REGION_LABEL: Record<string, string> = {
   ae: "United Arab Emirates",
 };
 
-
-type Platform = "Topmate" | "ADPList" | "LinkedIn" | "Superpeer";
 const ALL_PLATFORMS: Platform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"];
 
-type Pricing = { amount: number; currency: string; unit: string } | null;
-
-type DiscoveredMentor = {
-  name: string;
-  current_role: string;
-  company: string;
-  industry: string;
-  skills: string[];
-  seniority_level: string;
-  years_experience: number | null;
-  email: string | null;
-  phone: string | null;
-  pricing: Pricing;
-  platform: Platform;
-  linkedin: string | null;
-  booking_url: string | null;
-  source_url: string;
-};
-
-const FIRECRAWL = "https://api.firecrawl.dev/v2";
-const AI_GATEWAY = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-const AI_MODEL = "gemini-2.0-flash";
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-function platformFromUrl(url: string): Platform | null {
-  const u = url.toLowerCase();
-  if (u.includes("linkedin.com/in/")) return "LinkedIn";
-  if (u.includes("topmate.io/")) return "Topmate";
-  if (u.includes("adplist.org/")) return "ADPList";
-  if (u.includes("superpeer.com/")) return "Superpeer";
-  return null;
+function nameInText(name: string, text: string): boolean {
+  const parts = normToken(name).split(" ").filter((p) => p.length > 1);
+  if (!parts.length) return false;
+  const hay = normToken(text);
+  return parts.every((p) => hay.includes(p) || (p.length === 1 && parts.length > 1));
 }
 
-function cleanLinkedin(v: string | null | undefined): string | null {
-  if (!v) return null;
-  let s = String(v).trim();
-  if (!s) return null;
-  s = s.replace(/[?#].*$/, "").replace(/\/+$/, "");
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const next = s
-      .replace(/^https?:\/\//i, "")
-      .replace(/^www\./i, "")
-      .replace(/^[a-z]{2,3}\.linkedin\.com\/in\//i, "")
-      .replace(/^linkedin\.com\/in\//i, "");
-    if (next === s) break;
-    s = next;
+function crossFieldConsistent(snippet: SearchHit | undefined, name: string, role: string, company: string): boolean {
+  if (!snippet) return true;
+  const hay = `${snippet.title} ${snippet.description}`.toLowerCase();
+  if (role && !fuzzyContains(hay, role) && !tokensOf(role).some((t) => hay.includes(t))) {
+    if (company && !fuzzyContains(hay, company)) return false;
   }
-  if (!s) return null;
-  return `https://www.linkedin.com/in/${s}`;
+  if (company && !fuzzyContains(hay, company) && !fuzzyContains(hay, name)) return false;
+  return true;
 }
-
-function normToken(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function tokensOf(s: string): string[] {
-  return normToken(s).split(" ").filter((t) => t.length > 2);
-}
-
-function fuzzyContains(hay: string, needle: string): boolean {
-  const h = normToken(hay);
-  const n = normToken(needle);
-  if (!h || !n) return false;
-  if (h.includes(n)) return true;
-  const ht = new Set(h.split(" "));
-  return n.split(" ").every((w) => ht.has(w));
-}
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^[+()\d][\d\s().-]{6,18}\d$/;
-
-function sanitizeEmail(v: unknown, hay: string): string | null {
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  if (!EMAIL_RE.test(s)) return null;
-  // Must literally appear in the scraped text.
-  if (!hay.toLowerCase().includes(s.toLowerCase())) return null;
-  return s;
-}
-
-function sanitizePhone(v: unknown, hay: string): string | null {
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  if (!PHONE_RE.test(s)) return null;
-  const digits = s.replace(/\D/g, "");
-  if (digits.length < 7 || digits.length > 15) return null;
-  // Either the raw form or just the digits must appear in the scrape.
-  const lowHay = hay.toLowerCase();
-  if (!lowHay.includes(s.toLowerCase()) && !lowHay.replace(/\D/g, "").includes(digits)) return null;
-  return s;
-}
-
-function sanitizePricing(v: unknown, hay: string): Pricing {
-  if (!v || typeof v !== "object") return null;
-  const o = v as Record<string, unknown>;
-  const amount = typeof o.amount === "number" ? o.amount : Number(o.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  const currency = (typeof o.currency === "string" && o.currency.trim()) || "INR";
-  const unit = (typeof o.unit === "string" && o.unit.trim()) || "session";
-  // The amount must literally appear in the scraped markdown (with or without separators).
-  const a = String(Math.round(amount));
-  const lowHay = hay.toLowerCase().replace(/[,\s]/g, "");
-  if (!lowHay.includes(a)) return null;
-  return { amount, currency, unit };
-}
-
-function sanitizeYears(v: unknown, hay: string): number | null {
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n) || n < 0 || n > 60) return null;
-  const a = String(Math.round(n));
-  if (!new RegExp(`\\b${a}\\s*(\\+)?\\s*(years|yrs|y)\\b`, "i").test(hay)) return null;
-  return n;
-}
-
-// ─── Gemini Flash ──────────────────────────────────────────────────────────
-
-async function callGemini(
-  apiKey: string,
-  system: string,
-  user: string,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  try {
-    const res = await fetch(AI_GATEWAY, {
-      method: "POST",
-      signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
-    if (!res.ok) {
-      console.warn(`gemini ${res.status}: ${await res.text().catch(() => "")}`);
-      return null;
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn(`gemini err: ${(e as Error).message}`);
-    return null;
-  }
-}
-
-async function expandQueries(
-  apiKey: string | null,
-  role: string,
-  company: string,
-  industry: string,
-  skills: string[],
-  seniority: string,
-  jdText: string,
-): Promise<string[]> {
-  // Hand-built fallbacks — guarantee at least one query per supported site
-  // so the URL set is never dominated by a single platform.
-  const fallback: string[] = [];
-  if (role) {
-    if (company) fallback.push(`site:linkedin.com/in "${role}" "${company}"`);
-    if (industry) fallback.push(`site:linkedin.com/in "${role}" "${industry}"`);
-    fallback.push(`site:linkedin.com/in "${role}"${seniority ? ` "${seniority}"` : ""}`);
-    if (company) fallback.push(`"ex-${company}" "${role}" site:linkedin.com/in`);
-    fallback.push(`site:topmate.io "${role}"${industry ? ` "${industry}"` : ""}`);
-    fallback.push(`site:adplist.org mentor "${role}"`);
-    if (industry) fallback.push(`site:superpeer.com "${role}" "${industry}"`);
-  }
-
-  if (!apiKey) return fallback;
-
-  const sys =
-    "You produce Google search queries that surface real professional profiles. " +
-    "Return ONLY a JSON object: {\"queries\": string[]}. Exactly 8 queries: 2 site:linkedin.com/in, " +
-    "2 site:topmate.io, 2 site:adplist.org, 2 site:superpeer.com. " +
-    "Always include the role verbatim, in quotes. Never invent companies or domains.";
-  const user = JSON.stringify({
-    role, company, industry, skills: skills.slice(0, 8), seniority,
-    jd_excerpt: jdText.slice(0, 2000),
-  });
-  const raw = await callGemini(apiKey, sys, user);
-  if (!raw) return fallback;
-  try {
-    const j = JSON.parse(raw);
-    const arr = Array.isArray(j?.queries) ? j.queries : [];
-    const cleaned = arr
-      .filter((q: unknown): q is string => typeof q === "string" && q.includes("site:"))
-      .slice(0, 8);
-    // Always concat fallbacks so each platform is represented.
-    const merged = Array.from(new Set([...cleaned, ...fallback]));
-    return merged.length ? merged : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-
-async function validateExtraction(
-  apiKey: string | null,
-  markdown: string,
-  extracted: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (!apiKey) return extracted;
-  const sys =
-    "You verify whether each field in an extracted profile is literally supported by the source markdown. " +
-    "Return ONLY a JSON object with the same shape as the input. For each field, KEEP the value only if it " +
-    "appears verbatim (or as an obvious normalised form, e.g. trimmed whitespace) in the markdown. " +
-    "Otherwise set it to null. NEVER invent emails, phones, prices, companies, or roles. " +
-    "Treat skills as an array of strings actually mentioned on the page; drop any not present.";
-  const user = JSON.stringify({
-    markdown: markdown.slice(0, 6000),
-    extracted,
-  });
-  const raw = await callGemini(apiKey, sys, user);
-  if (!raw) return extracted;
-  try {
-    const j = JSON.parse(raw);
-    if (j && typeof j === "object") return j as Record<string, unknown>;
-  } catch {
-    /* fall through */
-  }
-  return extracted;
-}
-
-// ─── Firecrawl ─────────────────────────────────────────────────────────────
-
-type SearchHit = { url: string; title: string; description: string };
-
-async function firecrawlSearch(query: string, apiKey: string, limit = 5): Promise<SearchHit[]> {
-  const signal = AbortSignal.timeout(8000);
-  try {
-    const res = await fetch(`${FIRECRAWL}/search`, {
-      method: "POST",
-      signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, limit }),
-    });
-    if (!res.ok) {
-      console.warn(`firecrawl search ${res.status} for "${query}"`);
-      return [];
-    }
-    const data = await res.json();
-    // deno-lint-ignore no-explicit-any
-    const items: any[] = data?.data?.web ?? data?.data ?? data?.web ?? [];
-    return items
-      .map((x) => ({
-        url: typeof x?.url === "string" ? x.url : "",
-        title: typeof x?.title === "string" ? x.title : "",
-        description: typeof x?.description === "string"
-          ? x.description
-          : (typeof x?.snippet === "string" ? x.snippet : ""),
-      }))
-      .filter((h) => h.url);
-  } catch (e) {
-    console.warn(`firecrawl search err: ${(e as Error).message}`);
-    return [];
-  }
-}
-
-// Build a LinkedIn mentor straight from search snippet — LinkedIn blocks
-// Firecrawl /scrape with HTTP 403, so we never try to fetch the profile page.
-function buildLinkedInFromSnippet(hit: SearchHit): DiscoveredMentor | null {
-  if (!/linkedin\.com\/in\//i.test(hit.url)) return null;
-  const title = (hit.title || "").replace(/\s*[\|·]\s*LinkedIn.*$/i, "").trim();
-  if (!title) return null;
-  const parts = title.split(/\s+[-–—]\s+/);
-  const name = (parts[0] || "").trim();
-  if (!name || name.length < 2) return null;
-  let role = "";
-  let company = "";
-  if (parts.length >= 2) {
-    const rest = parts.slice(1).join(" - ");
-    const m = rest.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
-    if (m) {
-      role = m[1].trim();
-      company = m[2].trim();
-    } else if (parts.length >= 3) {
-      role = parts[1].trim();
-      company = parts.slice(2).join(" - ").trim();
-    } else {
-      role = rest.trim();
-    }
-  }
-  // Try to glean company from description "… at Acme · …"
-  if (!company && hit.description) {
-    const m = hit.description.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9&.,'\- ]{1,60})/);
-    if (m) company = m[1].trim().replace(/[.,;:]+$/, "");
-  }
-  return {
-    name,
-    current_role: role,
-    company,
-    industry: "",
-    skills: [],
-    seniority_level: "Mid",
-    years_experience: null,
-    email: null,
-    phone: null,
-    pricing: null,
-    platform: "LinkedIn",
-    linkedin: cleanLinkedin(hit.url),
-    booking_url: null,
-    source_url: hit.url,
-  };
-}
-
-// Build a minimal mentor from a Topmate / ADPList / Superpeer search snippet
-// when a full scrape fails or times out. Keeps the result list non-empty
-// instead of dropping the platform entirely.
-function buildPlatformFromSnippet(hit: SearchHit, platform: Platform): DiscoveredMentor | null {
-  const title = (hit.title || "")
-    .replace(/\s*[\|·]\s*(Topmate|ADPList|Superpeer).*$/i, "")
-    .trim();
-  if (!title) return null;
-  const parts = title.split(/\s+[-–—|·]\s+/);
-  const name = (parts[0] || "").trim();
-  if (!name || name.length < 2) return null;
-  let role = "";
-  let company = "";
-  if (parts.length >= 2) {
-    const rest = parts.slice(1).join(" - ");
-    const m = rest.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
-    if (m) { role = m[1].trim(); company = m[2].trim(); }
-    else { role = rest.trim(); }
-  }
-  if (!company && hit.description) {
-    const m = hit.description.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9&.,'\- ]{1,60})/);
-    if (m) company = m[1].trim().replace(/[.,;:]+$/, "");
-  }
-  return {
-    name,
-    current_role: role,
-    company,
-    industry: "",
-    skills: [],
-    seniority_level: "Mid",
-    years_experience: null,
-    email: null,
-    phone: null,
-    pricing: null,
-    platform,
-    linkedin: null,
-    booking_url: hit.url,
-    source_url: hit.url,
-  };
-}
-
-// deno-lint-ignore no-explicit-any
-async function firecrawlScrape(url: string, apiKey: string): Promise<any | null> {
-  const signal = AbortSignal.timeout(20000);
-  try {
-    const res = await fetch(`${FIRECRAWL}/scrape`, {
-      method: "POST",
-      signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url,
-        onlyMainContent: true,
-        formats: [
-          "markdown",
-          {
-            type: "json",
-            prompt:
-              "Extract the profile owner's professional info as it literally appears on the page. " +
-              "Return null for any field NOT literally present. Do not guess. Do not infer email or phone " +
-              "from the person's name. Do not invent companies, roles, prices, or experience.",
-            schema: {
-              type: "object",
-              properties: {
-                name: { type: "string" },
-                current_role: { type: "string" },
-                company: { type: "string" },
-                industry: { type: "string" },
-                skills: { type: "array", items: { type: "string" } },
-                seniority_level: { type: "string" },
-                years_experience: { type: "number" },
-                email: { type: "string" },
-                phone: { type: "string" },
-                pricing: {
-                  type: "object",
-                  properties: {
-                    amount: { type: "number" },
-                    currency: { type: "string" },
-                    unit: { type: "string" },
-                  },
-                },
-                linkedin: { type: "string" },
-                booking_url: { type: "string" },
-              },
-            },
-          },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      console.warn(`firecrawl scrape ${res.status} for ${url}`);
-      return null;
-    }
-    const data = await res.json();
-    return data?.data ?? data;
-  } catch (e) {
-    console.warn(`firecrawl scrape err: ${(e as Error).message}`);
-    return null;
-  }
-}
-
-// ─── Gemini-native search fallback (no Firecrawl) ─────────────────────────
-// Uses Gemini 2.0 Flash with Google Search grounding to discover mentors.
-
-async function discoverViаGeminiSearch(
-  apiKey: string,
-  role: string,
-  company: string,
-  industry: string,
-  skills: string[],
-  seniority: string,
-  jdText: string,
-  limit: number,
-  platforms: Platform[],
-): Promise<DiscoveredMentor[]> {
-  const skillList = skills.slice(0, 5).join(", ");
-  const context = [
-    role && `Role: ${role}`,
-    company && `Target company background: ${company}`,
-    industry && `Industry: ${industry}`,
-    seniority && `Seniority: ${seniority}`,
-    skillList && `Key skills: ${skillList}`,
-    jdText && `JD excerpt: ${jdText.slice(0, 500)}`,
-  ].filter(Boolean).join("\n");
-
-  const platformHint = platforms.includes("LinkedIn") ? "LinkedIn profiles and " : "";
-  const prompt = `You are a mentor discovery assistant. Find real ${role || "professional"} mentors for interview preparation.
-${context}
-
-Search for real people who:
-1. Have ${role} experience${company ? ` at companies like ${company}` : ""}
-2. Are available as mentors on ${platformHint}Topmate, ADPList, or similar platforms
-3. Match skills: ${skillList || role}
-
-Return a JSON array of up to ${limit} real mentors with this exact structure:
-[{
-  "name": "Full Name",
-  "current_role": "Current Job Title",
-  "company": "Current Company",
-  "industry": "${industry || "Technology"}",
-  "skills": ["skill1", "skill2"],
-  "seniority_level": "Senior|Mid|Junior|Lead|Director|VP|C-Suite",
-  "years_experience": null,
-  "email": null,
-  "phone": null,
-  "pricing": null,
-  "platform": "LinkedIn|Topmate|ADPList",
-  "linkedin": null,
-  "booking_url": null,
-  "source_url": "https://..."
-}]
-
-IMPORTANT: Only include real people you can verify. Return valid JSON array only.`;
-
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: {
-          responseMimeType: "text/plain",
-          temperature: 0.1,
-          maxOutputTokens: 2048,
-        },
-      }),
-    },
-  );
-
-  if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error(`Gemini search API ${resp.status}: ${t.slice(0, 200)}`);
-  }
-
-  const data = await resp.json() as Record<string, unknown>;
-  // Gemini Search grounding may return multiple parts (thought + answer).
-  // Concatenate ALL text parts so we don't miss the JSON when it lands in part[1+].
-  const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
-  const rawText = parts
-    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-    .join("\n");
-
-  // Extract JSON array (top-level or embedded in a markdown code block).
-  const jsonMatch = rawText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/) ??
-    rawText.match(/(\[[\s\S]*\])/);
-  if (!jsonMatch) {
-    console.warn("discoverViаGeminiSearch: no JSON array found in response", rawText.slice(0, 400));
-    return [];
-  }
-  const jsonStr = jsonMatch[1] ?? jsonMatch[0];
-  try {
-    const parsed = JSON.parse(jsonStr) as DiscoveredMentor[];
-    return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
-  } catch {
-    console.warn("discoverViаGeminiSearch: JSON parse failed", jsonStr.slice(0, 200));
-    return [];
-  }
-}
-
-// ─── Handler ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
-  // Build CORS headers fresh for every request (origin-specific, no shared state).
   const corsH = buildCorsHeaders(req);
+  const log = createLogger("external-mentor-search", req);
 
-  console.log("[external-mentor-search] incoming:", req.method);
-
-  // OPTIONS MUST be the very first check — before auth, before body parse, before anything.
   if (req.method === "OPTIONS") {
-    console.log("[external-mentor-search] OPTIONS preflight — returning 200");
     return new Response("ok", { status: 200, headers: corsH });
   }
 
   try {
-  const origin = req.headers.get("origin") ?? "";
-  console.log("[external-mentor-search] auth check starting, origin:", origin || "(none)");
-  const auth = await requireAuth(req, corsH);
-  if ("error" in auth) {
-    console.log("[external-mentor-search] auth rejected");
-    return auth.error;
-  }
-  console.log("[external-mentor-search] auth passed, role:", auth.user.role);
+    assertZeroSpendConfig();
 
-  // Read FIRECRAWL_API_KEY from EF secret first, then fall back to Supabase Vault.
-  // Vault is accessed via the vault schema using Accept-Profile header.
-  let FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY")?.trim() ?? null;
-  if (!FIRECRAWL_API_KEY) {
-    try {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      if (supabaseUrl && serviceKey) {
-        const vaultRes = await fetch(
-          `${supabaseUrl}/rest/v1/decrypted_secrets?name=eq.FIRECRAWL_API_KEY&select=decrypted_secret&limit=1`,
-          {
-            headers: {
-              apikey: serviceKey,
-              Authorization: `Bearer ${serviceKey}`,
-              "Accept-Profile": "vault",
-            },
-          },
+    const auth = await requireAuth(req, corsH);
+    if ("error" in auth) return auth.error;
+
+    const GEMINI_API_KEY = (await loadSecret("GEMINI_API_KEY")) ?? Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
+
+    let body: Body = {};
+    try { body = await req.json(); } catch { body = {}; }
+
+    const role = (body.role || "").trim();
+    const company = (body.company || "").trim();
+    const industry = (body.industry || "").trim();
+    const seniority = (body.seniority || "").trim();
+    const jdText = typeof body.jdText === "string" ? body.jdText : "";
+    const skills = Array.isArray(body.skills) ? body.skills.filter((s) => typeof s === "string") : [];
+    const limit = Math.min(Math.max(body.limit || 12, 3), 20);
+    const requestedPlatforms = Array.isArray(body.platforms)
+      ? body.platforms.filter((p): p is Platform => ALL_PLATFORMS.includes(p as Platform))
+      : ALL_PLATFORMS;
+    const activePlatforms = requestedPlatforms.length ? requestedPlatforms : ALL_PLATFORMS;
+    const region = typeof body.region === "string" ? body.region.toLowerCase() : "global";
+    const regionLabel = region !== "global" ? (REGION_LABEL[region] || "") : "";
+
+    log.info("request", {
+      role: role || "(none)",
+      company: company || "(none)",
+      platforms: activePlatforms,
+      hasGemini: Boolean(GEMINI_API_KEY),
+    });
+
+    if (!role && skills.length === 0) {
+      return new Response(JSON.stringify({ mentors: [], error: "role or skills required" }), {
+        status: 200, headers: { ...corsH, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!GEMINI_API_KEY) {
+      return new Response(
+        JSON.stringify({ mentors: [], error: "External mentor search requires GEMINI_API_KEY." }),
+        { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
+      );
+    }
+
+    const effectiveRole = role || skills[0] || "";
+    const userId = auth.user.id;
+
+    // 1. Query expansion (JD-aware)
+    const queries = await expandQueries(
+      GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText, regionLabel, userId,
+    );
+
+    const platformDomain: Record<Platform, string> = {
+      LinkedIn: "linkedin.com/in",
+      Topmate: "topmate.io",
+      ADPList: "adplist.org",
+      Superpeer: "superpeer.com",
+    };
+    const regionSuffix = regionLabel ? ` "${regionLabel}"` : "";
+    const contextTerms = [company, industry, ...skills.slice(0, 3)].filter(Boolean).join(" ");
+    const guaranteedQueries = activePlatforms.flatMap((p) => {
+      const domain = platformDomain[p];
+      const platformSpecific = queries
+        .filter((q) => q.toLowerCase().includes(domain))
+        .map((q) => regionLabel && !q.toLowerCase().includes(regionLabel.toLowerCase()) ? `${q}${regionSuffix}` : q)
+        .slice(0, 2);
+      const fallback = `site:${domain} "${effectiveRole}" ${contextTerms || "mentor coach"}${regionSuffix}`;
+      return Array.from(new Set([...platformSpecific, fallback]));
+    });
+
+    // 2. Search (cache → free providers)
+    const byPlatform: Record<Platform, SearchHit[]> = { LinkedIn: [], Topmate: [], ADPList: [], Superpeer: [] };
+    const seenUrls = new Set<string>();
+    let searchResults = await Promise.all(
+      guaranteedQueries.slice(0, 10).map((q) => cachedSearch(q, 8, log)),
+    );
+
+    if (searchResults.flat().length === 0 && effectiveRole) {
+      const broadQueries = activePlatforms.map((p) =>
+        p === "LinkedIn" ? `site:linkedin.com/in ${effectiveRole} mentor coach ${company || industry || skills.slice(0, 2).join(" ")}`
+          : p === "Topmate" ? `site:topmate.io ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
+          : p === "ADPList" ? `site:adplist.org ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
+          : `site:superpeer.com ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`,
+      );
+      searchResults = await Promise.all(broadQueries.map((q) => cachedSearch(q, 8, log)));
+    }
+
+    for (const hits of searchResults) {
+      for (const h of hits) {
+        const p = platformFromUrl(h.url);
+        if (!p || !activePlatforms.includes(p)) continue;
+        if (seenUrls.has(h.url)) continue;
+        seenUrls.add(h.url);
+        byPlatform[p].push(h);
+      }
+    }
+
+    const totalHits = Object.values(byPlatform).reduce((n, arr) => n + arr.length, 0);
+
+    // Gemini grounding fallback when free search returns nothing
+    if (totalHits === 0) {
+      log.info("gemini_grounding_fallback", {});
+      try {
+        const geminiMentors = await discoverViaGeminiSearch(
+          GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
         );
-        if (vaultRes.ok) {
-          const rows = await vaultRes.json();
-          const val = rows?.[0]?.decrypted_secret;
-          FIRECRAWL_API_KEY = (typeof val === "string" && val.trim()) ? val.trim() : null;
-        } else {
-          console.warn(`[external-mentor-search] vault query failed: ${vaultRes.status}`);
+        if (geminiMentors.length) {
+          return new Response(JSON.stringify({ mentors: geminiMentors }), {
+            status: 200, headers: { ...corsH, "Content-Type": "application/json" },
+          });
+        }
+      } catch (e) {
+        log.warn("gemini_grounding_failed", { err_msg: (e as Error).message });
+      }
+      return new Response(JSON.stringify({ mentors: [], reason: "no_free_provider_result" }), {
+        status: 200, headers: { ...corsH, "Content-Type": "application/json" },
+      });
+    }
+
+    const mentors: DiscoveredMentor[] = [];
+    const rankInputs: { mentorIdx: number; snippet: string; scraped: string }[] = [];
+
+    // 2a. LinkedIn snippet-only
+    for (const h of activePlatforms.includes("LinkedIn") ? byPlatform.LinkedIn.slice(0, 12) : []) {
+      const m = buildLinkedInFromSnippet(h);
+      if (!m) continue;
+      const hay = `${h.title} ${h.description}`;
+      const roleHit = effectiveRole
+        ? (fuzzyContains(hay, effectiveRole) || tokensOf(effectiveRole).some((t) => hay.toLowerCase().includes(t)))
+        : true;
+      const companyHit = company ? fuzzyContains(hay, company) : false;
+      const industryHit = industry ? fuzzyContains(hay, industry) : false;
+      const skillHit = skills.some((s) => fuzzyContains(hay, s));
+      if (!roleHit && !companyHit && !industryHit && !skillHit) continue;
+      if (!nameInText(m.name, hay)) continue;
+      mentors.push(m);
+      rankInputs.push({ mentorIdx: mentors.length - 1, snippet: hay, scraped: hay });
+    }
+
+    // 2b. Round-robin scrape targets
+    const ordered: string[] = [];
+    const urlHits = new Map<string, SearchHit>();
+    const scrapePlatforms: Platform[] = ["Topmate", "ADPList", "Superpeer"].filter((p): p is Platform =>
+      activePlatforms.includes(p as Platform),
+    );
+    let added = true;
+    while (added && ordered.length < 9) {
+      added = false;
+      for (const p of scrapePlatforms) {
+        const next = byPlatform[p].shift();
+        if (next) {
+          ordered.push(next.url);
+          urlHits.set(next.url, next);
+          added = true;
+          if (ordered.length >= 9) break;
         }
       }
-    } catch (vaultErr) {
-      console.warn("[external-mentor-search] vault load skipped:", (vaultErr as Error).message);
     }
-  }
 
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
-
-  let body: Body = {};
-  try { body = await req.json(); } catch { body = {}; }
-  const role = (body.role || "").trim();
-  const company = (body.company || "").trim();
-  const industry = (body.industry || "").trim();
-  const seniority = (body.seniority || "").trim();
-  const jdText = typeof body.jdText === "string" ? body.jdText : "";
-  const skills = Array.isArray(body.skills) ? body.skills.filter((s) => typeof s === "string") : [];
-  const limit = Math.min(Math.max(body.limit || 12, 3), 20);
-  const requestedPlatforms = Array.isArray(body.platforms)
-    ? body.platforms.filter((p): p is Platform => ALL_PLATFORMS.includes(p as Platform))
-    : ALL_PLATFORMS;
-  const activePlatforms = requestedPlatforms.length ? requestedPlatforms : ALL_PLATFORMS;
-
-  console.log("[external-mentor-search] request", {
-    origin,
-    role: role || "(none)",
-    company: company || "(none)",
-    platforms: activePlatforms,
-    hasFirecrawl: Boolean(FIRECRAWL_API_KEY),
-    hasGemini: Boolean(GEMINI_API_KEY),
-  });
-
-  if (!role && skills.length === 0) {
-    return new Response(JSON.stringify({ mentors: [], error: "role or skills required" }), {
-      status: 200, headers: { ...corsH, "Content-Type": "application/json" },
-    });
-  }
-
-  // Gemini-native fallback: use Google Search grounding when Firecrawl is unavailable.
-  if (!FIRECRAWL_API_KEY) {
-    if (!GEMINI_API_KEY) {
-      console.warn("[external-mentor-search] no API keys configured");
-      return new Response(
-        JSON.stringify({ mentors: [], error: "External mentor search requires FIRECRAWL_API_KEY or GEMINI_API_KEY. Neither is configured." }),
-        { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
-      );
-    }
-    try {
-      console.log("[external-mentor-search] no Firecrawl — using Gemini search fallback");
-      const geminiMentors = await discoverViаGeminiSearch(
-        GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
-      );
-      console.log(`[external-mentor-search] Gemini search returned ${geminiMentors.length} mentors`);
-      if (!geminiMentors.length) {
-        return new Response(
-          JSON.stringify({ mentors: [], error: "Gemini search returned no results. Add a FIRECRAWL_API_KEY for full external mentor discovery." }),
-          { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ mentors: geminiMentors }), {
-        status: 200,
-        headers: { ...corsH, "Content-Type": "application/json" },
+    if (ordered.length === 0 && mentors.length === 0) {
+      const counts = `LinkedIn:${byPlatform.LinkedIn.length}, Topmate:${byPlatform.Topmate.length}, ADPList:${byPlatform.ADPList.length}, Superpeer:${byPlatform.Superpeer.length}`;
+      return new Response(JSON.stringify({ mentors: [], error: `No web results matched. (${counts})` }), {
+        status: 200, headers: { ...corsH, "Content-Type": "application/json" },
       });
-    } catch (e) {
-      const msg = (e as Error).message ?? String(e);
-      console.warn("[external-mentor-search] Gemini fallback failed:", msg);
-      return new Response(
-        JSON.stringify({ mentors: [], error: `Gemini search failed: ${msg}` }),
-        { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
-      );
     }
-  }
-  console.log("[external-mentor-search] using Firecrawl pipeline");
-  const effectiveRole = role || skills[0] || "";
-  const region = typeof body.region === "string" ? body.region.toLowerCase() : "global";
-  const regionLabel = region !== "global" ? (REGION_LABEL[region] || "") : "";
 
-  // 1. Query expansion
-  const queries = await expandQueries(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText);
-  const platformDomain: Record<Platform, string> = {
-    LinkedIn: "linkedin.com/in",
-    Topmate: "topmate.io",
-    ADPList: "adplist.org",
-    Superpeer: "superpeer.com",
-  };
-  const regionSuffix = regionLabel ? ` "${regionLabel}"` : "";
-  const contextTerms = [company, industry, ...skills.slice(0, 2)].filter(Boolean).join(" ");
-  const guaranteedQueries = activePlatforms.flatMap((p) => {
-    const domain = platformDomain[p];
-    const platformSpecific = queries
-      .filter((q) => q.toLowerCase().includes(domain))
-      .map((q) => regionLabel && !q.toLowerCase().includes(regionLabel.toLowerCase()) ? `${q}${regionSuffix}` : q)
-      .slice(0, 2);
-    const fallback = `site:${domain} "${effectiveRole}" ${contextTerms || "mentor coach"}${regionSuffix}`;
-    return Array.from(new Set([...platformSpecific, fallback]));
-  });
-
-  // 2. Search guaranteed per-platform queries. Group hits by platform.
-  const byPlatform: Record<Platform, SearchHit[]> = { LinkedIn: [], Topmate: [], ADPList: [], Superpeer: [] };
-  const seenUrls = new Set<string>();
-  let searchResults = await Promise.all(
-    guaranteedQueries.slice(0, 10).map((q) => firecrawlSearch(q, FIRECRAWL_API_KEY, 8)),
-  );
-  if (searchResults.flat().length === 0 && effectiveRole) {
-    const broadQueries = activePlatforms.map((p) =>
-      p === "LinkedIn" ? `site:linkedin.com/in ${effectiveRole} mentor coach ${company || industry || skills.slice(0, 2).join(" ")}`
-        : p === "Topmate" ? `site:topmate.io ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
-        : p === "ADPList" ? `site:adplist.org ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
-        : `site:superpeer.com ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
+    // 3. Scrape + extract
+    const scraped = await Promise.all(
+      ordered.map((u) => cachedScrape(u, log, GEMINI_API_KEY).then((r) => ({ url: u, r }))),
     );
-    searchResults = await Promise.all(broadQueries.map((q) => firecrawlSearch(q, FIRECRAWL_API_KEY, 8)));
-  }
-  for (const hits of searchResults) {
-    for (const h of hits) {
-      const p = platformFromUrl(h.url);
-      if (!p) continue;
-      if (!activePlatforms.includes(p)) continue;
-      if (seenUrls.has(h.url)) continue;
-      seenUrls.add(h.url);
-      byPlatform[p].push(h);
-    }
-  }
 
-  // 2a. LinkedIn → build mentors from snippets (no scrape; LinkedIn 403s Firecrawl).
-  const mentors: DiscoveredMentor[] = [];
-  for (const h of activePlatforms.includes("LinkedIn") ? byPlatform.LinkedIn.slice(0, 12) : []) {
-    const m = buildLinkedInFromSnippet(h);
-    if (!m) continue;
-    const hay = `${h.title} ${h.description}`;
-    const roleHit = effectiveRole
-      ? (fuzzyContains(hay, effectiveRole) || tokensOf(effectiveRole).some((t) => hay.toLowerCase().includes(t)))
-      : true;
-    const companyHit = company ? fuzzyContains(hay, company) : false;
-    const industryHit = industry ? fuzzyContains(hay, industry) : false;
-    const skillHit = skills.some((s) => fuzzyContains(hay, s));
-    if (!roleHit && !companyHit && !industryHit && !skillHit) continue;
-    mentors.push(m);
-  }
-
-  // 2b. Round-robin Topmate/ADPList/Superpeer URLs for scraping (9 slots).
-  const ordered: string[] = [];
-  const urlHits = new Map<string, SearchHit>();
-  const scrapePlatforms: Platform[] = ["Topmate", "ADPList", "Superpeer"].filter((p): p is Platform => activePlatforms.includes(p as Platform));
-  let added = true;
-  while (added && ordered.length < 9) {
-    added = false;
-    for (const p of scrapePlatforms) {
-      const next = byPlatform[p].shift();
-      if (next) { ordered.push(next.url); urlHits.set(next.url, next); added = true; if (ordered.length >= 9) break; }
-    }
-  }
-
-  if (ordered.length === 0 && mentors.length === 0) {
-    const counts = `LinkedIn snippets:${byPlatform.LinkedIn.length}, Topmate:${byPlatform.Topmate.length}, ADPList:${byPlatform.ADPList.length}, Superpeer:${byPlatform.Superpeer.length}`;
-    return new Response(JSON.stringify({ mentors: [], error: `No web results matched the role/company/industry. (${counts})` }), {
-      status: 200, headers: { ...corsH, "Content-Type": "application/json" },
-    });
-  }
-
-  // 3. Scrape non-LinkedIn targets in parallel
-  const targets = ordered;
-  const scraped = await Promise.all(
-    targets.map((u) => firecrawlScrape(u, FIRECRAWL_API_KEY).then((r) => ({ url: u, r }))),
-  );
-
-  // 4. Normalise + validate (Topmate / ADPList / Superpeer only here)
-  for (const { url, r } of scraped) {
-    const platform = platformFromUrl(url);
-    if (!platform || platform === "LinkedIn") continue;
-    if (!r) {
-      // Scrape failed/timed out — fall back to the search snippet so the
-      // platform still contributes a result.
+    for (const { url, r } of scraped) {
+      const platform = platformFromUrl(url);
+      if (!platform || platform === "LinkedIn") continue;
       const hit = urlHits.get(url);
-      if (hit) {
-        const m = buildPlatformFromSnippet(hit, platform);
-        if (m) mentors.push(m);
+
+      if (!r) {
+        if (hit) {
+          const m = buildPlatformFromSnippet(hit, platform);
+          if (m && nameInText(m.name, `${hit.title} ${hit.description}`)) mentors.push(m);
+        }
+        continue;
       }
-      continue;
+
+      const md = r.markdown;
+      let j = (r.json ?? {}) as Record<string, unknown>;
+      j = await validateExtraction(GEMINI_API_KEY, md, j, userId);
+
+      const name = String(j.name || hit?.title || "").split(/[|\-—•·]/)[0].trim();
+      if (!name || name.length < 2) {
+        if (hit) {
+          const m = buildPlatformFromSnippet(hit, platform);
+          if (m) mentors.push(m);
+        }
+        continue;
+      }
+
+      // Liveness: name must appear in scraped text
+      if (!nameInText(name, md)) {
+        if (hit) {
+          const m = buildPlatformFromSnippet(hit, platform);
+          if (m && nameInText(m.name, `${hit.title} ${hit.description}`)) mentors.push(m);
+        }
+        continue;
+      }
+
+      const currentRole = String(j.current_role || "").trim();
+      const comp = String(j.company || "").trim();
+      const ind = String(j.industry || "").trim();
+      const skillsArr = Array.isArray(j.skills) ? (j.skills as unknown[]).map(String).slice(0, 12) : [];
+      const seniorityLv = String(j.seniority_level || "").trim() || "Mid";
+
+      if (!crossFieldConsistent(hit, name, currentRole, comp)) continue;
+
+      const hay = `${currentRole} ${comp} ${ind} ${md.slice(0, 2000)}`;
+      const roleHit = effectiveRole
+        ? (fuzzyContains(hay, effectiveRole) || tokensOf(effectiveRole).some((t) => hay.toLowerCase().includes(t)))
+        : true;
+      const companyHit = company ? fuzzyContains(hay, company) : false;
+      const industryHit = industry ? fuzzyContains(hay, industry) : false;
+      const skillHit = skills.some((s) => fuzzyContains(hay, s));
+      if (!roleHit && !companyHit && !industryHit && !skillHit) continue;
+
+      const linkedin = cleanLinkedin(typeof j.linkedin === "string" ? j.linkedin : null);
+      const booking = platform !== "LinkedIn" ? url : (typeof j.booking_url === "string" ? j.booking_url : null);
+
+      const email = sanitizeEmail(j.email, md);
+      const phone = sanitizePhone(j.phone, md);
+      const pricing = sanitizePricing(j.pricing, md);
+      const years = sanitizeYears(j.years_experience, md);
+
+      mentors.push({
+        name,
+        current_role: currentRole || (hit?.title ?? ""),
+        company: comp,
+        industry: ind,
+        skills: skillsArr,
+        seniority_level: seniorityLv,
+        years_experience: years,
+        email,
+        phone,
+        pricing,
+        platform,
+        linkedin,
+        booking_url: booking,
+        source_url: url,
+      });
+      rankInputs.push({
+        mentorIdx: mentors.length - 1,
+        snippet: hit ? `${hit.title} ${hit.description}` : "",
+        scraped: md.slice(0, 3000),
+      });
     }
 
-    const rawJ = (r.json ?? r.extract ?? {}) as Record<string, unknown>;
-    const md: string = typeof r.markdown === "string" ? r.markdown : "";
-    const meta = (r.metadata ?? {}) as Record<string, unknown>;
-
-    // Use Firecrawl's structured extraction directly for speed; sensitive fields
-    // still pass verbatim guards below before they are returned.
-    const j = rawJ;
-
-    const titleStr = typeof meta.title === "string" ? meta.title : "";
-    const name = String(j.name || titleStr || "").split(/[|\-—•·]/)[0].trim();
-    if (!name || name.length < 2) {
-      const hit = urlHits.get(url);
-      if (hit) { const m = buildPlatformFromSnippet(hit, platform); if (m) mentors.push(m); }
-      continue;
+    // 4. Evidence-grounded re-rank
+    if (mentors.length && GEMINI_API_KEY) {
+      const ranks = await rerankMentors(
+        GEMINI_API_KEY,
+        { role: effectiveRole, company, industry, skills, jdText: jdText.slice(0, 1500) },
+        rankInputs.map((ri) => ({
+          name: mentors[ri.mentorIdx]!.name,
+          snippet: ri.snippet,
+          scraped: ri.scraped,
+          role: effectiveRole,
+          company,
+          industry,
+          skills,
+        })),
+        userId,
+      );
+      for (let i = 0; i < rankInputs.length; i++) {
+        const idx = rankInputs[i]!.mentorIdx;
+        const rank = ranks[i];
+        if (!rank || !mentors[idx]) continue;
+        mentors[idx]!.confidence = rank.confidence;
+        mentors[idx]!.matched_fields = rank.matched_fields;
+        mentors[idx]!.evidence = rank.evidence;
+      }
     }
 
-    const currentRole = String(j.current_role || "").trim();
-    const comp = String(j.company || "").trim();
-    const ind = String(j.industry || "").trim();
-    const skillsArr = Array.isArray(j.skills) ? (j.skills as unknown[]).map(String).slice(0, 12) : [];
-    const seniorityLv = String(j.seniority_level || "").trim() || "Mid";
-
-    // Relevance gate. LinkedIn pages are often sparse so accept them when the
-    // mentor surfaced via a site:linkedin.com query (URL platform alone).
-    const hay = `${currentRole} ${comp} ${ind} ${md.slice(0, 2000)}`;
-    const roleHit = effectiveRole
-      ? (fuzzyContains(hay, effectiveRole) || tokensOf(effectiveRole).some((t) => hay.toLowerCase().includes(t)))
-      : true;
-    const companyHit = company ? fuzzyContains(hay, company) : false;
-    const industryHit = industry ? fuzzyContains(hay, industry) : false;
-    const skillHit = skills.some((s) => fuzzyContains(hay, s));
-    const linkedinPass = platform === "LinkedIn"; // trust query-targeted site:linkedin matches
-    if (!roleHit && !companyHit && !industryHit && !skillHit && !linkedinPass) continue;
-
-
-    const linkedin =
-      platform === "LinkedIn" ? cleanLinkedin(url) : cleanLinkedin(typeof j.linkedin === "string" ? j.linkedin : null);
-    const booking =
-      platform !== "LinkedIn" ? url : (typeof j.booking_url === "string" ? j.booking_url : null);
-
-    // Verbatim guards for sensitive fields.
-    const email = sanitizeEmail(j.email, md);
-    const phone = sanitizePhone(j.phone, md);
-    const pricing = sanitizePricing(j.pricing, md);
-    const years = sanitizeYears(j.years_experience, md);
-
-    mentors.push({
-      name,
-      current_role: currentRole || titleStr,
-      company: comp,
-      industry: ind,
-      skills: skillsArr,
-      seniority_level: seniorityLv,
-      years_experience: years,
-      email,
-      phone,
-      pricing,
-      platform,
-      linkedin,
-      booking_url: booking,
-      source_url: url,
+    // 5. Sort by confidence then legacy score
+    const platformRank: Record<Platform, number> = { LinkedIn: 4, Topmate: 3, ADPList: 2, Superpeer: 1 };
+    mentors.sort((a, b) => {
+      const confDiff = (b.confidence ?? 50) - (a.confidence ?? 50);
+      if (confDiff !== 0) return confDiff;
+      const score = (m: DiscoveredMentor) =>
+        (company && fuzzyContains(`${m.company} ${m.current_role}`, company) ? 100 : 0) +
+        (effectiveRole && fuzzyContains(m.current_role, effectiveRole) ? 50 : 0) +
+        (industry && fuzzyContains(`${m.industry} ${m.current_role}`, industry) ? 20 : 0) +
+        platformRank[m.platform];
+      return score(b) - score(a);
     });
-  }
 
-  // 5. Score: company > role > industry > platform
-  const platformRank: Record<Platform, number> = { LinkedIn: 4, Topmate: 3, ADPList: 2, Superpeer: 1 };
-  mentors.sort((a, b) => {
-    const score = (m: DiscoveredMentor) =>
-      (company && fuzzyContains(`${m.company} ${m.current_role}`, company) ? 100 : 0) +
-      (effectiveRole && fuzzyContains(`${m.current_role}`, effectiveRole) ? 50 : 0) +
-      (industry && fuzzyContains(`${m.industry} ${m.current_role}`, industry) ? 20 : 0) +
-      platformRank[m.platform];
-    return score(b) - score(a);
-  });
+    // Filter below MIN_CONFIDENCE (keep LinkedIn snippets without confidence)
+    const filtered = mentors.filter((m) => (m.confidence ?? 60) >= MIN_CONFIDENCE || m.platform === "LinkedIn");
 
-  // Dedupe by linkedin || email || name+company
-  const seen = new Set<string>();
-  const deduped: DiscoveredMentor[] = [];
-  for (const m of mentors) {
-    const k = (m.linkedin || m.email || `${m.name}|${m.company}`).toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    deduped.push(m);
-    if (deduped.length >= limit) break;
-  }
+    // 6. Dedupe with fuzzy name match
+    const seen = new Set<string>();
+    const deduped: DiscoveredMentor[] = [];
+    for (const m of filtered.length ? filtered : mentors) {
+      const k = dedupeKey(m);
+      if (seen.has(k)) continue;
+      const dup = deduped.find((d) => namesMatch(d.name, m.name) && normToken(d.company) === normToken(m.company));
+      if (dup) continue;
+      seen.add(k);
+      deduped.push(m);
+      if (deduped.length >= limit) break;
+    }
 
-  console.log(`[external-mentor-search] done — returning ${deduped.length} mentors`);
-  return new Response(JSON.stringify({ mentors: deduped }), {
-    status: 200,
-    headers: { ...corsH, "Content-Type": "application/json" },
-  });
-
+    log.info("done", { count: deduped.length });
+    return new Response(JSON.stringify({ mentors: deduped }), {
+      status: 200,
+      headers: { ...corsH, "Content-Type": "application/json" },
+    });
   } catch (topErr) {
     const msg = (topErr as Error).message ?? String(topErr);
-    console.error("[external-mentor-search] unhandled error:", msg);
+    log.error("unhandled", topErr);
     return new Response(
       JSON.stringify({ mentors: [], error: `External search failed: ${msg}` }),
       { status: 200, headers: { ...corsH, "Content-Type": "application/json" } },
