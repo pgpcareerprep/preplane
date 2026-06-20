@@ -13,7 +13,6 @@ import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
   lmpStatusCounts,
-  POC_OVERLOAD_THRESHOLD,
 } from "@/lib/lmpProcessQueries";
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
@@ -335,36 +334,11 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   }, [prepPocCapacity]);
 
   /* ─────── Attention strip — computed from filtered scope ─────── */
-  // Query POC thresholds only — not counts (counts come from filteredCapacity).
-  const { data: attentionPocs = [] } = useQuery({
-    queryKey: ["attention_pocs"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("poc_profiles")
-        .select("name, max_threshold")
-        .eq("status", "active");
-      if (error) throw new Error(error.message);
-      return (data ?? []).map((p: any) => ({
-        name: (p.name ?? "").trim(),
-        threshold: Number(p.max_threshold ?? 8),
-      }));
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
 
   // All attention/performance counts respect active filters via filteredRecords / filteredCapacity.
 
-  const TERMINAL_STATUSES = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
-
   // Pending Offers — LMPs in Offer Received status (unchanged).
   const attentionPendingOffers = filteredRecords.filter((r) => r.status === "offer-received").length;
-
-  // Missing Prep POCs — active LMPs with no prep POC assigned (prepPocId is null/undefined).
-  // Excludes terminal statuses since closed processes no longer need assignment.
-  const attentionMissingPrepPocs = filteredRecords.filter(
-    (r) => !r.prepPocId && !TERMINAL_STATUSES.has(r.status),
-  ).length;
 
   const mostOverloadedPocName = useMemo(
     () => (filteredCapacity.length > 0
@@ -372,15 +346,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       : "—"),
     [filteredCapacity],
   );
-
-  const overloadedPocsCount = useMemo(() => {
-    const thresholdByName = new Map<string, number>();
-    attentionPocs.forEach((p) => thresholdByName.set(p.name, p.threshold));
-    return filteredCapacity.filter((p) => {
-      const threshold = thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD;
-      return p.active > threshold;
-    }).length;
-  }, [filteredCapacity, attentionPocs]);
 
   /* ─────── Student analytics KPI counts (live · students DB) ─────── */
   const studentStats = useMemo(() => {
@@ -1226,13 +1191,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
               : undefined,
           },
           {
-            label: "Best Performing POD",
-            value: "—",
-            sub: "POD mapping unavailable",
-            accent: "neutral",
-            info: info("attention.best-pod"),
-          },
-          {
             label: "Best Performing Domain",
             value: bestDomain ? bestDomain.name : "—",
             sub: bestDomain
@@ -1257,36 +1215,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             accent: "yellow",
             info: info("attention.pending-offers"),
             onClick: () => openLmps(lmpsByStatus(filtered, "Offer Received"), "Pending offers", `${attentionPendingOffers} in current view`),
-          },
-          {
-            label: "Missing Prep POCs",
-            value: attentionMissingPrepPocs,
-            accent: "ai",
-            info: info("attention.missing-prep-pocs"),
-          },
-          {
-            label: "Overloaded POCs",
-            value: overloadedPocsCount,
-            accent: "info",
-            info: info("attention.overloaded-pocs"),
-            onClick: () => {
-              const thresholdByName = new Map(attentionPocs.map((p) => [p.name, p.threshold]));
-              setDrill({
-                kind: "pocs",
-                title: "Overloaded POCs",
-                subtitle: "Active load exceeds threshold (filtered view)",
-                rows: filteredCapacity
-                  .filter((p) => {
-                    const threshold = thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD;
-                    return p.active > threshold;
-                  })
-                  .map((p) => ({
-                    name: p.name,
-                    activeLoad: p.active,
-                    threshold: thresholdByName.get(p.name) ?? POC_OVERLOAD_THRESHOLD,
-                  })),
-              });
-            },
           },
         ]}
       />

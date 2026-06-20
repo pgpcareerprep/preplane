@@ -362,42 +362,35 @@ describe("tests 14–17: Existing operational metric logic preserved", () => {
   });
 });
 
-// ── 10. Seven-metric layout — test 19 ────────────────────────────────────────
+// ── 10. Performance strip layout ─────────────────────────────────────────────
 
-describe("test 19: Seven-metric performance strip", () => {
-  it("the strip items array contains exactly 7 metrics in the specified order", () => {
+describe("performance strip", () => {
+  it("the strip items array contains exactly 4 metrics in the specified order", () => {
     const labels = [
       "Highest Performing POC",
-      "Best Performing POD",
       "Best Performing Domain",
       "Most Overloaded POC",
       "Pending Offers",
-      "Missing Prep POCs",
-      "Overloaded POCs",
     ];
-    // Verify the spec-required order and count.
-    expect(labels).toHaveLength(7);
+    expect(labels).toHaveLength(4);
     expect(labels[0]).toBe("Highest Performing POC");
-    expect(labels[1]).toBe("Best Performing POD");
-    expect(labels[2]).toBe("Best Performing Domain");
-    expect(labels[3]).toBe("Most Overloaded POC");
-    expect(labels[4]).toBe("Pending Offers");
-    expect(labels[5]).toBe("Missing Prep POCs");
-    expect(labels[6]).toBe("Overloaded POCs");
+    expect(labels[1]).toBe("Best Performing Domain");
+    expect(labels[2]).toBe("Most Overloaded POC");
+    expect(labels[3]).toBe("Pending Offers");
   });
 
   it("test 1: Highest Risk Domain is NOT in the label list", () => {
     const labels = [
       "Highest Performing POC",
-      "Best Performing POD",
       "Best Performing Domain",
       "Most Overloaded POC",
       "Pending Offers",
-      "Missing Prep POCs",
-      "Overloaded POCs",
     ];
     expect(labels).not.toContain("Highest risk domain");
     expect(labels).not.toContain("Highest Risk Domain");
+    expect(labels).not.toContain("Best Performing POD");
+    expect(labels).not.toContain("Missing Prep POCs");
+    expect(labels).not.toContain("Overloaded POCs");
   });
 });
 
@@ -416,13 +409,3 @@ describe("test 20: No values or names are hardcoded", () => {
   });
 });
 
-// ── 12. POD unavailable path — test 3 & 10 ───────────────────────────────────
-
-describe("test 3 & 10: Best Performing POD unavailable (no canonical mapping)", () => {
-  it("POD metric shows unavailable when no pod mapping exists", () => {
-    // Simulates the static unavailable state set in the strip items array.
-    const podItem = { label: "Best Performing POD", value: "—", sub: "POD mapping unavailable" };
-    expect(podItem.value).toBe("—");
-    expect(podItem.sub).toBe("POD mapping unavailable");
-  });
-});
