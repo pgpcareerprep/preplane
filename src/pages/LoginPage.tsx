@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { lovable } from "@/integrations/lovable";
 import { useRole } from "@/lib/rolesContext";
+import { buildLoginRedirectUrl, redirectToCanonicalOriginIfNeeded } from "@/lib/appOrigin";
 import { cn } from "@/lib/utils";
 import { Loader2, AlertCircle } from "lucide-react";
 
@@ -10,12 +11,31 @@ const ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: "Google sign-in failed. Please try again.",
 };
 
+function hasAuthCallback(searchParams: URLSearchParams): boolean {
+  return (
+    searchParams.has("code") ||
+    window.location.hash.includes("access_token=")
+  );
+}
+
+function cleanAuthCallbackFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  params.delete("code");
+  params.delete("state");
+  const qs = params.toString();
+  window.history.replaceState(
+    {},
+    document.title,
+    window.location.pathname + (qs ? `?${qs}` : ""),
+  );
+}
+
 export default function LoginPage() {
   // Watch RoleProvider's auth state — it runs the actual profile/approval check.
   const { isAuthenticated, isLoading: authLoading } = useRole();
 
   const [signInLoading, setSignInLoading] = useState(false);
-  // True while we're waiting for the OAuth callback hash to be processed.
+  // True while we're waiting for the OAuth callback to be processed.
   const [oauthPending, setOauthPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,19 +52,23 @@ export default function LoginPage() {
     return "/dashboard";
   }, [searchParams]);
 
+  useEffect(() => {
+    redirectToCanonicalOriginIfNeeded();
+  }, []);
+
   // On mount: show any ?error= message and mark that we're processing an OAuth callback.
-  // Do NOT clear the hash here — Supabase processes the hash asynchronously, and clearing
-  // it early (before detectSessionInUrl reads it) prevents the session from being established.
+  // Do NOT clear code/hash here — Supabase processes the callback asynchronously via
+  // detectSessionInUrl; clearing early prevents the session from being established.
   useEffect(() => {
     const errKey = searchParams.get("error");
     if (errKey && ERROR_MESSAGES[errKey]) {
       setError(ERROR_MESSAGES[errKey]);
     }
 
-    if (window.location.hash.includes("access_token=")) {
+    if (hasAuthCallback(searchParams)) {
       setOauthPending(true);
       if (import.meta.env.DEV) {
-        console.log("[auth] OAuth hash detected — waiting for Supabase to process session");
+        console.log("[auth] OAuth callback detected — waiting for Supabase to process session");
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,9 +79,8 @@ export default function LoginPage() {
     if (authLoading) return;
 
     if (isAuthenticated) {
-      // Only now that the session is confirmed do we clean the OAuth tokens from the URL.
-      if (window.location.hash.includes("access_token=")) {
-        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      if (hasAuthCallback(searchParams) || window.location.hash.includes("access_token=")) {
+        cleanAuthCallbackFromUrl();
       }
       if (import.meta.env.DEV) {
         console.log("[auth] Authenticated — navigating to", redirectTarget);
@@ -70,7 +93,7 @@ export default function LoginPage() {
     // RoleProvider redirects to ?error=not_approved if the profile check failed.
     if (oauthPending) setOauthPending(false);
     if (signInLoading) setSignInLoading(false);
-  }, [authLoading, isAuthenticated, navigate, redirectTarget, oauthPending, signInLoading]);
+  }, [authLoading, isAuthenticated, navigate, redirectTarget, oauthPending, signInLoading, searchParams]);
 
   const isLoading = signInLoading || oauthPending || authLoading;
 
@@ -79,12 +102,7 @@ export default function LoginPage() {
     setSignInLoading(true);
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri:
-          window.location.origin +
-          "/login" +
-          (redirectTarget !== "/dashboard"
-            ? `?redirect=${encodeURIComponent(redirectTarget)}`
-            : ""),
+        redirect_uri: buildLoginRedirectUrl(redirectTarget),
       });
 
       if (result.error) {
@@ -93,7 +111,6 @@ export default function LoginPage() {
         return;
       }
       // result.redirected = true — browser is navigating away to Google.
-      // Nothing more to do here; the page will unload.
     } catch (err) {
       console.error("[auth] Google sign-in error:", err);
       setError(ERROR_MESSAGES.oauth_failed);

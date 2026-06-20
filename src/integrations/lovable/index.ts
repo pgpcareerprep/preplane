@@ -1,5 +1,6 @@
 // Thin wrapper around Supabase native OAuth — replaces Lovable cloud-auth-js.
 import { supabase } from "../supabase/client";
+import { buildLoginRedirectUrl } from "@/lib/appOrigin";
 
 type SignInOptions = {
   redirect_uri?: string;
@@ -11,7 +12,7 @@ export const lovable = {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider === "microsoft" ? "azure" : provider,
         options: {
-          redirectTo: opts?.redirect_uri ?? window.location.origin + "/login",
+          redirectTo: opts?.redirect_uri ?? buildLoginRedirectUrl(),
           queryParams:
             provider === "google"
               ? { access_type: "offline", prompt: "select_account" }
