@@ -61,6 +61,19 @@ export function isConversionReportQuery(message: string): boolean {
   return combinedReport || dualMetricReport || conversionReportPhrase || pocConversionBreakdown;
 }
 
+/** Export / download the previous answer as PDF (skip full AI tool loop). */
+export function isCopilotPdfExportQuery(message: string): boolean {
+  const text = message.toLowerCase().trim();
+  if (!text) return false;
+  const wantsPdf = /\b(pdf|\.pdf)\b/.test(text);
+  const exportVerb = /\b(create|generate|make|export|download|save|get|give me|prepare)\b/.test(text);
+  const docNoun = /\b(pdf|report|document|doc|file|this|above|previous|last answer|conversation|chat)\b/.test(text);
+  if (wantsPdf && exportVerb) return true;
+  if (/\bdownload\b/.test(text) && /\b(pdf|report)\b/.test(text)) return true;
+  if (/\bexport\b/.test(text) && /\b(pdf|report|this)\b/.test(text)) return true;
+  return exportVerb && docNoun && /\b(pdf|download|export|save)\b/.test(text);
+}
+
 export function isConversionCountQuery(message: string): boolean {
   if (isConversionReportQuery(message)) return false;
   const text = message.toLowerCase();

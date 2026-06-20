@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, ShieldCheck, ListChecks,
   Users, Activity, Calendar, FileSearch, ArrowLeft, History,
   Plus, Share2, MoreHorizontal, Search, MessageSquare, Star, Pencil, Trash2, Check,
-  Info, X, FileText, Image as ImageIcon, Headphones,
+  Info, X, FileText, Image as ImageIcon, Headphones, Download,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +34,11 @@ import { useCopilotThreads } from "@/hooks/useCopilotThreads";
 import { CopilotUsageStrip, CopilotUsageMini } from "@/components/copilot/CopilotQuotaBar";
 import { CopilotErrorBubble } from "@/components/copilot/CopilotErrorBubble";
 import { useCopilotQuota } from "@/lib/hooks/useCopilotQuota";
+import {
+  COPILOT_PDF_DOWNLOAD_ACTION,
+  downloadCopilotMessagePdf,
+  isCopilotPdfExportRequest,
+} from "@/lib/copilot/copilotPdfExport";
 
 const COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
 
@@ -195,6 +200,77 @@ function CopilotPageInner() {
       metadata: { mode, query_preview: userText.slice(0, 100), role: viewAsRole },
     });
 
+    const currentMessages = threads.find(t => t.id === activeId)?.messages ?? [];
+    const threadTitle = threads.find(t => t.id === activeId)?.title ?? "copilot-report";
+
+    // PDF export runs locally — skip the AI pipeline entirely (instant, no timeout).
+    if (isCopilotPdfExportRequest(userText)) {
+      const priorAssistant = [...currentMessages].reverse().find(
+        (m) => m.role === "assistant" && !(m as any).error && !(m as any).streaming && m.content?.trim(),
+      );
+      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
+      setThreads(prev => prev.map(t =>
+        t.id === activeId
+          ? {
+              ...t,
+              title: t.messages.length === 0 ? userText.slice(0, 60) : t.title,
+              messages: [...t.messages, userMsg],
+            }
+          : t
+      ));
+      void persistMessage(activeId, userMsg);
+      setDraft("");
+      setMentions([]);
+      setAttachments([]);
+      setPending(true);
+
+      const finishPdfTurn = async () => {
+        if (!priorAssistant?.content?.trim()) {
+          const emptyMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "There is nothing to export yet. Ask for a report first, then say **download as PDF** or use **Download PDF** on any answer.",
+            ts: ts + 1,
+          };
+          setThreads(prev => prev.map(t =>
+            t.id === activeId ? { ...t, messages: [...t.messages, emptyMsg] } : t
+          ));
+          void persistMessage(activeId, emptyMsg);
+          toast.message("Nothing to export yet");
+          return;
+        }
+        try {
+          await downloadCopilotMessagePdf(priorAssistant.content, threadTitle);
+          const confirmMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "✅ **PDF downloaded** to your device.\n\nUse **Download PDF** on any report above to export again.",
+            ts: ts + 1,
+          };
+          setThreads(prev => prev.map(t =>
+            t.id === activeId ? { ...t, messages: [...t.messages, confirmMsg] } : t
+          ));
+          void persistMessage(activeId, confirmMsg);
+          toast.success("PDF downloaded");
+        } catch (e: any) {
+          const errMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `⚠️ PDF export failed: ${e?.message || String(e)}`,
+            ts: ts + 1,
+          };
+          setThreads(prev => prev.map(t =>
+            t.id === activeId ? { ...t, messages: [...t.messages, errMsg] } : t
+          ));
+          void persistMessage(activeId, errMsg);
+          toast.error("PDF export failed", { description: e?.message || String(e) });
+        }
+      };
+
+      void finishPdfTurn().finally(() => setPending(false));
+      return;
+    }
+
     // Build enriched content with mentions and attachments context
     let enrichedContent = userText;
     if (msgMentions.length > 0) {
@@ -210,13 +286,9 @@ function CopilotPageInner() {
 
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
 
-    // Get conversation history for context.
-    // Cap at last 20 messages (10 turns) to bound prompt size and reduce latency.
-    const MAX_HISTORY = 20;
-    const currentMessages = threads.find(t => t.id === activeId)?.messages ?? [];
+    // Full thread history — no artificial turn cap so follow-ups stay in context.
     const history = [...currentMessages, { role: "user" as const, content: enrichedContent }]
       .filter(m => m.role === "user" || m.role === "assistant")
-      .slice(-MAX_HISTORY)
       .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
     setThreads(prev => prev.map(t =>
@@ -268,7 +340,7 @@ function CopilotPageInner() {
     // Hard client deadline. Structured quick prompts return directly; agentic
     // requests fail fast and can be retried instead of hanging indefinitely.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90_000);
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
     let assistantContent = "";
 
@@ -393,7 +465,7 @@ function CopilotPageInner() {
       console.error("Stream error:", err);
       const isAbort = err instanceof Error && err.name === "AbortError";
       const friendly = isAbort
-        ? "Request timed out after 90 seconds. Try again or use one of the quick reports."
+        ? "Request timed out after 120 seconds. Try again or use one of the quick reports."
         : "Connection failed. Please check your internet and try again.";
       toast.error(friendly);
       // If we already streamed partial content, keep it and append a small note;
@@ -443,6 +515,27 @@ function CopilotPageInner() {
     }
     streamChat(trimmed);
   };
+
+  const handleCopilotAction = useCallback((cmd: string) => {
+    if (cmd === COPILOT_PDF_DOWNLOAD_ACTION) {
+      const msgs = threads.find(t => t.id === activeId)?.messages ?? [];
+      const report = [...msgs].reverse().find((m) => {
+        if (m.role !== "assistant" || (m as any).error || !m.content?.trim()) return false;
+        if (/PDF downloaded|ready to download as a PDF|Nothing to export/i.test(m.content)) return false;
+        return true;
+      });
+      if (!report) {
+        toast.error("Nothing to export", { description: "Ask for a report first, then download." });
+        return;
+      }
+      const title = threads.find(t => t.id === activeId)?.title ?? "copilot-report";
+      void downloadCopilotMessagePdf(report.content, title)
+        .then(() => toast.success("PDF downloaded"))
+        .catch((e: Error) => toast.error("PDF export failed", { description: e.message }));
+      return;
+    }
+    send(cmd);
+  }, [threads, activeId, send]);
 
   const newChat = () => {
     setDraft("");
@@ -630,7 +723,7 @@ function CopilotPageInner() {
                   return (
                     <div key={m.id} className="space-y-2">
                       {m.content && !m.content.startsWith("⚠️") && (
-                        <AssistantMarkdown content={m.content} ts={m.ts} streaming={false} onFollowUp={send} onAction={send} />
+                        <AssistantMarkdown content={m.content} ts={m.ts} streaming={false} onFollowUp={send} onAction={handleCopilotAction} exportTitle={active?.title} />
                       )}
                       <CopilotErrorBubble
                         message={m.content?.replace(/^⚠️\s*/, "") || "Something went wrong."}
@@ -639,7 +732,7 @@ function CopilotPageInner() {
                     </div>
                   );
                 }
-                return <AssistantMarkdown key={m.id} content={m.content} ts={m.ts} streaming={(m as any).streaming} onFollowUp={send} onAction={send} />;
+                return <AssistantMarkdown key={m.id} content={m.content} ts={m.ts} streaming={(m as any).streaming} onFollowUp={send} onAction={handleCopilotAction} exportTitle={active?.title} />;
               })}
               {pending && messages[messages.length - 1]?.role !== "assistant" && <TypingDots />}
             </div>
@@ -1061,7 +1154,7 @@ function splitSections(md: string): { intro: string; sections: { heading: string
 
 const PROSE_BASE = "prose prose-sm max-w-none text-[13.5px] text-n800 leading-[1.65] prose-headings:text-n900 prose-headings:text-[14px] prose-headings:font-semibold prose-strong:text-n900 prose-a:text-orange-600 prose-code:bg-n100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-pre:bg-n50 prose-pre:border prose-pre:border-n200 prose-table:text-[12.5px] prose-th:bg-n50 prose-th:px-2.5 prose-th:py-1.5 prose-td:px-2.5 prose-td:py-1.5 prose-td:border-t prose-td:border-n100";
 
-function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction }: { content: string; ts: number; streaming?: boolean; onFollowUp?: (text: string) => void; onAction?: (cmd: string) => void }) {
+function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, exportTitle }: { content: string; ts: number; streaming?: boolean; onFollowUp?: (text: string) => void; onAction?: (cmd: string) => void; exportTitle?: string }) {
   const text = content || (streaming ? "Searching data…" : "");
   const { blocks, plainText, fenceDetected } = useMemo(() => parseBlocks(text), [text]);
   const hasBlocks = blocks.length > 0;
@@ -1141,6 +1234,23 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction }: { c
         {!hasBlocks && !intro && !hasSections && (
           <div className={PROSE_BASE}>
             <ReactMarkdown>{text}</ReactMarkdown>
+          </div>
+        )}
+
+        {!streaming && text.trim() && !/PDF downloaded|Nothing to export/i.test(text) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void downloadCopilotMessagePdf(content, exportTitle ?? "copilot-report")
+                  .then(() => toast.success("PDF downloaded"))
+                  .catch((e: Error) => toast.error("PDF export failed", { description: e.message }));
+              }}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-n200 bg-card text-[12px] font-medium text-n700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download PDF
+            </button>
           </div>
         )}
       </div>

@@ -54,7 +54,7 @@ const RETRYABLE_HTTP = new Set([408, 429, 500, 502, 503, 504]);
 export async function callSynthesis(
   _legacyKey: string, // kept for call-site compat
   body: Record<string, unknown>,
-  timeoutMs = 20_000,
+  timeoutMs = 30_000,
 ): Promise<{ resp: Response; model: string }> {
   const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured. Set GEMINI_API_KEY, OPENROUTER_API_KEY, or GROK_API_KEY in Edge Function secrets.");
@@ -119,7 +119,7 @@ export async function callSynthesis(
  */
 export async function callToolModel(
   body: Record<string, unknown>,
-  timeoutMs = 15_000,
+  timeoutMs = 25_000,
 ): Promise<{ resp: Response; model: string; provider: string }> {
   const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured.");

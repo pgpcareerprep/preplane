@@ -11,7 +11,7 @@ import {
   getTaskTier,
 } from "./modelConfig.ts";
 import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
@@ -287,6 +287,41 @@ async function handleRequest(req: Request) {
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    });
+  }
+
+  if (isCopilotPdfExportQuery(lastUserMessage)) {
+    const priorAssistant = [...messages]
+      .filter((m) => m?.role === "assistant" && typeof m.content === "string" && m.content.trim())
+      .pop();
+    const hasSource = !!priorAssistant?.content?.trim();
+    const text = hasSource
+      ? [
+        "Your report is ready to download as a PDF.",
+        "",
+        ":::blocks",
+        JSON.stringify([
+          { type: "executive-summary", content: "Export runs locally in your browser — instant download, no AI wait." },
+          {
+            type: "action-buttons",
+            title: "Export",
+            buttons: [
+              { label: "Download PDF", action: "__COPILOT_DOWNLOAD_PDF__", variant: "primary", icon: "file" },
+            ],
+            layout: "row",
+          },
+        ]),
+        ":::",
+      ].join("\n")
+      : [
+        "There is nothing to export yet.",
+        "",
+        "Ask for a report first (for example POC workload or conversion metrics), then say **download as PDF** or use the **Download PDF** button on any answer.",
+      ].join("\n");
+    telemetry.intent = hasSource ? "pdf_export_fast_path" : "pdf_export_fast_path_empty";
+    void logTurn({ status: "ok", response_chars: text.length });
+    return new Response(buildPlainSseResponse(text), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
     });
   }
 
@@ -665,8 +700,8 @@ async function handleRequest(req: Request) {
       ...messages,
     ];
 
-    const MAX_TOOL_ROUNDS = 4;
-    const SOFT_WARN_AT = 3;
+    const MAX_TOOL_ROUNDS = 8;
+    const SOFT_WARN_AT = 6;
     let round = 0;
     let softWarned = false;
     // Per-turn tool-result memo so identical (name,args) calls don't repeat work

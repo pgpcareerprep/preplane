@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths";
 
 describe("Copilot fast paths", () => {
   it("recognizes ongoing LMPs missing mentor alignment", () => {
@@ -42,5 +42,12 @@ describe("Copilot fast paths", () => {
     expect(isConversionReportQuery("please create a lmp conversion and student place conversion report")).toBe(true);
     expect(isConversionReportQuery("Generate an LMP conversion report")).toBe(true);
     expect(isConversionReportQuery("Tell me how many are converted?")).toBe(false);
+  });
+
+  it("recognizes PDF export / download requests", () => {
+    expect(isCopilotPdfExportQuery("create a downloadable pdf of this")).toBe(true);
+    expect(isCopilotPdfExportQuery("download this report as pdf")).toBe(true);
+    expect(isCopilotPdfExportQuery("export the above as PDF")).toBe(true);
+    expect(isCopilotPdfExportQuery("show POC workload")).toBe(false);
   });
 });
