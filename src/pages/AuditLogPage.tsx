@@ -153,7 +153,7 @@ export default function AuditLogPage() {
         <div>
           <div className="text-[10px] uppercase tracking-[1px] font-semibold text-orange-600 mb-1">Audit & Rollback Engine</div>
           <h2 className="text-[32px] leading-[1.15] font-bold tracking-[-1px] text-foreground">
-            Activity <span className="font-display text-orange-500">log</span>
+            Activity <span className="text-orange-500 font-semibold">log</span>
           </h2>
           <p className="mt-1 text-[13px] text-muted-foreground">
             {logs.length} entries · field-level tracking with rollback support

@@ -143,9 +143,9 @@ function DataSourcesPageInner() {
           <div className="label-eyebrow mb-2">{isAdmin ? "Admin · Data" : "Repository"}</div>
           <h2 className="text-[36px] leading-[1.15] font-bold tracking-[-1px] text-n900">
             {isAdmin ? (
-              <>Data <span className="font-display text-orange-500 text-[34px]">sources</span></>
+              <>Data <span className="text-orange-500 text-[34px] font-semibold">sources</span></>
             ) : (
-              <>Repo<span className="font-display text-orange-500 text-[34px]">sitory</span></>
+              <>Repo<span className="text-orange-500 text-[34px] font-semibold">sitory</span></>
             )}
           </h2>
           <p className="mt-2 text-[14px] text-n500 leading-[1.6]">

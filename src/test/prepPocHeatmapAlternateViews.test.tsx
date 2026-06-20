@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import {
   GenericHeatmapTable,
+  ResponsiveHeatmapTable,
+  HeatmapMobileSummary,
   STUDENT_SECTION_CONFIG,
   DOMAIN_SECTION_CONFIG,
 } from "@/components/dashboard/PrepPocHeatmapAlternateViews";
@@ -72,5 +74,38 @@ describe("GenericHeatmapTable alternate views", () => {
     expect(screen.getByText("Finance")).toBeTruthy();
     expect(screen.getAllByText("1/1 - 100%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+  });
+});
+
+describe("HeatmapMobileSummary", () => {
+  it("renders ranked mobile list with metric selector", () => {
+    render(
+      <HeatmapMobileSummary
+        rowHeader="POC"
+        rows={[
+          { id: "p1", label: "Alice", row: studentRow },
+          { id: "p2", label: "Bob", row: { ...studentRow, pocId: "p2", pocName: "Bob", totalStudents: 1 } },
+        ]}
+        visibleConfig={STUDENT_SECTION_CONFIG}
+        colMaxValues={{ totalStudents: 3, currentStudents: 2 }}
+      />,
+    );
+    expect(screen.getByTestId("heatmap-mobile-summary")).toBeTruthy();
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.getByText("Bob")).toBeTruthy();
+    expect(screen.getByRole("combobox")).toBeTruthy();
+  });
+
+  it("ResponsiveHeatmapTable includes mobile summary wrapper", () => {
+    render(
+      <ResponsiveHeatmapTable
+        rowHeader="POC"
+        rows={[{ id: "p1", label: "Alice", row: studentRow }]}
+        totals={{ placementRatePct: 33.3 }}
+        visibleConfig={STUDENT_SECTION_CONFIG}
+        colMaxValues={{ totalStudents: 3 }}
+      />,
+    );
+    expect(screen.getByTestId("heatmap-mobile-summary")).toBeTruthy();
   });
 });

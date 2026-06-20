@@ -38,7 +38,7 @@ export function LmpKanban({
   return (
     <>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-px-3 [-webkit-overflow-scrolling:touch]">
           {STATUSES.map((s) => {
             const items = records
               .filter((r) => r.status === s)
@@ -57,7 +57,7 @@ export function LmpKanban({
         </div>
         <DragOverlay>
           {activeRec && (
-            <div className="w-[260px]">
+            <div className="w-[min(85vw,220px)] sm:w-[240px] lg:w-[260px]">
               <LmpCard rec={activeRec} dragging />
             </div>
           )}
@@ -82,7 +82,7 @@ function Column({ status, count, children }: { status: LmpStatus; count: number;
   const meta = STATUS_META[status];
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
-    <div className="shrink-0 w-[260px] flex flex-col">
+    <div className="shrink-0 w-[min(85vw,220px)] sm:w-[240px] lg:w-[260px] flex flex-col snap-start">
       <div className="px-2 mb-2 flex items-center gap-2">
         <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
         <span className="text-[12px] uppercase tracking-[0.5px] text-n600 font-medium">{meta.label}</span>

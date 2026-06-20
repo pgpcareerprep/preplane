@@ -144,16 +144,15 @@ export function LmpCardList({
     );
   }
 
-  // Single grid template shared by header and every card row.
-  // Columns: Role&Co · Domain · POCs · Candidates · Status · Age · Actions
+  // Desktop grid (lg+); mobile uses stacked card layout below.
   const GRID =
-    "grid items-center gap-4 px-5 py-2.5 grid-cols-[minmax(0,2.5fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(210px,1fr)]";
+    "hidden lg:grid items-center gap-4 px-5 py-2.5 grid-cols-[minmax(0,2.5fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(210px,1fr)]";
 
   return (
     <div className="space-y-3">
-      {/* Sticky column header */}
-      <div className="sticky top-0 z-10 -mx-1 px-1">
-        <div className={cn(GRID, "rounded-lg bg-n50/90 backdrop-blur border border-n200 text-[10.5px] uppercase tracking-[0.6px] font-semibold text-n500")}>
+      {/* Sticky column header — desktop only */}
+      <div className="hidden lg:block sticky top-0 z-10 -mx-1 px-1">
+        <div className={cn(GRID, "rounded-lg bg-n50/90 dark:bg-card/90 backdrop-blur border border-n200 dark:border-border text-[10.5px] uppercase tracking-[0.6px] font-semibold text-n500 dark:text-muted-foreground")}>
           <SortHeader label="Role & Company" sortKey="role" sort={sort} onSort={handleSort} />
           <SortHeader label="Domain" sortKey="domain" sort={sort} onSort={handleSort} />
           <div>POCs</div>
@@ -235,7 +234,7 @@ function LmpStripCard({
     >
       <div
         onClick={handleCardClick}
-        className={cn("cursor-pointer", grid, "py-4")}
+        className={cn("cursor-pointer", grid, "py-4 hidden lg:grid")}
       >
         {/* 1. Primary info */}
         <div className="min-w-0">
@@ -366,6 +365,119 @@ function LmpStripCard({
         </div>
       </div>
 
+      {/* Mobile stacked layout */}
+      <div
+        onClick={handleCardClick}
+        className="lg:hidden cursor-pointer px-4 py-3 space-y-3"
+      >
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold text-n900 dark:text-foreground leading-snug break-words">
+              {rec.company && <>{rec.company}<span className="text-n400 font-normal"> — </span></>}
+              {rec.role ? rec.role : <span className="text-n400 italic font-normal">No role</span>}
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-n100 dark:bg-muted border border-n200 dark:border-border text-n700 dark:text-muted-foreground px-2 py-0.5 text-[11px] font-medium truncate max-w-full">
+                {rec.domain}
+              </span>
+              {rec.type && (
+                <span
+                  className={cn(
+                    "shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border",
+                    /intern/i.test(rec.type)
+                      ? "bg-plum-400/10 text-plum-400 border-plum-400/30"
+                      : "bg-teal-400/10 text-teal-700 dark:text-teal-300 border-teal-400/30",
+                  )}
+                >
+                  {rec.type}
+                </span>
+              )}
+            </div>
+          </div>
+          <div data-stop-card-click>
+            <StatusDropdown value={rec.status} onChange={onChangeStatus} readOnly={mode === "summary"} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <PocAvatars rec={rec} />
+            <div className="inline-flex items-center gap-1 text-[12px] text-n700 dark:text-muted-foreground tabular-nums">
+              <Users className="h-3.5 w-3.5 text-n400" />
+              {rec.candidates > 0 ? rec.candidates : <span className="text-n300">—</span>}
+              <span className="text-n400">candidates</span>
+            </div>
+          </div>
+          <span
+            className="shrink-0 inline-flex items-center rounded-full bg-n100 dark:bg-muted border border-n200 dark:border-border text-n600 dark:text-muted-foreground px-2 py-0.5 text-[11px] font-medium tabular-nums"
+            title={`Created ${rec.createdAt}`}
+          >
+            {ageLabel(rec.createdAt)}
+          </span>
+        </div>
+        <div data-stop-card-click className="flex items-center justify-end gap-0.5 pt-1 border-t border-n100 dark:border-border">
+          {canEditLmp && (
+            <IconAction label="Comments" badge={commentCount || undefined} onClick={() => openChat(rec.id)}>
+              <MessageSquare className="h-4 w-4" />
+            </IconAction>
+          )}
+          <IconAction label="View details" onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}>
+            <Eye className="h-4 w-4" />
+          </IconAction>
+          <IconAction label={expanded ? "Collapse" : "Expand"} onClick={onToggleExpand}>
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </IconAction>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-n500 hover:text-n900 hover:bg-n100 dark:hover:bg-muted transition-colors"
+                aria-label="Card actions"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}>
+                Open Details
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onToggleExpand}>
+                {expanded ? "Collapse" : "Expand inline"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {canEditLmp && (
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit LMP
+                </DropdownMenuItem>
+              )}
+              {canAssignPoc && (
+                <DropdownMenuItem onClick={() => setOutreachOpen(true)}>
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  {rec.outreachPoc?.name ? "Change Outreach POC" : "Add Outreach POC"}
+                </DropdownMenuItem>
+              )}
+              {canReassignAny && (
+                <DropdownMenuItem onClick={() => setReassignOpen(true)}>
+                  <UserCog className="h-4 w-4 mr-2" />
+                  Reassign POCs
+                </DropdownMenuItem>
+              )}
+              {canDeleteLmp && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/30"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" /> Delete LMP
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -480,7 +592,7 @@ function IconAction({
             e.stopPropagation();
             onClick();
           }}
-          className="relative inline-flex h-8 w-8 items-center justify-center rounded-md text-n500 hover:text-n900 hover:bg-n100 transition-colors"
+          className="relative inline-flex h-8 w-8 md:h-8 md:w-8 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 items-center justify-center rounded-md text-n500 hover:text-n900 hover:bg-n100 transition-colors"
           aria-label={label}
         >
           {children}

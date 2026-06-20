@@ -7,7 +7,7 @@ export type ColorPalette = {
 
 export const MUTED_TEXT = "#A8A398";
 export const SURFACE_ZERO = "var(--lx-surface)";
-export const CELL_BORDER = "rgba(232, 229, 220, 0.75)";
+export const CELL_BORDER = "var(--lx-cell-border)";
 
 export const A_NEUTRAL = "#78716c";
 export const A_SKY = "#38bdf8";

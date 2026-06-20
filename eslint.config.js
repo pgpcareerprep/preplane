@@ -27,10 +27,14 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
-      // `any` is sometimes the correct escape hatch for dynamic Supabase rows
-      // and PostgREST responses where the shape is schema-driven not TypeScript-driven.
-      // We downgrade from error to warn so CI stays green while we improve types over time.
       "@typescript-eslint/no-explicit-any": "warn",
+      "no-restricted-syntax": [
+        "warn",
+        {
+          selector: "JSXAttribute[name.name='className'] Literal[value=/#[0-9a-fA-F]{3,8}/]",
+          message: "Prefer Lumina/Tailwind tokens over raw hex in className.",
+        },
+      ],
     },
   },
 );

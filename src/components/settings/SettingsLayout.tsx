@@ -37,7 +37,7 @@ export function SettingsLayout() {
         <div className="relative">
           <div className="label-eyebrow mb-2 text-orange-600">Admin</div>
           <h2 className="text-[34px] leading-[1.15] font-bold tracking-[-1px] text-n900">
-            Platform <span className="font-display text-orange-500 text-[32px]">settings</span>
+            Platform <span className="text-orange-500 text-[32px] font-semibold">settings</span>
           </h2>
           <p className="mt-2 text-[14px] text-n700 leading-[1.6] max-w-2xl">
             Configure scoring weights, POC domains, roles, and access.

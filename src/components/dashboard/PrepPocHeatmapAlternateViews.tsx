@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useMemo, useState } from "react";
 import { ClipboardList, RefreshCw, TrendingUp, BarChart3, GraduationCap } from "lucide-react";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { fmtConversion } from "@/lib/prepPocHeatmapAgg";
@@ -351,4 +352,149 @@ export function domainTotalsFrom(data: { domainSummary: import("@/lib/prepPocHea
     eligibleClosedCount: data.domainSummary.eligibleClosedLmpCount,
     lmpConversionPercentage: data.domainSummary.lmpConversionPct,
   };
+}
+
+type MetricOption = { key: string; label: string; colType: AltColType; palette: typeof P_NEUTRAL };
+
+function flattenMetrics(config: AltSectionDef[]): MetricOption[] {
+  return config.flatMap((s) =>
+    s.cols.map((c) => ({ key: c.dataKey, label: c.label, colType: c.colType, palette: c.palette })),
+  );
+}
+
+function formatMetricValue(
+  row: StudentWiseRow | DomainWiseRow,
+  metric: MetricOption,
+): string {
+  if (metric.colType === "rate") {
+    const pct = (row as StudentWiseRow & DomainWiseRow).placementRatePct;
+    return pct == null ? "—" : `${pct.toFixed(0)}%`;
+  }
+  if (metric.colType === "conversion") {
+    const d = row as DomainWiseRow;
+    return fmtConversion(d.convertedCount, d.eligibleClosedCount, d.lmpConversionPercentage);
+  }
+  if (metric.colType === "text") {
+    const avg = (row as StudentWiseRow).avgSessionsPerStudent;
+    return avg == null ? "—" : avg.toFixed(1);
+  }
+  return String(getRowValue(row, metric.key));
+}
+
+function metricSortValue(row: StudentWiseRow | DomainWiseRow, metric: MetricOption): number {
+  if (metric.colType === "rate") {
+    return (row as StudentWiseRow & DomainWiseRow).placementRatePct ?? -1;
+  }
+  if (metric.colType === "conversion") {
+    return (row as DomainWiseRow).lmpConversionPercentage ?? -1;
+  }
+  if (metric.colType === "text") return -1;
+  return getRowValue(row, metric.key);
+}
+
+/** Compact ranked list for viewports below lg. */
+export function HeatmapMobileSummary({
+  rowHeader,
+  rows,
+  visibleConfig,
+  colMaxValues,
+  onRowClick,
+}: {
+  rowHeader: string;
+  rows: Array<{ id: string; label: string; row: StudentWiseRow | DomainWiseRow }>;
+  visibleConfig: AltSectionDef[];
+  colMaxValues: Record<string, number>;
+  onRowClick?: (id: string, label: string) => void;
+}) {
+  const metrics = useMemo(() => flattenMetrics(visibleConfig), [visibleConfig]);
+  const [metricKey, setMetricKey] = useState(metrics[0]?.key ?? "");
+
+  const activeMetric = metrics.find((m) => m.key === metricKey) ?? metrics[0];
+  const ranked = useMemo(() => {
+    if (!activeMetric) return rows;
+    return [...rows].sort(
+      (a, b) => metricSortValue(b.row, activeMetric) - metricSortValue(a.row, activeMetric),
+    );
+  }, [rows, activeMetric]);
+
+  if (!activeMetric || rows.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+        No heatmap data
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden" data-testid="heatmap-mobile-summary">
+      <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{rowHeader}</span>
+        <label className="flex items-center gap-2 text-[12px]">
+          <span className="text-muted-foreground shrink-0">Metric</span>
+          <select
+            value={activeMetric.key}
+            onChange={(e) => setMetricKey(e.target.value)}
+            className="h-10 flex-1 min-w-0 rounded-lg border border-border bg-background px-2 text-[13px]"
+          >
+            {metrics.map((m) => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ol className="divide-y divide-border">
+        {ranked.map(({ id, label, row }, idx) => {
+          const heatVal = metricSortValue(row, activeMetric);
+          const colMax = colMaxValues[activeMetric.key] ?? 1;
+          const cell =
+            activeMetric.colType === "heat"
+              ? cellStyle(heatVal, colMax, activeMetric.palette)
+              : { background: "var(--lx-surface)", color: "var(--lx-text)" };
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                onClick={() => onRowClick?.(id, label)}
+                className="w-full flex items-center gap-3 px-4 py-3 min-h-[52px] text-left hover:bg-muted/50 transition-colors"
+              >
+                <span className="w-6 text-[11px] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
+                <span className="flex-1 min-w-0 font-semibold text-[13px] truncate">{label}</span>
+                <span
+                  className="shrink-0 min-w-[44px] text-center rounded-md px-2 py-1 text-[12px] font-semibold tabular-nums"
+                  style={cell}
+                >
+                  {formatMetricValue(row, activeMetric)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/** Desktop table + mobile summary fallback. */
+export function ResponsiveHeatmapTable({
+  onRowClick,
+  ...props
+}: Parameters<typeof GenericHeatmapTable>[0] & {
+  onRowClick?: (id: string, label: string) => void;
+}) {
+  return (
+    <>
+      <div className="lg:hidden">
+        <HeatmapMobileSummary
+          rowHeader={props.rowHeader}
+          rows={props.rows}
+          visibleConfig={props.visibleConfig}
+          colMaxValues={props.colMaxValues}
+          onRowClick={onRowClick}
+        />
+      </div>
+      <div className="hidden lg:block overflow-x-auto">
+        <GenericHeatmapTable {...props} />
+      </div>
+    </>
+  );
 }

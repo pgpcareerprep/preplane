@@ -34,7 +34,7 @@ import {
   type FullPrepPocHeatmapResponse,
 } from "@/lib/prepPocHeatmapViews";
 import {
-  GenericHeatmapTable,
+  ResponsiveHeatmapTable,
   STUDENT_SECTION_CONFIG,
   DOMAIN_SECTION_CONFIG,
   buildColMaxValues,
@@ -1056,6 +1056,32 @@ export function PrepPocHeatmapCard({
                   </button>
                 </div>
               ) : activeView === "lmp" ? (
+                <>
+                  <div className="lg:hidden" data-testid="heatmap-mobile-summary">
+                    <div className="px-4 py-3 border-b text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" style={{ borderColor: CELL_BORDER }}>
+                      POC · Current LMPs
+                    </div>
+                    <ol className="divide-y" style={{ borderColor: CELL_BORDER }}>
+                      {[...activeLmpRows]
+                        .sort((a, b) => b.currentLmpCount - a.currentLmpCount)
+                        .map((row, idx) => (
+                          <li key={row.pocId}>
+                            <button
+                              type="button"
+                              onClick={() => openDrilldown(row, "currentLmpCount", row.currentLmpCount, row.currentLmpCount)}
+                              className="w-full flex items-center gap-3 px-4 py-3 min-h-[52px] text-left hover:bg-muted/50 transition-colors"
+                            >
+                              <span className="w-6 text-[11px] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
+                              <span className="flex-1 min-w-0 font-semibold text-[13px] truncate">{row.pocName}</span>
+                              <span className="shrink-0 min-w-[44px] text-center rounded-md px-2 py-1 text-[12px] font-semibold tabular-nums bg-muted">
+                                {row.currentLmpCount}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                    </ol>
+                  </div>
+                  <div className="hidden lg:block overflow-x-auto">
                 <table
                   className="w-full border-separate text-[12px]"
                   style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}
@@ -1167,8 +1193,10 @@ export function PrepPocHeatmapCard({
                     )}
                   </tbody>
                 </table>
+                  </div>
+                </>
               ) : (
-                <GenericHeatmapTable
+                <ResponsiveHeatmapTable
                   rowHeader={activeView === "student" ? "POC" : "DOMAIN"}
                   rows={
                     activeView === "student"

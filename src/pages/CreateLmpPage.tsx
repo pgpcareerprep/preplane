@@ -283,7 +283,7 @@ export default function CreateLmpPage() {
         <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-yellow-200/60 blur-3xl" />
         <div className="relative max-w-2xl">
           <h2 className="text-[36px] leading-[1.15] font-bold tracking-[-1px] text-n900">
-            Create a <span className="font-display text-orange-500 text-[34px]">process</span>
+            Create a <span className="text-orange-500 text-[34px] font-semibold">process</span>
           </h2>
           <p className="mt-2 text-[14px] text-n700 leading-[1.6]">
             Enter company + role — the engine auto-allocates the best POCs instantly.
