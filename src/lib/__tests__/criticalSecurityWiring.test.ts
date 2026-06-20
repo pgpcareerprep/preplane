@@ -46,6 +46,8 @@ describe("critical security wiring", () => {
     expect(voice).toContain("new AsyncLocalStorage<VoiceRequestState>()");
     expect(voice).not.toContain("CURRENT_VIEW_AS");
     expect(voice).not.toContain("CURRENT_VOICE_USER_ID");
+    expect(voice).toContain("COPILOT_TOOL_REGISTRY");
+    expect(voice).toContain("runSharedCopilotTool");
   });
 
   it("enforces one server-side daily AI budget across Copilot and voice", () => {
@@ -120,7 +122,7 @@ describe("critical security wiring", () => {
     const migration = read("supabase/migrations/20260610180000_transactional_mentor_assignment.sql");
     expect(frontend).toContain('from "../../supabase/functions/_shared/permissionContract"');
     expect(edgeRbac).toContain('from "./permissionContract.ts"');
-    expect(copilot).toContain('POC_WRITABLE_LMP_COLUMNS } from "../_shared/permissionContract.ts"');
+    expect(copilot).toContain('POC_WRITABLE_LMP_COLUMNS } from "../../_shared/permissionContract.ts"');
     expect(migration).toContain("CREATE OR REPLACE FUNCTION public.assign_mentor_session");
     expect(migration).toContain("CREATE OR REPLACE FUNCTION public.resolve_or_create_mentor");
     expect(migration).toContain("MENTOR_ASSIGNMENT_FORBIDDEN");

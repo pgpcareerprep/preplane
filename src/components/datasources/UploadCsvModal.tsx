@@ -355,7 +355,9 @@ export function UploadCsvModal({
         try {
           await saveMapping(source, mapping.filter(m => m.dbField), user?.email);
           toast.success("Saved column mapping for future uploads");
-        } catch { /* ignore */ }
+        } catch (e) {
+          toast.error("Upload succeeded but could not save column mapping", { description: (e as Error)?.message });
+        }
       }
       invalidateDataSourceCaches(qc, source);
       setStep("done");

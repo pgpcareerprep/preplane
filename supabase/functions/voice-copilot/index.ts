@@ -8,6 +8,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { logAiUsage, estimateTokens, reserveAiRequest } from "../_shared/ai-usage.ts";
 import { isMentorCoverageQuery, isPocWorkloadQuery } from "../_shared/copilotFastPaths.ts";
 import { GEMINI_TOOL_FALLBACK_MODELS } from "../copilot-ai/modelConfig.ts";
+import { TOOLS as COPILOT_TOOL_REGISTRY, executeTool as copilotExecuteTool } from "../copilot-ai/tools/index.ts";
+import { createRequestState, requestStateStorage } from "../copilot-ai/requestContext.ts";
+import { validateLogSubmissionArgs, writeSubmissionRecord } from "../_shared/logSubmissionWrite.ts";
 
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
@@ -127,145 +130,133 @@ TOOLS — YOU MUST USE THEM
   call resolve_entity(<name>, preferred_scope="poc") FIRST, then get_analytics.
 - Analytics ("ongoing count", "conversion rate", "POC workload") -> get_analytics.
 - "Filter LMPs by X" -> search_lmp_records.
+- "Search students" / "find student" -> search_students.
+- "Find mentors for LMP" / "match mentors" -> find_mentors_for_lmp.
+- "Recommend POCs" / "who should be POC" -> recommend_pocs.
+- "Log submission" / "log interview round" -> log_submission (then verbal confirm via prepare_write staging).
+- "How many submissions" -> search_lmp_records or get_analytics.
 - Greetings / chitchat / clarifying questions -> respond directly with no tool.
 - If you are unsure what the user means, prefer calling resolve_entity or get_analytics over refusing.
 - NEVER reply with "Sorry I didn't catch that" — if you can't parse the request, call resolve_entity
   with the most likely name token from the user's utterance.
 
 WRITES (prepare -> confirm -> execute)
-- For ANY write (create LMP, assign POC, change status, update field, delete) — call prepare_write.
-  prepare_write STAGES the action and returns a one-line summary. Speak that summary ending with
+- For ANY write (create LMP, assign POC, change status, update field, delete, log submission) — call prepare_write OR the dedicated write tool (update_lmp_status, assign_poc, log_submission) which stages via prepare_write internally.
+  Staged actions return a one-line summary. Speak that summary ending with
   "Should I go ahead?" Do NOT speak "Done" until the user confirms.
 - If a write needs more info (e.g. user said "create LMP for Google" with no role) — ask one short
   clarifying question. Don't stage incomplete writes.
 
 Be decisive. Use tools. Stay in the placement domain.`;
 
-// ─── Tool Schemas ──────────────────────────────────────────────────────────
+// ─── Tool Schemas (shared chat registry + voice-specific prepare_write) ─────
+const VOICE_EXCLUDED_TOOLS = new Set([
+  "prepare_write", "execute_pending", "check_permission",
+  "update_lmp_status", "update_lmp_field", "assign_poc",
+  "add_lmp_record", "delete_lmp_record", "bulk_update", "log_activity",
+  "make_plan", "update_plan_step", "analyze_cv", "create_case_study",
+]);
+
+const VOICE_PREPARE_WRITE_TOOL = {
+  type: "function",
+  function: {
+    name: "prepare_write",
+    description: "Stage a write. Returns a summary to speak with 'Should I go ahead?'. Does NOT execute.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "create_lmp",
+            "update_lmp_status",
+            "update_lmp_field",
+            "assign_poc",
+            "delete_lmp",
+            "update_student_field",
+            "log_submission",
+          ],
+        },
+        company: { type: "string" },
+        role: { type: "string" },
+        domain: { type: "string" },
+        type: { type: "string", description: "Full Time, Internship, Live Project, Case Competition" },
+        status: { type: "string" },
+        prep_poc: { type: "string" },
+        support_poc: { type: "string" },
+        outreach_poc: { type: "string" },
+        poc_name: { type: "string" },
+        poc_type: { type: "string", enum: ["primary", "secondary", "support", "outreach"] },
+        field: { type: "string" },
+        value: { type: "string" },
+        student_name: { type: "string" },
+        candidate: { type: "string" },
+        candidate_name: { type: "string" },
+        round: { type: "string", enum: ["Submitted", "R1", "R2", "R3", "Offer"] },
+        outcome: { type: "string", enum: ["Submitted", "Cleared", "Rejected", "Selected", "Pending"] },
+        date: { type: "string" },
+      },
+      required: ["action"],
+    },
+  },
+};
+
 const tools = [
-  {
-    type: "function",
-    function: {
-      name: "list_entities",
-      description: "Count and list all entities of a type. Use for 'how many POCs/students/mentors/LMPs', 'list all X'.",
-      parameters: {
-        type: "object",
-        properties: {
-          entity_type: { type: "string", enum: ["poc", "student", "mentor", "lmp"] },
-          domain: { type: "string", description: "Optional domain filter" },
-          status: { type: "string", description: "Optional status filter (LMPs only)" },
-        },
-        required: ["entity_type"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "resolve_entity",
-      description: "Resolve a name (person, company, LMP) to a concrete entity. Use when user mentions someone by name.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string" },
-          preferred_scope: { type: "string", enum: ["auto", "student", "poc", "mentor", "lmp", "company"] },
-        },
-        required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "search_lmp_records",
-      description: "Filter LMP processes by company / role / domain / status / POC.",
-      parameters: {
-        type: "object",
-        properties: {
-          company: { type: "string" },
-          role: { type: "string" },
-          domain: { type: "string" },
-          status: { type: "string" },
-          mentor_aligned: { type: "boolean" },
-          poc: { type: "string" },
-          limit: { type: "number" },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_student_profile",
-      description: "Get a student's profile (scores, domain, mentors, placement status).",
-      parameters: {
-        type: "object",
-        properties: { name: { type: "string" }, roll_no: { type: "string" } },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_analytics",
-      description: "Aggregate metrics over LMP data.",
-      parameters: {
-        type: "object",
-        properties: {
-          metric: {
-            type: "string",
-            enum: ["status_distribution", "domain_distribution", "poc_workload", "conversion_rate", "overview"],
-          },
-          domain: { type: "string" },
-          poc: { type: "string" },
-        },
-        required: ["metric"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "prepare_write",
-      description: "Stage a write. Returns a summary to speak with 'Should I go ahead?'. Does NOT execute.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: [
-              "create_lmp",
-              "update_lmp_status",
-              "update_lmp_field",
-              "assign_poc",
-              "delete_lmp",
-              "update_student_field",
-            ],
-          },
-          // create_lmp / update_*: identify by company + role
-          company: { type: "string" },
-          role: { type: "string" },
-          // create_lmp + update_lmp_field
-          domain: { type: "string" },
-          type: { type: "string", description: "Full Time, Internship, Live Project, Case Competition" },
-          status: { type: "string" },
-          prep_poc: { type: "string" },
-          support_poc: { type: "string" },
-          outreach_poc: { type: "string" },
-          // assign_poc
-          poc_name: { type: "string" },
-          poc_type: { type: "string", enum: ["primary", "secondary", "support", "outreach"] },
-          // generic field update
-          field: { type: "string" },
-          value: { type: "string" },
-          // student updates
-          student_name: { type: "string" },
-        },
-        required: ["action"],
-      },
-    },
-  },
+  ...COPILOT_TOOL_REGISTRY.filter((t) => !VOICE_EXCLUDED_TOOLS.has(t.function.name)),
+  VOICE_PREPARE_WRITE_TOOL,
 ];
+
+type VoiceCopilotBridge = {
+  authToken: string;
+  userId: string;
+  role: string;
+  actorName: string;
+  isImpersonating: boolean;
+};
+let voiceCopilotBridge: VoiceCopilotBridge | null = null;
+
+async function runSharedCopilotTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const bridge = voiceCopilotBridge;
+  if (!bridge) return { error: "Voice copilot bridge unavailable" };
+  const state = createRequestState(new Request("http://voice-internal"));
+  state.context.role = bridge.role;
+  state.context.userId = bridge.userId;
+  state.context.actorName = bridge.actorName;
+  state.context.isImpersonating = bridge.isImpersonating;
+  state.context.authToken = bridge.authToken;
+  const raw = await requestStateStorage.run(state, () => copilotExecuteTool(name, args));
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { raw };
+  }
+}
+
+function voiceBlockForTool(name: string, result: Record<string, unknown>, args: Record<string, unknown>): unknown {
+  if (result.error) return undefined;
+  switch (name) {
+    case "list_entities":
+      return { type: "count", entity: args.entity_type, count: result.count, sample: result.pocs ?? result.entities };
+    case "resolve_entity":
+      return { type: "entity_lookup", query: args.query, result };
+    case "search_lmp_records":
+      return result.total && Number(result.total) > 0
+        ? { type: "lmp_list", rows: result.rows, total: result.total }
+        : undefined;
+    case "get_student_profile":
+    case "search_students":
+      return !result.error ? { type: "student_profile", data: result } : undefined;
+    case "get_analytics":
+      return { type: "analytics", metric: args.metric, data: result };
+    case "recommend_pocs":
+      return { type: "poc_recommendations", data: result };
+    case "find_mentors_for_lmp":
+    case "find_mentors_for_jd":
+      return { type: "mentor_shortlist", data: result };
+    default:
+      return undefined;
+  }
+}
 
 // ─── Supabase ──────────────────────────────────────────────────────────────
 function sb() {
@@ -592,6 +583,8 @@ function summarisePending(p: PendingAction): string {
       return `Delete LMP ${p.company} – ${p.role}`;
     case "update_student_field":
       return `Set ${p.field} to "${p.value}" for student ${p.student_name}`;
+    case "log_submission":
+      return `Log ${p.candidate || p.candidate_name}'s ${p.round} submission (${p.outcome}) for ${p.company} – ${p.role} on ${p.date || "today"}`;
     default:
       return `Run ${p.action}`;
   }
@@ -685,6 +678,17 @@ async function executePending(
       const { error } = await c.from("students").update({ [p.field]: p.value }).eq("id", data[0].id);
       if (error) return { ok: false, error: error.message };
       return { ok: true, summary: `updated ${data[0].name}` };
+    }
+    if (p.action === "log_submission") {
+      const validated = validateLogSubmissionArgs(p);
+      if (!validated.ok) return { ok: false, error: validated.error };
+      const r = await writeSubmissionRecord(validated.normalized, {
+        id: actor.id,
+        name: voiceCopilotBridge?.actorName || "Voice",
+        role: actor.role,
+      });
+      if (!r.ok) return { ok: false, error: r.error };
+      return { ok: true, summary: r.summary };
     }
     return { ok: false, error: `unknown action ${p.action}` };
   } catch (e) {
@@ -789,48 +793,50 @@ async function callModel(messages: any[], forceTool = false) {
 
 
 async function runTool(name: string, args: any): Promise<{ result: any; pending?: PendingAction; block?: any }> {
-  switch (name) {
-    case "list_entities": {
-      const result = await execListEntities(args);
-      return { result, block: { type: "count", entity: args.entity_type, count: result.count, sample: result.sample } };
+  if (name === "update_lmp_status") {
+    return runTool("prepare_write", {
+      action: "update_lmp_status",
+      company: args.company,
+      role: args.role,
+      status: args.status || args.new_status,
+    });
+  }
+  if (name === "assign_poc") {
+    return runTool("prepare_write", {
+      action: "assign_poc",
+      company: args.company,
+      role: args.role,
+      poc_name: args.poc_name,
+      poc_type: args.poc_type || "primary",
+    });
+  }
+  if (name === "log_submission") {
+    const validated = validateLogSubmissionArgs(args);
+    if (!validated.ok) {
+      return { result: { error: validated.error, missing: validated.missing, ask: "Need candidate, company, role, round, outcome, and date." } };
     }
-    case "resolve_entity": {
-      const result = await execResolveEntity(args);
-      return { result, block: { type: "entity_lookup", query: args.query, result } };
-    }
-    case "search_lmp_records": {
-      const result = await execSearchLmp(args);
-      return { result, block: result.total > 0 ? { type: "lmp_list", rows: result.rows, total: result.total } : undefined };
-    }
-    case "get_student_profile": {
-      const result = await execStudentProfile(args);
-      return { result, block: !result.error ? { type: "student_profile", data: result } : undefined };
-    }
-    case "get_analytics": {
-      const result = await execAnalytics(args);
-      return { result, block: { type: "analytics", metric: args.metric, data: result } };
-    }
-    case "prepare_write": {
-      if (voiceBlocksWrites()) {
-        return {
-          result: { blocked: true, reason: "View-as mode is read-only." },
-        };
-      }
-      const pending = args as PendingAction;
-      // BUG-V3: snapshot current DB values so the spoken summary reflects DB truth.
-      try {
-        const snap = await snapshotForPending(pending);
-        if (snap) pending._current = snap;
-      } catch (_e) { /* non-fatal */ }
+    return runTool("prepare_write", { action: "log_submission", ...validated.normalized, candidate_name: validated.normalized.candidate });
+  }
+  if (name === "prepare_write") {
+    if (voiceBlocksWrites()) {
       return {
-        result: { staged: true, current: pending._current || null, summary: summarisePending(pending) + ". Should I go ahead?" },
-        pending,
-        block: { type: "pending_action", action: pending.action, summary: summarisePending(pending) },
+        result: { blocked: true, reason: "View-as mode is read-only." },
       };
     }
-    default:
-      return { result: { error: `unknown tool ${name}` } };
+    const pending = args as PendingAction;
+    try {
+      const snap = await snapshotForPending(pending);
+      if (snap) pending._current = snap;
+    } catch (_e) { /* non-fatal */ }
+    return {
+      result: { staged: true, current: pending._current || null, summary: summarisePending(pending) + ". Should I go ahead?" },
+      pending,
+      block: { type: "pending_action", action: pending.action, summary: summarisePending(pending) },
+    };
   }
+
+  const result = await runSharedCopilotTool(name, args);
+  return { result, block: voiceBlockForTool(name, result, args) };
 }
 
 // ─── HTTP ──────────────────────────────────────────────────────────────────
@@ -851,6 +857,7 @@ async function handleVoiceRequest(req: Request) {
   }
   const userLog = log.child({ user_id: auth.user.id, role: auth.user.role });
   voiceRequestState().userId = auth.user.id;
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
   try {
     const budget = await reserveAiRequest(auth.user.id, GEMINI_TOOL_FALLBACK_MODELS[0]);
     if (!budget.allowed) {
@@ -891,6 +898,13 @@ async function handleVoiceRequest(req: Request) {
     voiceRequestState().viewAs = { impersonating: isImpersonating, name: isImpersonating ? viewAsName : null };
     voiceRequestState().effectiveName = isImpersonating ? viewAsName : realName;
     voiceRequestState().effectiveRole = isImpersonating ? viewAsRole : realRole;
+    voiceCopilotBridge = {
+      authToken: authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "",
+      userId: auth.user.id,
+      role: realRole,
+      actorName: realName,
+      isImpersonating,
+    };
     // Effective identity = who the model should answer "as".
     const effectiveName = isImpersonating ? viewAsName : realName;
     const effectiveRole = isImpersonating ? viewAsRole : realRole;

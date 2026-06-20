@@ -89,4 +89,26 @@ describe("parseBlocks (Copilot acceptance suite)", () => {
       expect(blocks[0].missing_mandatory).toEqual(["SQL"]);
     }
   });
+
+  it("accepts case-study-card with brief fields", () => {
+    const content = `:::blocks\n${JSON.stringify([
+      {
+        type: "case-study-card",
+        company: "Stripe",
+        role: "Product Manager",
+        domain: "PM",
+        situation: "Stripe is expanding into SMB lending.",
+        prompt: "Should Stripe launch this product?",
+        rubric: [{ criterion: "Structure", weight: 0.25, description: "Clear framework" }],
+        model_answer_outline: ["Clarify objective", "Size market", "Recommend go/no-go"],
+      },
+    ])}\n:::`;
+    const { blocks } = parseBlocks(content);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("case-study-card");
+    if (blocks[0].type === "case-study-card") {
+      expect(blocks[0].company).toBe("Stripe");
+      expect(blocks[0].rubric).toHaveLength(1);
+    }
+  });
 });

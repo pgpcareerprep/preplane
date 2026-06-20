@@ -225,7 +225,9 @@ export function ReassignPocModal({
             }),
           ),
         );
-      } catch { /* ignore */ }
+      } catch (e) {
+        toast.warning("POC reassigned, but timeline entry failed", { description: (e as Error)?.message });
+      }
 
       try {
         await (supabase as any).from("activity_log").insert({
@@ -235,7 +237,9 @@ export function ReassignPocModal({
           actor_name: actor,
           metadata: { changes },
         });
-      } catch { /* ignore */ }
+      } catch (e) {
+        toast.warning("POC reassigned, but audit log failed", { description: (e as Error)?.message });
+      }
 
       return { changes: changes.length };
     },

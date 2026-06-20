@@ -28,6 +28,7 @@ import { CopilotPermissionDeniedCard } from "./CopilotPermissionDeniedCard";
 import { CopilotJdSummaryCard } from "./CopilotJdSummaryCard";
 import { CopilotMentorShortlistCard } from "./CopilotMentorShortlistCard";
 import { CopilotCvGapCard } from "./CopilotCvGapCard";
+import { CopilotCaseStudyCard } from "./CopilotCaseStudyCard";
 import { CopilotPlanCard } from "./CopilotPlanCard";
 
 export function BlockRenderer({ block, onFollowUp, onAction, lmpId }: {
@@ -95,6 +96,8 @@ export function BlockRenderer({ block, onFollowUp, onAction, lmpId }: {
       return <CopilotMentorShortlistCard block={block} onAction={handleAction} />;
     case "cv-gap-card":
       return <CopilotCvGapCard block={block} />;
+    case "case-study-card":
+      return <CopilotCaseStudyCard block={block} />;
     case "plan-card":
       return <CopilotPlanCard block={block} onAction={handleAction} />;
     case "text":

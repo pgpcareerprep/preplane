@@ -20,6 +20,7 @@ export default defineConfig(({ mode: _mode }) => ({
   },
   build: {
     chunkSizeWarningLimit: 1000,
+    ...( _mode === "production" ? { esbuild: { drop: ["console"] as ("console")[] } } : {}),
     rollupOptions: {
       output: {
         manualChunks(id) {

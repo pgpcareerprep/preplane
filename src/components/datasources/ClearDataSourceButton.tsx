@@ -7,6 +7,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { log } from "@/lib/logger";
 import { usePermission } from "@/lib/rolesContext";
 
 type SourceKey = "mentor_union" | "student_db" | "alumni_db";
@@ -55,7 +56,9 @@ export function ClearDataSourceButton({
           source: "ui",
           metadata: { count },
         });
-      } catch { /* non-fatal */ }
+      } catch (e) {
+        log.warn("[ClearDataSourceButton] activity_log insert failed", e);
+      }
       await qc.invalidateQueries();
       toast.success(`Cleared ${count} ${label}`);
       setOpen(false);

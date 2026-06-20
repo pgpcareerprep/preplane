@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { log } from "@/lib/logger";
 import type { ColumnMapping, MentorCsvRow } from "@/lib/mentorUpload";
 import { fetchCanonicalDomains, normalizeDomain, normalizeDomainList } from "@/lib/domainNormalize";
 
@@ -224,7 +225,11 @@ export async function uploadPocs(
     status,
   });
   // best-effort status refresh; ignore if RPC doesn't know this source
-  try { await supabase.rpc("refresh_data_source_status", { _source: "poc_db" }); } catch { /* ignore */ }
+  try {
+    await supabase.rpc("refresh_data_source_status", { _source: "poc_db" });
+  } catch (e) {
+    log.warn("[pocUpload] refresh_data_source_status failed", e);
+  }
 
   return { inserted, updated, skipped, errors, status };
 }

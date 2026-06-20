@@ -380,6 +380,23 @@ export type CvGapCardBlock = {
   top_recommendations?: string[];
 };
 
+export type CaseStudyRubricItem = {
+  criterion: string;
+  weight: number;
+  description: string;
+};
+
+export type CaseStudyCardBlock = {
+  type: "case-study-card";
+  company: string;
+  role: string;
+  domain?: string;
+  situation: string;
+  prompt: string;
+  rubric: CaseStudyRubricItem[];
+  model_answer_outline: string[];
+};
+
 export type PlanStep = {
   id: string;
   /** Short imperative title shown to the user (e.g. "Resolve mentor"). */
@@ -439,6 +456,7 @@ export type CopilotBlock =
   | JdSummaryCardBlock
   | MentorShortlistCardBlock
   | CvGapCardBlock
+  | CaseStudyCardBlock
   | PlanCardBlock;
 /** Allowlist of block.type values the renderer knows about. */
 const VALID_BLOCK_TYPES = new Set<string>([
@@ -447,7 +465,7 @@ const VALID_BLOCK_TYPES = new Set<string>([
   "alert-cards", "recommendations", "follow-ups", "progress-tracker", "text",
   "inline-form", "action-buttons", "confirmation-card", "info-card",
   "pipeline-card", "activity-feed", "disambiguation-card", "permission-denied-card",
-  "jd-summary-card", "mentor-shortlist-card", "cv-gap-card", "plan-card",
+  "jd-summary-card", "mentor-shortlist-card", "cv-gap-card", "case-study-card", "plan-card",
 ]);
 
 function isValidBlock(b: unknown): b is CopilotBlock {
