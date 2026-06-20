@@ -880,7 +880,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       />
 
       {/* ─────── SECTION 2: Prep POC Heatmap ─────── */}
-      <PrepPocHeatmapCard />
+      <PrepPocHeatmapCard
+        filteredLmpIds={filteredRecords.map((r) => r.id)}
+        filters={filters as Record<string, unknown>}
+      />
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
       <LxSectionBlock>

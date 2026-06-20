@@ -21,7 +21,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { downloadCsv, dateStamp } from "@/lib/exportCsv";
 import {
-  buildHeatmapData,
   filterHeatmapMetricRecords,
   fmtConversion,
   HEATMAP_METRIC_LABELS,
@@ -29,8 +28,20 @@ import {
   type HeatmapDrilldownStudentRecord,
   type HeatmapMetricKey,
   type PrepPocHeatmapRow,
-  type PrepPocHeatmapResponse,
 } from "@/lib/prepPocHeatmapAgg";
+import {
+  buildFullHeatmapData,
+  type FullPrepPocHeatmapResponse,
+} from "@/lib/prepPocHeatmapViews";
+import {
+  GenericHeatmapTable,
+  STUDENT_SECTION_CONFIG,
+  DOMAIN_SECTION_CONFIG,
+  buildColMaxValues,
+  studentTotalsFrom,
+  domainTotalsFrom,
+  type AltSectionDef,
+} from "@/components/dashboard/PrepPocHeatmapAlternateViews";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -85,9 +96,14 @@ type HeatmapCandidateQueryRow = {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const QUERY_KEY = ["prep_poc_heatmap_v3"] as const;
+const QUERY_KEY_BASE = "prep_poc_heatmap_v3";
 
-const STORAGE_KEY = "heatmap_visible_sections_v1";
+const STORAGE_KEY_LMP = "heatmap_visible_sections_v1";
+const STORAGE_KEY_STUDENT = "heatmap_visible_sections_student_v1";
+const STORAGE_KEY_DOMAIN = "heatmap_visible_sections_domain_v1";
+
+const ALL_STUDENT_SECTION_KEYS = STUDENT_SECTION_CONFIG.map((s) => s.key);
+const ALL_DOMAIN_SECTION_KEYS = DOMAIN_SECTION_CONFIG.map((s) => s.key);
 
 // ── Heat palette — 5 levels, soft Lumina pastels (GitHub-style intensity) ───
 // L0=zero  L1=1-25%  L2=26-50%  L3=51-75%  L4=76-100%
@@ -377,22 +393,22 @@ const SECTION_CONFIG: SectionDef[] = [
 
 // ── Visibility helpers ────────────────────────────────────────────────────────
 
-function loadVisibleSections(): Set<SectionKey> {
+function loadVisibleSections(storageKey: string, defaults: string[]): Set<string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
-      const arr = JSON.parse(raw) as SectionKey[];
-      if (Array.isArray(arr) && arr.length > 0) return new Set(arr as SectionKey[]);
+      const arr = JSON.parse(raw) as string[];
+      if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
     }
   } catch {
     // ignore
   }
-  return new Set(ALL_SECTION_KEYS);
+  return new Set(defaults);
 }
 
-function saveVisibleSections(set: Set<SectionKey>) {
+function saveVisibleSections(storageKey: string, set: Set<string>) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+    localStorage.setItem(storageKey, JSON.stringify([...set]));
   } catch {
     // ignore
   }
@@ -468,15 +484,17 @@ function HeatCell({
 // ── Columns popover ───────────────────────────────────────────────────────────
 
 function ColumnsPopover({
+  sections,
   visibleSections,
   onToggle,
   onShowAll,
 }: {
-  visibleSections: Set<SectionKey>;
-  onToggle: (key: SectionKey) => void;
+  sections: Array<{ key: string; label: string }>;
+  visibleSections: Set<string>;
+  onToggle: (key: string) => void;
   onShowAll: () => void;
 }) {
-  const allVisible = ALL_SECTION_KEYS.every((k) => visibleSections.has(k));
+  const allVisible = sections.every((k) => visibleSections.has(k.key));
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -496,7 +514,7 @@ function ColumnsPopover({
           {!allVisible && (
             <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
               style={{ background: "var(--lx-orange)", color: "#fff" }}>
-              {ALL_SECTION_KEYS.length - visibleSections.size}
+              {sections.length - visibleSections.size}
             </span>
           )}
         </button>
@@ -506,7 +524,7 @@ function ColumnsPopover({
           Visible sections
         </div>
         <div className="space-y-1">
-          {SECTION_CONFIG.map((s) => {
+          {sections.map((s) => {
             const checked = visibleSections.has(s.key);
             return (
               <label
@@ -571,31 +589,77 @@ type TotalsShape = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function PrepPocHeatmapCard() {
+export function PrepPocHeatmapCard({
+  filteredLmpIds,
+  filters,
+}: {
+  filteredLmpIds?: string[];
+  filters?: Record<string, unknown>;
+} = {}) {
   const [activeView, setActiveView] = useState<"lmp" | "student" | "domain">("lmp");
   const [selection, setSelection] = useState<HeatmapDrilldownSelection | null>(null);
-  const [visibleSections, setVisibleSections] = useState<Set<SectionKey>>(loadVisibleSections);
+  const [visibleLmpSections, setVisibleLmpSections] = useState<Set<SectionKey>>(() => loadVisibleSections(STORAGE_KEY_LMP, ALL_SECTION_KEYS) as Set<SectionKey>);
+  const [visibleStudentSections, setVisibleStudentSections] = useState<Set<string>>(() => loadVisibleSections(STORAGE_KEY_STUDENT, ALL_STUDENT_SECTION_KEYS));
+  const [visibleDomainSections, setVisibleDomainSections] = useState<Set<string>>(() => loadVisibleSections(STORAGE_KEY_DOMAIN, ALL_DOMAIN_SECTION_KEYS));
 
-  // Persist visibility prefs
-  useEffect(() => { saveVisibleSections(visibleSections); }, [visibleSections]);
+  const scopeKey = useMemo(
+    () => (filteredLmpIds?.length ? [...filteredLmpIds].sort().join(",") : "all"),
+    [filteredLmpIds],
+  );
+  const queryKey = useMemo(() => [QUERY_KEY_BASE, scopeKey] as const, [scopeKey]);
+  const scopeLmpIds = useMemo(
+    () => (filteredLmpIds?.length ? new Set(filteredLmpIds) : undefined),
+    [filteredLmpIds],
+  );
 
-  const toggleSection = useCallback((key: SectionKey) => {
-    setVisibleSections((prev) => {
+  useEffect(() => { saveVisibleSections(STORAGE_KEY_LMP, visibleLmpSections as Set<string>); }, [visibleLmpSections]);
+  useEffect(() => { saveVisibleSections(STORAGE_KEY_STUDENT, visibleStudentSections); }, [visibleStudentSections]);
+  useEffect(() => { saveVisibleSections(STORAGE_KEY_DOMAIN, visibleDomainSections); }, [visibleDomainSections]);
+
+  const toggleSection = useCallback((key: string) => {
+    if (activeView === "lmp") {
+      setVisibleLmpSections((prev) => {
+        const next = new Set(prev);
+        if (next.has(key as SectionKey)) next.delete(key as SectionKey); else next.add(key as SectionKey);
+        return next;
+      });
+      return;
+    }
+    if (activeView === "student") {
+      setVisibleStudentSections((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+      return;
+    }
+    setVisibleDomainSections((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  }, []);
+  }, [activeView]);
 
-  const showAll = useCallback(() => setVisibleSections(new Set(ALL_SECTION_KEYS)), []);
+  const showAll = useCallback(() => {
+    if (activeView === "lmp") setVisibleLmpSections(new Set(ALL_SECTION_KEYS));
+    else if (activeView === "student") setVisibleStudentSections(new Set(ALL_STUDENT_SECTION_KEYS));
+    else setVisibleDomainSections(new Set(ALL_DOMAIN_SECTION_KEYS));
+  }, [activeView]);
 
-  // ── Data fetch ──────────────────────────────────────────────────────────────
-  const { data, isLoading, isError, refetch } = useQuery<PrepPocHeatmapResponse>({
-    queryKey: QUERY_KEY,
+  const visibleSections = activeView === "lmp"
+    ? visibleLmpSections
+    : activeView === "student"
+      ? visibleStudentSections
+      : visibleDomainSections;
+
+  const activeSectionConfig: Array<SectionDef | AltSectionDef> = activeView === "lmp"
+    ? SECTION_CONFIG
+    : activeView === "student"
+      ? STUDENT_SECTION_CONFIG
+      : DOMAIN_SECTION_CONFIG;
+
+  const { data, isLoading, isError, refetch } = useQuery<FullPrepPocHeatmapResponse>({
+    queryKey,
     queryFn: async () => {
       const [pocsRes, linksRes, candidatesRes] = await Promise.all([
         supabase
@@ -616,10 +680,11 @@ export function PrepPocHeatmapCard() {
       if (linksRes.error) { console.error("[PrepPocHeatmap] Query failed", linksRes.error); throw new Error(linksRes.error.message); }
       if (candidatesRes.error) { console.error("[PrepPocHeatmap] Query failed", candidatesRes.error); throw new Error(candidatesRes.error.message); }
 
-      return buildHeatmapData(
+      return buildFullHeatmapData(
         (pocsRes.data ?? []) as import("@/lib/prepPocHeatmapAgg").PocRaw[],
         (linksRes.data ?? []) as HeatmapLinkQueryRow[],
         (candidatesRes.data ?? []) as HeatmapCandidateQueryRow[],
+        scopeLmpIds,
       );
     },
     staleTime: 60_000,
@@ -628,18 +693,32 @@ export function PrepPocHeatmapCard() {
   });
 
   // ── Realtime ────────────────────────────────────────────────────────────────
-  useRealtimeInvalidate("lmp_processes", [QUERY_KEY]);
-  useRealtimeInvalidate("lmp_poc_links" as never, [QUERY_KEY]);
-  useRealtimeInvalidate("poc_profiles" as never, [QUERY_KEY]);
-  useRealtimeInvalidate("lmp_candidates", [QUERY_KEY]);
+  useRealtimeInvalidate("lmp_processes", queryKey);
+  useRealtimeInvalidate("lmp_poc_links" as never, queryKey);
+  useRealtimeInvalidate("poc_profiles" as never, queryKey);
+  useRealtimeInvalidate("lmp_candidates", queryKey);
+  useRealtimeInvalidate("students" as never, queryKey);
 
-  // Only POCs with at least one LMP assignment
-  const activeRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
+  const activeLmpRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
+  const activeStudentRows = useMemo(() => (data?.studentRows ?? []).filter((r) => r.totalStudents > 0), [data]);
+  const activeDomainRows = useMemo(() => (data?.domainRows ?? []).filter((r) => r.totalLmps > 0 || r.studentsPlaced > 0), [data]);
+
+  const hasRows = activeView === "lmp"
+    ? activeLmpRows.length > 0
+    : activeView === "student"
+      ? activeStudentRows.length > 0
+      : activeDomainRows.length > 0;
 
   // Per-column max values (heat only; conversion skipped)
   const colMaxValues = useMemo(() => {
+    if (activeView === "student") {
+      return buildColMaxValues(activeStudentRows, STUDENT_SECTION_CONFIG.flatMap((s) => s.cols.filter((c) => c.colType === "heat").map((c) => c.dataKey)));
+    }
+    if (activeView === "domain") {
+      return buildColMaxValues(activeDomainRows, DOMAIN_SECTION_CONFIG.flatMap((s) => s.cols.filter((c) => c.colType === "heat").map((c) => c.dataKey)));
+    }
     const maxFor = (key: keyof PrepPocHeatmapRow) =>
-      Math.max(1, ...activeRows.map((r) => (r[key] as number) ?? 0));
+      Math.max(1, ...activeLmpRows.map((r) => (r[key] as number) ?? 0));
     return {
       totalLmpLoad: maxFor("totalLmpLoad"),
       currentLmpCount: maxFor("currentLmpCount"),
@@ -657,12 +736,75 @@ export function PrepPocHeatmapCard() {
       crossDomainCount: maxFor("crossDomainCount"),
       studentsPlaced: maxFor("studentsPlaced"),
     };
-  }, [activeRows]);
+  }, [activeView, activeLmpRows, activeStudentRows, activeDomainRows]);
 
-  // CSV export — always exports full dataset regardless of visibility
+  const studentTotals = useMemo(() => (data ? studentTotalsFrom(data) : null), [data]);
+  const domainTotals = useMemo(() => (data ? domainTotalsFrom(data) : null), [data]);
+
+  // CSV export — exports active view
   const handleExport = useCallback(() => {
     if (!data) return;
-    const { rows, summary, generatedAt } = data;
+    const { generatedAt } = data;
+    const filterMeta = filters ? JSON.stringify(filters) : "none";
+
+    if (activeView === "student") {
+      const csvRows = data.studentRows.map((r) => ({
+        "POC Name": r.pocName,
+        "Total Students": r.totalStudents,
+        "Current Students": r.currentStudents,
+        "Placed Students": r.placedStudentsLoad,
+        "Not Started": r.notStartedCount,
+        "Prep Ongoing": r.prepOngoingCount,
+        "Prep Done": r.prepDoneCount,
+        Placed: r.placedCount,
+        "Not Placed": r.notPlacedCount,
+        "On hold": r.onHoldCount,
+        "Other reasons": r.otherReasonsCount,
+        "Placement Rate": r.placementRatePct != null ? `${r.placementRatePct.toFixed(1)}%` : "—",
+        "Avg. Sessions Per Student": "—",
+      }));
+      csvRows.push({} as never);
+      csvRows.push({ "POC Name": `Exported At: ${generatedAt}` } as never);
+      csvRows.push({ "POC Name": `Selected View: Student-wise` } as never);
+      csvRows.push({ "POC Name": `Applied Filters: ${filterMeta}` } as never);
+      downloadCsv(`prep-poc-heatmap-student-wise-${dateStamp()}.csv`, csvRows, [
+        "POC Name", "Total Students", "Current Students", "Placed Students",
+        "Not Started", "Prep Ongoing", "Prep Done", "Placed", "Not Placed", "On hold", "Other reasons",
+        "Placement Rate", "Avg. Sessions Per Student",
+      ]);
+      return;
+    }
+
+    if (activeView === "domain") {
+      const csvRows = data.domainRows.map((r) => ({
+        Domain: r.domainName,
+        "Total LMPs": r.totalLmps,
+        "Current LMPs": r.currentLmps,
+        "Closed LMPs": r.closedLmps,
+        "Not Started": r.notStartedCount,
+        "Prep Ongoing": r.prepOngoingCount,
+        "Prep Done": r.prepDoneCount,
+        Placed: r.placedCount,
+        "Not Placed": r.notPlacedCount,
+        "On hold": r.onHoldCount,
+        "Other reasons": r.otherReasonsCount,
+        "Students Placed": r.studentsPlaced,
+        "Placement Rate": r.placementRatePct != null ? `${r.placementRatePct.toFixed(1)}%` : "—",
+        "LMP Conversion": r.lmpConversionPercentage != null ? `${r.convertedCount}/${r.eligibleClosedCount} · ${r.lmpConversionPercentage.toFixed(0)}%` : "—",
+      }));
+      csvRows.push({} as never);
+      csvRows.push({ Domain: `Exported At: ${generatedAt}` } as never);
+      csvRows.push({ Domain: `Selected View: Domain-wise` } as never);
+      csvRows.push({ Domain: `Applied Filters: ${filterMeta}` } as never);
+      downloadCsv(`prep-poc-heatmap-domain-wise-${dateStamp()}.csv`, csvRows, [
+        "Domain", "Total LMPs", "Current LMPs", "Closed LMPs",
+        "Not Started", "Prep Ongoing", "Prep Done", "Placed", "Not Placed", "On hold", "Other reasons",
+        "Students Placed", "Placement Rate", "LMP Conversion",
+      ]);
+      return;
+    }
+
+    const { rows, summary } = data;
     const csvRows = rows.map((r) => ({
       "POC Name": r.pocName,
       "Total LMPs": r.totalLmpLoad,
@@ -686,6 +828,8 @@ export function PrepPocHeatmapCard() {
     }));
     csvRows.push({} as never);
     csvRows.push({ "POC Name": `Exported At: ${generatedAt}` } as never);
+    csvRows.push({ "POC Name": `Selected View: LMP-wise` } as never);
+    csvRows.push({ "POC Name": `Applied Filters: ${filterMeta}` } as never);
     csvRows.push({ "POC Name": `Active POCs: ${summary.activePocCount} | Unique LMPs: ${summary.uniqueLmpCount} | Converted LMP %: ${summary.convertedLmpPercentage !== null ? `${summary.convertedLmpPercentage.toFixed(1)}%` : "—"}` } as never);
     downloadCsv(`prep-poc-heatmap-lmp-wise-${dateStamp()}.csv`, csvRows, [
       "POC Name", "Total LMPs", "Current LMPs", "Closed LMPs",
@@ -694,11 +838,11 @@ export function PrepPocHeatmapCard() {
       "Primary", "Support", "In-domain", "Cross-domain",
       "Converted Count", "Eligible Closed Count", "LMP Conversion %", "Students Placed",
     ]);
-  }, [data]);
+  }, [data, activeView, filters]);
 
-  // Totals row values
+  // Totals row values (LMP-wise)
   const totals = useMemo((): TotalsShape | null => {
-    if (!data) return null;
+    if (!data || activeView !== "lmp") return null;
     const { rows, summary } = data;
     const sum = (key: keyof PrepPocHeatmapRow) => rows.reduce((s, r) => s + ((r[key] as number) ?? 0), 0);
     return {
@@ -720,7 +864,7 @@ export function PrepPocHeatmapCard() {
       lmpConversionPercentage: summary.convertedLmpPercentage,
       studentsPlaced: summary.uniqueStudentsPlaced,
     };
-  }, [data]);
+  }, [data, activeView]);
 
   const openDrilldown = useCallback((
     row: PrepPocHeatmapRow,
@@ -734,8 +878,8 @@ export function PrepPocHeatmapCard() {
 
   // Visible sections in order
   const visibleConfig = useMemo(
-    () => SECTION_CONFIG.filter((s) => visibleSections.has(s.key)),
-    [visibleSections],
+    () => activeSectionConfig.filter((s) => visibleSections.has(s.key)),
+    [activeSectionConfig, visibleSections],
   );
   const noSections = visibleConfig.length === 0;
 
@@ -768,11 +912,7 @@ export function PrepPocHeatmapCard() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveView(tab.id)}
-                  disabled={tab.id !== "lmp"}
-                  className={cn(
-                    "px-3.5 text-[12.5px] font-semibold transition-colors border-r last:border-r-0 focus-visible:outline-none focus-visible:ring-2",
-                    tab.id !== "lmp" && "opacity-40 cursor-not-allowed",
-                  )}
+                  className="px-3.5 text-[12.5px] font-semibold transition-colors border-r last:border-r-0 focus-visible:outline-none focus-visible:ring-2"
                   style={{
                     borderColor: "var(--lx-border)",
                     background: activeView === tab.id ? "var(--lx-surface)" : "transparent",
@@ -780,7 +920,6 @@ export function PrepPocHeatmapCard() {
                     boxShadow: activeView === tab.id ? "0 1px 3px rgba(26,25,22,0.08)" : undefined,
                     "--tw-ring-color": "var(--lx-orange)",
                   } as React.CSSProperties}
-                  title={tab.id !== "lmp" ? "Not yet implemented" : undefined}
                   aria-pressed={activeView === tab.id}
                   role="tab"
                 >
@@ -791,7 +930,8 @@ export function PrepPocHeatmapCard() {
 
             {/* Columns visibility */}
             <ColumnsPopover
-              visibleSections={visibleSections}
+              sections={activeSectionConfig.map((s) => ({ key: s.key, label: s.label }))}
+              visibleSections={visibleSections as Set<string>}
               onToggle={toggleSection}
               onShowAll={showAll}
             />
@@ -815,7 +955,7 @@ export function PrepPocHeatmapCard() {
         </div>
 
         {/* KPI cards */}
-        {!isLoading && data && (
+        {!isLoading && data && activeView === "lmp" && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-gutter mt-4">
             <KpiCard icon={Users} label="Active POCs" value={data.summary.activePocCount}
               accentCss="var(--lx-orange)"
@@ -830,6 +970,34 @@ export function PrepPocHeatmapCard() {
               value={data.summary.convertedLmpPercentage !== null ? `${data.summary.convertedLmpPercentage.toFixed(0)}%` : "—"}
               accentCss="var(--lx-info)"
               tooltip="Globally distinct converted LMPs ÷ eligible closed LMPs (excludes On Hold)." />
+          </div>
+        )}
+        {!isLoading && data && activeView === "student" && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-gutter mt-4">
+            <KpiCard icon={Users} label="Active POCs" value={data.studentSummary.activePocCount}
+              accentCss="var(--lx-orange)" tooltip="Distinct active Prep POCs with student workload in scope." />
+            <KpiCard icon={GraduationCap} label="Unique Students" value={data.studentSummary.uniqueStudents}
+              accentCss="var(--lx-yellow)" tooltip="Distinct students linked to the selected Prep scope." />
+            <KpiCard icon={GraduationCap} label="Students Placed" value={data.studentSummary.studentsPlaced}
+              accentCss="var(--lx-success)" tooltip="Distinct students with a valid final placement outcome." />
+            <KpiCard icon={TrendingUp} label="Placed Students %"
+              value={data.studentSummary.placedStudentsPct != null ? `${data.studentSummary.placedStudentsPct.toFixed(0)}%` : "—"}
+              accentCss="var(--lx-info)" tooltip="Students Placed ÷ Unique Students × 100." />
+          </div>
+        )}
+        {!isLoading && data && activeView === "domain" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-gutter mt-4">
+            <KpiCard icon={Briefcase} label="Active Domains" value={data.domainSummary.activeDomains}
+              accentCss="var(--lx-orange)" tooltip="Domains present in the filtered scope." />
+            <KpiCard icon={Briefcase} label="Total LMPs" value={data.domainSummary.totalLmps}
+              accentCss="var(--lx-yellow)" tooltip="Globally unique LMPs in the filtered scope." />
+            <KpiCard icon={GraduationCap} label="Total Students" value={data.domainSummary.totalStudents}
+              accentCss="var(--lx-teal)" tooltip="Distinct students who selected or opted for a domain." />
+            <KpiCard icon={GraduationCap} label="Students Placed" value={data.domainSummary.studentsPlaced}
+              accentCss="var(--lx-success)" tooltip="Distinct students with a valid final placement outcome." />
+            <KpiCard icon={TrendingUp} label="Placement Rate"
+              value={data.domainSummary.placementRatePct != null ? `${data.domainSummary.placementRatePct.toFixed(0)}%` : "—"}
+              accentCss="var(--lx-info)" tooltip="Students Placed ÷ Total Students × 100." />
           </div>
         )}
         {isLoading && (
@@ -861,15 +1029,15 @@ export function PrepPocHeatmapCard() {
           </div>
         )}
 
-        {!isLoading && !isError && data && activeRows.length === 0 && (
+        {!isLoading && !isError && data && !hasRows && (
           <div className="py-10 text-center">
             <p className="text-[14px]" style={{ color: "var(--lx-text-3)" }}>
-              No Prep POC workload data available.
+              No Prep POC workload data available for the selected filters.
             </p>
           </div>
         )}
 
-        {!isLoading && !isError && data && activeRows.length > 0 && (
+        {!isLoading && !isError && data && hasRows && (
           <>
             <div className="overflow-x-auto rounded-xl border"
               style={{ borderColor: "var(--lx-border)", background: "var(--lx-surface)" }}>
@@ -887,7 +1055,7 @@ export function PrepPocHeatmapCard() {
                     Show all sections
                   </button>
                 </div>
-              ) : (
+              ) : activeView === "lmp" ? (
                 <table
                   className="w-full border-separate text-[12px]"
                   style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}
@@ -985,20 +1153,32 @@ export function PrepPocHeatmapCard() {
                   </thead>
 
                   <tbody>
-                    {activeRows.map((row) => (
+                    {activeLmpRows.map((row) => (
                       <DataRow
                         key={row.pocId}
                         row={row}
                         colMaxValues={colMaxValues}
-                        visibleConfig={visibleConfig}
+                        visibleConfig={visibleConfig as SectionDef[]}
                         onOpenDrilldown={openDrilldown}
                       />
                     ))}
                     {totals && (
-                      <TotalRow totals={totals} visibleConfig={visibleConfig} />
+                      <TotalRow totals={totals} visibleConfig={visibleConfig as SectionDef[]} />
                     )}
                   </tbody>
                 </table>
+              ) : (
+                <GenericHeatmapTable
+                  rowHeader={activeView === "student" ? "POC" : "DOMAIN"}
+                  rows={
+                    activeView === "student"
+                      ? activeStudentRows.map((r) => ({ id: r.pocId, label: r.pocName, row: r }))
+                      : activeDomainRows.map((r) => ({ id: r.domainId, label: r.domainName, row: r }))
+                  }
+                  totals={(activeView === "student" ? studentTotals : domainTotals) ?? {}}
+                  visibleConfig={visibleConfig as AltSectionDef[]}
+                  colMaxValues={colMaxValues}
+                />
               )}
             </div>
 
@@ -1203,7 +1383,7 @@ function HeatmapDrilldownModal({
 }: {
   open: boolean;
   selection: HeatmapDrilldownSelection | null;
-  data: PrepPocHeatmapResponse;
+  data: FullPrepPocHeatmapResponse;
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
