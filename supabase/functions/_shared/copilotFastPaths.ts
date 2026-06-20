@@ -17,10 +17,26 @@ export function isPocProgressReportQuery(message: string): boolean {
   return mentionsPocs && (progressReport || allPocsReport);
 }
 
+/** POC mentioned explicitly or via "poc wise" / "by poc" phrasing. */
+function mentionsPocScope(text: string): boolean {
+  return /\b(pocs?|prep\s+pocs?)\b/.test(text) ||
+    /\bpoc\s+wise\b/.test(text) ||
+    /\b(by|per|each)\s+poc\b/.test(text) ||
+    /\bconversion\s+by\s+poc\b/.test(text);
+}
+
+/** Follow-ups like "conversion and performance percentage poc wise" (no exact "conversion rate" phrase). */
+export function isPocConversionMetricsQuery(message: string): boolean {
+  const text = message.toLowerCase();
+  if (!mentionsPocScope(text)) return false;
+  return /\b(conversion|converted|convert|performance|percentage|percent|%)\b/.test(text);
+}
+
 export function isPocWorkloadQuery(message: string): boolean {
   const text = message.toLowerCase();
   if (isPocProgressReportQuery(message)) return true;
-  return /\bpocs?\b/.test(text) &&
+  if (isPocConversionMetricsQuery(message)) return true;
+  return mentionsPocScope(text) &&
     /\b(workload|active load|capacity|max threshold|conversion rate)\b/.test(text);
 }
 
@@ -29,7 +45,11 @@ export function isConversionReportQuery(message: string): boolean {
   const mentionsConversion = /\b(conversion|converted|convert)\b/.test(text);
   const mentionsLmp = /\blmp(s)?\b/.test(text);
   const mentionsStudents = /\b(student|students|placement|placed)\b/.test(text);
-  const reportIntent = /\b(report|summary|dashboard|overview|breakdown|analytics|create|generate|show me)\b/.test(text);
+  const reportIntent = /\b(report|summary|dashboard|overview|breakdown|analytics|create|generate|show me|show)\b/.test(text);
+  const pocConversionBreakdown =
+    mentionsConversion &&
+    reportIntent &&
+    (/\b(pocs?|by poc|per poc|poc wise|each poc)\b/.test(text) || /\bbreak down\b.*\bpoc\b/.test(text));
   const lmpConversion = mentionsLmp && mentionsConversion;
   const studentPlacementConversion =
     mentionsStudents &&
@@ -38,7 +58,7 @@ export function isConversionReportQuery(message: string): boolean {
   const combinedReport = lmpConversion && studentPlacementConversion && reportIntent;
   const dualMetricReport = lmpConversion && studentPlacementConversion;
   const conversionReportPhrase = /\b(conversion report|conversion summary|conversion dashboard)\b/.test(text);
-  return combinedReport || dualMetricReport || conversionReportPhrase;
+  return combinedReport || dualMetricReport || conversionReportPhrase || pocConversionBreakdown;
 }
 
 export function isConversionCountQuery(message: string): boolean {

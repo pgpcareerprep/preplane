@@ -11,7 +11,7 @@ import {
   getTaskTier,
 } from "./modelConfig.ts";
 import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
@@ -384,19 +384,33 @@ async function handleRequest(req: Request) {
         };
       }).sort((a, b) => b.capacity - a.capacity);
       const overCapacity = rows.filter((r) => r.capacity > 80).length;
-      const reportTitle = isPocProgressReportQuery(lastUserMessage) ? "Prep POC progress report" : "POC workload";
+      const conversionFocus = isPocConversionMetricsQuery(lastUserMessage);
+      const reportTitle = isPocProgressReportQuery(lastUserMessage)
+        ? "Prep POC progress report"
+        : conversionFocus
+          ? "POC conversion & performance"
+          : "POC workload";
+      const summaryLine = conversionFocus
+        ? `${rows.length} POCs reviewed with conversion rate and capacity. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`
+        : `${rows.length} POCs reviewed. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`;
       const text = [
-        `${rows.length} POCs reviewed. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`,
+        summaryLine,
         "",
         ":::blocks",
         JSON.stringify([
-          { type: "executive-summary", content: `${rows.length} prep POCs reviewed using live profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
+          { type: "executive-summary", content: conversionFocus
+            ? `${rows.length} prep POCs with live conversion rate and workload metrics. ${overCapacity} above 80% capacity.`
+            : `${rows.length} prep POCs reviewed using live profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
           { type: "kpi-row", items: [{ label: "POCs", value: rows.length }, { label: "Above 80% capacity", value: overCapacity }] },
           { type: "table", title: reportTitle, headers: ["POC", "Active load", "Max threshold", "Capacity", "Conversion rate", "Processes by status"], rows: rows.map((r) => r.row) },
         ]),
         ":::",
       ].join("\n");
-      telemetry.intent = isPocProgressReportQuery(lastUserMessage) ? "poc_progress_report_fast_path" : "poc_workload_fast_path";
+      telemetry.intent = isPocProgressReportQuery(lastUserMessage)
+        ? "poc_progress_report_fast_path"
+        : conversionFocus
+          ? "poc_conversion_metrics_fast_path"
+          : "poc_workload_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },

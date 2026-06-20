@@ -268,7 +268,7 @@ function CopilotPageInner() {
     // Hard client deadline. Structured quick prompts return directly; agentic
     // requests fail fast and can be retried instead of hanging indefinitely.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = setTimeout(() => controller.abort(), 90_000);
 
     let assistantContent = "";
 
@@ -393,7 +393,7 @@ function CopilotPageInner() {
       console.error("Stream error:", err);
       const isAbort = err instanceof Error && err.name === "AbortError";
       const friendly = isAbort
-        ? "Request timed out after 60 seconds. Try again or use one of the quick reports."
+        ? "Request timed out after 90 seconds. Try again or use one of the quick reports."
         : "Connection failed. Please check your internet and try again.";
       toast.error(friendly);
       // If we already streamed partial content, keep it and append a small note;
