@@ -43,17 +43,6 @@ const EMBED_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-
 // Grok/xAI — middle fallback (api.x.ai, GROK_API_KEY)
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
-// ─── Per-request provider configuration (request-local, set in handler) ──────
-// These are set once at the start of each request and represent the SELECTED
-// (primary) provider for tool-calling. All AI calls use REQUEST_PROVIDERS for
-// cross-provider fallback, so concurrent-request state bleed is not a concern
-// in Deno's single-threaded event loop.
-let AI_GATEWAY_URL = GEMINI_DIRECT_URL;
-let TOOL_MODEL = GEMINI_TOOL_MODEL;
-let TOOL_FALLBACK_MODELS: string[] = [...GEMINI_TOOL_FALLBACK_MODELS];
-let AI_EXTRA_HEADERS: Record<string, string> = {};
-let AI_KEY_FOR_CHAT = "";
-
 // Ordered list of ALL available providers for this request.
 // callSynthesis and callToolModel walk this list in order with cross-provider fallback.
 interface ProviderConfig {
@@ -65,7 +54,6 @@ interface ProviderConfig {
   synthesisModels: readonly string[];
   extraHeaders: Record<string, string>;
 }
-let REQUEST_PROVIDERS: ProviderConfig[] = [];
 
 function buildProviderList(
   geminiKey: string | undefined,
@@ -105,7 +93,7 @@ async function callSynthesis(
   body: Record<string, unknown>,
   timeoutMs = 20_000,
 ): Promise<{ resp: Response; model: string }> {
-  const providers = REQUEST_PROVIDERS;
+  const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured. Set GEMINI_API_KEY, OPENROUTER_API_KEY, or GROK_API_KEY in Edge Function secrets.");
 
   let lastFailMsg = "all providers unavailable";
@@ -170,7 +158,7 @@ async function callToolModel(
   body: Record<string, unknown>,
   timeoutMs = 15_000,
 ): Promise<{ resp: Response; model: string; provider: string }> {
-  const providers = REQUEST_PROVIDERS;
+  const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured.");
 
   let lastFailMsg = "all providers unavailable";
@@ -202,11 +190,11 @@ async function callToolModel(
 
       if (resp.ok) {
         recordSuccess(prov.name);
-        // Sync module-level vars so existing telemetry references stay accurate
-        AI_GATEWAY_URL = prov.url;
-        AI_KEY_FOR_CHAT = prov.key;
-        AI_EXTRA_HEADERS = prov.extraHeaders;
-        TOOL_MODEL = model;
+        const ai = requestState().ai;
+        ai.gatewayUrl = prov.url;
+        ai.keyForChat = prov.key;
+        ai.extraHeaders = prov.extraHeaders;
+        ai.toolModel = model;
         return { resp, model, provider: prov.name };
       }
 
@@ -1080,10 +1068,20 @@ type RequestContext = {
   activeProviderName: string | null;
 };
 
+type AiProviderState = {
+  gatewayUrl: string;
+  toolModel: string;
+  toolFallbackModels: string[];
+  extraHeaders: Record<string, string>;
+  keyForChat: string;
+  providers: ProviderConfig[];
+};
+
 type CopilotRequestState = {
   cache: ReqCache;
   context: RequestContext;
   log: Logger;
+  ai: AiProviderState;
 };
 
 const requestStateStorage = new AsyncLocalStorage<CopilotRequestState>();
@@ -1096,6 +1094,14 @@ function createRequestState(req: Request): CopilotRequestState {
       isImpersonating: false, viewAsName: null, intent: "unknown", activeProviderName: null,
     },
     log: createLogger("copilot-ai", req),
+    ai: {
+      gatewayUrl: GEMINI_DIRECT_URL,
+      toolModel: GEMINI_TOOL_MODEL,
+      toolFallbackModels: [...GEMINI_TOOL_FALLBACK_MODELS],
+      extraHeaders: {},
+      keyForChat: "",
+      providers: [],
+    },
   };
 }
 
@@ -1103,6 +1109,10 @@ function requestState(): CopilotRequestState {
   const state = requestStateStorage.getStore();
   if (!state) throw new Error("Copilot request context is unavailable");
   return state;
+}
+
+function aiProvider(): AiProviderState {
+  return requestState().ai;
 }
 
 function resetRequestCache() {
@@ -2372,12 +2382,13 @@ async function executeTool(
 
         let expandedKeywords: string[] = [...baseKeywords];
         try {
-          const expandRes = await fetch(AI_GATEWAY_URL, {
+          const ai = aiProvider();
+          const expandRes = await fetch(ai.gatewayUrl, {
             method: "POST",
-            headers: { Authorization: `Bearer ${AI_KEY_FOR_CHAT}`, "Content-Type": "application/json", ...AI_EXTRA_HEADERS },
+            headers: { Authorization: `Bearer ${ai.keyForChat}`, "Content-Type": "application/json", ...ai.extraHeaders },
             signal: AbortSignal.timeout(90_000),
             body: JSON.stringify({
-              model: TOOL_MODEL,
+              model: ai.toolModel,
               messages: [
                 { role: "system", content: "You are a keyword expansion engine. Given a search query about placement/recruitment data, output ONLY a JSON array of 8-15 related keywords/synonyms that would help find relevant rows. Include abbreviations, alternate spellings, related terms. Example: for 'finance internship converted' output [\"finance\",\"internship\",\"converted\",\"placed\",\"FT\",\"intern\",\"banking\",\"accounting\",\"offer received\",\"selected\",\"fin\",\"financial\"]" },
                 { role: "user", content: query },
@@ -3151,39 +3162,39 @@ async function handleRequest(req: Request) {
   // Build an ORDERED list of all configured providers. All AI calls walk this
   // list with genuine cross-provider fallback — if Gemini fails, OpenRouter is
   // tried automatically, then Grok. The first provider in the list also sets
-  // the module-level shortcut vars used by existing telemetry references.
+  // request-scoped shortcut fields on requestState().ai for telemetry.
   const GEMINI_API_KEY    = getEnv("GEMINI_API_KEY");
   const OPENROUTER_API_KEY = getEnv("OPENROUTER_API_KEY");
   const GROK_API_KEY      = getEnv("GROK_API_KEY");
 
-  REQUEST_PROVIDERS = buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY);
+  const ai = aiProvider();
+  ai.providers = buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY);
 
-  if (!REQUEST_PROVIDERS.length) {
+  if (!ai.providers.length) {
     return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 503);
   }
 
-  // Initialise module-level shortcut vars from the primary (first) provider
-  // so all existing telemetry references remain accurate.
-  const primaryProvider = REQUEST_PROVIDERS[0];
-  AI_KEY_FOR_CHAT = primaryProvider.key;
-  AI_GATEWAY_URL = primaryProvider.url;
-  TOOL_MODEL = primaryProvider.toolModel;
-  TOOL_FALLBACK_MODELS = [...primaryProvider.toolFallbacks];
-  AI_EXTRA_HEADERS = primaryProvider.extraHeaders;
+  // Initialise request-scoped shortcut vars from the primary (first) provider
+  // so telemetry references stay accurate for this request.
+  const primaryProvider = ai.providers[0];
+  ai.keyForChat = primaryProvider.key;
+  ai.gatewayUrl = primaryProvider.url;
+  ai.toolModel = primaryProvider.toolModel;
+  ai.toolFallbackModels = [...primaryProvider.toolFallbacks];
+  ai.extraHeaders = primaryProvider.extraHeaders;
   requestState().context.activeProviderName = primaryProvider.name;
 
   // ─── Intent-based model override ─────────────────────────────────────────
   const intentFromReq = requestState().context.intent ?? "";
   const tier = getTaskTier(intentFromReq);
   if (tier === "analysis" && primaryProvider.name === "Gemini") {
-    TOOL_MODEL = GEMINI_ANALYSIS_MODEL;
-    // Also override the first provider's toolModel in REQUEST_PROVIDERS
-    REQUEST_PROVIDERS[0] = { ...REQUEST_PROVIDERS[0], toolModel: GEMINI_ANALYSIS_MODEL };
+    ai.toolModel = GEMINI_ANALYSIS_MODEL;
+    ai.providers[0] = { ...ai.providers[0], toolModel: GEMINI_ANALYSIS_MODEL };
   }
 
   console.log(
-    `[copilot-ai] providers configured: ${REQUEST_PROVIDERS.map(p => p.name).join(" → ")}`,
-    `| primary=${primaryProvider.name} | intent=${intentFromReq} | tier=${tier} | toolModel=${TOOL_MODEL}`,
+    `[copilot-ai] providers configured: ${ai.providers.map(p => p.name).join(" → ")}`,
+    `| primary=${primaryProvider.name} | intent=${intentFromReq} | tier=${tier} | toolModel=${ai.toolModel}`,
   );
 
   let body: {
@@ -3213,7 +3224,7 @@ async function handleRequest(req: Request) {
     tool_calls_count: 0,
     intent: "agent" as string,
     cache_hit: false,
-    model: TOOL_MODEL,
+    model: aiProvider().toolModel,
     scope_summary: [] as Array<{
       round: number;
       tool: string;
@@ -3229,7 +3240,7 @@ async function handleRequest(req: Request) {
     scope_broadened_count: 0,
   };
   const { reserveAiRequest } = await import("../_shared/ai-usage.ts");
-  const budget = await reserveAiRequest(authedUser.id, TOOL_MODEL);
+  const budget = await reserveAiRequest(authedUser.id, aiProvider().toolModel);
   if (!budget.allowed) {
     return new Response(JSON.stringify({
       error: "Your daily AI budget is exhausted. It resets at midnight UTC.",
@@ -3479,7 +3490,7 @@ async function handleRequest(req: Request) {
       telemetry.intent = isPocProgressReportQuery(lastUserMessage) ? "poc_progress_report_fast_path" : "poc_workload_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": telemetry.intent },
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
       });
     }
     const emptyText = [
@@ -3542,7 +3553,7 @@ async function handleRequest(req: Request) {
     telemetry.intent = "conversion_report_fast_path";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": telemetry.intent },
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
     });
   }
 
@@ -3586,7 +3597,7 @@ async function handleRequest(req: Request) {
       telemetry.intent = "conversion_count_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": TOOL_MODEL, "X-Copilot-Intent": "conversion_count_fast_path" },
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": "conversion_count_fast_path" },
       });
     }
     requestState().log.warn("conversion_count_fast_path_failed", { error: error.message });
@@ -3985,7 +3996,7 @@ async function handleRequest(req: Request) {
       }
 
       let streamResponse: Response;
-      let synthModel = TOOL_MODEL;
+      let synthModel = aiProvider().toolModel;
       try {
         const { resp, model } = await callSynthesis("", {
           messages: aiMessages,

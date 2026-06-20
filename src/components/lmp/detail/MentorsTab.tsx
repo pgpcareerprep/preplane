@@ -762,7 +762,7 @@ function MentorsTabImpl({
         <MentorsEmptyState
           onRun={openMatchContext}
           onAlign={() => setAlignOpen(true)}
-          pocReadOnly={pocReadOnly}
+          readOnly={pocReadOnly}
         />
         <MatchContextModal
           open={matchContextOpen && !pocReadOnly}
@@ -991,7 +991,7 @@ function MentorsTabImpl({
                           onView={() => setProfile(m)}
                           onSelect={() => setAssignTarget(m)}
                           onRemove={removeFromReview}
-                          pocReadOnly={pocReadOnly}
+                          readOnly={pocReadOnly}
                         />
                       ))}
                     </div>
@@ -1039,7 +1039,7 @@ function MentorsTabImpl({
                               onShortlist={() => toggleShortlist(m)}
                               onView={() => setProfile(m)}
                               onSelect={() => setAssignTarget(m)}
-                              pocReadOnly={pocReadOnly}
+                              readOnly={pocReadOnly}
                             />
                           ))}
                         </div>
@@ -1081,15 +1081,15 @@ function MentorsTabImpl({
           })()}
           onAssign={(m) => setAssignTarget(m)}
           onRemove={removeShortlist}
-          pocReadOnly={pocReadOnly}
+          readOnly={pocReadOnly}
         />
       )}
 
       {subTab === "assigned" && (
         <div className="space-y-6">
-          <AssignedTable assignments={assignments} onUnassign={unassign} pocReadOnly={pocReadOnly} />
+          <AssignedTable assignments={assignments} onUnassign={unassign} readOnly={pocReadOnly} />
           <div className="rounded-2xl border border-n200 bg-card p-4 shadow-sm">
-            <SessionsLiveTab lmpId={reqId} pocReadOnly={pocReadOnly} />
+            <SessionsLiveTab lmpId={reqId} readOnly={pocReadOnly} />
           </div>
         </div>
       )}

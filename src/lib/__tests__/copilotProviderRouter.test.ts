@@ -26,13 +26,22 @@ describe("copilot-ai provider router", () => {
     expect(src).toContain("buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY)");
   });
 
-  it("callSynthesis iterates REQUEST_PROVIDERS not a single provider", () => {
+  it("stores AI provider config in the request-scoped ALS store", () => {
     const src = read(COPILOT_AI);
-    expect(src).toContain("const providers = REQUEST_PROVIDERS");
+    expect(src).toContain("type AiProviderState");
+    expect(src).toContain("function aiProvider()");
+    expect(src).not.toContain("let REQUEST_PROVIDERS");
+    expect(src).not.toContain("let AI_GATEWAY_URL");
+    expect(src).not.toContain("single-threaded event loop");
+  });
+
+  it("callSynthesis iterates request-scoped providers not a single provider", () => {
+    const src = read(COPILOT_AI);
+    expect(src).toContain("requestState().ai.providers");
     expect(src).toContain("for (const prov of providers)");
   });
 
-  it("callToolModel iterates REQUEST_PROVIDERS with cross-provider fallback", () => {
+  it("callToolModel iterates request-scoped providers with cross-provider fallback", () => {
     const src = read(COPILOT_AI);
     expect(src).toContain("async function callToolModel(");
     expect(src).toContain("for (const prov of providers)");

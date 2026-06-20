@@ -33,6 +33,6 @@ describe("LMP Mentors tab scoped improvements", () => {
 
     expect(modal).toContain("Running mentor matching…");
     expect(modal).toContain("disabled={!canRun || starting}");
-    expect(tab).toContain('<SessionsLiveTab lmpId={reqId} readOnly={readOnly} />');
+    expect(tab).toContain('<SessionsLiveTab lmpId={reqId} readOnly={pocReadOnly} />');
   });
 });
