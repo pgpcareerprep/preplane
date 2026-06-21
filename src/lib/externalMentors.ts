@@ -310,7 +310,10 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
     const dataError = typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : null;
     const dataReason = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
     if (dataError) {
-      return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${dataError}`, recoverable: false }] };
+      const recoverable =
+        dataError === "no_free_provider_result"
+        || dataError.startsWith("No web results");
+      return { mentors: [], errors: [{ source: "EXT", message: dataError, recoverable }] };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
     if (list.length === 0) {

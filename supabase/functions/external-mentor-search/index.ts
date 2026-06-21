@@ -133,6 +133,15 @@ Deno.serve(async (req) => {
     const effectiveRole = role || skills[0] || "";
     const userId = auth.user.id;
 
+    // Run Gemini Google Search grounding in parallel with web search — Jina/SearXNG
+    // often return empty from edge runtimes, but Gemini + grounding is reliable when keyed.
+    const geminiDiscoveryPromise = discoverViaGeminiSearch(
+      GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
+    ).catch((e) => {
+      log.warn("gemini_discovery_parallel_failed", { err_msg: (e as Error).message });
+      return [] as DiscoveredMentor[];
+    });
+
     // 1. Query expansion (JD-aware)
     const queries = await expandQueries(
       GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText, regionLabel, userId,
@@ -185,20 +194,14 @@ Deno.serve(async (req) => {
 
     const totalHits = Object.values(byPlatform).reduce((n, arr) => n + arr.length, 0);
 
-    // Gemini grounding fallback when free search returns nothing
+    // When web search returns nothing, try Gemini grounding results immediately.
     if (totalHits === 0) {
       log.info("gemini_grounding_fallback", {});
-      try {
-        const geminiMentors = await discoverViaGeminiSearch(
-          GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms,
-        );
-        if (geminiMentors.length) {
-          return new Response(JSON.stringify({ mentors: geminiMentors }), {
-            status: 200, headers: { ...corsH, "Content-Type": "application/json" },
-          });
-        }
-      } catch (e) {
-        log.warn("gemini_grounding_failed", { err_msg: (e as Error).message });
+      const geminiMentors = await geminiDiscoveryPromise;
+      if (geminiMentors.length) {
+        return new Response(JSON.stringify({ mentors: geminiMentors }), {
+          status: 200, headers: { ...corsH, "Content-Type": "application/json" },
+        });
       }
       return new Response(JSON.stringify({ mentors: [], error: "no_free_provider_result", reason: "no_free_provider_result" }), {
         status: 200, headers: { ...corsH, "Content-Type": "application/json" },
@@ -396,7 +399,23 @@ Deno.serve(async (req) => {
     }
 
     log.info("done", { count: deduped.length });
-    return new Response(JSON.stringify({ mentors: deduped }), {
+
+    // Merge any Gemini-grounded mentors not already found via web search/scrape.
+    const geminiExtra = await geminiDiscoveryPromise;
+    if (geminiExtra.length) {
+      const existingKeys = new Set(deduped.map((m) => dedupeKey(m)));
+      for (const m of geminiExtra) {
+        const k = dedupeKey(m);
+        if (existingKeys.has(k)) continue;
+        const dup = deduped.find((d) => namesMatch(d.name, m.name) && normToken(d.company) === normToken(m.company));
+        if (dup) continue;
+        existingKeys.add(k);
+        deduped.push(m);
+        if (deduped.length >= limit) break;
+      }
+    }
+
+    return new Response(JSON.stringify({ mentors: deduped.slice(0, limit) }), {
       status: 200,
       headers: { ...corsH, "Content-Type": "application/json" },
     });

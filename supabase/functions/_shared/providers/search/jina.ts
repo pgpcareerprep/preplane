@@ -1,4 +1,12 @@
 import type { SearchHit, SearchProvider } from "../types.ts";
+import { loadSecret } from "../secrets.ts";
+
+async function jinaHeaders(): Promise<Record<string, string>> {
+  const key = (await loadSecret("JINA_API_KEY")) ?? Deno.env.get("JINA_API_KEY")?.trim() ?? null;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
 
 /** Jina free-tier search via s.jina.ai */
 export const jinaSearchProvider: SearchProvider = {
@@ -7,8 +15,8 @@ export const jinaSearchProvider: SearchProvider = {
   async search(q: string, limit: number, signal?: AbortSignal): Promise<SearchHit[]> {
     const url = `https://s.jina.ai/${encodeURIComponent(q)}`;
     const res = await fetch(url, {
-      signal: signal ?? AbortSignal.timeout(12000),
-      headers: { Accept: "application/json" },
+      signal: signal ?? AbortSignal.timeout(15000),
+      headers: await jinaHeaders(),
     });
     if (!res.ok) return [];
     const text = await res.text();

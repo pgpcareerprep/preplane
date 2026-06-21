@@ -11,7 +11,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { type Mentor, type MentorSource, SOURCE_META } from "@/lib/mentor";
 import { getJd, extractSkillsFromText, extractSeniority } from "@/lib/jdStore";
-import { type ALUMentor } from "@/lib/alumniStore";
+import { type ALUMentor, rowToALUMentor } from "@/lib/alumniStore";
 import { useAllMentors, useAlumniMentors } from "@/lib/hooks/useDbData";
 import { DEFAULT_ROUNDS, type Candidate, type Round } from "@/lib/lmpProcessMutations";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -378,6 +378,14 @@ function MentorsTabImpl({
     )).join(" ");
     const jdInfo = { jdSkills, jdRole, jdSeniority, jdCompany, jdIndustry, gapSkills };
 
+    // Ensure MU/ALU data is loaded before matching — avoids 0 results when hooks are still fetching.
+    if (context.sources.includes("MU") || context.sources.includes("ALU")) {
+      await Promise.all([
+        context.sources.includes("MU") ? queryClient.ensureQueryData({ queryKey: ["db-all-mentors", { mentorUnionOnly: false }] }) : null,
+        context.sources.includes("ALU") ? queryClient.ensureQueryData({ queryKey: ["db-all-alumni"] }) : null,
+      ]);
+    }
+
     const rawCandidates: ScoringCandidate[] = [];
     let externalCandidates: ScoringCandidate[] = [];
 
@@ -390,11 +398,13 @@ function MentorsTabImpl({
 
       if (step.id === "MU") {
         // Mentor Union only — exclude alumni-mirrored rows
-        const muRows = allMentors.filter((m: any) => (m.source || "MU") === "MU");
+        const liveMentors = queryClient.getQueryData<Array<{ source?: string }>>(["db-all-mentors", { mentorUnionOnly: false }]) ?? allMentors;
+        const muRows = liveMentors.filter((m: any) => (m.source || "MU") === "MU");
         rawCandidates.push(...muRows.map(normaliseDbMentor));
       } else if (step.id === "ALU") {
-        // Live alumni rows from Supabase — primary source, no cache fallback.
-        rawCandidates.push(...alumniMentors.map(normaliseALU));
+        const liveAlu = queryClient.getQueryData<ALUMentor[]>(["db-all-alumni"])?.map(rowToALUMentor)
+          ?? alumniMentors;
+        rawCandidates.push(...liveAlu.map(normaliseALU));
       } else if (step.id === "EXT") {
         const enabledLabels: ExternalPlatform[] = [];
         if (cfg.topmate) enabledLabels.push("Topmate");
@@ -435,12 +445,11 @@ function MentorsTabImpl({
             : emptyResult;
           const counts: Partial<Record<ExternalPlatform, number>> = {};
           for (const p of enabledLabels) counts[p] = res.mentors.filter(m => m.platform === p).length;
-          if (res.errors.length > 0) {
+          if (res.errors.length > 0 && res.mentors.length === 0) {
             setMatchingErrors(res.errors);
-            notifyMatchingErrors(res.errors);
-            if (res.mentors.length === 0) {
-              toast.warning(`External discovery: ${res.errors.map((e) => e.message).join(" · ")}`);
-            }
+            toast.warning(`External discovery: ${res.errors.map((e) => e.message).join(" · ")}`);
+          } else if (res.errors.length > 0) {
+            setMatchingErrors(res.errors);
           }
           externalCandidates = res.mentors.map(normaliseExternal);
           setExternalStatus({ phase: "done", platforms: enabledLabels, counts });
@@ -486,12 +495,15 @@ function MentorsTabImpl({
             LMP_MENTOR_SUGGESTION_LIMIT,
           );
           setState({ suggested: fullScored, phase: "results", subTab: "suggested", reviewMode: true });
-          // (loading overlay handles dismissal automatically)
-          emitMatchToast(fullScored, {
-            extSelected: context.sources.includes("EXT"),
-            extFetched: externalCandidates.length,
-            extNovel: extNovelCount,
-          });
+          if (fullScored.length === 0 && merged.length > 0) {
+            toast.warning("Mentors were loaded but none matched this role — broaden skills or try a different match mode.");
+          } else {
+            emitMatchToast(fullScored, {
+              extSelected: context.sources.includes("EXT"),
+              extFetched: externalCandidates.length,
+              extNovel: extNovelCount,
+            });
+          }
           // Persist results to DB so they survive device/browser changes.
           const { error: persistErr } = await supabase
             .from("lmp_processes")
