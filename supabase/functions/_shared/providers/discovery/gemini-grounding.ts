@@ -197,7 +197,7 @@ Find profiles on ${platformList}. Prefer Topmate and ADPList booking pages and L
 Return up to ${limit} mentors as a JSON array with name, current_role, company, platform, source_url, linkedin, booking_url.`;
 
   const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
