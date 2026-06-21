@@ -19,7 +19,7 @@ import {
   buildPlatformFromSnippet,
   discoverViaGeminiSearch,
 } from "../_shared/providers/discovery/gemini-grounding.ts";
-import { callGeminiJson, expandQueries, rerankMentors, validateExtraction } from "../_shared/providers/extract/gemini.ts";
+import { expandQueries, rerankMentors, validateExtraction } from "../_shared/providers/extract/gemini.ts";
 import {
   dedupeKey,
   fuzzyContains,
@@ -60,7 +60,11 @@ const REGION_LABEL: Record<string, string> = {
 
 const ALL_PLATFORMS: Platform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"];
 
-/** Last-resort fallback: ask Gemini to generate plausible mentor profiles when all search paths fail. */
+/**
+ * Last-resort fallback: call Gemini native endpoint (no grounding, no tools) to generate
+ * plausible mentor suggestions when all search paths fail. Uses ?key= auth which is the
+ * most reliable path for Gemini API keys regardless of OpenAI-compat availability.
+ */
 async function generateMentorsFallback(
   apiKey: string,
   role: string,
@@ -70,24 +74,40 @@ async function generateMentorsFallback(
   seniority: string,
   limit: number,
   platforms: Platform[],
-  userId: string,
 ): Promise<DiscoveredMentor[]> {
-  const sys =
-    "You are a mentor discovery assistant. Generate realistic mentor profile suggestions for interview preparation. " +
-    "Return ONLY valid JSON: {\"mentors\":[{\"name\":\"Full Name\",\"current_role\":\"Job Title\",\"company\":\"Company\",\"industry\":\"Industry\"," +
-    "\"skills\":[],\"seniority_level\":\"Senior|Mid|Junior|Lead|Director|VP|C-Suite\",\"platform\":\"Topmate|ADPList|LinkedIn\"," +
-    "\"source_url\":null,\"linkedin\":null,\"booking_url\":null}]}. " +
-    "Use only real, commonly known professionals. Do not invent emails, phones, or booking URLs.";
-  const user = JSON.stringify({
-    role: role || skills[0] || "professional",
-    company, industry, skills: skills.slice(0, 6), seniority,
-    platforms, limit: Math.min(limit, 8),
-    note: "Web search is unavailable. Generate high-confidence mentor suggestions based on your training data.",
-  });
-  const raw = await callGeminiJson(apiKey, sys, user, AbortSignal.timeout(30000), userId);
-  if (!raw) return [];
+  const skillList = skills.slice(0, 5).join(", ");
+  const prompt = `You are a mentor discovery assistant. Suggest ${Math.min(limit, 8)} real professionals who could mentor someone preparing for a ${role || "professional"} role${company ? ` at ${company}` : ""}${industry ? ` in ${industry}` : ""}.${skillList ? ` Key skills: ${skillList}.` : ""}${seniority ? ` Seniority: ${seniority}.` : ""}
+
+Return ONLY a JSON object in this exact format (no markdown, no explanation):
+{"mentors":[{"name":"Full Name","current_role":"Job Title","company":"Company Name","industry":"Industry","skills":["skill1","skill2"],"seniority_level":"Senior","platform":"Topmate","source_url":null,"linkedin":null,"booking_url":null}]}
+
+Rules: Real, well-known professionals only. Platform must be one of: ${platforms.join(", ")}. No invented URLs, emails, or phones.`;
+
   try {
-    const parsed = JSON.parse(raw) as { mentors?: DiscoveredMentor[] };
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 4096, responseMimeType: "application/json" },
+        }),
+      },
+    );
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn("[generateMentorsFallback] Gemini error", resp.status, errText.slice(0, 200));
+      return [];
+    }
+    const data = await resp.json() as Record<string, unknown>;
+    const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
+    const rawText = parts.map((p) => (typeof (p as any).text === "string" ? (p as any).text : "")).join("");
+    if (!rawText) return [];
+    // Strip markdown fences if present
+    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const parsed = JSON.parse(cleaned) as { mentors?: DiscoveredMentor[] };
     const list = Array.isArray(parsed.mentors) ? parsed.mentors : [];
     return list
       .filter((m) => m?.name && m.name.length > 2)
@@ -95,9 +115,10 @@ async function generateMentorsFallback(
         ...m,
         platform: (platforms.includes(m.platform as Platform) ? m.platform : platforms[0]) as Platform,
         source_url: m.source_url ?? null,
-        confidence: 40, // Lower confidence since these are generated, not discovered
+        confidence: 40,
       }));
-  } catch {
+  } catch (e) {
+    console.warn("[generateMentorsFallback] failed:", (e as Error).message);
     return [];
   }
 }
@@ -264,7 +285,7 @@ Deno.serve(async (req) => {
         if (retryHits === 0) {
           // Final fallback: direct Gemini generation when all search paths fail
           log.info("gemini_direct_generation_fallback", {});
-          const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms, userId);
+          const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
           if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
           return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
             status: 200, headers: { ...corsH, "Content-Type": "application/json" },
@@ -274,7 +295,7 @@ Deno.serve(async (req) => {
       } else {
         // Final fallback: direct Gemini generation when grounding returned no queries
         log.info("gemini_direct_generation_fallback", {});
-        const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms, userId);
+        const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
         if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
         return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
           status: 200, headers: { ...corsH, "Content-Type": "application/json" },
