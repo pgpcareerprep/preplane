@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { type Mentor, type MentorSource, SOURCE_META } from "@/lib/mentor";
 import { getJd, extractSkillsFromText, extractSeniority } from "@/lib/jdStore";
 import { type ALUMentor, rowToALUMentor } from "@/lib/alumniStore";
-import { useAllMentors, useAlumniMentors } from "@/lib/hooks/useDbData";
+import { useAllMentors, useAlumniMentors, useAllAlumni } from "@/lib/hooks/useDbData";
 import { DEFAULT_ROUNDS, type Candidate, type Round } from "@/lib/lmpProcessMutations";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -116,7 +116,8 @@ function MentorsTabImpl({
   const { phase, subTab, suggested, shortlisted, assignments, filters, sort, activeSources, reviewMode } = state;
   const queryClient = useQueryClient();
 
-  const { data: allMentors = [] } = useAllMentors();
+  const { data: allMentors = [], refetch: refetchMentors } = useAllMentors();
+  const { refetch: refetchAlumni } = useAllAlumni();
   const { mentors: alumniMentors } = useAlumniMentors();
   useEffect(() => {
     fetchExternalDiscoveryConfig().catch(() => { /* keep defaults */ });
@@ -379,11 +380,19 @@ function MentorsTabImpl({
     const jdInfo = { jdSkills, jdRole, jdSeniority, jdCompany, jdIndustry, gapSkills };
 
     // Ensure MU/ALU data is loaded before matching — avoids 0 results when hooks are still fetching.
-    if (context.sources.includes("MU") || context.sources.includes("ALU")) {
-      await Promise.all([
-        context.sources.includes("MU") ? queryClient.ensureQueryData({ queryKey: ["db-all-mentors", { mentorUnionOnly: false }] }) : null,
-        context.sources.includes("ALU") ? queryClient.ensureQueryData({ queryKey: ["db-all-alumni"] }) : null,
-      ]);
+    let muRowsForMatch = allMentors;
+    let aluRowsForMatch = alumniMentors;
+    try {
+      if (context.sources.includes("MU")) {
+        const r = await refetchMentors();
+        if (r.data) muRowsForMatch = r.data;
+      }
+      if (context.sources.includes("ALU")) {
+        const r = await refetchAlumni();
+        if (r.data) aluRowsForMatch = r.data.map((row) => rowToALUMentor(row as Parameters<typeof rowToALUMentor>[0]));
+      }
+    } catch {
+      toast.warning("Couldn't load mentor database — check connection and retry.");
     }
 
     const rawCandidates: ScoringCandidate[] = [];
@@ -397,14 +406,10 @@ function MentorsTabImpl({
       const step = steps[i];
 
       if (step.id === "MU") {
-        // Mentor Union only — exclude alumni-mirrored rows
-        const liveMentors = queryClient.getQueryData<Array<{ source?: string }>>(["db-all-mentors", { mentorUnionOnly: false }]) ?? allMentors;
-        const muRows = liveMentors.filter((m: any) => (m.source || "MU") === "MU");
+        const muRows = muRowsForMatch.filter((m: any) => (m.source || "MU") === "MU");
         rawCandidates.push(...muRows.map(normaliseDbMentor));
       } else if (step.id === "ALU") {
-        const liveAlu = queryClient.getQueryData<ALUMentor[]>(["db-all-alumni"])?.map(rowToALUMentor)
-          ?? alumniMentors;
-        rawCandidates.push(...liveAlu.map(normaliseALU));
+        rawCandidates.push(...aluRowsForMatch.map(normaliseALU));
       } else if (step.id === "EXT") {
         const enabledLabels: ExternalPlatform[] = [];
         if (cfg.topmate) enabledLabels.push("Topmate");
@@ -469,7 +474,7 @@ function MentorsTabImpl({
           const extSelected = context.sources.includes("EXT");
           toast.warning(
             onlyExt
-              ? "External discovery found no mentors. Check External Discovery settings in Data Sources, then rerun."
+              ? "External-only search found no mentors. Include MU/ALU sources for reliable results, or verify GEMINI_API_KEY in Supabase."
               : extSelected && rawCandidates.length === 0
                 ? "No mentors in MU/ALU sources — upload CSVs in Data Sources, or wait for data to finish loading and rerun."
                 : "No mentor data found in selected sources. Upload CSVs in Data Sources first.",

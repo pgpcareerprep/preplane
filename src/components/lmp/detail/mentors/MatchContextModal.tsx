@@ -137,12 +137,17 @@ export function MatchContextModal({
 
   // Sources
   const [sources, setSources] = useState<MentorSource[]>(activeSources);
-  // Auto-include EXT when modal opens if external discovery is enabled
+  // Always include available sources when modal opens — avoid EXT-only runs with no fallback.
   useEffect(() => {
-    if (open && extCfg.anyEnabled) {
-      setSources(prev => prev.includes("EXT") ? prev : [...prev, "EXT"]);
-    }
-  }, [open, extCfg.anyEnabled]);
+    if (!open) return;
+    setSources((prev) => {
+      const next = new Set<MentorSource>(prev);
+      if (muCount > 0) next.add("MU");
+      if (aluCount > 0) next.add("ALU");
+      if (extCfg.anyEnabled) next.add("EXT");
+      return Array.from(next);
+    });
+  }, [open, muCount, aluCount, extCfg.anyEnabled]);
 
   // Button click feedback — reset whenever modal re-opens
   const [starting, setStarting] = useState(false);

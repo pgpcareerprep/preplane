@@ -34,7 +34,7 @@ let currentConfig: ExternalDiscoveryConfig;
 export const DEFAULT_EXTERNAL_DISCOVERY_CONFIG: ExternalDiscoveryConfig = {
   topmate: true,
   adplist: true,
-  linkedin: false,
+  linkedin: true,
   superpeer: false,
   region: "global",
   ttl: { topmate: 6, adplist: 6, linkedin: 24 },
