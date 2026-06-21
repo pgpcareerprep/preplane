@@ -310,10 +310,17 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
     const dataError = typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : null;
     const dataReason = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
     if (dataError) {
-      const recoverable =
-        dataError === "no_free_provider_result"
-        || dataError.startsWith("No web results");
-      return { mentors: [], errors: [{ source: "EXT", message: dataError, recoverable }] };
+      // Translate known Gemini/provider API error codes to actionable messages.
+      let friendlyErr = dataError;
+      if (dataError === "no_free_provider_result" || dataError.includes("no free provider")) {
+        friendlyErr = "External AI search quota exceeded or unavailable. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";
+      } else if (dataError.includes("GEMINI_API_KEY") || dataError.includes("Neither is configured")) {
+        friendlyErr = "External mentor search is not configured. Set GEMINI_API_KEY (or FIRECRAWL_API_KEY) in Supabase Edge Function secrets.";
+      } else if (dataError.includes("Gemini search returned no results")) {
+        friendlyErr = "Gemini search returned no results for this role. Try broadening the role or adding more context.";
+      }
+      const recoverable = dataError === "no_free_provider_result" || dataError.startsWith("No web results") || dataError.includes("no results");
+      return { mentors: [], errors: [{ source: "EXT", message: friendlyErr, recoverable }] };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
     if (list.length === 0) {
