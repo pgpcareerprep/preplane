@@ -13,6 +13,7 @@ import {
   type PrepPocHeatmapResponse,
   type StatusBucket,
 } from "@/lib/prepPocHeatmapAgg";
+import { buildHeatmapDrilldownSource, type PrepPocHeatmapDrilldownSource } from "@/lib/prepPocHeatmapDrilldown";
 
 const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
 
@@ -433,6 +434,7 @@ export type FullPrepPocHeatmapResponse = PrepPocHeatmapResponse & {
   studentRows: StudentWiseRow[];
   domainSummary: DomainWiseSummary;
   domainRows: DomainWiseRow[];
+  drilldownSource: PrepPocHeatmapDrilldownSource;
 };
 
 export function buildFullHeatmapData(
@@ -455,5 +457,6 @@ export function buildFullHeatmapData(
     studentRows: student.rows,
     domainSummary: domain.summary,
     domainRows: domain.rows,
+    drilldownSource: buildHeatmapDrilldownSource(pocs, scopedLinks, scopedCandidates, lmp.source),
   };
 }

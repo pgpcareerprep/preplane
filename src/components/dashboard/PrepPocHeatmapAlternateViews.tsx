@@ -157,18 +157,77 @@ function getTotalsValue(totals: Record<string, unknown>, key: string): number {
   return Number(totals[key] ?? 0);
 }
 
+export type HeatmapCellClickPayload = {
+  rowId: string;
+  rowLabel: string;
+  row: StudentWiseRow | DomainWiseRow;
+  metricKey: string;
+  metricLabel: string;
+  colType: AltColType;
+  displayedValue: number | string;
+  displayedCount: number | null;
+};
+
+export function isAlternateCellClickable(col: AltColDef, value: number, row?: DomainWiseRow): boolean {
+  if (col.colType === "rate" || col.colType === "text") return false;
+  if (col.colType === "conversion") {
+    return (row?.eligibleClosedCount ?? 0) > 0;
+  }
+  return value > 0;
+}
+
+function AltHeatCell({
+  value,
+  palette,
+  colMax,
+  isDark,
+  ariaLabel,
+  onOpen,
+}: {
+  value: number;
+  palette: typeof P_NEUTRAL;
+  colMax: number;
+  isDark: boolean;
+  ariaLabel?: string;
+  onOpen?: () => void;
+}) {
+  const style = cellStyle(value, colMax, palette, isDark);
+  const clickable = value > 0 && Boolean(onOpen);
+  return (
+    <>
+      {clickable ? (
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          onClick={onOpen}
+          className="h-full min-h-[38px] w-full px-1.5 py-2 font-semibold tabular-nums transition-all hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+          style={{ ...style, "--tw-ring-color": "var(--lx-orange)" } as React.CSSProperties}
+        >
+          {value}
+        </button>
+      ) : (
+        <span className="inline-flex min-h-[38px] w-full items-center justify-center px-1.5">
+          {value}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function GenericHeatmapTable({
   rowHeader,
   rows,
   totals,
   visibleConfig,
   colMaxValues,
+  onCellClick,
 }: {
   rowHeader: string;
   rows: Array<{ id: string; label: string; row: StudentWiseRow | DomainWiseRow }>;
   totals: Record<string, unknown>;
   visibleConfig: AltSectionDef[];
   colMaxValues: Record<string, number>;
+  onCellClick?: (payload: HeatmapCellClickPayload) => void;
 }) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -224,10 +283,32 @@ export function GenericHeatmapTable({
               if (col.colType === "conversion") {
                 const dRow = row as DomainWiseRow;
                 const dispVal = fmtConversion(dRow.convertedCount, dRow.eligibleClosedCount, dRow.lmpConversionPercentage);
+                const clickable = isAlternateCellClickable(col, 0, dRow) && Boolean(onCellClick);
                 return (
                   <td key={col.dataKey} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
                     style={{ background: "var(--lx-surface)", color: dRow.eligibleClosedCount > 0 ? T_SAGE : MUTED_TEXT, borderColor: CELL_BORDER }}>
-                    {dispVal}
+                    {clickable ? (
+                      <button
+                        type="button"
+                        aria-label={`View ${col.label} for ${label}`}
+                        onClick={() => onCellClick?.({
+                          rowId: id,
+                          rowLabel: label,
+                          row,
+                          metricKey: col.dataKey,
+                          metricLabel: col.label,
+                          colType: col.colType,
+                          displayedValue: dispVal,
+                          displayedCount: dRow.eligibleClosedCount,
+                        })}
+                        className="w-full min-h-[38px] px-1.5 py-2 font-semibold tabular-nums transition-all hover:brightness-95 focus-visible:outline-none focus-visible:ring-2"
+                        style={{ "--tw-ring-color": "var(--lx-orange)" } as React.CSSProperties}
+                      >
+                        {dispVal}
+                      </button>
+                    ) : (
+                      <span className="inline-flex min-h-[38px] items-center justify-center px-1.5">{dispVal}</span>
+                    )}
                   </td>
                 );
               }
@@ -251,10 +332,27 @@ export function GenericHeatmapTable({
               }
               const value = getRowValue(row, col.dataKey);
               const colMax = colMaxValues[col.dataKey] ?? 1;
+              const clickable = isAlternateCellClickable(col, value, row as DomainWiseRow) && Boolean(onCellClick);
               return (
-                <td key={col.dataKey} className="text-center text-[12.5px] font-semibold tabular-nums border-b min-h-[38px] py-2"
+                <td key={col.dataKey} className="text-center text-[12.5px] font-semibold tabular-nums border-b min-h-[38px] py-0"
                   style={{ ...cellStyle(value, colMax, col.palette, isDark), borderColor: CELL_BORDER }}>
-                  {value}
+                  <AltHeatCell
+                    value={value}
+                    palette={col.palette}
+                    colMax={colMax}
+                    isDark={isDark}
+                    ariaLabel={`View ${value} ${col.label} for ${label}`}
+                    onOpen={clickable ? () => onCellClick?.({
+                      rowId: id,
+                      rowLabel: label,
+                      row,
+                      metricKey: col.dataKey,
+                      metricLabel: col.label,
+                      colType: col.colType,
+                      displayedValue: value,
+                      displayedCount: value,
+                    }) : undefined}
+                  />
                 </td>
               );
             }))}
@@ -403,12 +501,14 @@ export function HeatmapMobileSummary({
   visibleConfig,
   colMaxValues,
   onRowClick,
+  onCellClick,
 }: {
   rowHeader: string;
   rows: Array<{ id: string; label: string; row: StudentWiseRow | DomainWiseRow }>;
   visibleConfig: AltSectionDef[];
   colMaxValues: Record<string, number>;
   onRowClick?: (id: string, label: string) => void;
+  onCellClick?: (payload: HeatmapCellClickPayload) => void;
 }) {
   const metrics = useMemo(() => flattenMetrics(visibleConfig), [visibleConfig]);
   const [metricKey, setMetricKey] = useState(metrics[0]?.key ?? "");
@@ -454,11 +554,44 @@ export function HeatmapMobileSummary({
             activeMetric.colType === "heat"
               ? cellStyle(heatVal, colMax, activeMetric.palette)
               : { background: "var(--lx-surface)", color: "var(--lx-text)" };
+          const canDrill =
+            onCellClick &&
+            isAlternateCellClickable(
+              { ...activeMetric, dataKey: activeMetric.key, minWidth: 0, totalAccent: "", tooltip: "" },
+              heatVal,
+              row as DomainWiseRow,
+            );
           return (
             <li key={id}>
               <button
                 type="button"
-                onClick={() => onRowClick?.(id, label)}
+                onClick={() => {
+                  if (canDrill) {
+                    const disp =
+                      activeMetric.colType === "conversion"
+                        ? fmtConversion(
+                            (row as DomainWiseRow).convertedCount,
+                            (row as DomainWiseRow).eligibleClosedCount,
+                            (row as DomainWiseRow).lmpConversionPercentage,
+                          )
+                        : formatMetricValue(row, activeMetric);
+                    onCellClick({
+                      rowId: id,
+                      rowLabel: label,
+                      row,
+                      metricKey: activeMetric.key,
+                      metricLabel: activeMetric.label,
+                      colType: activeMetric.colType,
+                      displayedValue: disp,
+                      displayedCount:
+                        activeMetric.colType === "conversion"
+                          ? (row as DomainWiseRow).eligibleClosedCount
+                          : heatVal,
+                    });
+                  } else {
+                    onRowClick?.(id, label);
+                  }
+                }}
                 className="w-full flex items-center gap-3 px-4 py-3 min-h-[52px] text-left hover:bg-muted/50 transition-colors"
               >
                 <span className="w-6 text-[11px] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
@@ -481,6 +614,7 @@ export function HeatmapMobileSummary({
 /** Desktop table + mobile summary fallback. */
 export function ResponsiveHeatmapTable({
   onRowClick,
+  onCellClick,
   ...props
 }: Parameters<typeof GenericHeatmapTable>[0] & {
   onRowClick?: (id: string, label: string) => void;
@@ -494,10 +628,11 @@ export function ResponsiveHeatmapTable({
           visibleConfig={props.visibleConfig}
           colMaxValues={props.colMaxValues}
           onRowClick={onRowClick}
+          onCellClick={onCellClick}
         />
       </div>
       <div className="hidden lg:block overflow-x-auto">
-        <GenericHeatmapTable {...props} />
+        <GenericHeatmapTable {...props} onCellClick={onCellClick} />
       </div>
     </>
   );

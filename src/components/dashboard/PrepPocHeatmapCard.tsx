@@ -38,6 +38,16 @@ import {
   type PrepPocHeatmapRow,
 } from "@/lib/prepPocHeatmapAgg";
 import {
+  DOMAIN_WISE_METRIC_LABELS,
+  filterDomainWiseMetricRecords,
+  filterStudentWiseMetricRecords,
+  isDomainWiseMetricClickable,
+  isStudentWiseMetricClickable,
+  STUDENT_WISE_METRIC_LABELS,
+  type DomainWiseMetricKey,
+  type StudentWiseMetricKey,
+} from "@/lib/prepPocHeatmapDrilldown";
+import {
   buildFullHeatmapData,
   type FullPrepPocHeatmapResponse,
 } from "@/lib/prepPocHeatmapViews";
@@ -49,6 +59,7 @@ import {
   studentTotalsFrom,
   domainTotalsFrom,
   type AltSectionDef,
+  type HeatmapCellClickPayload,
 } from "@/components/dashboard/PrepPocHeatmapAlternateViews";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { cn } from "@/lib/utils";
@@ -789,15 +800,52 @@ export function PrepPocHeatmapCard({
     };
   }, [data, activeView]);
 
-  const openDrilldown = useCallback((
+  const openLmpDrilldown = useCallback((
     row: PrepPocHeatmapRow,
     metricKey: HeatmapMetricKey,
     displayedValue: number | string,
     displayedCount: number | null,
   ) => {
     if (displayedCount !== null && displayedCount <= 0) return;
-    setSelection({ pocId: row.pocId, pocName: row.pocName, metricKey, metricLabel: HEATMAP_METRIC_LABELS[metricKey], displayedValue, displayedCount });
+    setSelection({
+      view: "lmp",
+      rowId: row.pocId,
+      rowLabel: row.pocName,
+      metricKey,
+      metricLabel: HEATMAP_METRIC_LABELS[metricKey],
+      displayedValue,
+      displayedCount,
+    });
   }, []);
+
+  const openAlternateDrilldown = useCallback((payload: HeatmapCellClickPayload) => {
+    if (payload.displayedCount !== null && payload.displayedCount <= 0) return;
+    if (activeView === "student") {
+      if (!isStudentWiseMetricClickable(payload.metricKey)) return;
+      setSelection({
+        view: "student",
+        rowId: payload.rowId,
+        rowLabel: payload.rowLabel,
+        metricKey: payload.metricKey,
+        metricLabel: STUDENT_WISE_METRIC_LABELS[payload.metricKey as StudentWiseMetricKey],
+        displayedValue: payload.displayedValue,
+        displayedCount: payload.displayedCount,
+      });
+      return;
+    }
+    if (activeView === "domain") {
+      if (!isDomainWiseMetricClickable(payload.metricKey)) return;
+      setSelection({
+        view: "domain",
+        rowId: payload.rowId,
+        rowLabel: payload.rowLabel,
+        metricKey: payload.metricKey,
+        metricLabel: DOMAIN_WISE_METRIC_LABELS[payload.metricKey as DomainWiseMetricKey],
+        displayedValue: payload.displayedValue,
+        displayedCount: payload.displayedCount,
+      });
+    }
+  }, [activeView]);
 
   // Visible sections in order
   const visibleConfig = useMemo(
@@ -991,7 +1039,7 @@ export function PrepPocHeatmapCard({
                           <li key={row.pocId}>
                             <button
                               type="button"
-                              onClick={() => openDrilldown(row, "currentLmpCount", row.currentLmpCount, row.currentLmpCount)}
+                              onClick={() => openLmpDrilldown(row, "current", row.currentLmpCount, row.currentLmpCount)}
                               className="w-full flex items-center gap-3 px-4 py-3 min-h-[52px] text-left hover:bg-muted/50 transition-colors"
                             >
                               <span className="w-6 text-[11px] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
@@ -1108,7 +1156,7 @@ export function PrepPocHeatmapCard({
                         row={row}
                         colMaxValues={colMaxValues}
                         visibleConfig={visibleConfig as SectionDef[]}
-                        onOpenDrilldown={openDrilldown}
+                        onOpenDrilldown={openLmpDrilldown}
                         isDark={isDark}
                       />
                     ))}
@@ -1130,6 +1178,7 @@ export function PrepPocHeatmapCard({
                   totals={(activeView === "student" ? studentTotals : domainTotals) ?? {}}
                   visibleConfig={visibleConfig as AltSectionDef[]}
                   colMaxValues={colMaxValues}
+                  onCellClick={openAlternateDrilldown}
                 />
               )}
             </div>
@@ -1160,6 +1209,7 @@ export function PrepPocHeatmapCard({
           open={Boolean(selection)}
           selection={selection}
           data={data}
+          filters={filters}
           onOpenChange={(open) => { if (!open) setSelection(null); }}
         />
       )}
@@ -1322,36 +1372,66 @@ function TotalRow({
 // ── Drilldown modal (unchanged) ───────────────────────────────────────────────
 
 type HeatmapDrilldownSelection = {
-  pocId: string;
-  pocName: string;
-  metricKey: HeatmapMetricKey;
+  view: "lmp" | "student" | "domain";
+  rowId: string;
+  rowLabel: string;
+  metricKey: string;
   metricLabel: string;
   displayedValue: number | string;
   displayedCount: number | null;
 };
 
 type LmpSortKey = "company" | "statusLabel" | "domain" | "studentsMapped" | "createdAt" | "updatedAt";
-type StudentSortKey = "studentName" | "company" | "domain" | "cohort" | "placementDate";
+type StudentSortKey = "studentName" | "company" | "domain" | "cohort" | "placementDate" | "primaryDomain" | "secondaryDomain" | "placementStatus";
+
+const LMP_STATUS_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Converted", "Not Converted", "On hold", "Other reasons"] as const;
+const STUDENT_OUTCOME_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Placed", "Not Placed", "On hold", "Other reasons"] as const;
+
+function resolveDrilldownResult(data: FullPrepPocHeatmapResponse, selection: HeatmapDrilldownSelection) {
+  if (selection.view === "lmp") {
+    return filterHeatmapMetricRecords(data.source, selection.rowId, selection.metricKey as HeatmapMetricKey);
+  }
+  if (selection.view === "student") {
+    return filterStudentWiseMetricRecords(data, selection.rowId, selection.metricKey as StudentWiseMetricKey);
+  }
+  return filterDomainWiseMetricRecords(data, selection.rowId, selection.metricKey as DomainWiseMetricKey);
+}
+
+function viewTypeLabel(view: HeatmapDrilldownSelection["view"]): string {
+  if (view === "student") return "Student-wise";
+  if (view === "domain") return "Domain-wise";
+  return "LMP-wise";
+}
 
 function HeatmapDrilldownModal({
-  open, selection, data, onOpenChange,
+  open, selection, data, filters, onOpenChange,
 }: {
   open: boolean;
   selection: HeatmapDrilldownSelection | null;
   data: FullPrepPocHeatmapResponse;
+  filters?: Record<string, unknown>;
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [lmpSort, setLmpSort] = useState<LmpSortKey>("createdAt");
   const [studentSort, setStudentSort] = useState<StudentSortKey>("studentName");
+  const [statusFilter, setStatusFilter] = useState<string>("All");
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
   const result = useMemo(() => {
     if (!selection) return null;
-    return filterHeatmapMetricRecords(data.source, selection.pocId, selection.metricKey);
-  }, [data.source, selection]);
+    return resolveDrilldownResult(data, selection);
+  }, [data, selection]);
+
+  useEffect(() => {
+    if (open) {
+      setSearchTerm("");
+      setStatusFilter("All");
+      setPage(1);
+    }
+  }, [open, selection?.rowId, selection?.metricKey, selection?.view]);
 
   const allLmps = useMemo(
     () => result?.recordType === "conversion" ? result.denominatorLmps : result?.lmps ?? [],
@@ -1364,27 +1444,42 @@ function HeatmapDrilldownModal({
 
   const filteredLmps = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const rows = q
-      ? allLmps.filter((record) => [
-          record.company, record.role, record.lmpCode, record.domain,
-          record.statusLabel, record.outcomeReason, record.primaryPoc, record.supportPoc,
-        ].some((v) => v.toLowerCase().includes(q)))
-      : allLmps;
+    let rows = allLmps;
+    if (statusFilter !== "All") {
+      rows = rows.filter((record) => record.statusLabel === statusFilter);
+    }
+    if (q) {
+      rows = rows.filter((record) => [
+        record.company, record.role, record.lmpCode, record.domain,
+        record.statusLabel, record.outcomeReason, record.primaryPoc, record.supportPoc,
+      ].some((v) => v.toLowerCase().includes(q)));
+    }
     return [...rows].sort((a, b) => compareValues(a[lmpSort], b[lmpSort], lmpSort === "createdAt" || lmpSort === "updatedAt"));
-  }, [allLmps, lmpSort, searchTerm]);
+  }, [allLmps, lmpSort, searchTerm, statusFilter]);
 
   const filteredStudents = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const rows = q
-      ? allStudents.filter((record) => [
-          record.studentName, record.studentCode, record.email, record.phone,
-          record.primaryDomain, record.secondaryDomain,
-          record.company, record.lmpCode,
-          record.domain, record.cohort, record.primaryPoc, record.supportPoc,
-        ].some((v) => v.toLowerCase().includes(q)))
-      : allStudents;
+    let rows = allStudents;
+    if (statusFilter !== "All") {
+      rows = rows.filter((record) => {
+        const bucket = (record as HeatmapDrilldownStudentRecord & { matchingBucket?: string; outcomeStatus?: string }).matchingBucket
+          ?? (record as HeatmapDrilldownStudentRecord & { outcomeStatus?: string }).outcomeStatus
+          ?? record.placementStatus;
+        if (statusFilter === "Placed") return bucket === "Placed" || bucket === "Converted";
+        if (statusFilter === "Not Placed") return bucket === "Not Placed" || bucket === "Not Converted";
+        return bucket === statusFilter;
+      });
+    }
+    if (q) {
+      rows = rows.filter((record) => [
+        record.studentName, record.studentCode, record.email, record.phone,
+        record.primaryDomain, record.secondaryDomain,
+        record.company, record.lmpCode,
+        record.domain, record.cohort, record.primaryPoc, record.supportPoc,
+      ].some((v) => v.toLowerCase().includes(q)));
+    }
     return [...rows].sort((a, b) => compareValues(a[studentSort], b[studentSort], studentSort === "placementDate"));
-  }, [allStudents, searchTerm, studentSort]);
+  }, [allStudents, searchTerm, studentSort, statusFilter]);
 
   const modalRows = result?.recordType === "student" ? filteredStudents : filteredLmps;
   const totalPages = Math.max(1, Math.ceil(modalRows.length / pageSize));
@@ -1398,44 +1493,52 @@ function HeatmapDrilldownModal({
 
   const exportDrilldown = () => {
     if (!selection || !result) return;
+    const filterMeta = filters ? JSON.stringify(filters) : "none";
     const meta = [
-      { Field: "POC Name", Value: selection.pocName },
+      { Field: "View Type", Value: viewTypeLabel(selection.view) },
+      { Field: "Row Label", Value: selection.rowLabel },
       { Field: "Metric", Value: selection.metricLabel },
       { Field: "Displayed Count", Value: String(selection.displayedCount ?? originalCount) },
       { Field: "Detail Count", Value: String(originalCount) },
-      { Field: "Data Scope", Value: "Current Prep POC Heatmap live dataset" },
+      { Field: "Applied Dashboard Filters", Value: filterMeta },
       { Field: "Exported At", Value: new Date().toISOString() },
       {},
     ];
     if (result.recordType === "student") {
       downloadCsv(
-        `${safeFilename(selection.pocName)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
-        [...meta, ...allStudents.map((r) => ({
-          "Student Name": r.studentName,
-          "Student ID": r.studentCode || r.studentId,
-          Email: r.email || "",
-          Phone: r.phone || "",
-          "Primary Domain": r.primaryDomain || "",
-          "Secondary Domain": r.secondaryDomain || "",
-          Cohort: r.cohort,
-          Company: r.company,
-          LMP: r.lmpCode,
-          Domain: r.domain,
-          "Placement Status": r.placementStatus,
-          "Placement Date": formatDate(r.placementDate),
-          "Primary POC": r.primaryPoc,
-          "Support POC": r.supportPoc,
-        }))],
+        `${safeFilename(selection.rowLabel)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
+        [...meta, ...allStudents.map((r) => {
+          const ext = r as HeatmapDrilldownStudentRecord & { matchingBucket?: string; outcomeStatus?: string; lastUpdated?: string; matchingDomain?: string };
+          return {
+            "Student Name": r.studentName,
+            "Roll Number": r.studentCode || r.studentId,
+            Email: r.email || "",
+            Phone: r.phone || "",
+            Cohort: r.cohort,
+            "Primary Domain": r.primaryDomain || "",
+            "Secondary Domain": r.secondaryDomain || "",
+            "Matching Bucket": ext.matchingBucket || ext.outcomeStatus || r.placementStatus,
+            Company: r.company,
+            Role: r.role,
+            "LMP ID": r.lmpCode || r.lmpId,
+            "LMP Domain": r.domain,
+            "Matching Domain": ext.matchingDomain || r.domain,
+            "Placement Status": r.placementStatus,
+            "Primary POC": r.primaryPoc,
+            "Support POC": r.supportPoc,
+            "Last Updated": formatDate(ext.lastUpdated || r.placementDate),
+          };
+        })],
       );
       return;
     }
     downloadCsv(
-      `${safeFilename(selection.pocName)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
+      `${safeFilename(selection.rowLabel)}_${safeFilename(selection.metricLabel)}_${dateStamp()}.csv`,
       [...meta, ...allLmps.map((r) => ({
         "LMP Name": `${r.company} — ${r.role}`.trim(), Company: r.company, Role: r.role,
         "LMP ID": r.lmpCode || r.lmpId, Domain: r.domain,
         "Primary POC": r.primaryPoc, "Support POC": r.supportPoc,
-        "Prep Status": r.statusLabel, Outcome: r.statusLabel, Reason: r.outcomeReason,
+        Status: r.statusLabel, "Outcome Reason": r.outcomeReason,
         "Students Mapped": r.studentsMapped, "Students Placed": r.studentsPlaced,
         "Created Date": formatDate(r.createdAt), "Last Updated": formatDate(r.updatedAt),
       }))],
@@ -1447,19 +1550,20 @@ function HeatmapDrilldownModal({
       <DialogContent className="flex max-h-[92vh] w-[min(1180px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:rounded-3xl">
         <DialogHeader className="border-b border-border bg-card px-6 py-5 text-left">
           <DialogTitle className="text-[21px] font-bold tracking-[-0.02em] text-foreground">
-            {selection ? `${selection.pocName} · ${selection.metricLabel}` : "Heatmap details"}
+            {selection ? `${selection.rowLabel} · ${selection.metricLabel}` : "Heatmap details"}
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-muted-foreground">
             {originalCount.toLocaleString()} records contributing to this metric
             {searchTerm.trim() && ` · ${modalRows.length.toLocaleString()} matching search`}
             {selection?.metricKey === "lmpConversion" && result && (
-              <span> · {result.convertedLmps.length}/{result.denominatorLmps.length} converted · On Hold excluded</span>
+              <span> · {result.convertedLmps?.length ?? 0}/{result.denominatorLmps?.length ?? 0} converted · On Hold excluded</span>
             )}
           </DialogDescription>
           <div className="mt-3 flex flex-wrap gap-2">
-            <ContextChip>Till Today</ContextChip>
+            <ContextChip>View: {selection ? viewTypeLabel(selection.view) : "—"}</ContextChip>
             <ContextChip>Current dashboard filters</ContextChip>
             <ContextChip>{selection?.metricLabel ?? "Metric"}</ContextChip>
+            {selection && <ContextChip>{selection.rowLabel}</ContextChip>}
             {countMismatch && (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
                 Count check: visible {displayedCount}, detail {originalCount}
@@ -1480,8 +1584,9 @@ function HeatmapDrilldownModal({
           </label>
           {result?.recordType === "student" ? (
             <SortSelect value={studentSort} onChange={(v) => setStudentSort(v as StudentSortKey)} options={[
-              ["studentName", "Student name"], ["company", "Company"], ["domain", "Domain"],
-              ["cohort", "Cohort"], ["placementDate", "Placement date"],
+              ["studentName", "Student name"], ["cohort", "Cohort"], ["primaryDomain", "Primary domain"],
+              ["secondaryDomain", "Secondary domain"], ["company", "Company"], ["placementStatus", "Placement status"],
+              ["placementDate", "Last updated"],
             ]} />
           ) : (
             <SortSelect value={lmpSort} onChange={(v) => setLmpSort(v as LmpSortKey)} options={[
@@ -1494,17 +1599,38 @@ function HeatmapDrilldownModal({
             onClick={exportDrilldown}
             disabled={!result || originalCount === 0}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm transition hover:bg-muted disabled:opacity-40"
+            data-testid="heatmap-drilldown-export"
           >
             <Download size={14} /> Download CSV
           </button>
         </div>
 
+        <div className="border-b border-border bg-card px-6 py-2">
+          <div className="flex flex-wrap gap-2">
+            {(result?.recordType === "student" ? STUDENT_OUTCOME_FILTERS : LMP_STATUS_FILTERS).map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                onClick={() => { setStatusFilter(chip); setPage(1); }}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                  statusFilter === chip
+                    ? "border-orange-300 bg-orange-50 text-orange-700"
+                    : "border-border bg-muted text-muted-foreground hover:bg-muted/80",
+                )}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-auto bg-muted/30 px-6 py-4">
           {result?.recordType === "conversion" && (
             <div className="mb-4 grid gap-x-6 gap-y-gutter sm:grid-cols-3">
-              <MetricSummaryCard label="Converted LMPs" value={result.convertedLmps.length} tone="green" />
-              <MetricSummaryCard label="Eligible Closed LMPs" value={result.denominatorLmps.length} tone="slate" />
-              <MetricSummaryCard label="Conversion" value={fmtConversion(result.convertedLmps.length, result.denominatorLmps.length, result.denominatorLmps.length ? (result.convertedLmps.length / result.denominatorLmps.length) * 100 : null)} tone="green" />
+              <MetricSummaryCard label="Converted LMPs" value={result.convertedLmps?.length ?? 0} tone="green" />
+              <MetricSummaryCard label="Eligible Closed LMPs" value={result.denominatorLmps?.length ?? 0} tone="slate" />
+              <MetricSummaryCard label="Conversion" value={fmtConversion(result.convertedLmps?.length ?? 0, result.denominatorLmps?.length ?? 0, (result.denominatorLmps?.length ?? 0) ? ((result.convertedLmps?.length ?? 0) / (result.denominatorLmps?.length ?? 1)) * 100 : null)} tone="green" />
             </div>
           )}
           {!result || originalCount === 0 ? (
@@ -1512,7 +1638,7 @@ function HeatmapDrilldownModal({
               No records found for this metric.
             </div>
           ) : result.recordType === "student" ? (
-            <StudentDrilldownTable rows={pageRows as HeatmapDrilldownStudentRecord[]} />
+            <StudentDrilldownTable rows={pageRows as HeatmapDrilldownStudentRecord[]} showDomainFields={selection?.view === "domain"} />
           ) : (
             <LmpDrilldownTable
               rows={pageRows as HeatmapDrilldownLmpRecord[]}
@@ -1582,35 +1708,65 @@ function LmpDrilldownTable({ rows, onView }: { rows: HeatmapDrilldownLmpRecord[]
   );
 }
 
-function StudentDrilldownTable({ rows }: { rows: HeatmapDrilldownStudentRecord[] }) {
+function StudentDrilldownTable({
+  rows,
+  showDomainFields = false,
+}: {
+  rows: HeatmapDrilldownStudentRecord[];
+  showDomainFields?: boolean;
+}) {
+  const headers = showDomainFields
+    ? ["Student", "Student ID", "Email", "Phone", "Cohort", "Primary Domain", "Secondary Domain", "Matching Domain", "Linked LMP", "Company", "Status / Outcome", "Primary POC", "Support POC"]
+    : ["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Bucket", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC", "Last Updated"];
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <table className="w-full min-w-[920px] text-left text-[12px]">
         <thead className="sticky top-0 z-10 bg-muted text-[10.5px] uppercase tracking-wide text-muted-foreground">
           <tr>
-            {["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC"].map((h) => (
+            {headers.map((h) => (
               <th key={h} className="border-b border-border px-3 py-3 font-bold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.studentId} className="border-b border-border last:border-b-0 hover:bg-muted/50">
-              <td className="px-3 py-3 font-semibold text-foreground">{r.studentName}</td>
-              <td className="px-3 py-3 font-mono text-[11px] text-muted-foreground">{r.studentCode || r.studentId}</td>
-              <td className="px-3 py-3 text-foreground">{r.email || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.phone || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.primaryDomain || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.secondaryDomain || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.cohort || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.company || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.lmpCode || r.lmpId}</td>
-              <td className="px-3 py-3 text-foreground">{r.domain || "Unmapped"}</td>
-              <td className="px-3 py-3 text-foreground">{r.placementStatus} · {formatDate(r.placementDate)}</td>
-              <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
-              <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const ext = r as HeatmapDrilldownStudentRecord & { matchingBucket?: string; outcomeStatus?: string; lastUpdated?: string; matchingDomain?: string };
+            return (
+              <tr key={`${r.studentId}-${r.lmpId}`} className="border-b border-border last:border-b-0 hover:bg-muted/50">
+                <td className="px-3 py-3 font-semibold text-foreground">{r.studentName}</td>
+                <td className="px-3 py-3 font-mono text-[11px] text-muted-foreground">{r.studentCode || r.studentId}</td>
+                <td className="px-3 py-3 text-foreground">{r.email || "—"}</td>
+                <td className="px-3 py-3 text-foreground">{r.phone || "—"}</td>
+                {showDomainFields ? (
+                  <>
+                    <td className="px-3 py-3 text-foreground">{r.cohort || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.primaryDomain || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.secondaryDomain || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{ext.matchingDomain || r.domain || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.lmpCode || r.lmpId}</td>
+                    <td className="px-3 py-3 text-foreground">{r.company || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{ext.outcomeStatus || r.placementStatus}</td>
+                    <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-3 py-3 text-foreground">{r.primaryDomain || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.secondaryDomain || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.cohort || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{ext.matchingBucket || r.placementStatus}</td>
+                    <td className="px-3 py-3 text-foreground">{r.company || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.lmpCode || r.lmpId}</td>
+                    <td className="px-3 py-3 text-foreground">{r.domain || "Unmapped"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.placementStatus}</td>
+                    <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
+                    <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
+                    <td className="px-3 py-3 text-muted-foreground">{formatDate(ext.lastUpdated || r.placementDate)}</td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
