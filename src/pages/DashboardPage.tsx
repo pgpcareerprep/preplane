@@ -5,42 +5,61 @@ import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { AdminLmpDashboard } from "@/components/dashboards/AdminLmpDashboard";
 import { AllocatorLmpDashboard } from "@/components/dashboards/AllocatorLmpDashboard";
 import { PocLmpDashboard } from "@/components/dashboards/PocLmpDashboard";
+import { DashboardViewSwitcher } from "@/components/dashboards/DashboardViewSwitcher";
 import {
-  DashboardViewSwitcher,
+  canSwitchToMyLmpHealth,
+  dashboardSwitcherOptions,
+  resolveDashboardView,
   type DashboardView,
-} from "@/components/dashboards/DashboardViewSwitcher";
+} from "@/lib/dashboardViewRouting";
 
 export default function DashboardPage() {
   const { role, user, viewAsRole } = useRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pocs } = useEligiblePrepPocs();
 
-  const canSwitchAdminPocView = useMemo(() => {
-    if (role !== "admin") return false;
-    if (!user.pocProfileId) return false;
-    return pocs.some((p) => p.pocId === user.pocProfileId);
-  }, [role, user.pocProfileId, pocs]);
+  const canSwitchPocHealth = useMemo(
+    () => canSwitchToMyLmpHealth(role, user.pocProfileId, pocs),
+    [role, user.pocProfileId, pocs],
+  );
 
-  const requestedView: DashboardView =
-    searchParams.get("view") === "my-poc" ? "my-poc" : "admin";
-  const dashboardView: DashboardView =
-    canSwitchAdminPocView && requestedView === "my-poc" ? "my-poc" : "admin";
+  const dashboardView: DashboardView = resolveDashboardView(
+    searchParams.get("view"),
+    canSwitchPocHealth,
+  );
 
   const setDashboardView = (view: DashboardView) => {
     const next = new URLSearchParams(searchParams);
-    if (view === "admin") next.delete("view");
+    if (view === "primary") next.delete("view");
     else next.set("view", view);
     setSearchParams(next, { replace: true });
   };
 
-  const headerExtra = canSwitchAdminPocView ? (
-    <DashboardViewSwitcher value={dashboardView} onChange={setDashboardView} />
+  const switcherOptions = useMemo(() => dashboardSwitcherOptions(role), [role]);
+  const headerExtra = canSwitchPocHealth ? (
+    <DashboardViewSwitcher
+      value={dashboardView}
+      onChange={setDashboardView}
+      options={switcherOptions}
+    />
   ) : null;
+
+  if (role === "allocator") {
+    if (dashboardView === "my-poc" && canSwitchPocHealth) {
+      return (
+        <PocLmpDashboard
+          sourceLabel="My LMP Health"
+          headerExtra={headerExtra}
+        />
+      );
+    }
+    return <AllocatorLmpDashboard headerExtra={headerExtra} />;
+  }
 
   if (viewAsRole === "allocator") return <AllocatorLmpDashboard />;
 
-  if (viewAsRole === "admin") {
-    if (dashboardView === "my-poc") {
+  if (viewAsRole === "admin" || role === "admin") {
+    if (dashboardView === "my-poc" && canSwitchPocHealth) {
       return (
         <PocLmpDashboard
           sourceLabel="My LMP Health"

@@ -1,14 +1,22 @@
 import { cn } from "@/lib/utils";
+import {
+  dashboardSwitcherOptions,
+  type DashboardView,
+} from "@/lib/dashboardViewRouting";
 
-export type DashboardView = "admin" | "my-poc";
+export type { DashboardView };
 
 export function DashboardViewSwitcher({
   value,
   onChange,
+  options,
 }: {
   value: DashboardView;
   onChange: (view: DashboardView) => void;
+  options?: Array<{ id: DashboardView; label: string }>;
 }) {
+  const opts = options ?? dashboardSwitcherOptions("admin");
+
   return (
     <div
       className="inline-flex rounded-md p-0.5 shrink-0"
@@ -16,10 +24,7 @@ export function DashboardViewSwitcher({
       role="tablist"
       aria-label="Dashboard view"
     >
-      {([
-        { id: "admin" as const, label: "Admin Dashboard" },
-        { id: "my-poc" as const, label: "My LMP Health" },
-      ]).map((opt) => (
+      {opts.map((opt) => (
         <button
           key={opt.id}
           type="button"

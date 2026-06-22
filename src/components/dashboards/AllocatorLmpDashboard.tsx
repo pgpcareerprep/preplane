@@ -1,281 +1,414 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
-  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader, LxSection, LxSectionBlock,
-  LxHero, LxKpi, LxStackedBar, LxAttentionStrip, LX_HEX,
+  LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader,
+  LxKpi, LxStackedBar, LX_HEX,
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
-import { useLmpFilters, usePrepPocOptions } from "./filters/useLmpFilters";
+import { useLmpFilters } from "./filters/useLmpFilters";
 import { useRole } from "@/lib/rolesContext";
-import { completenessForRows, isConverted, requiredFieldsForRow, type Process } from "@/lib/lmpProcessQueries";
-import { motion } from "framer-motion";
+import { lmpStatusCounts, type Process } from "@/lib/lmpProcessQueries";
+import { canonicalLmpStatus } from "@/types/lmp";
+import { STATUS_META } from "@/lib/lmpTypes";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
-import { Link } from "react-router-dom";
-import { SyncIndicator } from "@/components/sheets/SyncIndicator";
 import { useTodayDailyLogIds } from "@/lib/hooks/useTodayDailyLogIds";
 import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
-import { RecentActivityCard } from "./sections/RecentActivityCard";
-import { summarizeFlags } from "@/lib/lmpFlags";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
+import { snapshotDrill, lmpsHighPriority } from "@/lib/dashboardDrill";
+import { useLmpRows } from "@/lib/sheets/hooks";
+import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
+import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
+import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 import {
-  lmpsMissingPrepDoc, lmpsStatusMissing, lmpsRoundGap, lmpsUnloggedOutcomes,
-  lmpsByPlacementStep, snapshotDrill, lmpsByStatus, lmpsHighPriority,
-} from "@/lib/dashboardDrill";
+  countActiveLmps,
+  countAllocatedDomains,
+  countCompletedThisMonth,
+  countPrepOngoing,
+  sortRecentlyUpdated,
+  taskStatusSegments,
+} from "@/lib/allocatorDashboardMetrics";
 
-export function AllocatorLmpDashboard() {
+function relativeTime(iso: string): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "—";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function StatusPill({ slug }: { slug: string }) {
+  const canonical = canonicalLmpStatus(slug as import("@/types/lmp").LmpStatus);
+  const meta = STATUS_META[canonical];
+  const hex = canonical === "converted" ? LX_HEX.success
+    : canonical === "not-converted" ? LX_HEX.risk
+    : canonical === "prep-ongoing" ? LX_HEX.info
+    : LX_HEX.neutral;
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border whitespace-nowrap"
+      style={{ background: `${hex}1F`, color: "var(--lx-text)", borderColor: `${hex}55` }}
+    >
+      {meta?.label ?? slug}
+    </span>
+  );
+}
+
+export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
   const { user } = useRole();
-  const prepPocOptions = usePrepPocOptions();
+  const {
+    domainOptions,
+    statusOptions,
+    typeOptions,
+    prepPocOptions,
+  } = useDashboardFilterOptions();
+  const { pocLmpIdsMap } = useEligiblePrepPocs();
+
   useLmpProcessesRealtime();
   useLmpCandidatesRealtime();
   useRealtimeInvalidate("lmp_processes", [["lmp_rows"], ["db-lmp-processes"]]);
   useRealtimeInvalidate("lmp_poc_links" as never, [["lmp_rows"]]);
   useRealtimeInvalidate("poc_profiles" as never, [["lmp_rows"], ["poc_profiles_registry"]]);
+
   const { processes: liveProcesses } = useLiveProcesses();
-  const { filtered, all, filters, set } = useLmpFilters({ role: "allocator", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined });
+  const { data: lmpRows = [] } = useLmpRows();
+  const { filtered, filters, set } = useLmpFilters({
+    role: "allocator",
+    userName: user.name,
+    data: liveProcesses.length ? liveProcesses : undefined,
+    pocLmpIdsMap,
+  });
 
   const todaySet = useTodayDailyLogIds();
-  const completeness = useMemo(() => completenessForRows(filtered), [filtered]);
+  const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
+  const filteredRecords = useMemo(
+    () => lmpRows.filter((r) => filteredIds.has(r.id)),
+    [filteredIds, lmpRows],
+  );
 
-  // Quality KPIs
-  const missingPrep = filtered.filter((r) => !r.prepDoc && (r.status === "Ongoing" || r.status === "Offer Received")).length;
-  const roundGaps = filtered.filter((r) => {
-    const latest = r.r3Shortlisted ? "R3" : r.r2Shortlisted ? "R2" : r.r1Shortlisted ? "R1" : null;
-    if (!latest) return false;
-    return r.placementProgress !== latest && !["Offer", "Converted"].includes(r.placementProgress);
-  }).length;
-  const unloggedOutcomes = filtered.filter((r) => {
-    if (r.status === "Closed") return !r.closedReason;
-    if (isConverted(r)) return !r.convertNames;
-    return false;
-  }).length;
-  const statusMissing = filtered.filter((r) => !r.status).length;
-  const totalIssues = filtered.reduce((s, r) => s + requiredFieldsForRow(r).missing.length, 0);
-
-  // Compliance checklist
-  const total = filtered.length;
-  const finished = filtered.filter((r) => r.status === "Closed" || isConverted(r));
-  const compliance = [
-    { label: "Prep doc compliance",    done: filtered.filter((r) => r.prepDoc === "Sent").length, total },
-    { label: "Mentor alignment",       done: filtered.filter((r) => r.mentorAligned === "Yes").length, total },
-    { label: "Round tracking",         done: filtered.filter((r) => {
-      const latest = r.r3Shortlisted ? "R3" : r.r2Shortlisted ? "R2" : r.r1Shortlisted ? "R1" : null;
-      return !latest || r.placementProgress === latest || ["Offer", "Converted"].includes(r.placementProgress);
-    }).length, total },
-    { label: "Outcome logging",        done: finished.filter((r) =>
-        (r.status === "Closed" && r.closedReason) || (isConverted(r) && r.convertNames),
-      ).length, total: finished.length },
-  ];
-
-  const flagSummary = useMemo(() => summarizeFlags(filtered, todaySet), [filtered, todaySet]);
+  const lsc = lmpStatusCounts(filteredRecords);
+  const allocatedDomains = countAllocatedDomains(filteredRecords);
+  const activeLmps = countActiveLmps(filteredRecords);
+  const prepOngoing = countPrepOngoing(filteredRecords);
+  const completedThisMonth = countCompletedThisMonth(filteredRecords);
+  const recentLmps = useMemo(() => sortRecentlyUpdated(filteredRecords, 12), [filteredRecords]);
+  const taskSegments = useMemo(() => taskStatusSegments(filteredRecords), [filteredRecords]);
 
   const [drill, setDrill] = useState<DrillState | null>(null);
   const openLmps = (rows: Process[], title: string, subtitle?: string) =>
     setDrill({ kind: "lmps", title, subtitle, rows });
+
+  const openStatus = (status: ActiveLmpStatus) => {
+    const ids = new Set(
+      filteredRecords
+        .filter((row) => canonicalLmpStatus(row.status) === status)
+        .map((row) => row.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      `${STATUS_META[status].label} LMPs`,
+      `${filtered.length} in current view`,
+    );
+  };
+
+  const openActiveLmps = () => {
+    const ids = new Set(
+      filteredRecords
+        .filter((r) => ["not-started", "prep-ongoing", "ongoing", "prep-done"].includes(r.status))
+        .map((r) => r.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      "Active LMPs",
+      `${activeLmps} in current view`,
+    );
+  };
+
+  const openPrepOngoing = () => {
+    const ids = new Set(
+      filteredRecords
+        .filter((r) => r.status === "prep-ongoing" || r.status === "ongoing")
+        .map((r) => r.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      "Prep Ongoing LMPs",
+      `${prepOngoing} in current view`,
+    );
+  };
+
+  const openCompletedThisMonth = () => {
+    const month = new Date().getMonth();
+    const year = new Date().getFullYear();
+    const ids = new Set(
+      filteredRecords
+        .filter((r) => {
+          const completed = ["converted", "not-converted", "other-reasons", "closed"].includes(r.status);
+          if (!completed) return false;
+          const iso = r.closingDate || r.lastActivity || r.lastProgressUpdatedAt || "";
+          const d = new Date(iso);
+          return Number.isFinite(d.getTime()) && d.getMonth() === month && d.getFullYear() === year;
+        })
+        .map((r) => r.id),
+    );
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      "Completed this month",
+      `${completedThisMonth} in current view`,
+    );
+  };
+
+  const openDomains = () => {
+    setDrill({
+      kind: "domains",
+      title: "Allocated domains",
+      rows: Array.from(new Set(filteredRecords.map((r) => r.domain).filter(Boolean)))
+        .map((d) => ({
+          name: d as string,
+          value: filteredRecords.filter((r) => r.domain === d).length,
+        })),
+    });
+  };
+
+  const openTaskSegment = (key: (typeof taskSegments)[number]["drillKey"]) => {
+    const ids = new Set(
+      filteredRecords
+        .filter((r) => {
+          const c = canonicalLmpStatus(r.status);
+          if (key === "not-started") return c === "not-started";
+          if (key === "in-progress") return c === "prep-ongoing" || c === "prep-done";
+          if (key === "completed") return c === "converted" || c === "not-converted";
+          return c === "hold" || c === "other-reasons";
+        })
+        .map((r) => r.id),
+    );
+    const label = taskSegments.find((s) => s.drillKey === key)?.label ?? "LMPs";
+    openLmps(
+      filtered.filter((row) => ids.has(row.processId)),
+      label,
+      `${ids.size} in current view`,
+    );
+  };
+
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
     const { rows, title } = snapshotDrill(kind, filtered, todaySet);
-    openLmps(rows, title, `${rows.length} of ${filtered.length} in scope`);
+    openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
   return (
     <LuminaShell>
       <LxPageHeader
-        crumb="MODERATOR · DASHBOARD"
-        title="Data quality snapshot"
-        subtitle="What's missing, stale, or incorrectly logged across all processes."
-        right={<LxLivePill />}
+        crumb="ALLOCATOR · DASHBOARD"
+        title="Allocator Dashboard"
+        subtitle="Overview of allocated domains, active LMPs, process health, and pending actions."
+        right={
+          <div className="flex items-center gap-2">
+            {headerExtra}
+            <LxLivePill />
+          </div>
+        }
       />
 
       <LxLmpFilters
         filters={filters}
         set={set}
         pocOptions={prepPocOptions}
+        domainOptions={domainOptions}
+        statusOptions={statusOptions}
+        typeOptions={typeOptions}
         showPrepPoc
       />
 
-      {/* SECTION 1 — Completeness Hero + KPI cluster */}
       <LxGrid>
-        <LxHero
-          eyebrow="Data completeness"
-          title="Required fields filled across all in-scope processes"
-          primaryValue={`${completeness.pct.toFixed(1)}%`}
-          primaryLabel="overall completeness"
-          info={info("alloc.hero.completeness")}
-          statement={`${completeness.filled} of ${completeness.total} required fields filled`}
-          ringPct={completeness.pct}
-          variant="blue"
-          span={7}
-          onPrimaryClick={() => openLmps(filtered.filter((r) => requiredFieldsForRow(r).missing.length > 0), "LMPs with missing fields", `${filtered.length} in scope`)}
-        />
-        <div className="col-span-12 md:col-span-5 grid grid-cols-12 gap-x-6 gap-y-gutter">
-          <LxKpi span={6} label="Processes in scope" accent="info"   value={filtered.length} sub={`Of ${all.length} total`}
-            info={info("alloc.kpi.in-scope")} onClick={() => openLmps(filtered, "Processes in scope")} />
-          <LxKpi span={6} label="Total issues"       accent="risk"   value={totalIssues}     sub="Sum of missing fields"
-            info={info("alloc.kpi.issues")} onClick={() => openLmps(filtered.filter((r) => requiredFieldsForRow(r).missing.length > 0), "LMPs with issues")} />
-          <LxKpi span={6} label="Missing prep docs"  accent="orange" value={missingPrep}     sub="Ongoing or Offer"
-            info={info("alloc.kpi.missing-prep")} onClick={() => openLmps(lmpsMissingPrepDoc(filtered), "Missing prep docs")} />
-          <LxKpi span={6} label="Status missing"     accent="ai"     value={statusMissing}   sub="Required field blank"
-            info={info("alloc.kpi.status-missing")} onClick={() => openLmps(lmpsStatusMissing(filtered), "Status missing")} />
-        </div>
-      </LxGrid>
-
-      {/* SECTION 2 — Quality breakdown */}
-      <LxSectionBlock>
-      <LxSection eyebrow="Quality" title="Where data quality breaks" info={info("alloc.issue-mix")} hint="Top-level signals across the four most common gap types." />
-      <LxGrid>
-        <LxKpi span={3} label="Missing prep docs"  accent="risk"   value={missingPrep}      sub="Ongoing or Offer Received"
-          info={info("alloc.kpi.missing-prep")} onClick={() => openLmps(lmpsMissingPrepDoc(filtered), "Missing prep docs")} />
-        <LxKpi span={3} label="Round data gaps"    accent="yellow" value={roundGaps}        sub="Latest round vs progress"
-          info={info("alloc.quality.round-gaps")} onClick={() => openLmps(lmpsRoundGap(filtered), "Round data gaps")} />
-        <LxKpi span={3} label="Unlogged outcomes"  accent="risk"   value={unloggedOutcomes} sub="Closed/Converted blank"
-          info={info("alloc.quality.unlogged")} onClick={() => openLmps(lmpsUnloggedOutcomes(filtered), "Unlogged outcomes")} />
-        <LxKpi span={3} label="Status missing"     accent="ai"     value={statusMissing}    sub="Status field blank"
-          info={info("alloc.kpi.status-missing")} onClick={() => openLmps(lmpsStatusMissing(filtered), "Status missing")} />
-      </LxGrid>
-      </LxSectionBlock>
-
-      {/* Snapshot strip — live flag counts */}
-      <RecentSnapshotStrip rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
-
-      {/* SECTION 3 — Compliance snapshot (full width now) */}
-      <LxGrid>
-        <LxCard span={12}>
-          <LxCardHeader
-            eyebrow="Compliance"
-            title="Compliance snapshot"
-            info={info("alloc.compliance")}
-            hint="Click a row to see passing LMPs; click the label to see failing LMPs."
-          />
-          <ul className="space-y-3.5">
-            {compliance.map((row, i) => {
-              const pct = row.total ? (row.done / row.total) * 100 : 0;
-              const accent = pct >= 80 ? "success" : pct >= 60 ? "yellow" : "risk";
-              const stepKey = (
-                i === 0 ? "prep-sent" :
-                i === 1 ? "mentor-aligned" :
-                i === 2 ? "round-tracked" : "outcome-logged"
-              ) as Parameters<typeof lmpsByPlacementStep>[1];
-              const openStep = (which: "done" | "pending") => {
-                const split = lmpsByPlacementStep(filtered, stepKey);
-                openLmps(split[which], `${row.label} · ${which === "done" ? "passing" : "failing"}`, `${split[which].length} LMPs`);
-              };
-              return (
-                <li key={row.label}>
-                  <div className="flex items-baseline justify-between text-[12.5px] mb-1.5">
-                    <button onClick={() => openStep("pending")} className="text-left hover:underline" style={{ color: "var(--lx-text-2)" }}>{row.label}</button>
-                    <span className="font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>
-                      <button onClick={() => openStep("done")} className="hover:underline">{row.done}</button>
-                      <span style={{ color: "var(--lx-text-3)" }}> / {row.total}</span>
-                      <span className="ml-2 font-semibold" style={{ color: LX_HEX[accent] }}>{pct.toFixed(0)}%</span>
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden cursor-pointer"
-                    onClick={() => openStep("done")}
-                    style={{ background: "var(--lx-soft)" }}>
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.55, delay: i * 0.05, ease: [0, 0, 0.2, 1] }}
-                      className="h-full rounded-full"
-                      style={{ background: LX_HEX[accent] }}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </LxCard>
-      </LxGrid>
-
-      {/* SECTION 4 — Issue mix (stacked) */}
-      <LxSectionBlock>
-      <LxSection eyebrow="Issue mix" title="Where the gaps live" info={info("alloc.issue-mix")} hint="Distribution across the four most common gap types." />
-      <LxCard span={12}>
-        <LxStackedBar
-          onSegmentClick={(s) => {
-            if (s.label === "Missing prep")          openLmps(lmpsMissingPrepDoc(filtered), "Missing prep docs");
-            else if (s.label === "Round gaps")       openLmps(lmpsRoundGap(filtered), "Round data gaps");
-            else if (s.label === "Unlogged outcome") openLmps(lmpsUnloggedOutcomes(filtered), "Unlogged outcomes");
-            else if (s.label === "Status missing")   openLmps(lmpsStatusMissing(filtered), "Status missing");
-          }}
-          segments={[
-            { label: "Missing prep",     value: missingPrep,      accent: "risk" },
-            { label: "Round gaps",       value: roundGaps,        accent: "yellow" },
-            { label: "Unlogged outcome", value: unloggedOutcomes, accent: "orange" },
-            { label: "Status missing",   value: statusMissing,    accent: "ai" },
-          ]}
-        />
-      </LxCard>
-      </LxSectionBlock>
-
-      {/* ─── LMP Tracker summary ─── */}
-      <LxSectionBlock>
-      <LxSection eyebrow="LMP Tracker · Live" title="Process snapshot" />
-      <LxGrid>
-        <LxKpi span={3} label="Total LMPs" accent="info" value={filtered.length} sub="From LMP Tracker"
-          info={info("alloc.tracker.total")} onClick={() => openLmps(filtered, "All LMPs in scope")} />
-        <LxKpi span={3} label="Ongoing" accent="teal"
-          value={filtered.filter((r) => r.status === "Ongoing").length}
-          info={info("alloc.tracker.ongoing")} onClick={() => openLmps(lmpsByStatus(filtered, "Ongoing"), "Ongoing LMPs")}
-          sub="Active processes" />
-        <LxKpi span={3} label="Converted" accent="success"
-          value={filtered.filter(isConverted).length} sub="Successfully placed"
-          info={info("alloc.tracker.converted")} onClick={() => openLmps(filtered.filter(isConverted), "Converted LMPs")} />
-        <LxKpi span={3} label="Domains" accent="orange"
-          value={new Set(filtered.map((r) => r.domain).filter(Boolean)).size} sub="Unique domains"
+        <LxKpi
+          span={3}
+          label="Allocated Domains"
+          accent="orange"
+          value={allocatedDomains}
+          sub="Unique domains in scope"
           info={info("alloc.tracker.domains")}
-          onClick={() => setDrill({
-            kind: "domains",
-            title: "Domains in scope",
-            rows: Array.from(new Set(filtered.map((r) => r.domain).filter(Boolean)))
-              .map((d) => ({ name: d as string, value: filtered.filter((r) => r.domain === d).length })),
-          })} />
+          onClick={openDomains}
+        />
+        <LxKpi
+          span={3}
+          label="Active LMPs"
+          accent="info"
+          value={activeLmps}
+          sub="Non-closed pipeline"
+          info={info("snapshot.active-lmps")}
+          onClick={openActiveLmps}
+        />
+        <LxKpi
+          span={3}
+          label="Prep Ongoing"
+          accent="teal"
+          value={prepOngoing}
+          sub="Prep / ongoing stage"
+          info={info("alloc.tracker.ongoing")}
+          onClick={openPrepOngoing}
+        />
+        <LxKpi
+          span={3}
+          label="Completed This Month"
+          accent="success"
+          value={completedThisMonth}
+          sub="Converted / closed"
+          info={info("alloc.tracker.converted")}
+          onClick={openCompletedThisMonth}
+        />
       </LxGrid>
+
+      <LmpHealthSummaryCard
+        total={filteredRecords.length}
+        lsc={lsc}
+        isLoading={false}
+        onStatusClick={openStatus}
+      />
+
       <LxGrid>
-        <LxCard span={12}>
-          <LxCardHeader eyebrow="Quick access" title="LMP Tracker records"
-            right={
-              <div className="flex items-center gap-3">
-                <SyncIndicator queryKey={["sheets", "LMP Tracker"]} />
-                <Link to="/lmp" className="text-[11.5px] font-medium px-2.5 py-1.5 rounded-md transition-colors"
-                  style={{ color: "var(--lx-accent)", background: "var(--lx-soft)" }}>
-                  View all LMPs →
-                </Link>
-              </div>
-            }
+        <LxCard span={7}>
+          <LxCardHeader
+            eyebrow="Pipeline"
+            title="Tasks by status"
+            hint="Process count grouped by operational stage."
+          />
+          <LxStackedBar
+            segments={taskSegments.map((s) => ({
+              label: s.label,
+              value: s.value,
+              accent: s.accent,
+            }))}
+            onSegmentClick={(seg) => {
+              const match = taskSegments.find((s) => s.label === seg.label);
+              if (match) openTaskSegment(match.drillKey);
+            }}
           />
         </LxCard>
-      </LxGrid>
-      </LxSectionBlock>
 
-      {/* Action required (allocation gaps focus) + Recent activity */}
-      <LxGrid>
         <ActionRequiredCard
           rows={filtered}
           todaySet={todaySet}
-          title="Allocation gaps"
-          eyebrow="Pending actions"
+          title="Alerts & notifications"
+          eyebrow="Needs attention"
           limit={10}
-          span={7}
+          span={5}
+          highOnly={false}
         />
-        <RecentActivityCard limit={14} span={5} />
       </LxGrid>
 
-      {/* Attention strip */}
-      <LxAttentionStrip
-        items={[
-          { label: "Overall completeness", value: `${completeness.pct.toFixed(1)}%`,  accent: "info",   info: info("alloc.hero.completeness") },
-          { label: "Total issues",         value: totalIssues,                         accent: "risk",   info: info("alloc.kpi.issues"),
-            onClick: () => openLmps(filtered.filter((r) => requiredFieldsForRow(r).missing.length > 0), "LMPs with issues") },
-          { label: "Action required",      value: flagSummary.total,                   accent: "orange", info: info("snapshot.high-priority"),
-            onClick: () => openLmps(lmpsHighPriority(filtered, todaySet), "High-priority LMPs") },
-          { label: "Missing prep",         value: missingPrep,                         accent: "yellow", info: info("alloc.kpi.missing-prep"),
-            onClick: () => openLmps(lmpsMissingPrepDoc(filtered), "Missing prep docs") },
-        ]}
-      />
+      <LxGrid>
+        <LxCard span={8} className="overflow-hidden">
+          <LxCardHeader
+            eyebrow="Activity"
+            title="Recently updated LMPs"
+            hint="Sorted by latest update timestamp."
+            right={
+              <Link
+                to="/lmp"
+                className="text-[11.5px] font-medium px-2.5 py-1.5 rounded-md transition-colors"
+                style={{ color: "var(--lx-accent)", background: "var(--lx-soft)" }}
+              >
+                View all →
+              </Link>
+            }
+          />
+          {recentLmps.length === 0 ? (
+            <div className="px-4 py-10 text-center text-[12.5px]" style={{ color: "var(--lx-text-3)" }}>
+              No LMPs in current scope.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[12px]">
+                <thead>
+                  <tr className="border-b" style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-3)" }}>
+                    <th className="px-4 py-2 font-medium">LMP</th>
+                    <th className="px-3 py-2 font-medium">Domain</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium hidden md:table-cell">Prep POC</th>
+                    <th className="px-3 py-2 font-medium hidden lg:table-cell">Support POC</th>
+                    <th className="px-3 py-2 font-medium">Updated</th>
+                    <th className="px-3 py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLmps.map((row) => {
+                    const updated = row.lastActivity || row.lastProgressUpdatedAt || row.createdAt || "";
+                    const name = [row.company, row.role].filter(Boolean).join(" · ") || row.reqId || row.id;
+                    return (
+                      <tr
+                        key={row.id}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--lx-border)" }}
+                      >
+                        <td className="px-4 py-2.5 font-medium" style={{ color: "var(--lx-text)" }}>
+                          {name}
+                        </td>
+                        <td className="px-3 py-2.5" style={{ color: "var(--lx-text-2)" }}>
+                          {row.domain || "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <StatusPill slug={row.status} />
+                        </td>
+                        <td className="px-3 py-2.5 hidden md:table-cell" style={{ color: "var(--lx-text-2)" }}>
+                          {row.prepPoc?.name || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 hidden lg:table-cell" style={{ color: "var(--lx-text-2)" }}>
+                          {row.supportPoc?.name || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono tabular-nums whitespace-nowrap" style={{ color: "var(--lx-text-3)" }}>
+                          {relativeTime(updated)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <Link
+                            to={`/lmp/${row.id}`}
+                            className="text-[11px] font-medium hover:underline"
+                            style={{ color: "var(--lx-accent)" }}
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </LxCard>
+
+        <LxCard span={4}>
+          <LxCardHeader
+            eyebrow="Flags"
+            title="Quick alerts"
+            hint="Tap a metric to drill into affected LMPs."
+          />
+          <RecentSnapshotStrip
+            rows={filtered}
+            todaySet={todaySet}
+            onItemClick={openSnapshot}
+          />
+          <div className="px-4 pb-4">
+            <button
+              type="button"
+              onClick={() => openLmps(lmpsHighPriority(filtered, todaySet), "High-priority LMPs")}
+              className="w-full mt-2 text-[11.5px] font-medium py-2 rounded-lg border transition-colors hover:opacity-90"
+              style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-2)", background: "var(--lx-soft)" }}
+            >
+              View all high-priority →
+            </button>
+          </div>
+        </LxCard>
+      </LxGrid>
 
       <LxDrillDown state={drill} onClose={() => setDrill(null)} />
     </LuminaShell>
