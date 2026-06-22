@@ -126,10 +126,12 @@ export async function runMentorMatch(
             .map((p) => `${p} ${mentors.filter((m) => m.platform === p).length}`)
             .join(" · ");
           if (res.errors.length) {
+            // Surface only the first non-recoverable error message (already user-friendly from externalMentors.ts).
             const fatal = res.errors.find((e) => !e.recoverable);
-            if (fatal || mentors.length === 0) ctx.onError?.(`${counts} (${res.errors.slice(0, 2).map((e) => e.message).join("; ")})`);
+            if (fatal) ctx.onError?.(fatal.message);
+            else if (mentors.length === 0 && res.errors[0]) ctx.onError?.(res.errors[0].message);
           } else if (mentors.length === 0) {
-            ctx.onError?.(`External discovery found 0 mentors across ${counts}.`);
+            ctx.onError?.(`External search found 0 mentors (${counts}).`);
           }
           return mentors.map(normaliseExternal);
         } catch (e) {
@@ -177,7 +179,11 @@ export async function runMentorMatch(
 
   // Surface "EXT requested but returned 0" so the UI can show a banner.
   if (wantEXT && shouldRunExt && rawExtCount === 0) {
-    ctx.onError?.("External discovery returned no usable results after platform search and scoring. Try a clearer role or add company/industry context.");
+    if (onlyExt) {
+      ctx.onError?.("External-only search found no mentors. Include MU/ALU sources for reliable results, or verify GEMINI_API_KEY in Supabase.");
+    } else {
+      ctx.onError?.("External search returned no additional results. Showing MU/ALU results only.");
+    }
   }
 
 

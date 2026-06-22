@@ -91,11 +91,17 @@ export function RunMentorModal({ open, onOpenChange }: Props) {
         },
       );
       setResults(out.suggested);
-      const externalSummary = externalMessages.join("\n");
-      setRunError(externalSummary || null);
+      // Deduplicate and pick the most actionable error message for the banner.
+      const uniqueErrors = Array.from(new Set(externalMessages));
+      // Prefer the last message (EXT-only advisory is emitted last and most specific).
+      const primaryError = uniqueErrors[uniqueErrors.length - 1] ?? null;
+      setRunError(primaryError);
       setPhase("results");
-      if (!out.suggested.length) toast.warning(externalSummary || "No mentors matched — broaden the role or skills.");
-      else toast.success(`Found ${out.suggested.length} mentors · MU ${out.counts.MU} · ALU ${out.counts.ALU} · EXT ${out.counts.EXT}`);
+      if (!out.suggested.length) {
+        toast.warning(primaryError || "No mentors matched — broaden the role or skills.");
+      } else {
+        toast.success(`Found ${out.suggested.length} mentors · MU ${out.counts.MU} · ALU ${out.counts.ALU} · EXT ${out.counts.EXT}`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Matching failed");
       setPhase("form");
@@ -265,7 +271,7 @@ export function RunMentorModal({ open, onOpenChange }: Props) {
               </div>
               {runError && (
                 <div className="rounded-md border border-orange-300 bg-orange-50 text-orange-800 px-3 py-2 text-[12px]">
-                  <strong>External discovery:</strong> {runError}
+                  ⚠ {runError}
                 </div>
               )}
               {results.length === 0 ? (

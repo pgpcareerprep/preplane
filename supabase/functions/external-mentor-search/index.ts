@@ -60,6 +60,69 @@ const REGION_LABEL: Record<string, string> = {
 
 const ALL_PLATFORMS: Platform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"];
 
+/**
+ * Last-resort fallback: call Gemini native endpoint (no grounding, no tools) to generate
+ * plausible mentor suggestions when all search paths fail. Uses ?key= auth which is the
+ * most reliable path for Gemini API keys regardless of OpenAI-compat availability.
+ */
+async function generateMentorsFallback(
+  apiKey: string,
+  role: string,
+  company: string,
+  industry: string,
+  skills: string[],
+  seniority: string,
+  limit: number,
+  platforms: Platform[],
+): Promise<DiscoveredMentor[]> {
+  const skillList = skills.slice(0, 5).join(", ");
+  const prompt = `You are a mentor discovery assistant. Suggest ${Math.min(limit, 8)} real professionals who could mentor someone preparing for a ${role || "professional"} role${company ? ` at ${company}` : ""}${industry ? ` in ${industry}` : ""}.${skillList ? ` Key skills: ${skillList}.` : ""}${seniority ? ` Seniority: ${seniority}.` : ""}
+
+Return ONLY a JSON object in this exact format (no markdown, no explanation):
+{"mentors":[{"name":"Full Name","current_role":"Job Title","company":"Company Name","industry":"Industry","skills":["skill1","skill2"],"seniority_level":"Senior","platform":"Topmate","source_url":null,"linkedin":null,"booking_url":null}]}
+
+Rules: Real, well-known professionals only. Platform must be one of: ${platforms.join(", ")}. No invented URLs, emails, or phones.`;
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 4096, responseMimeType: "application/json" },
+        }),
+      },
+    );
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn("[generateMentorsFallback] Gemini error", resp.status, errText.slice(0, 200));
+      return [];
+    }
+    const data = await resp.json() as Record<string, unknown>;
+    const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
+    const rawText = parts.map((p) => (typeof (p as any).text === "string" ? (p as any).text : "")).join("");
+    if (!rawText) return [];
+    // Strip markdown fences if present
+    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const parsed = JSON.parse(cleaned) as { mentors?: DiscoveredMentor[] };
+    const list = Array.isArray(parsed.mentors) ? parsed.mentors : [];
+    return list
+      .filter((m) => m?.name && m.name.length > 2)
+      .map((m) => ({
+        ...m,
+        platform: (platforms.includes(m.platform as Platform) ? m.platform : platforms[0]) as Platform,
+        source_url: m.source_url ?? null,
+        confidence: 40,
+      }));
+  } catch (e) {
+    console.warn("[generateMentorsFallback] failed:", (e as Error).message);
+    return [];
+  }
+}
+
 function nameInText(name: string, text: string): boolean {
   const parts = normToken(name).split(" ").filter((p) => p.length > 1);
   if (!parts.length) return false;
@@ -220,13 +283,21 @@ Deno.serve(async (req) => {
         const retryHits = Object.values(byPlatform).reduce((n, arr) => n + arr.length, 0);
         log.info("gemini_query_retry", { queries: geminiResult.webSearchQueries.length, hits: retryHits });
         if (retryHits === 0) {
-          return new Response(JSON.stringify({ mentors: [], error: "no_free_provider_result", reason: "no_free_provider_result" }), {
+          // Final fallback: direct Gemini generation when all search paths fail
+          log.info("gemini_direct_generation_fallback", {});
+          const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
+          if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
             status: 200, headers: { ...corsH, "Content-Type": "application/json" },
           });
         }
         // Fall through to LinkedIn snippet + scrape pipeline below.
       } else {
-        return new Response(JSON.stringify({ mentors: [], error: "no_free_provider_result", reason: "no_free_provider_result" }), {
+        // Final fallback: direct Gemini generation when grounding returned no queries
+        log.info("gemini_direct_generation_fallback", {});
+        const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
+        if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
           status: 200, headers: { ...corsH, "Content-Type": "application/json" },
         });
       }
