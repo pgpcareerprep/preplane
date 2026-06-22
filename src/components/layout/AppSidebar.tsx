@@ -92,7 +92,7 @@ export function AppSidebar() {
     <aside
       className={cn(
         "hidden md:flex h-full shrink-0 flex-col sidebar-warm-dark relative transition-[width] duration-200 ease-smooth",
-        collapsed ? "w-[64px]" : "w-[260px]",
+        collapsed ? "w-[64px]" : "w-[224px]",
       )}
     >
       <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-card/[0.04]" />

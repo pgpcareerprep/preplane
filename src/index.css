@@ -9,7 +9,7 @@
 }
 
 /* ━━━ Lumina v1.0 Design System — unified global tokens ━━━
-   Warm neutrals, orange primary, 260px sidebar, 8pt grid, bento patterns.
+   Warm neutrals, orange primary, 224px sidebar, 8pt grid, bento patterns.
    Semantic --lx-* tokens are global; .lumina adds component utilities only.
  */
 
@@ -171,7 +171,7 @@
     --lx-cell-border: rgba(232, 229, 220, 0.75);
 
     /* Sidebar — Lumina warm deep surface */
-    --sidebar-width: 260px;
+    --sidebar-width: 224px;
     --sidebar-gradient: linear-gradient(180deg, #2A2822 0%, #1A1916 100%);
 
     /* Lumina semantic tokens (global — consumed by dashboards + analytics) */
