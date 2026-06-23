@@ -2,6 +2,7 @@ import { UserPlus, ExternalLink, Eye, Play, Megaphone, UserCog, MessageSquare } 
 import { AddOutreachPocDialog } from "./AddOutreachPocDialog";
 import { ReassignPocModal } from "./ReassignPocModal";
 import { canPerform } from "@/lib/permissions";
+import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { useRole } from "@/lib/rolesContext";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
@@ -102,6 +103,16 @@ const { update: updateMutation } = useLmpMutation();
   }, [prepPocEmail, supportPocEmail]);
 
   const dbLmpId = useDbLmpId({ id: rec.id, company: rec.company, role: rec.role });
+
+  const { canOperateLmp, canManageLmp } = useLmpPermission({
+    prep_poc: rec.prepPoc?.name,
+    support_poc: rec.supportPoc?.name,
+    outreach_poc: rec.outreachPoc?.name,
+    prep_poc_id: dbRow?.prep_poc_id ?? rec.prepPocId,
+    support_poc_id: dbRow?.support_poc_id ?? rec.supportPocId,
+    outreach_poc_ids: rec.outreachPocIds,
+  });
+  const canAddCandidates = canOperateLmp || canManageLmp;
 
   const { data: existingCandidates = [] } = useLmpCandidates(dbLmpId);
 
@@ -308,7 +319,8 @@ const { update: updateMutation } = useLmpMutation();
               <button
                 type="button"
                 onClick={() => setAddOpen(true)}
-                disabled={!canPerform(role, "assign_outreach_poc")}
+                disabled={!canAddCandidates}
+                title={!canAddCandidates ? "Read-only — you are not a POC on this LMP" : undefined}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[12.5px] font-medium shadow-sm shadow-orange-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
                 <UserPlus className="h-3.5 w-3.5" /> Add Candidates
