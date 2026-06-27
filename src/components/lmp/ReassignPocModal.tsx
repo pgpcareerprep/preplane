@@ -51,24 +51,6 @@ export function ReassignPocModal({
   lmpLabel?: string;
   scope?: ReassignScope;
 }) {
-  // #region agent log
-  fetch("http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a2d878" },
-    body: JSON.stringify({
-      sessionId: "a2d878",
-      location: "ReassignPocModal.tsx:mount",
-      message: "react-query namespace hooks resolved",
-      data: {
-        hasUseQueryClient: typeof ReactQuery.useQueryClient === "function",
-        hasUseMutation: typeof ReactQuery.useMutation === "function",
-      },
-      timestamp: Date.now(),
-      hypothesisId: "H1",
-      runId: "post-fix",
-    }),
-  }).catch(() => {});
-  // #endregion
   const { user } = useRole();
   const qc = ReactQuery.useQueryClient();
   const { data: profiles = [], isLoading } = usePocProfiles();

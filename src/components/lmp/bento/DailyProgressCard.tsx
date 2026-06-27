@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Send, MinusCircle, CalendarClock, History, ChevronDown, FileSpreadsheet, AlertTriangle, Mail, Pencil, Trash2, X, Check } from "lucide-react";
+import { Send, MinusCircle, CalendarClock, History, ChevronDown, AlertTriangle, Mail, Pencil, Trash2, X, Check } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/lib/rolesContext";
@@ -10,9 +9,7 @@ import {
   hasUpdateToday,
   markNoUpdate,
   useProgress,
-  formatRelativeTime,
 } from "@/lib/lmpExecutionEngine";
-import { parseDailyProgress, type ProgressTimelineEntry } from "@/lib/dateParser";
 import { cn } from "@/lib/utils";
 import {
   useProgressHistory,
@@ -21,7 +18,6 @@ import {
   useUpdateLastProgressAt,
   useUpdateProgressEntry,
   useDeleteProgressEntry,
-  type ProgressHistoryEntry,
 } from "@/lib/hooks/useProgressHistory";
 import { Textarea } from "@/components/ui/textarea";
 import { useLmpProcesses } from "@/lib/hooks/useDbData";
@@ -39,12 +35,43 @@ type MergedEntry = {
   text: string;
   author: string;
   authorEmail?: string | null;
-  source: "local" | "sheet" | "db";
+  source: "db" | "legacy";
   noUpdate?: boolean;
   editedAt?: string | null;
   nextExpectedAt?: number;
   nextExpectedKind?: string;
 };
+
+/** Split legacy sheet cell text into lines without inferring dates from URLs. */
+function legacySheetLines(raw: string): MergedEntry[] {
+  if (!raw.trim()) return [];
+  return raw
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((text, i) => ({
+      id: `legacy-${i}`,
+      ts: 0,
+      date: "",
+      dateDisplay: "",
+      text,
+      author: "Notes",
+      source: "legacy" as const,
+    }));
+}
+
+function toLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatDbTimestamp(iso: string): Pick<MergedEntry, "ts" | "date" | "dateDisplay"> {
+  const d = new Date(iso);
+  return {
+    ts: d.getTime(),
+    date: toLocalDate(d),
+    dateDisplay: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+  };
+}
 
 const progressMutationMessage = (error: unknown, fallback: string) => {
   if (error && typeof error === "object" && "message" in error) {
@@ -106,6 +133,7 @@ export function DailyProgressCard({
   const effectiveMode = mode === "summary" || !canOperateLmp ? "summary" : "action";
   const localEntries = useProgress(lmpId);
   const noUpdateNeeded = !hasUpdateToday(localEntries);
+  void localEntries;
 
   // DB-backed progress history
   const { data: dbHistory = [] } = useProgressHistory(lmpId);
@@ -144,107 +172,53 @@ export function DailyProgressCard({
     if (norm !== nextKind) setNextKind(norm);
   }, [reminderTypeFromDb, nextKind]);
 
-  // Sheets → DB ingest is disabled. DB is the source of truth — daily
-  // progress is read from `lmp_daily_logs` via `useProgressHistory`.
-  const qc = useQueryClient();
-  void qc;
-
-  // Parse sheet daily progress
-  const sheetEntries = useMemo<ProgressTimelineEntry[]>(
-    () => parseDailyProgress(sheetDailyProgress || ""),
-    [sheetDailyProgress],
-  );
-
-  // Merge sheet + DB entries into unified timeline.
-  // NOTE: `localEntries` (from useProgress) reads the SAME lmp_daily_logs rows
-  // that `dbHistory` reads. Including both produced duplicate rows. DB is the
-  // canonical source — local store is intentionally dropped from the merge.
-  void localEntries;
+  // DB-backed progress history is the source of truth for dates/times.
   const mergedEntries = useMemo<MergedEntry[]>(() => {
-    // Local-date (not UTC) so late-evening IST entries don't shift to previous day.
-    const toLocalDate = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    // Aggressive normalizer for fuzzy matching: lowercase, alphanumeric only.
     const fp = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-    const shiftDate = (date: string, days: number) => {
-      const d = new Date(date + "T00:00:00");
-      d.setDate(d.getDate() + days);
-      return toLocalDate(d);
-    };
-
-    const sheet: MergedEntry[] = sheetEntries.map((e, i) => ({
-      id: `sheet-${i}`,
-      ts: new Date(e.date).getTime(),
-      date: e.date,
-      dateDisplay: e.dateDisplay,
-      text: e.text,
-      author: "Sheet",
-      source: "sheet" as const,
-    }));
-    const db: MergedEntry[] = dbHistory.map((e) => {
-      const d = new Date(e.created_at);
-      return {
-        id: e.id,
-        ts: d.getTime(),
-        date: toLocalDate(d),
-        dateDisplay: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-        text: e.progress_type === "no_update" ? "No update" : e.progress_text,
-        author: e.created_by || "POC",
-        authorEmail: e.author_email,
-        source: "db" as const,
-        noUpdate: e.progress_type === "no_update",
-        editedAt: e.edited_at,
-      };
-    });
-
-    // De-dup DB rows by date + normalized text.
     const dbSeen = new Set<string>();
     const dbDedup: MergedEntry[] = [];
-    // Index DB fingerprints by date for sheet-vs-DB suppression.
-    const dbByDate = new Map<string, string[]>();
-    for (const e of db) {
-      const f = fp(e.text);
-      const k = `${e.date}|${f}`;
+
+    for (const e of dbHistory) {
+      const stamp = formatDbTimestamp(e.created_at);
+      const text = e.progress_type === "no_update" ? "No update" : e.progress_text;
+      const k = `${stamp.date}|${fp(text)}`;
       if (dbSeen.has(k)) continue;
       dbSeen.add(k);
-      dbDedup.push(e);
-      if (f) {
-        const arr = dbByDate.get(e.date) ?? [];
-        arr.push(f);
-        dbByDate.set(e.date, arr);
-      }
+      dbDedup.push({
+        id: e.id,
+        ...stamp,
+        text,
+        author: e.created_by || "POC",
+        authorEmail: e.author_email,
+        source: "db",
+        noUpdate: e.progress_type === "no_update",
+        editedAt: e.edited_at,
+      });
     }
 
-    // Drop sheet rows already represented in DB (same date or ±1 day, exact or substring fingerprint).
-    const filteredSheet = sheet.filter((s) => {
-      const sf = fp(s.text);
-      if (!sf) return true;
-      const candidates = [
-        ...(dbByDate.get(s.date) ?? []),
-        ...(dbByDate.get(shiftDate(s.date, -1)) ?? []),
-        ...(dbByDate.get(shiftDate(s.date, 1)) ?? []),
-      ];
-      for (const df of candidates) {
-        if (df === sf) return false;
-        if (sf.length >= 4 && (df.includes(sf) || sf.includes(df))) return false;
-      }
-      return true;
-    });
+    if (dbDedup.length > 0) {
+      return dbDedup.sort((a, b) => b.ts - a.ts);
+    }
 
-    return [...dbDedup, ...filteredSheet].sort((a, b) => b.ts - a.ts);
-  }, [sheetEntries, dbHistory]);
+    // Legacy sheet-only LMPs: show lines without invented dates.
+    return legacySheetLines(sheetDailyProgress || "");
+  }, [dbHistory, sheetDailyProgress]);
 
-  // Group by date
+  // Group by date; undated legacy notes stay in one bucket.
   const groupedByDate = useMemo(() => {
     const groups: Record<string, MergedEntry[]> = {};
     for (const e of mergedEntries) {
-      (groups[e.date] ??= []).push(e);
+      const key = e.date || "__undated__";
+      (groups[key] ??= []).push(e);
     }
-    return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === "__undated__") return 1;
+      if (b === "__undated__") return -1;
+      return b.localeCompare(a);
+    });
   }, [mergedEntries]);
 
   const totalCount = mergedEntries.length;
-  const sheetCount = sheetEntries.length;
 
   // Status message logic
   const statusMessage = useMemo(() => {
@@ -348,10 +322,9 @@ export function DailyProgressCard({
             )}
             {latest ? (
               <div className="flex items-center gap-1.5">
-                {latest.source === "sheet" && <FileSpreadsheet className="h-3 w-3 text-emerald-500" />}
-                <span className="text-[10.5px] text-n500">
-                  {latest.source === "local" ? formatRelativeTime(latest.ts) : latest.dateDisplay}
-                </span>
+                {latest.source === "db" && latest.dateDisplay && (
+                  <span className="text-[10.5px] text-n500 tabular-nums">{latest.dateDisplay}</span>
+                )}
               </div>
             ) : (
               <span className="text-[10.5px] text-n400 italic">No updates yet</span>
@@ -361,23 +334,17 @@ export function DailyProgressCard({
         {latest ? (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-[11px] text-n500">
-              <span className="tabular-nums">{latest.dateDisplay}</span>
-              {(latest.source === "local" || latest.source === "db") && (
+              {latest.source === "db" && latest.dateDisplay && (
                 <>
+                  <span className="tabular-nums">{latest.dateDisplay}</span>
                   <span className="text-n300">·</span>
                   <span className="tabular-nums">
                     {new Date(latest.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                   </span>
+                  <span className="text-n300">·</span>
                 </>
               )}
-              <span className="text-n300">·</span>
               <span className="font-medium text-n700">{latest.author}</span>
-              {latest.source === "sheet" && (
-                <span className="text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-200 rounded px-1 py-[1px]">Sheet</span>
-              )}
-              {latest.source === "db" && (
-                <span className="text-[9px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1 py-[1px]">DB</span>
-              )}
             </div>
             <p className="text-[12.5px] text-n800 leading-snug line-clamp-2">"{latest.text}"</p>
           </div>
@@ -389,12 +356,12 @@ export function DailyProgressCard({
             {groupedByDate.length === 0 ? (
               <p className="text-[12.5px] text-n400 italic py-2 text-center">No progress entries yet.</p>
             ) : (
-              groupedByDate.map(([date, dateEntries]) => (
-                <div key={date}>
+              groupedByDate.map(([dateKey, dateEntries]) => (
+                <div key={dateKey}>
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="h-px flex-1 bg-n200" />
                     <span className="text-[10.5px] font-semibold text-n500 tabular-nums tracking-wide uppercase">
-                      {dateEntries[0].dateDisplay}
+                      {dateKey === "__undated__" ? "Notes" : dateEntries[0].dateDisplay}
                     </span>
                     <div className="h-px flex-1 bg-n200" />
                   </div>
@@ -402,26 +369,17 @@ export function DailyProgressCard({
                     {dateEntries.map((entry) => (
                       <div
                         key={entry.id}
-                        className={cn(
-                          "rounded-lg border p-2.5",
-                          entry.source === "sheet"
-                            ? "border-emerald-200 bg-emerald-50/40"
-                            : entry.source === "db"
-                            ? "border-blue-200 bg-blue-50/30"
-                            : "border-n200 bg-card",
-                        )}
+                        className="rounded-lg border border-n200 bg-card p-2.5"
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <span className="text-[11.5px] font-medium text-n700 truncate">{entry.author}</span>
-                          <span className="text-[10.5px] text-n400 tabular-nums shrink-0">
-                            {entry.dateDisplay}
-                            {(entry.source === "local" || entry.source === "db") && (
-                              <>
-                                {" · "}
-                                {new Date(entry.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                              </>
-                            )}
-                          </span>
+                          {entry.source === "db" && entry.dateDisplay && (
+                            <span className="text-[10.5px] text-n400 tabular-nums shrink-0">
+                              {entry.dateDisplay}
+                              {" · "}
+                              {new Date(entry.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[12.5px] text-n800 leading-snug whitespace-pre-wrap">
                           {entry.noUpdate ? <span className="italic text-n500">No update</span> : entry.text}
@@ -432,12 +390,6 @@ export function DailyProgressCard({
                 </div>
               ))
             )}
-          </div>
-        )}
-        {sheetCount > 0 && (
-          <div className="mt-2 text-[10.5px] text-emerald-600 flex items-center gap-1">
-            <FileSpreadsheet className="h-3 w-3" />
-            {sheetCount} entries imported from sheet
           </div>
         )}
         <div className="mt-3 pt-2.5 border-t border-n200/70 flex items-center gap-1.5 text-[11.5px] text-n600">
@@ -616,12 +568,12 @@ export function DailyProgressCard({
           {groupedByDate.length === 0 ? (
             <p className="text-[13px] text-n400 italic py-4 text-center">No progress entries yet.</p>
           ) : (
-            groupedByDate.map(([date, dateEntries]) => (
-              <div key={date}>
+            groupedByDate.map(([dateKey, dateEntries]) => (
+              <div key={dateKey}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <div className="h-px flex-1 bg-n200" />
                   <span className="text-[10.5px] font-semibold text-n500 tabular-nums tracking-wide uppercase">
-                    {dateEntries[0].dateDisplay}
+                    {dateKey === "__undated__" ? "Notes" : dateEntries[0].dateDisplay}
                   </span>
                   <div className="h-px flex-1 bg-n200" />
                 </div>
@@ -705,28 +657,12 @@ function ProgressEntryCard({
     <div
       className={cn(
         "group rounded-lg border p-3",
-        entry.source === "sheet"
-          ? "border-emerald-200 bg-emerald-50/40"
-          : entry.source === "db"
-          ? "border-blue-200 bg-blue-50/30"
-          : entry.noUpdate
-          ? "border-n200 bg-n50/50"
-          : "border-n200 bg-card",
+        entry.noUpdate ? "border-n200 bg-n50/50" : "border-n200 bg-card",
       )}
     >
       <div className="flex items-center justify-between mb-1 gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-[12px] font-medium text-n700 truncate">{entry.author}</span>
-          {entry.source === "sheet" && (
-            <span className="text-[9px] bg-emerald-100 text-emerald-700 border border-emerald-200 rounded px-1.5 py-[1px] font-medium">
-              From Sheet
-            </span>
-          )}
-          {entry.source === "db" && (
-            <span className="text-[9px] bg-blue-100 text-blue-700 border border-blue-200 rounded px-1.5 py-[1px] font-medium">
-              Saved
-            </span>
-          )}
           {entry.editedAt && (
             <span
               className="text-[9px] bg-n100 text-n600 border border-n200 rounded px-1.5 py-[1px] font-medium"
@@ -737,15 +673,13 @@ function ProgressEntryCard({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[10.5px] text-n400 tabular-nums">
-            {entry.dateDisplay}
-            {(entry.source === "local" || entry.source === "db") && (
-              <>
-                {" · "}
-                {new Date(entry.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-              </>
-            )}
-          </span>
+          {entry.source === "db" && entry.dateDisplay && (
+            <span className="text-[10.5px] text-n400 tabular-nums">
+              {entry.dateDisplay}
+              {" · "}
+              {new Date(entry.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+            </span>
+          )}
           {canManage && !editing && (
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button

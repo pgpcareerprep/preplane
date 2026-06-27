@@ -164,16 +164,13 @@ export function parseDailyProgress(rawText: string): ProgressTimelineEntry[] {
 
   const lines = rawText.split(/\n/).map(l => l.trim()).filter(Boolean);
   const entries: ProgressTimelineEntry[] = [];
-  let currentDate: ParsedDate | null = null;
 
   for (const line of lines) {
-    const dates = extractDates(line);
-    if (dates.length > 0) {
-      currentDate = dates[0];
-    }
-
-    const dateStr = currentDate?.iso || new Date().toISOString().slice(0, 10);
-    const dateObj = currentDate?.date || new Date();
+    const isUrlOnly = /^https?:\/\//i.test(line.trim());
+    const dates = isUrlOnly ? [] : extractDates(line);
+    const lineDate = dates.length > 0 ? dates[0] : null;
+    const dateStr = lineDate?.iso ?? "";
+    const dateObj = lineDate?.date ?? null;
 
     // Strip date patterns from the text for cleaner display
     let cleanText = line;
@@ -189,11 +186,13 @@ export function parseDailyProgress(rawText: string): ProgressTimelineEntry[] {
 
     entries.push({
       date: dateStr,
-      dateDisplay: dateObj.toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      }),
+      dateDisplay: dateObj
+        ? dateObj.toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        : "",
       text: cleanText,
       raw: line,
     });
