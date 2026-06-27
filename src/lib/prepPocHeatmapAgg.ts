@@ -490,7 +490,7 @@ export function buildHeatmapData(
     }
   }
 
-  const activePocCount = rows.filter((r) => r.totalLmpLoad > 0 || r.pocName).length;
+  const activePocCount = rows.filter((r) => r.totalLmpLoad > 0).length;
 
   return {
     summary: {

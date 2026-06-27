@@ -618,4 +618,12 @@ describe("query contract — no candidate_count from lmp_processes", () => {
     expect(result.summary.convertedLmpCount).toBe(1);
     expect(result.summary.eligibleClosedLmpCount).toBe(2); // converted + not-converted
   });
+
+  it("activePocCount counts only POCs with LMP load > 0", () => {
+    const pocs = [poc("p1", "Alice"), poc("p2", "Bob"), poc("p3", "Carol")];
+    const links = [link("p1", "lmp1", "prep", "not-started")];
+    const result = buildHeatmapData(pocs, links, []);
+    expect(result.rows).toHaveLength(3);
+    expect(result.summary.activePocCount).toBe(1);
+  });
 });

@@ -1,8 +1,8 @@
 /**
  * LmpHealthSummaryCard — Lumina v1.2 (segmented bar layout)
  *
- * UI-ONLY redesign. All business logic, formulas, queries, filters, realtime
- * subscriptions, status mappings, and component contracts are UNCHANGED.
+ * UI-ONLY redesign. Queries, filters, realtime subscriptions, and status
+ * mappings are unchanged. Process-wise conversion uses terminal outcomes only.
  *
  * Closed definition (canonical, from lmpStatusCounts):
  *   lsc["other-reasons"] = records with status in
@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { LX_HEX } from "@/components/insights/primitives";
 import { LxInfo } from "@/components/insights/LxInfo";
 import type { LmpStatus } from "@/types/lmp";
+import { computeProcessWiseConversion } from "@/lib/lmpProcessQueries";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -225,11 +226,9 @@ export function LmpHealthSummaryCard({
   isError?: boolean;
   onStatusClick?: (status: ActiveLmpStatus) => void;
 }) {
-  // ── Conversion formula (UNCHANGED) ─────────────────────────────────────────
-  const closedProcesses    = lsc["other-reasons"];
-  const eligibleProcesses  = total - closedProcesses;
-  const processConversionPct: number | null =
-    eligibleProcesses > 0 ? (lsc.converted / eligibleProcesses) * 100 : null;
+  // ── Conversion: terminal outcomes only (converted + not-converted + closed) ──
+  const { closedProcesses, notConverted, eligibleProcesses, processConversionPct } =
+    computeProcessWiseConversion(lsc);
 
   const fmtPct = (v: number | null) =>
     v === null ? "—" : `${v.toFixed(1)}%`;
@@ -344,7 +343,7 @@ export function LmpHealthSummaryCard({
               >
                 Process-wise Conversion
                 <LxInfo
-                  text="Converted LMPs ÷ (Total Processes − Closed Processes) × 100"
+                  text="Converted ÷ (Converted + Not Converted + Closed) × 100. Excludes active pipeline and on-hold."
                   size={12}
                   side="bottom"
                 />
@@ -357,7 +356,7 @@ export function LmpHealthSummaryCard({
                 {fmtPct(processConversionPct)}
               </div>
               <div className="mt-1 text-[13px]" style={{ color: MUTED }}>
-                {lsc.converted} converted · {eligibleProcesses} eligible
+                {lsc.converted} converted · {notConverted + closedProcesses} not converted + closed · {eligibleProcesses} eligible
               </div>
             </div>
           </div>

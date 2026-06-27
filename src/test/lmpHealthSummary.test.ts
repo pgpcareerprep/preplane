@@ -1,32 +1,18 @@
 /**
  * Unit tests for LmpHealthSummaryCard derived metrics.
  *
- * Process-wise Conversion formula (from spec §5):
- *   closedProcesses  = lsc["other-reasons"]
- *   eligibleProcesses = total - closedProcesses
- *   processConversionPct = eligibleProcesses > 0
- *     ? (lsc.converted / eligibleProcesses) * 100
- *     : null
+ * Process-wise Conversion formula:
+ *   eligibleProcesses = converted + not-converted + other-reasons (closed)
+ *   processConversionPct = converted / eligibleProcesses
+ *   Excludes active pipeline and on-hold from denominator.
  *
  * Closed definition: lsc["other-reasons"] absorbs DB statuses
  *   { "other-reasons", "dormant", "closed", "converted-na" }
  */
 
 import { describe, it, expect } from "vitest";
+import { computeProcessWiseConversion } from "@/lib/lmpProcessQueries";
 import type { LmpStatusCounts } from "@/components/dashboard/LmpHealthSummaryCard";
-
-// Pure formula — extracted from the component for isolated testing.
-function computeProcessConversion(
-  total: number,
-  lsc: LmpStatusCounts,
-): { closedProcesses: number; eligibleProcesses: number; pct: number | null } {
-  const closedProcesses = lsc["other-reasons"];
-  const eligibleProcesses = total - closedProcesses;
-  const pct = eligibleProcesses > 0
-    ? (lsc.converted / eligibleProcesses) * 100
-    : null;
-  return { closedProcesses, eligibleProcesses, pct };
-}
 
 function makeFullLsc(overrides: Partial<LmpStatusCounts> = {}): LmpStatusCounts {
   return {
@@ -62,56 +48,59 @@ describe("Donut reconciliation — 7 buckets sum to Total LMPs", () => {
 // ── Process-wise Conversion formula ──────────────────────────────────────────
 
 describe("Process-wise Conversion formula", () => {
-  it("uses Converted ÷ (Total − Closed) where Closed = other-reasons", () => {
-    // 4 converted, 1 other-reasons, total 50 → eligible = 49, pct = 4/49*100 ≈ 8.16%
-    const lsc = makeFullLsc({ converted: 4, "other-reasons": 1 });
-    const total = 50;
-    const { closedProcesses, eligibleProcesses, pct } = computeProcessConversion(total, lsc);
-    expect(closedProcesses).toBe(1);
-    expect(eligibleProcesses).toBe(49);
-    expect(pct).toBeCloseTo((4 / 49) * 100, 5);
+  it("uses Converted ÷ (Converted + Not Converted + Closed)", () => {
+    const lsc = makeFullLsc({
+      "not-started": 40,
+      converted: 4,
+      "not-converted": 3,
+      "other-reasons": 2,
+      hold: 1,
+    });
+    const { closedProcesses, notConverted, eligibleProcesses, processConversionPct } =
+      computeProcessWiseConversion(lsc);
+    expect(closedProcesses).toBe(2);
+    expect(notConverted).toBe(3);
+    expect(eligibleProcesses).toBe(9); // 4 + 3 + 2
+    expect(processConversionPct).toBeCloseTo((4 / 9) * 100, 5);
   });
 
-  it("returns null (not 0 or Infinity) when eligibleProcesses = 0", () => {
-    const lsc = makeFullLsc({ "other-reasons": 10 });
-    const total = 10;
-    const { pct } = computeProcessConversion(total, lsc);
-    expect(pct).toBeNull();
+  it("excludes active pipeline and on-hold from denominator", () => {
+    const lsc = makeFullLsc({
+      "not-started": 47,
+      "prep-ongoing": 10,
+      converted: 7,
+      "not-converted": 12,
+      "other-reasons": 7,
+      hold: 3,
+    });
+    const { eligibleProcesses, processConversionPct } = computeProcessWiseConversion(lsc);
+    expect(eligibleProcesses).toBe(26); // 7 + 12 + 7 — not 66
+    expect(processConversionPct).toBeCloseTo((7 / 26) * 100, 5);
   });
 
-  it("returns null when total = 0", () => {
-    const lsc = makeFullLsc();
-    const { pct } = computeProcessConversion(0, lsc);
-    expect(pct).toBeNull();
+  it("returns null when no terminal outcomes exist", () => {
+    const lsc = makeFullLsc({ "not-started": 10, hold: 2 });
+    const { processConversionPct } = computeProcessWiseConversion(lsc);
+    expect(processConversionPct).toBeNull();
   });
 
-  it("returns 100% when all eligible processes are converted", () => {
+  it("returns 100% when all terminal processes are converted", () => {
     const lsc = makeFullLsc({ converted: 5 });
-    const { pct } = computeProcessConversion(5, lsc);
-    expect(pct).toBe(100);
+    const { processConversionPct } = computeProcessWiseConversion(lsc);
+    expect(processConversionPct).toBe(100);
   });
 
-  it("returns 0% when no conversions and there are eligible processes", () => {
-    const lsc = makeFullLsc({ "not-started": 5 });
-    const { pct } = computeProcessConversion(5, lsc);
-    expect(pct).toBe(0);
-  });
-
-  it("Closed includes only other-reasons, not not-converted", () => {
-    // not-converted should NOT reduce the denominator
-    const lsc = makeFullLsc({ converted: 2, "not-converted": 3, "other-reasons": 0 });
-    const total = 5;
-    const { closedProcesses, eligibleProcesses, pct } = computeProcessConversion(total, lsc);
-    expect(closedProcesses).toBe(0);           // other-reasons = 0
-    expect(eligibleProcesses).toBe(5);          // denominator = all 5
-    expect(pct).toBeCloseTo((2 / 5) * 100, 5); // 40%
+  it("returns 0% when no conversions but terminal outcomes exist", () => {
+    const lsc = makeFullLsc({ "not-converted": 5 });
+    const { processConversionPct } = computeProcessWiseConversion(lsc);
+    expect(processConversionPct).toBe(0);
   });
 
   it("does not produce NaN", () => {
-    const lsc = makeFullLsc({ "other-reasons": 5 });
-    const { pct } = computeProcessConversion(5, lsc);
-    expect(pct).toBeNull();
-    expect(Number.isNaN(pct)).toBe(false);
+    const lsc = makeFullLsc();
+    const { processConversionPct } = computeProcessWiseConversion(lsc);
+    expect(processConversionPct).toBeNull();
+    expect(Number.isNaN(processConversionPct)).toBe(false);
   });
 });
 
@@ -150,8 +139,8 @@ describe("Status card percentages — value / total × 100", () => {
 
 describe("Empty state (total = 0)", () => {
   it("processConversion is null (not Infinity or NaN)", () => {
-    const { pct } = computeProcessConversion(0, makeFullLsc());
-    expect(pct).toBeNull();
+    const { processConversionPct } = computeProcessWiseConversion(makeFullLsc());
+    expect(processConversionPct).toBeNull();
   });
 
   it("all status counts are 0", () => {
@@ -165,20 +154,16 @@ describe("Empty state (total = 0)", () => {
 
 describe("Closed definition (from lmpStatusCounts canonical)", () => {
   it("Closed = other-reasons bucket (absorbs: dormant, closed, converted-na in DB layer)", () => {
-    // lmpStatusCounts buckets status === "other-reasons" || "dormant" || "closed" || "converted-na"
-    // into lsc["other-reasons"]. That value is the canonical closedProcesses here.
-    const lsc = makeFullLsc({ "other-reasons": 7 });
-    const total = 20;
-    const { closedProcesses } = computeProcessConversion(total, lsc);
+    const lsc = makeFullLsc({ "other-reasons": 7, converted: 2, "not-converted": 1 });
+    const { closedProcesses, eligibleProcesses } = computeProcessWiseConversion(lsc);
     expect(closedProcesses).toBe(7);
+    expect(eligibleProcesses).toBe(10);
   });
 
-  it("On Hold is NOT Closed — it stays in the eligible denominator", () => {
+  it("On Hold is excluded from conversion denominator", () => {
     const lsc = makeFullLsc({ hold: 3, converted: 2, "other-reasons": 0 });
-    const total = 10;
-    const { eligibleProcesses } = computeProcessConversion(total, lsc);
-    // on-hold (3) + converted (2) + rest (5 not-started assumed) = 10 eligible
-    expect(eligibleProcesses).toBe(10);
+    const { eligibleProcesses } = computeProcessWiseConversion(lsc);
+    expect(eligibleProcesses).toBe(2);
   });
 });
 
@@ -186,8 +171,6 @@ describe("Closed definition (from lmpStatusCounts canonical)", () => {
 
 describe("Terminology — Overall Conversion must not appear in component", () => {
   it('the new component file does not contain "Overall Conversion"', async () => {
-    // Read the component source as a string to guard against label regressions.
-    // This is a meta-test — the real test is the TypeScript build.
     const src = await import("@/components/dashboard/LmpHealthSummaryCard?raw").then(
       (m) => m.default as string,
     ).catch(() => null);
@@ -195,8 +178,6 @@ describe("Terminology — Overall Conversion must not appear in component", () =
       expect(src).not.toContain("Overall Conversion");
       expect(src).not.toContain("Overall LMPs");
     }
-    // If the import fails in test environment, the test trivially passes
-    // (the TypeScript check already validates the file).
     expect(true).toBe(true);
   });
 });

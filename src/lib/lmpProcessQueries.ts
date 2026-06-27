@@ -103,6 +103,23 @@ export function calculateOutcomeConversionRate(convertedCount: number, notConver
   return (convertedCount / denominator) * 100;
 }
 
+export type LmpStatusCounts = ReturnType<typeof lmpStatusCounts>;
+
+/**
+ * Process-wise conversion for the admin health summary.
+ * Denominator = terminal outcomes only: Converted + Not Converted + Closed (other-reasons).
+ * Excludes active pipeline (not-started, prep-ongoing, prep-done) and on-hold.
+ */
+export function computeProcessWiseConversion(lsc: LmpStatusCounts) {
+  const closedProcesses = lsc["other-reasons"];
+  const notConverted = lsc["not-converted"];
+  const converted = lsc.converted;
+  const eligibleProcesses = converted + notConverted + closedProcesses;
+  const processConversionPct =
+    eligibleProcesses > 0 ? (converted / eligibleProcesses) * 100 : null;
+  return { closedProcesses, notConverted, eligibleProcesses, processConversionPct };
+}
+
 export function daysSince(iso: string): number {
   if (!iso) return Infinity;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);

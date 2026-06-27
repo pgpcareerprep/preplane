@@ -403,6 +403,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   /* ─────── Converted students KPI (candidate-priority matching) ─────── */
   const convertedStudentsData = useMemo(() => {
     const CONV_STAGES = new Set(["converted", "offer", "final", "accepted", "placed"]);
+    const CONV_LMP_STATUSES = new Set(["converted", "offer-received"]);
     const isConvCand = (c: typeof allCandidateRows[0]) => {
       const stage = (c.pipelineStage ?? "").toLowerCase();
       return CONV_STAGES.has(stage) || (c.offerStatus ?? "").toLowerCase() === "accepted";
@@ -419,97 +420,109 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       if (s.id) rosterById.set(s.id, s);
     });
 
+    const pushCandidateRow = (
+      rec: (typeof filteredRecords)[0],
+      cand: (typeof allCandidateRows)[0],
+    ) => {
+      const key = getCandidateIdentityKey(cand);
+      uniqueKeys.add(key);
+      const dedupKey = `${key}::${rec.id}`;
+      if (seenKeyLmp.has(dedupKey)) return;
+      seenKeyLmp.add(dedupKey);
+      const student = rosterByKey.get(key) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
+      rows.push({
+        studentName: cand.studentName || student?.name || "—",
+        studentIdDisplay:
+          student?.rollNo ||
+          student?.studentCode ||
+          cand.rollNo ||
+          cand.studentId ||
+          "",
+        email: student?.email || cand.email || "",
+        phone: student?.phone || "",
+        cohort: student?.cohort || "—",
+        primaryDomain: student?.primaryDomain || "—",
+        secondaryDomain: student?.secondaryDomain || "—",
+        company: (rec as any).company || "—",
+        role: (rec as any).role || "—",
+        lmpDomain: (rec as any).domain || "—",
+        processType: (rec as any).type || "—",
+        lmpStatus: rec.status,
+        displayStatus: STATUS_META[rec.status]?.label || rec.status,
+        prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
+        outreachPoc: (rec as any).outreachPoc?.name || "—",
+        closingDate: (rec as any).closingDate || "—",
+        lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
+        lmpId: rec.id,
+        matchStatus: student ? "matched" : "not_matched",
+      });
+    };
+
+    const pushNameRow = (rec: (typeof filteredRecords)[0], name: string) => {
+      const normKey = normalizeConvertedName(name);
+      if (!normKey) return;
+      const key = `name:${normKey}`;
+      uniqueKeys.add(key);
+      const dedupKey = `${key}::${rec.id}`;
+      if (seenKeyLmp.has(dedupKey)) return;
+      seenKeyLmp.add(dedupKey);
+      const matches = studentRoster.filter((s) => normalizeConvertedName(s.name) === normKey);
+      const matchStatus: ConvertedStudentDrillRow["matchStatus"] =
+        matches.length === 0 ? "not_matched" : matches.length === 1 ? "matched" : "ambiguous";
+      const student = matchStatus === "matched" ? matches[0] : null;
+      rows.push({
+        studentName: name,
+        studentIdDisplay: student?.rollNo || student?.studentCode || student?.id || "",
+        email: student?.email || "",
+        phone: student?.phone || "",
+        cohort: student?.cohort || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
+        primaryDomain: student?.primaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
+        secondaryDomain: student?.secondaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
+        company: (rec as any).company || "—",
+        role: (rec as any).role || "—",
+        lmpDomain: (rec as any).domain || "—",
+        processType: (rec as any).type || "—",
+        lmpStatus: rec.status,
+        displayStatus: STATUS_META[rec.status]?.label || rec.status,
+        prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
+        outreachPoc: (rec as any).outreachPoc?.name || "—",
+        closingDate: (rec as any).closingDate || "—",
+        lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
+        lmpId: rec.id,
+        matchStatus,
+      });
+    };
+
     for (const rec of filteredRecords) {
       const cands = candidatesByLmp.get(rec.id) ?? [];
-      const convCands = cands.filter(isConvCand);
+      const isConvertedLmp = CONV_LMP_STATUSES.has(rec.status);
 
-      if (convCands.length > 0) {
-        for (const cand of convCands) {
-          const key = getCandidateIdentityKey(cand);
-          uniqueKeys.add(key);
-          const dedupKey = `${key}::${rec.id}`;
-          if (!seenKeyLmp.has(dedupKey)) {
-            seenKeyLmp.add(dedupKey);
-            const student = rosterByKey.get(key) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
-            rows.push({
-              studentName: cand.studentName || student?.name || "—",
-              studentIdDisplay:
-                student?.rollNo ||
-                student?.studentCode ||
-                cand.rollNo ||
-                cand.studentId ||
-                "",
-              email: student?.email || cand.email || "",
-              phone: student?.phone || "",
-              cohort: student?.cohort || "—",
-              primaryDomain: student?.primaryDomain || "—",
-              secondaryDomain: student?.secondaryDomain || "—",
-              company: (rec as any).company || "—",
-              role: (rec as any).role || "—",
-              lmpDomain: (rec as any).domain || "—",
-              processType: (rec as any).type || "—",
-              lmpStatus: rec.status,
-              displayStatus: STATUS_META[rec.status]?.label || rec.status,
-              prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
-              outreachPoc: (rec as any).outreachPoc?.name || "—",
-              closingDate: (rec as any).closingDate || "—",
-              lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
-              lmpId: rec.id,
-              matchStatus: student ? "matched" : "not_matched",
-            });
-          }
-        }
-      } else {
-        // Fallback: parse from finalConvertedNames text field
-        const names = parseConvertedNames((rec as any).finalConvertedNames);
-        for (const name of names) {
-          const normKey = normalizeConvertedName(name);
-          if (!normKey) continue;
-          const key = `name:${normKey}`;
-          uniqueKeys.add(key);
-          const dedupKey = `${key}::${rec.id}`;
-          if (!seenKeyLmp.has(dedupKey)) {
-            seenKeyLmp.add(dedupKey);
-            const matches = studentRoster.filter((s) => normalizeConvertedName(s.name) === normKey);
-            const matchStatus: ConvertedStudentDrillRow["matchStatus"] =
-              matches.length === 0 ? "not_matched" : matches.length === 1 ? "matched" : "ambiguous";
-            const student = matchStatus === "matched" ? matches[0] : null;
-            rows.push({
-              studentName: name,
-              studentIdDisplay: student?.rollNo || student?.studentCode || student?.id || "",
-              email: student?.email || "",
-              phone: student?.phone || "",
-              cohort: student?.cohort || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-              primaryDomain: student?.primaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-              secondaryDomain: student?.secondaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-              company: (rec as any).company || "—",
-              role: (rec as any).role || "—",
-              lmpDomain: (rec as any).domain || "—",
-              processType: (rec as any).type || "—",
-              lmpStatus: rec.status,
-              displayStatus: STATUS_META[rec.status]?.label || rec.status,
-              prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
-              outreachPoc: (rec as any).outreachPoc?.name || "—",
-              closingDate: (rec as any).closingDate || "—",
-              lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
-              lmpId: rec.id,
-              matchStatus,
-            });
-          }
-        }
+      // 1. Candidates with converted pipeline stage / accepted offer
+      cands.filter(isConvCand).forEach((cand) => pushCandidateRow(rec, cand));
+
+      // 2. Names from finalConvertedNames (always merge — not only when no conv candidates)
+      parseConvertedNames((rec as any).finalConvertedNames).forEach((name) => pushNameRow(rec, name));
+
+      // 3. Converted LMP: include any remaining mapped candidates not yet captured
+      if (isConvertedLmp) {
+        cands.forEach((cand) => pushCandidateRow(rec, cand));
       }
     }
 
     return { uniqueCount: uniqueKeys.size, recordCount: rows.length, rows };
-  }, [filteredRecords, filteredCandidates, candidatesByLmp, studentRoster]);
+  }, [filteredRecords, candidatesByLmp, studentRoster]);
 
-  /* ─────── Per-cohort conversion count (matched rows only) ─────── */
+  /* ─────── Per-cohort conversion count (matched unique students) ─────── */
   const convertedPerCohort = useMemo(() => {
     const m = new Map<string, number>();
+    const seen = new Set<string>();
     for (const row of convertedStudentsData.rows) {
-      if (row.matchStatus === "matched" && row.cohort && row.cohort !== "—") {
-        m.set(row.cohort, (m.get(row.cohort) ?? 0) + 1);
-      }
+      if (row.matchStatus !== "matched" || !row.cohort || row.cohort === "—") continue;
+      const identity = row.email.trim().toLowerCase() || normalizeConvertedName(row.studentName);
+      const dedup = `${row.cohort}::${identity}`;
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+      m.set(row.cohort, (m.get(row.cohort) ?? 0) + 1);
     }
     return m;
   }, [convertedStudentsData.rows]);
