@@ -188,19 +188,30 @@ export function StudentDatasetTab({ onUpload }: Props) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {progs.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => toggleProgram(p.id)}
-                      className={cn(
-                        "text-[11px] px-2 py-0.5 rounded-full border",
-                        programFilter.includes(p.id)
-                          ? "bg-orange-50 border-orange-300 text-orange-800"
-                          : "bg-muted/40 border-border text-muted-foreground",
+                    <span key={p.id} className="inline-flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleProgram(p.id)}
+                        className={cn(
+                          "text-[11px] px-2 py-0.5 rounded-full border",
+                          programFilter.includes(p.id)
+                            ? "bg-orange-50 border-orange-300 text-orange-800"
+                            : "bg-muted/40 border-border text-muted-foreground",
+                        )}
+                      >
+                        {p.code}
+                      </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className="p-0.5 text-muted-foreground hover:text-foreground"
+                          title={`Edit ${p.code}`}
+                          onClick={() => { setEditProgram(p); setProgramCohortId(c.id); setProgramModal(true); }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
                       )}
-                    >
-                      {p.code}
-                    </button>
+                    </span>
                   ))}
                   {isAdmin && (
                     <button
@@ -343,10 +354,20 @@ export function StudentDatasetTab({ onUpload }: Props) {
         )}
       </div>
 
-      <CreateCohortModal open={cohortModal} onOpenChange={setCohortModal} editRow={editCohort} />
+      <CreateCohortModal
+        open={cohortModal}
+        onOpenChange={(v) => { setCohortModal(v); if (!v) setEditCohort(null); }}
+        editRow={editCohort}
+        onEditProgram={(p) => {
+          setEditProgram(p);
+          setProgramCohortId(p.cohort_id);
+          setCohortModal(false);
+          setProgramModal(true);
+        }}
+      />
       <AddProgramModal
         open={programModal}
-        onOpenChange={setProgramModal}
+        onOpenChange={(v) => { setProgramModal(v); if (!v) setEditProgram(null); }}
         editRow={editProgram}
         defaultCohortId={programCohortId}
       />

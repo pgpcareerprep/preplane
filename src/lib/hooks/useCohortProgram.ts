@@ -201,6 +201,42 @@ export function useUpsertProgram() {
   });
 }
 
+export function useProgramStudentCount(programId?: string | null) {
+  return useQuery({
+    queryKey: ["program-student-count", programId],
+    queryFn: async () => {
+      if (!programId) return 0;
+      const { count, error } = await supabase
+        .from("students")
+        .select("id", { count: "exact", head: true })
+        .eq("program_id", programId);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!programId,
+    staleTime: 15_000,
+  });
+}
+
+export function useDeleteProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (programId: string) => {
+      const { error } = await supabase.from("programs").delete().eq("id", programId);
+      if (error) throw error;
+      return programId;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["programs"] });
+      qc.invalidateQueries({ queryKey: ["students-dataset"] });
+      qc.invalidateQueries({ queryKey: ["students_roster_full"] });
+      qc.invalidateQueries({ queryKey: ["db-students"] });
+      qc.invalidateQueries({ queryKey: ["db-students-with-load"] });
+      qc.invalidateQueries({ queryKey: ["program-student-count"] });
+    },
+  });
+}
+
 export function invalidateCohortProgramCaches(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["cohorts"] });
   qc.invalidateQueries({ queryKey: ["programs"] });
