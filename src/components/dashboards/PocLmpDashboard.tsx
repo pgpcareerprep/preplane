@@ -157,6 +157,8 @@ export function PocLmpDashboard({
 
   const { domainOptions, statusOptions, typeOptions } = useDashboardFilterOptions();
 
+  const totalLmpCount = filteredRecords.length;
+  const lsc = lmpStatusCounts(filteredRecords);
   const convertedCount = filteredRecords.filter((r) => r.status === "converted" || r.status === "offer-received").length;
   const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
   const eligibleCount = convertedCount + notConvertedCount;
@@ -165,8 +167,6 @@ export function PocLmpDashboard({
     totalLmpCount,
     lsc["other-reasons"],
   );
-  const totalLmpCount = filteredRecords.length;
-  const lsc = lmpStatusCounts(filteredRecords);
 
   // Task completion
   const prepDone = filtered.filter((r) => r.prepDoc === "Sent").length;

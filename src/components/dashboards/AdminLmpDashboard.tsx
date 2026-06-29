@@ -10,6 +10,7 @@ import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
 import { useStudentFilters, useFilteredStudentRoster } from "@/lib/hooks/useStudentFilters";
 import { useCohorts, usePrograms } from "@/lib/hooks/useCohortProgram";
+import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
@@ -1273,4 +1274,3 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     </LuminaShell>
   );
 }
-
