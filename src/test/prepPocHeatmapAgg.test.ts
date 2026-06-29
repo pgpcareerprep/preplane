@@ -620,7 +620,11 @@ describe("query contract — no candidate_count from lmp_processes", () => {
   });
 
   it("activePocCount counts only POCs with LMP load > 0", () => {
-    const pocs = [poc("p1", "Alice"), poc("p2", "Bob"), poc("p3", "Carol")];
+    const pocs = [
+      poc("p1", "Alice", ["Product"]),
+      poc("p2", "Bob", ["Sales"]),
+      poc("p3", "Carol", ["HR"]),
+    ];
     const links = [link("p1", "lmp1", "prep", "not-started")];
     const result = buildHeatmapData(pocs, links, []);
     expect(result.rows).toHaveLength(3);

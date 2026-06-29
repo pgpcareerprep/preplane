@@ -48,24 +48,9 @@ import { CohortSummaryCard } from "@/components/dashboard/CohortSummaryCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 import type { ReactNode } from "react";
 
-/* ─── Converted-name parsing ───────────────────────────────────────────────
- * Splits a raw final_converted_names string into individual names.
- * Separators: comma, newline, semicolon.
- * Filters out: empty, "-", "NA", "N/A", and common placeholder values.
- */
-const CONVERTED_NAME_JUNK = new Set(["", "-", "--", "na", "n/a", "nil", "none", "tbd", "n.a."]);
+import { parseConvertedNames, normalizeConvertedName } from "@/lib/convertedStudentNames";
 
-export function parseConvertedNames(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/[,\n;]+/)
-    .map((s) => s.replace(/\s+/g, " ").trim())
-    .filter((s) => s.length > 0 && !CONVERTED_NAME_JUNK.has(s.toLowerCase()));
-}
-
-export function normalizeConvertedName(name: string): string {
-  return name.replace(/\s+/g, " ").trim().toLowerCase();
-}
+export { parseConvertedNames, normalizeConvertedName };
 
 type DomainLoadView = "table" | "heatmap";
 type DomainSortKey =

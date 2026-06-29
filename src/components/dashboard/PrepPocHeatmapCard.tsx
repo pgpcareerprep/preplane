@@ -76,6 +76,7 @@ type HeatmapLinkQueryRow = {
   poc_id: string;
   role: string;
   lmp_id: string;
+  is_active?: boolean | null;
   lmp_processes: {
     id: string | null;
     lmp_code: string | null;
@@ -84,6 +85,9 @@ type HeatmapLinkQueryRow = {
     status: string;
     domain_id: string | null;
     domain_raw: string | null;
+    final_converted_names: string | null;
+    prep_poc_id: string | null;
+    support_poc_id: string | null;
     daily_progress: string | null;
     created_at: string;
     updated_at: string;
@@ -249,6 +253,12 @@ const SECTION_CONFIG: SectionDef[] = [
         label: "Other Reasons", minWidth: 96,
         palette: P_ORANGE, totalAccent: A_ORANGE,
         tooltip: "Closed for reasons other than Converted or Not Converted (e.g. role pulled, candidate withdrew).",
+      },
+      {
+        dataKey: "unknownCount", metricKey: "unknown", colType: "heat",
+        label: "Unmapped", minWidth: 80,
+        palette: P_ORANGE, totalAccent: A_ORANGE,
+        tooltip: "LMPs with a status that could not be mapped to a known heatmap bucket.",
       },
     ],
   },
@@ -582,30 +592,59 @@ export function PrepPocHeatmapCard({
   const { data, isLoading, isError, refetch } = useQuery<FullPrepPocHeatmapResponse>({
     queryKey,
     queryFn: async () => {
-      const [pocsRes, linksRes, candidatesRes] = await Promise.all([
+      const processSelect =
+        "id, lmp_code, company, role, status, domain_id, domain_raw, final_converted_names, prep_poc_id, support_poc_id, daily_progress, created_at, updated_at, domains(name)";
+
+      let processQuery = supabase
+        .from("lmp_processes")
+        .select(processSelect)
+        .or("prep_poc_id.not.is.null,support_poc_id.not.is.null");
+
+      if (scopeLmpIds?.size) {
+        processQuery = processQuery.in("id", [...scopeLmpIds]);
+      }
+
+      let sessionQuery = supabase
+        .from("sessions")
+        .select("lmp_id, student_id, status, completed_at")
+        .not("lmp_id", "is", null)
+        .not("student_id", "is", null);
+
+      if (scopeLmpIds?.size) {
+        sessionQuery = sessionQuery.in("lmp_id", [...scopeLmpIds]);
+      }
+
+      const [pocsRes, linksRes, candidatesRes, processesRes, sessionsRes] = await Promise.all([
         supabase
           .from("poc_profiles")
-          .select("id, name, primary_domain, domain_tags, role_type")
+          .select("id, name, primary_domain, domain_tags, role_type, status")
           .eq("status", "active"),
         supabase
           .from("lmp_poc_links")
-          .select("poc_id, role, lmp_id, lmp_processes(id, lmp_code, company, role, status, domain_id, domain_raw, daily_progress, created_at, updated_at, domains(name))")
-          .in("role", ["prep", "support"]),
+          .select(`poc_id, role, lmp_id, is_active, lmp_processes(${processSelect})`)
+          .in("role", ["prep", "support"])
+          .eq("is_active", true),
         supabase
           .from("lmp_candidates")
           .select("lmp_id, student_id, student_name, roll_no, pipeline_stage, students(id, name, roll_no, student_code, email, phone, cohort, primary_domain, secondary_domain, placement_status)")
           .not("student_id", "is", null),
+        processQuery,
+        sessionQuery,
       ]);
 
       if (pocsRes.error) { console.error("[PrepPocHeatmap] Query failed", pocsRes.error); throw new Error(pocsRes.error.message); }
       if (linksRes.error) { console.error("[PrepPocHeatmap] Query failed", linksRes.error); throw new Error(linksRes.error.message); }
       if (candidatesRes.error) { console.error("[PrepPocHeatmap] Query failed", candidatesRes.error); throw new Error(candidatesRes.error.message); }
+      if (processesRes.error) { console.error("[PrepPocHeatmap] Query failed", processesRes.error); throw new Error(processesRes.error.message); }
+      if (sessionsRes.error) { console.error("[PrepPocHeatmap] Query failed", sessionsRes.error); throw new Error(sessionsRes.error.message); }
 
       return buildFullHeatmapData(
         (pocsRes.data ?? []) as import("@/lib/prepPocHeatmapAgg").PocRaw[],
         (linksRes.data ?? []) as HeatmapLinkQueryRow[],
         (candidatesRes.data ?? []) as HeatmapCandidateQueryRow[],
         scopeLmpIds,
+        (processesRes.data ?? []) as import("@/lib/prepPocHeatmapSources").LmpProcessAssignmentRow[],
+        (sessionsRes.data ?? []) as import("@/lib/prepPocHeatmapSources").HeatmapSessionRaw[],
       );
     },
     staleTime: 60_000,
@@ -619,6 +658,7 @@ export function PrepPocHeatmapCard({
   useRealtimeInvalidate("poc_profiles" as never, queryKey);
   useRealtimeInvalidate("lmp_candidates", queryKey);
   useRealtimeInvalidate("students" as never, queryKey);
+  useRealtimeInvalidate("sessions" as never, queryKey);
 
   const activeLmpRows = useMemo(() => (data?.rows ?? []).filter((r) => r.totalLmpLoad > 0), [data]);
   const activeStudentRows = useMemo(() => (data?.studentRows ?? []).filter((r) => r.totalStudents > 0), [data]);
@@ -651,6 +691,7 @@ export function PrepPocHeatmapCard({
       convertedCount: maxFor("convertedCount"),
       notConvertedCount: maxFor("notConvertedCount"),
       otherReasonsCount: maxFor("otherReasonsCount"),
+      unknownCount: maxFor("unknownCount"),
       primaryCount: maxFor("primaryCount"),
       supportCount: maxFor("supportCount"),
       inDomainCount: maxFor("inDomainCount"),
@@ -679,7 +720,7 @@ export function PrepPocHeatmapCard({
         "On hold": r.onHoldCount,
         "Other reasons": r.otherReasonsCount,
         "Placement Rate": r.placementRatePct != null ? `${r.placementRatePct.toFixed(1)}%` : "—",
-        "Avg. Sessions Per Student": "—",
+        "Avg. Sessions Per Student": r.avgSessionsPerStudent != null ? r.avgSessionsPerStudent.toFixed(1) : "—",
       }));
       csvRows.push({} as never);
       csvRows.push({ "POC Name": `Exported At: ${generatedAt}` } as never);
@@ -735,6 +776,7 @@ export function PrepPocHeatmapCard({
       Converted: r.convertedCount,
       "Not Converted": r.notConvertedCount,
       "Other Reasons": r.otherReasonsCount,
+      Unmapped: r.unknownCount,
       Primary: r.primaryCount,
       Support: r.supportCount,
       "In-domain": r.inDomainCount,
@@ -752,7 +794,7 @@ export function PrepPocHeatmapCard({
     downloadCsv(`prep-poc-heatmap-lmp-wise-${dateStamp()}.csv`, csvRows, [
       "POC Name", "Total LMPs", "Current LMPs", "Closed LMPs",
       "Not Started", "Prep Ongoing", "Prep Done", "On Hold",
-      "Converted", "Not Converted", "Other Reasons",
+      "Converted", "Not Converted", "Other Reasons", "Unmapped",
       "Primary", "Support", "In-domain", "Cross-domain",
       "Converted Count", "Eligible Closed Count", "LMP Conversion %", "Students Placed",
     ]);
@@ -1274,7 +1316,7 @@ type HeatmapDrilldownSelection = {
 type LmpSortKey = "company" | "statusLabel" | "domain" | "studentsMapped" | "createdAt" | "updatedAt";
 type StudentSortKey = "studentName" | "company" | "domain" | "cohort" | "placementDate" | "primaryDomain" | "secondaryDomain" | "placementStatus";
 
-const LMP_STATUS_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Converted", "Not Converted", "On hold", "Other reasons"] as const;
+const LMP_STATUS_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Converted", "Not Converted", "On hold", "Other reasons", "Unknown"] as const;
 const STUDENT_OUTCOME_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Placed", "Not Placed", "On hold", "Other reasons"] as const;
 
 function resolveDrilldownResult(data: FullPrepPocHeatmapResponse, selection: HeatmapDrilldownSelection) {

@@ -23,7 +23,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 import {
   parseConvertedNames,
   normalizeConvertedName,
-} from "@/components/dashboards/AdminLmpDashboard";
+} from "@/lib/convertedStudentNames";
 
 // ─── parseConvertedNames ────────────────────────────────────────────────────
 

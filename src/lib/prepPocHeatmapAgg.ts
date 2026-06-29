@@ -1,3 +1,12 @@
+import {
+  buildStudentIdByNormalizedName,
+  classifyStudentStatuses,
+  filterEligibleHeatmapPocs,
+  resolveLmpDomainFields,
+  resolvePlacedStudentIdsOnLmp,
+  type HeatmapSessionRaw,
+} from "@/lib/prepPocHeatmapSources";
+
 /**
  * Pure aggregation logic for the Prep POC Heatmap.
  * No React dependencies — fully unit-testable.
@@ -36,6 +45,9 @@ export type LmpProcessForHeatmap = {
   daily_progress?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  final_converted_names?: string | null;
+  prep_poc_id?: string | null;
+  support_poc_id?: string | null;
   domains?: { name: string | null } | null;
 };
 
@@ -82,6 +94,7 @@ export type PrepPocHeatmapRow = {
   notConvertedCount: number;
   onHoldCount: number;
   otherReasonsCount: number;
+  unknownCount: number;
 
   primaryCount: number;
   supportCount: number;
@@ -116,6 +129,7 @@ export type HeatmapMetricKey =
   | "notConverted"
   | "onHold"
   | "otherReasons"
+  | "unknown"
   | "primary"
   | "support"
   | "inDomain"
@@ -230,6 +244,7 @@ export const HEATMAP_METRIC_LABELS: Record<HeatmapMetricKey, string> = {
   notConverted: "Not Converted",
   onHold: "On hold",
   otherReasons: "Other reasons",
+  unknown: "Unmapped status",
   primary: "Primary",
   support: "Support",
   inDomain: "In-domain",
@@ -242,7 +257,11 @@ export function buildHeatmapData(
   pocs: PocRaw[],
   links: LinkRaw[],
   candidates: CandidateRaw[],
+  _sessions: HeatmapSessionRaw[] = [],
 ): PrepPocHeatmapResponse {
+  const eligiblePocs = filterEligibleHeatmapPocs(pocs, links);
+  const nameToStudentId = buildStudentIdByNormalizedName(candidates);
+
   // Index: lmp_id → status bucket
   const lmpStatusMap = new Map<string, StatusBucket>();
   // Index: lmp_id → normalised domain name
@@ -254,24 +273,28 @@ export function buildHeatmapData(
       lmpStatusMap.set(id, mapStatusToBucket(l.lmp_processes?.status));
     }
     if (!lmpDomainMap.has(id)) {
-      const dn = norm(l.lmp_processes?.domains?.name);
-      if (dn) lmpDomainMap.set(id, dn);
+      const { normKey } = resolveLmpDomainFields(l.lmp_processes);
+      if (normKey) lmpDomainMap.set(id, normKey);
     }
   }
 
   // Index: lmp_id → Set of student_ids
   const lmpStudentsMap = new Map<string, Set<string>>();
+  const candidatesByLmp = new Map<string, CandidateRaw[]>();
   const studentDetailsMap = new Map<string, CandidateRaw>();
   for (const c of candidates) {
     if (!c.student_id || !c.lmp_id) continue;
     const s = lmpStudentsMap.get(c.lmp_id) ?? new Set<string>();
     s.add(c.student_id);
     lmpStudentsMap.set(c.lmp_id, s);
+    const list = candidatesByLmp.get(c.lmp_id) ?? [];
+    list.push(c);
+    candidatesByLmp.set(c.lmp_id, list);
     if (!studentDetailsMap.has(c.student_id)) studentDetailsMap.set(c.student_id, c);
   }
 
   // Build per-POC link index
-  const activePrepPocIds = new Set<string>(pocs.map((p) => p.id));
+  const activePrepPocIds = new Set<string>(eligiblePocs.map((p) => p.id));
 
   type PocLinkEntry = { prepIds: Set<string>; supportIds: Set<string> };
   const pocLinkIndex = new Map<string, PocLinkEntry>();
@@ -294,7 +317,7 @@ export function buildHeatmapData(
   const sourceLmps: HeatmapDrilldownLmpRecord[] = [];
   const sourceStudents: HeatmapDrilldownStudentRecord[] = [];
 
-  for (const poc of pocs) {
+  for (const poc of eligiblePocs) {
     const pocDomains = buildPocDomainSet(poc);
     const { prepIds = new Set<string>(), supportIds = new Set<string>() } =
       pocLinkIndex.get(poc.id) ?? {};
@@ -342,9 +365,11 @@ export function buildHeatmapData(
     for (const id of totalIds) {
       const details = lmpDetailsById.get(id);
       const bucket = lmpStatusMap.get(id) ?? "unknown";
+      const lmpCandidates = candidatesByLmp.get(id) ?? [];
       const studentsMapped = lmpStudentsMap.get(id)?.size ?? 0;
-      const studentsPlaced = bucket === "converted" ? studentsMapped : 0;
-      const domain = details?.domains?.name || details?.domain_raw || "";
+      const placedOnLmp = resolvePlacedStudentIdsOnLmp(bucket, details, lmpCandidates, nameToStudentId);
+      const studentsPlaced = placedOnLmp.size;
+      const domain = resolveLmpDomainFields(details).display;
       sourceLmps.push({
         pocId: poc.id,
         pocName: poc.name,
@@ -370,9 +395,9 @@ export function buildHeatmapData(
         updatedAt: details?.updated_at || "",
       });
 
-      if (bucket === "converted") {
-        for (const studentId of lmpStudentsMap.get(id) ?? []) {
-          const candidate = studentDetailsMap.get(studentId);
+      if (placedOnLmp.size > 0) {
+        for (const studentId of placedOnLmp) {
+          const candidate = studentDetailsMap.get(studentId) ?? lmpCandidates.find((c) => c.student_id === studentId);
           sourceStudents.push({
             pocId: poc.id,
             pocName: poc.name,
@@ -402,13 +427,18 @@ export function buildHeatmapData(
       }
     }
 
-    // Students placed: distinct students through converted LMPs assigned to this POC
+    // Students placed: merged candidate, pipeline, placement_status, and final_converted_names
     const pocPlacedStudents = new Set<string>();
     for (const id of totalIds) {
-      if (lmpStatusMap.get(id) === "converted") {
-        for (const s of lmpStudentsMap.get(id) ?? []) {
-          pocPlacedStudents.add(s);
-        }
+      const bucket = lmpStatusMap.get(id) ?? "unknown";
+      const details = lmpDetailsById.get(id);
+      for (const sid of resolvePlacedStudentIdsOnLmp(
+        bucket,
+        details,
+        candidatesByLmp.get(id) ?? [],
+        nameToStudentId,
+      )) {
+        pocPlacedStudents.add(sid);
       }
     }
 
@@ -420,13 +450,14 @@ export function buildHeatmapData(
     const notConvertedCount = byCounts.notConverted.size;
     const onHoldCount = byCounts.onHold.size;
     const otherReasonsCount = byCounts.otherReasons.size;
+    const unknownCount = byCounts.unknown.size;
 
     // Current = Not Started + Prep Ongoing + Prep Done
     const currentLmpCount = notStartedCount + prepOngoingCount + prepDoneCount;
 
-    // Closed = Converted + Not Converted + On Hold + Other Reasons
-    // (On hold is not "current active" but is excluded from conversion denominator)
-    const closedLmpCount = convertedCount + notConvertedCount + onHoldCount + otherReasonsCount;
+    // Closed = terminal + on hold + unmapped status (keeps Total = Current + Closed)
+    const closedLmpCount =
+      convertedCount + notConvertedCount + onHoldCount + otherReasonsCount + unknownCount;
 
     // Conversion denominator excludes On hold (see module docstring)
     const eligibleClosedCount = convertedCount + notConvertedCount + otherReasonsCount;
@@ -446,6 +477,7 @@ export function buildHeatmapData(
       notConvertedCount,
       onHoldCount,
       otherReasonsCount,
+      unknownCount,
       primaryCount: prepIds.size - dualAssigned.size, // subtract dual-assigned to avoid inflation
       supportCount: supportIds.size - dualAssigned.size,
       inDomainCount: inDomainIds.size,
@@ -472,10 +504,15 @@ export function buildHeatmapData(
   // Global placed students — deduplicated across all POC LMPs
   const globalPlacedStudents = new Set<string>();
   for (const id of scopedLmpIds) {
-    if (lmpStatusMap.get(id) === "converted") {
-      for (const s of lmpStudentsMap.get(id) ?? []) {
-        globalPlacedStudents.add(s);
-      }
+    const bucket = lmpStatusMap.get(id) ?? "unknown";
+    const details = lmpDetailsById.get(id);
+    for (const sid of resolvePlacedStudentIdsOnLmp(
+      bucket,
+      details,
+      candidatesByLmp.get(id) ?? [],
+      nameToStudentId,
+    )) {
+      globalPlacedStudents.add(sid);
     }
   }
 
@@ -595,7 +632,8 @@ export function filterHeatmapMetricRecords(
           record.statusBucket === "converted" ||
           record.statusBucket === "notConverted" ||
           record.statusBucket === "onHold" ||
-          record.statusBucket === "otherReasons",
+          record.statusBucket === "otherReasons" ||
+          record.statusBucket === "unknown",
         );
       case "notStarted":
         return byBucket("notStarted");
@@ -611,6 +649,8 @@ export function filterHeatmapMetricRecords(
         return byBucket("onHold");
       case "otherReasons":
         return byBucket("otherReasons");
+      case "unknown":
+        return byBucket("unknown");
       case "primary":
         return pocLmps.filter((record) => record.isPrimary);
       case "support":

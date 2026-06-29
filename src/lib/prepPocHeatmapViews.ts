@@ -13,6 +13,18 @@ import {
   type PrepPocHeatmapResponse,
   type StatusBucket,
 } from "@/lib/prepPocHeatmapAgg";
+import {
+  buildSessionCountsByPocStudent,
+  buildStudentIdByNormalizedName,
+  classifyStudentStatuses,
+  effectiveStatusBucketForStudentLmp,
+  filterEligibleHeatmapPocs,
+  mergeHeatmapAssignmentLinks,
+  resolveLmpDomainFields,
+  resolvePlacedStudentIdsOnLmp,
+  type HeatmapSessionRaw,
+  type LmpProcessAssignmentRow,
+} from "@/lib/prepPocHeatmapSources";
 import { buildHeatmapDrilldownSource, type PrepPocHeatmapDrilldownSource } from "@/lib/prepPocHeatmapDrilldown";
 
 const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
@@ -74,11 +86,17 @@ export type DomainWiseSummary = {
 
 type HeatmapIndexes = ReturnType<typeof buildSharedIndexes>;
 
-function buildSharedIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw[]) {
+function buildSharedIndexes(
+  pocs: PocRaw[],
+  links: LinkRaw[],
+  candidates: CandidateRaw[],
+) {
+  const eligiblePocs = filterEligibleHeatmapPocs(pocs, links);
   const lmpStatusMap = new Map<string, StatusBucket>();
   const lmpDomainMap = new Map<string, string>();
   const lmpDomainDisplayMap = new Map<string, string>();
   const lmpDomainIdMap = new Map<string, string>();
+  const lmpDetailsById = new Map<string, NonNullable<LinkRaw["lmp_processes"]>>();
 
   for (const l of links) {
     const id = l.lmp_id;
@@ -86,31 +104,41 @@ function buildSharedIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: Candid
       lmpStatusMap.set(id, mapStatusToBucket(l.lmp_processes?.status));
     }
     if (!lmpDomainMap.has(id)) {
-      const display = String(l.lmp_processes?.domains?.name ?? l.lmp_processes?.domain_raw ?? "").trim();
-      const dn = norm(display);
-      if (dn) {
-        lmpDomainMap.set(id, dn);
+      const { normKey, display } = resolveLmpDomainFields(l.lmp_processes);
+      if (normKey) {
+        lmpDomainMap.set(id, normKey);
         lmpDomainDisplayMap.set(id, display);
       }
     }
     if (!lmpDomainIdMap.has(id) && l.lmp_processes?.domain_id) {
       lmpDomainIdMap.set(id, l.lmp_processes.domain_id);
     }
+    if (l.lmp_processes && !lmpDetailsById.has(id)) {
+      lmpDetailsById.set(id, l.lmp_processes);
+    }
   }
 
   const lmpStudentsMap = new Map<string, Set<string>>();
+  const candidatesByLmp = new Map<string, CandidateRaw[]>();
   const studentProfileMap = new Map<string, CandidateRaw["students"]>();
+  const candidateByStudentLmp = new Map<string, CandidateRaw>();
+  const nameToStudentId = buildStudentIdByNormalizedName(candidates);
+
   for (const c of candidates) {
     if (!c.student_id || !c.lmp_id) continue;
     const s = lmpStudentsMap.get(c.lmp_id) ?? new Set<string>();
     s.add(c.student_id);
     lmpStudentsMap.set(c.lmp_id, s);
+    const list = candidatesByLmp.get(c.lmp_id) ?? [];
+    list.push(c);
+    candidatesByLmp.set(c.lmp_id, list);
     if (!studentProfileMap.has(c.student_id) && c.students) {
       studentProfileMap.set(c.student_id, c.students);
     }
+    candidateByStudentLmp.set(`${c.student_id}:${c.lmp_id}`, c);
   }
 
-  const activePrepPocIds = new Set(pocs.map((p) => p.id));
+  const activePrepPocIds = new Set(eligiblePocs.map((p) => p.id));
   type PocLinkEntry = { prepIds: Set<string>; supportIds: Set<string> };
   const pocLinkIndex = new Map<string, PocLinkEntry>();
 
@@ -127,33 +155,19 @@ function buildSharedIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: Candid
     lmpDomainMap,
     lmpDomainDisplayMap,
     lmpDomainIdMap,
+    lmpDetailsById,
     lmpStudentsMap,
+    candidatesByLmp,
     studentProfileMap,
+    candidateByStudentLmp,
+    nameToStudentId,
     pocLinkIndex,
     activePrepPocIds,
+    eligiblePocs,
   };
 }
 
-type StudentClass = {
-  prepStatus: "notStarted" | "prepOngoing" | "prepDone" | null;
-  outcome: "placed" | "notPlaced" | "onHold" | "otherReasons" | null;
-  isActive: boolean;
-};
-
-function classifyStudentStatuses(statuses: StatusBucket[]): StudentClass {
-  const has = (b: StatusBucket) => statuses.includes(b);
-  if (has("converted")) return { outcome: "placed", prepStatus: null, isActive: false };
-  if (has("notConverted")) return { outcome: "notPlaced", prepStatus: null, isActive: false };
-  if (has("otherReasons")) return { outcome: "otherReasons", prepStatus: null, isActive: false };
-  if (has("onHold")) return { outcome: "onHold", prepStatus: null, isActive: false };
-
-  const isActive = has("notStarted") || has("prepOngoing") || has("prepDone");
-  let prepStatus: StudentClass["prepStatus"] = null;
-  if (has("prepDone")) prepStatus = "prepDone";
-  else if (has("prepOngoing")) prepStatus = "prepOngoing";
-  else if (has("notStarted")) prepStatus = "notStarted";
-  return { outcome: null, prepStatus, isActive };
-}
+type StudentClass = import("@/lib/prepPocHeatmapSources").StudentClass;
 
 function studentStatusesForPoc(
   pocId: string,
@@ -166,7 +180,9 @@ function studentStatusesForPoc(
   const buckets: StatusBucket[] = [];
   for (const lmpId of totalIds) {
     if (idx.lmpStudentsMap.get(lmpId)?.has(studentId)) {
-      buckets.push(idx.lmpStatusMap.get(lmpId) ?? "unknown");
+      const lmpBucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
+      const candidate = idx.candidateByStudentLmp.get(`${studentId}:${lmpId}`);
+      buckets.push(effectiveStatusBucketForStudentLmp(lmpBucket, candidate));
     }
   }
   return buckets;
@@ -189,13 +205,15 @@ export function buildStudentWiseData(
   pocs: PocRaw[],
   links: LinkRaw[],
   candidates: CandidateRaw[],
+  sessions: HeatmapSessionRaw[] = [],
 ): { summary: StudentWiseSummary; rows: StudentWiseRow[] } {
   const idx = buildSharedIndexes(pocs, links, candidates);
+  const sessionCounts = buildSessionCountsByPocStudent(sessions, idx.pocLinkIndex);
   const rows: StudentWiseRow[] = [];
   const globalStudents = new Set<string>();
   const globalPlaced = new Set<string>();
 
-  for (const poc of pocs) {
+  for (const poc of idx.eligiblePocs) {
     const entry = idx.pocLinkIndex.get(poc.id);
     if (!entry) continue;
     const totalIds = new Set([...entry.prepIds, ...entry.supportIds]);
@@ -237,6 +255,13 @@ export function buildStudentWiseData(
 
     const placementRatePct =
       buckets.total.size > 0 ? (buckets.placed.size / buckets.total.size) * 100 : null;
+    const sessionMap = sessionCounts.get(poc.id);
+    let sessionTotal = 0;
+    for (const studentId of buckets.total) {
+      sessionTotal += sessionMap?.get(studentId) ?? 0;
+    }
+    const avgSessionsPerStudent =
+      buckets.total.size > 0 ? sessionTotal / buckets.total.size : null;
 
     rows.push({
       pocId: poc.id,
@@ -252,7 +277,7 @@ export function buildStudentWiseData(
       onHoldCount: buckets.onHold.size,
       otherReasonsCount: buckets.otherReasons.size,
       placementRatePct,
-      avgSessionsPerStudent: null,
+      avgSessionsPerStudent,
     });
   }
 
@@ -333,8 +358,14 @@ export function buildDomainWiseData(
     const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
     row.byBucket[bucket].add(lmpId);
 
-    if (bucket === "converted") {
-      for (const sid of idx.lmpStudentsMap.get(lmpId) ?? []) row.placedStudents.add(sid);
+    const details = idx.lmpDetailsById.get(lmpId);
+    for (const sid of resolvePlacedStudentIdsOnLmp(
+      bucket,
+      details,
+      idx.candidatesByLmp.get(lmpId) ?? [],
+      idx.nameToStudentId,
+    )) {
+      row.placedStudents.add(sid);
     }
   }
 
@@ -376,7 +407,7 @@ export function buildDomainWiseData(
     const onHoldCount = row.byBucket.onHold.size;
     const otherReasonsCount = row.byBucket.otherReasons.size;
     const currentLmps = notStartedCount + prepOngoingCount + prepDoneCount;
-    const closedLmps = convertedCount + notConvertedCount + onHoldCount + otherReasonsCount;
+    const closedLmps = convertedCount + notConvertedCount + onHoldCount + otherReasonsCount + row.byBucket.unknown.size;
     const eligibleClosedCount = convertedCount + notConvertedCount + otherReasonsCount;
     const lmpConversionPercentage =
       eligibleClosedCount > 0 ? (convertedCount / eligibleClosedCount) * 100 : null;
@@ -442,14 +473,23 @@ export function buildFullHeatmapData(
   links: LinkRaw[],
   candidates: CandidateRaw[],
   scopeLmpIds?: Set<string>,
+  processAssignments: LmpProcessAssignmentRow[] = [],
+  sessions: HeatmapSessionRaw[] = [],
 ): FullPrepPocHeatmapResponse {
   const scope = scopeLmpIds && scopeLmpIds.size > 0 ? scopeLmpIds : null;
   const scopedLinks = scope ? links.filter((l) => scope.has(l.lmp_id)) : links;
   const scopedCandidates = scope ? candidates.filter((c) => scope.has(c.lmp_id)) : candidates;
+  const scopedProcesses = scope
+    ? processAssignments.filter((p) => scope.has(p.id))
+    : processAssignments;
+  const mergedLinks = mergeHeatmapAssignmentLinks(scopedLinks, scopedProcesses);
+  const scopedSessions = scope
+    ? sessions.filter((s) => s.lmp_id && scope.has(s.lmp_id))
+    : sessions;
 
-  const lmp = buildHeatmapData(pocs, scopedLinks, scopedCandidates);
-  const student = buildStudentWiseData(pocs, scopedLinks, scopedCandidates);
-  const domain = buildDomainWiseData(pocs, scopedLinks, scopedCandidates);
+  const lmp = buildHeatmapData(pocs, mergedLinks, scopedCandidates, scopedSessions);
+  const student = buildStudentWiseData(pocs, mergedLinks, scopedCandidates, scopedSessions);
+  const domain = buildDomainWiseData(pocs, mergedLinks, scopedCandidates);
 
   return {
     ...lmp,
@@ -457,6 +497,6 @@ export function buildFullHeatmapData(
     studentRows: student.rows,
     domainSummary: domain.summary,
     domainRows: domain.rows,
-    drilldownSource: buildHeatmapDrilldownSource(pocs, scopedLinks, scopedCandidates, lmp.source),
+    drilldownSource: buildHeatmapDrilldownSource(pocs, mergedLinks, scopedCandidates, lmp.source),
   };
 }

@@ -16,6 +16,13 @@ import {
 } from "@/lib/prepPocHeatmapAgg";
 import type { FullPrepPocHeatmapResponse } from "@/lib/prepPocHeatmapViews";
 
+import {
+  classifyStudentStatuses,
+  effectiveStatusBucketForStudentLmp,
+  filterEligibleHeatmapPocs,
+  resolveLmpDomainFields,
+} from "@/lib/prepPocHeatmapSources";
+
 const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
 
 // ── Metric keys ───────────────────────────────────────────────────────────────
@@ -134,6 +141,7 @@ type HeatmapIndexes = {
 };
 
 function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw[]): HeatmapIndexes {
+  const eligiblePocs = filterEligibleHeatmapPocs(pocs, links);
   const lmpStatusMap = new Map<string, StatusBucket>();
   const lmpDomainMap = new Map<string, string>();
   const lmpDomainDisplayMap = new Map<string, string>();
@@ -144,10 +152,9 @@ function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw
     const id = l.lmp_id;
     if (!lmpStatusMap.has(id)) lmpStatusMap.set(id, mapStatusToBucket(l.lmp_processes?.status));
     if (!lmpDomainMap.has(id)) {
-      const display = String(l.lmp_processes?.domains?.name ?? l.lmp_processes?.domain_raw ?? "").trim();
-      const dn = norm(display);
-      if (dn) {
-        lmpDomainMap.set(id, dn);
+      const { normKey, display } = resolveLmpDomainFields(l.lmp_processes);
+      if (normKey) {
+        lmpDomainMap.set(id, normKey);
         lmpDomainDisplayMap.set(id, display);
       }
     }
@@ -171,7 +178,7 @@ function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw
     candidateByStudentLmp.set(`${c.student_id}:${c.lmp_id}`, c);
   }
 
-  const activePrepPocIds = new Set(pocs.map((p) => p.id));
+  const activePrepPocIds = new Set(eligiblePocs.map((p) => p.id));
   const pocLinkIndex = new Map<string, { prepIds: Set<string>; supportIds: Set<string> }>();
   const pocNameById = new Map(pocs.map((p) => [p.id, p.name]));
 
@@ -218,26 +225,7 @@ function buildRoleNamesByLmp(
   return new Map([...map.entries()].map(([id, names]) => [id, [...names].join(", ")]));
 }
 
-type StudentClass = {
-  prepStatus: "notStarted" | "prepOngoing" | "prepDone" | null;
-  outcome: "placed" | "notPlaced" | "onHold" | "otherReasons" | null;
-  isActive: boolean;
-};
-
-function classifyStudentStatuses(statuses: StatusBucket[]): StudentClass {
-  const has = (b: StatusBucket) => statuses.includes(b);
-  if (has("converted")) return { outcome: "placed", prepStatus: null, isActive: false };
-  if (has("notConverted")) return { outcome: "notPlaced", prepStatus: null, isActive: false };
-  if (has("otherReasons")) return { outcome: "otherReasons", prepStatus: null, isActive: false };
-  if (has("onHold")) return { outcome: "onHold", prepStatus: null, isActive: false };
-
-  const isActive = has("notStarted") || has("prepOngoing") || has("prepDone");
-  let prepStatus: StudentClass["prepStatus"] = null;
-  if (has("prepDone")) prepStatus = "prepDone";
-  else if (has("prepOngoing")) prepStatus = "prepOngoing";
-  else if (has("notStarted")) prepStatus = "notStarted";
-  return { outcome: null, prepStatus, isActive };
-}
+type StudentClass = import("@/lib/prepPocHeatmapSources").StudentClass;
 
 function studentLmpsForPoc(pocId: string, studentId: string, idx: HeatmapIndexes): string[] {
   const entry = idx.pocLinkIndex.get(pocId);
@@ -300,7 +288,7 @@ function buildStudentRecord(
   const details = idx.lmpDetailsById.get(lmpId);
   const candidate = idx.candidateByStudentLmp.get(`${studentId}:${lmpId}`);
   const profile = idx.studentProfileMap.get(studentId);
-  const domain = details?.domains?.name || details?.domain_raw || "";
+  const domain = resolveLmpDomainFields(details).display;
   const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
 
   return {
@@ -344,13 +332,14 @@ export function buildHeatmapDrilldownSource(
   lmpSource: PrepPocHeatmapSource,
 ): PrepPocHeatmapDrilldownSource {
   const idx = buildIndexes(pocs, links, candidates);
+  const eligiblePocs = filterEligibleHeatmapPocs(pocs, links);
   const studentWise: HeatmapDrilldownStudentWiseRecord[] = [];
   const domainLmps: HeatmapDrilldownDomainLmpRecord[] = [];
   const domainStudents: HeatmapDrilldownDomainStudentRecord[] = [];
   const seenDomainLmps = new Set<string>();
   const seenDomainStudents = new Set<string>();
 
-  for (const poc of pocs) {
+  for (const poc of eligiblePocs) {
     const entry = idx.pocLinkIndex.get(poc.id);
     if (!entry) continue;
     const totalIds = new Set([...entry.prepIds, ...entry.supportIds]);
@@ -361,7 +350,11 @@ export function buildHeatmapDrilldownSource(
 
     for (const studentId of pocStudents) {
       const lmpIds = studentLmpsForPoc(poc.id, studentId, idx);
-      const statuses = lmpIds.map((id) => idx.lmpStatusMap.get(id) ?? "unknown");
+      const statuses = lmpIds.map((id) => {
+        const lmpBucket = idx.lmpStatusMap.get(id) ?? "unknown";
+        const candidate = idx.candidateByStudentLmp.get(`${studentId}:${id}`);
+        return effectiveStatusBucketForStudentLmp(lmpBucket, candidate);
+      });
       const cls = classifyStudentStatuses(statuses);
       const repLmp = pickRepresentativeLmp(lmpIds, cls, idx);
       if (!repLmp) continue;
