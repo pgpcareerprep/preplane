@@ -153,10 +153,6 @@ function getRowValue(row: StudentWiseRow | DomainWiseRow, key: string): number {
   return Number((row as Record<string, unknown>)[key] ?? 0);
 }
 
-function getTotalsValue(totals: Record<string, unknown>, key: string): number {
-  return Number(totals[key] ?? 0);
-}
-
 export type HeatmapCellClickPayload = {
   rowId: string;
   rowLabel: string;
@@ -217,14 +213,12 @@ function AltHeatCell({
 export function GenericHeatmapTable({
   rowHeader,
   rows,
-  totals,
   visibleConfig,
   colMaxValues,
   onCellClick,
 }: {
   rowHeader: string;
   rows: Array<{ id: string; label: string; row: StudentWiseRow | DomainWiseRow }>;
-  totals: Record<string, unknown>;
   visibleConfig: AltSectionDef[];
   colMaxValues: Record<string, number>;
   onCellClick?: (payload: HeatmapCellClickPayload) => void;
@@ -358,50 +352,6 @@ export function GenericHeatmapTable({
             }))}
           </tr>
         ))}
-        <tr>
-          <td className="px-4 py-2.5 text-[11px] font-bold uppercase border-r"
-            style={{ color: "var(--lx-text-2)", letterSpacing: "0.04em", position: "sticky", left: 0, zIndex: 1, background: "var(--lx-soft)", borderTop: "1px solid var(--lx-border)", borderColor: CELL_BORDER }}>
-            TOTAL
-          </td>
-          {visibleConfig.flatMap((s) => s.cols.map((col) => {
-            if (col.colType === "conversion") {
-              const converted = getTotalsValue(totals, "convertedCount");
-              const eligible = getTotalsValue(totals, "eligibleClosedCount");
-              const pct = totals.lmpConversionPercentage as number | null | undefined;
-              const dispVal = fmtConversion(converted, eligible, pct ?? null);
-              return (
-                <td key={col.dataKey} className="text-center text-[12px] font-bold tabular-nums py-2.5"
-                  style={{ background: "var(--lx-soft)", color: eligible > 0 ? col.totalAccent : MUTED_TEXT, borderTop: "1px solid var(--lx-border)" }}>
-                  {dispVal}
-                </td>
-              );
-            }
-            if (col.colType === "rate") {
-              const pct = totals.placementRatePct as number | null | undefined;
-              return (
-                <td key={col.dataKey} className="text-center text-[12px] font-bold tabular-nums py-2.5"
-                  style={{ background: "var(--lx-soft)", color: pct != null ? col.totalAccent : MUTED_TEXT, borderTop: "1px solid var(--lx-border)" }}>
-                  {fmtRate(pct ?? null)}
-                </td>
-              );
-            }
-            if (col.colType === "text") {
-              return (
-                <td key={col.dataKey} className="text-center text-[12px] font-bold tabular-nums py-2.5"
-                  style={{ background: "var(--lx-soft)", color: MUTED_TEXT, borderTop: "1px solid var(--lx-border)" }}>
-                  —
-                </td>
-              );
-            }
-            const value = getTotalsValue(totals, col.dataKey);
-            return (
-              <td key={col.dataKey} className="text-center text-[12.5px] font-bold tabular-nums py-2.5"
-                style={{ background: "var(--lx-soft)", color: value > 0 ? col.totalAccent : MUTED_TEXT, borderTop: "1px solid var(--lx-border)" }}>
-                {value}
-              </td>
-            );
-          }))}
-        </tr>
       </tbody>
     </table>
   );
@@ -413,47 +363,6 @@ export function buildColMaxValues(rows: Array<StudentWiseRow | DomainWiseRow>, k
     out[key] = Math.max(1, ...rows.map((r) => Number((r as Record<string, unknown>)[key] ?? 0)));
   }
   return out;
-}
-
-export function studentTotalsFrom(data: { studentSummary: import("@/lib/prepPocHeatmapViews").StudentWiseSummary; studentRows: StudentWiseRow[] }) {
-  const sum = (key: keyof StudentWiseRow) =>
-    data.studentRows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
-  return {
-    totalStudents: data.studentSummary.uniqueStudents,
-    currentStudents: sum("currentStudents"),
-    placedStudentsLoad: data.studentSummary.studentsPlaced,
-    notStartedCount: sum("notStartedCount"),
-    prepOngoingCount: sum("prepOngoingCount"),
-    prepDoneCount: sum("prepDoneCount"),
-    placedCount: data.studentSummary.studentsPlaced,
-    notPlacedCount: sum("notPlacedCount"),
-    onHoldCount: sum("onHoldCount"),
-    otherReasonsCount: sum("otherReasonsCount"),
-    placementRatePct: data.studentSummary.placedStudentsPct,
-    avgSessionsPerStudent: null,
-  };
-}
-
-export function domainTotalsFrom(data: { domainSummary: import("@/lib/prepPocHeatmapViews").DomainWiseSummary; domainRows: DomainWiseRow[] }) {
-  const sum = (key: keyof DomainWiseRow) =>
-    data.domainRows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
-  return {
-    totalLmps: data.domainSummary.totalLmps,
-    currentLmps: sum("currentLmps"),
-    closedLmps: sum("closedLmps"),
-    notStartedCount: sum("notStartedCount"),
-    prepOngoingCount: sum("prepOngoingCount"),
-    prepDoneCount: sum("prepDoneCount"),
-    placedCount: data.domainSummary.studentsPlaced,
-    notPlacedCount: sum("notPlacedCount"),
-    onHoldCount: sum("onHoldCount"),
-    otherReasonsCount: sum("otherReasonsCount"),
-    studentsPlaced: data.domainSummary.studentsPlaced,
-    placementRatePct: data.domainSummary.placementRatePct,
-    convertedCount: data.domainSummary.convertedLmpCount,
-    eligibleClosedCount: data.domainSummary.eligibleClosedLmpCount,
-    lmpConversionPercentage: data.domainSummary.lmpConversionPct,
-  };
 }
 
 type MetricOption = { key: string; label: string; colType: AltColType; palette: typeof P_NEUTRAL };

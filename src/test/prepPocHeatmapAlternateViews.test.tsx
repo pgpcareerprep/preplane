@@ -52,7 +52,6 @@ describe("GenericHeatmapTable alternate views", () => {
       <GenericHeatmapTable
         rowHeader="POC"
         rows={[{ id: "p1", label: "Alice", row: studentRow }]}
-        totals={{ placementRatePct: 33.3 }}
         visibleConfig={STUDENT_SECTION_CONFIG}
         colMaxValues={{ totalStudents: 3 }}
       />,
@@ -66,7 +65,6 @@ describe("GenericHeatmapTable alternate views", () => {
       <GenericHeatmapTable
         rowHeader="DOMAIN"
         rows={[{ id: "d1", label: "Finance", row: domainRow }]}
-        totals={{ placementRatePct: 50, convertedCount: 1, eligibleClosedCount: 1, lmpConversionPercentage: 100 }}
         visibleConfig={DOMAIN_SECTION_CONFIG}
         colMaxValues={{ totalLmps: 2 }}
       />,
@@ -101,7 +99,6 @@ describe("HeatmapMobileSummary", () => {
       <ResponsiveHeatmapTable
         rowHeader="POC"
         rows={[{ id: "p1", label: "Alice", row: studentRow }]}
-        totals={{ placementRatePct: 33.3 }}
         visibleConfig={STUDENT_SECTION_CONFIG}
         colMaxValues={{ totalStudents: 3 }}
       />,

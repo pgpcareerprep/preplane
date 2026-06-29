@@ -56,8 +56,6 @@ import {
   STUDENT_SECTION_CONFIG,
   DOMAIN_SECTION_CONFIG,
   buildColMaxValues,
-  studentTotalsFrom,
-  domainTotalsFrom,
   type AltSectionDef,
   type HeatmapCellClickPayload,
 } from "@/components/dashboard/PrepPocHeatmapAlternateViews";
@@ -508,17 +506,6 @@ function HeatmapSkeleton() {
   );
 }
 
-// ── Totals type ───────────────────────────────────────────────────────────────
-
-type TotalsShape = {
-  totalLmpLoad: number; currentLmpCount: number; closedLmpCount: number;
-  notStartedCount: number; prepOngoingCount: number; prepDoneCount: number; onHoldCount: number;
-  convertedCount: number; notConvertedCount: number; otherReasonsCount: number;
-  primaryCount: number; supportCount: number;
-  inDomainCount: number; crossDomainCount: number;
-  eligibleClosedCount: number; lmpConversionPercentage: number | null; studentsPlaced: number;
-};
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PrepPocHeatmapCard({
@@ -672,9 +659,6 @@ export function PrepPocHeatmapCard({
     };
   }, [activeView, activeLmpRows, activeStudentRows, activeDomainRows]);
 
-  const studentTotals = useMemo(() => (data ? studentTotalsFrom(data) : null), [data]);
-  const domainTotals = useMemo(() => (data ? domainTotalsFrom(data) : null), [data]);
-
   // CSV export — exports active view
   const handleExport = useCallback(() => {
     if (!data) return;
@@ -773,32 +757,6 @@ export function PrepPocHeatmapCard({
       "Converted Count", "Eligible Closed Count", "LMP Conversion %", "Students Placed",
     ]);
   }, [data, activeView, filters]);
-
-  // Totals row values (LMP-wise)
-  const totals = useMemo((): TotalsShape | null => {
-    if (!data || activeView !== "lmp") return null;
-    const { rows, summary } = data;
-    const sum = (key: keyof PrepPocHeatmapRow) => rows.reduce((s, r) => s + ((r[key] as number) ?? 0), 0);
-    return {
-      totalLmpLoad: summary.uniqueLmpCount,
-      currentLmpCount: sum("currentLmpCount"),
-      closedLmpCount: sum("closedLmpCount"),
-      notStartedCount: sum("notStartedCount"),
-      prepOngoingCount: sum("prepOngoingCount"),
-      prepDoneCount: sum("prepDoneCount"),
-      onHoldCount: sum("onHoldCount"),
-      convertedCount: summary.convertedLmpCount,
-      notConvertedCount: sum("notConvertedCount"),
-      otherReasonsCount: sum("otherReasonsCount"),
-      primaryCount: sum("primaryCount"),
-      supportCount: sum("supportCount"),
-      inDomainCount: sum("inDomainCount"),
-      crossDomainCount: sum("crossDomainCount"),
-      eligibleClosedCount: summary.eligibleClosedLmpCount,
-      lmpConversionPercentage: summary.convertedLmpPercentage,
-      studentsPlaced: summary.uniqueStudentsPlaced,
-    };
-  }, [data, activeView]);
 
   const openLmpDrilldown = useCallback((
     row: PrepPocHeatmapRow,
@@ -1160,9 +1118,6 @@ export function PrepPocHeatmapCard({
                         isDark={isDark}
                       />
                     ))}
-                    {totals && (
-                      <TotalRow totals={totals} visibleConfig={visibleConfig as SectionDef[]} isDark={isDark} />
-                    )}
                   </tbody>
                 </table>
                   </div>
@@ -1175,7 +1130,6 @@ export function PrepPocHeatmapCard({
                       ? activeStudentRows.map((r) => ({ id: r.pocId, label: r.pocName, row: r }))
                       : activeDomainRows.map((r) => ({ id: r.domainId, label: r.domainName, row: r }))
                   }
-                  totals={(activeView === "student" ? studentTotals : domainTotals) ?? {}}
                   visibleConfig={visibleConfig as AltSectionDef[]}
                   colMaxValues={colMaxValues}
                   onCellClick={openAlternateDrilldown}
@@ -1298,70 +1252,6 @@ function DataRow({
               ariaLabel={`View ${value} ${col.label} LMPs for ${row.pocName}`}
               onOpen={open(col.metricKey, value)}
             />
-          );
-        }),
-      )}
-    </tr>
-  );
-}
-
-// ── TotalRow ──────────────────────────────────────────────────────────────────
-
-function TotalRow({
-  totals, visibleConfig, isDark = false,
-}: {
-  totals: TotalsShape;
-  visibleConfig: SectionDef[];
-  isDark?: boolean;
-}) {
-  return (
-    <tr>
-      <td
-        className="px-4 py-2.5 text-[11px] font-bold uppercase border-r"
-        style={{
-          color: "var(--lx-text-2)",
-          letterSpacing: "0.04em",
-          position: "sticky", left: 0, zIndex: 1,
-          background: "var(--lx-soft)",
-          borderTop: "1px solid var(--lx-border)",
-          borderColor: CELL_BORDER,
-        }}
-      >
-        TOTAL
-      </td>
-
-      {visibleConfig.flatMap((s) =>
-        s.cols.map((col) => {
-          if (col.colType === "conversion") {
-            const dispVal = fmtConversion(totals.convertedCount, totals.eligibleClosedCount, totals.lmpConversionPercentage);
-            return (
-              <td
-                key={col.metricKey}
-                className="text-center text-[12px] font-bold tabular-nums py-2.5"
-                style={{
-                  background: "var(--lx-soft)",
-                  color: totals.eligibleClosedCount > 0 ? col.totalAccent : MUTED_TEXT,
-                  borderTop: "1px solid var(--lx-border)",
-                }}
-              >
-                {dispVal}
-              </td>
-            );
-          }
-
-          const value = totals[col.dataKey as keyof TotalsShape] as number ?? 0;
-          return (
-            <td
-              key={col.metricKey}
-              className="text-center text-[12.5px] font-bold tabular-nums py-2.5"
-              style={{
-                background: "var(--lx-soft)",
-                color: value > 0 ? col.totalAccent : MUTED_TEXT,
-                borderTop: "1px solid var(--lx-border)",
-              }}
-            >
-              {value}
-            </td>
           );
         }),
       )}
