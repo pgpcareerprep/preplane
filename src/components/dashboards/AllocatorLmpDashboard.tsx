@@ -21,7 +21,7 @@ import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
-import { snapshotDrill, countZeroCandidateLmps } from "@/lib/dashboardDrill";
+import { snapshotDrill, countZeroCandidateLmps, buildConvertedCandidateCountByLmp } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
@@ -103,15 +103,18 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
     queryFn: async () => {
       const PAGE = 1000;
       let from = 0;
-      const out: { lmpId: string }[] = [];
+      const out: { lmpId: string; pipelineStage: string | null }[] = [];
       while (true) {
         const { data, error } = await supabase
           .from("lmp_candidates")
-          .select("id, lmp_id")
+          .select("id, lmp_id, pipeline_stage")
           .range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
-        out.push(...rows.map((c) => ({ lmpId: (c.lmp_id ?? "") as string })));
+        out.push(...rows.map((c) => ({
+          lmpId: (c.lmp_id ?? "") as string,
+          pipelineStage: (c.pipeline_stage ?? null) as string | null,
+        })));
         if (rows.length < PAGE) break;
         from += PAGE;
       }
@@ -135,6 +138,11 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
     filteredCandidates.forEach((c) => m.set(c.lmpId, (m.get(c.lmpId) ?? 0) + 1));
     return m;
   }, [filteredCandidates]);
+
+  const convertedCandidateCountByLmp = useMemo(
+    () => buildConvertedCandidateCountByLmp(filteredCandidates),
+    [filteredCandidates],
+  );
 
   const zeroCandidateLmpsCount = useMemo(
     () => countZeroCandidateLmps(filtered, candidateCountByLmp),
@@ -246,7 +254,13 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
   };
 
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind, filtered, todaySet, candidateCountByLmp);
+    const { rows, title } = snapshotDrill(
+      kind,
+      filtered,
+      todaySet,
+      candidateCountByLmp,
+      convertedCandidateCountByLmp,
+    );
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
@@ -441,6 +455,7 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
             rows={filtered}
             todaySet={todaySet}
             zeroCandidateCount={zeroCandidateLmpsCount}
+            convertedCandidateCountByLmp={convertedCandidateCountByLmp}
             onItemClick={openSnapshot}
           />
         </LxCard>

@@ -6,7 +6,7 @@ import { LxInfo } from "@/components/insights/LxInfo";
 import { LX_HEX, type LxAccent } from "@/components/insights/primitives";
 import { cn } from "@/lib/utils";
 import {
-  AlertTriangle, CalendarClock, Clock, FileWarning, Layers, Mic, UserRound, Users,
+  AlertTriangle, CalendarClock, CircleAlert, Clock, FileWarning, Layers, Mic, UserRound, Users,
 } from "lucide-react";
 
 export type SnapshotDrillKind = "active" | "zero-candidates" | LmpFlagKey;
@@ -38,19 +38,22 @@ export function PocOperationalFlags({
   todaySet,
   onItemClick,
   zeroCandidateCount = 0,
+  convertedCandidateCountByLmp,
 }: {
   rows: Process[];
   todaySet: Set<string>;
   onItemClick?: (kind: SnapshotDrillKind) => void;
   zeroCandidateCount?: number;
+  convertedCandidateCountByLmp?: Map<string, number>;
 }) {
-  const s = summarizeFlags(rows, todaySet);
+  const s = summarizeFlags(rows, todaySet, convertedCandidateCountByLmp);
   const active = rows.filter((r) => ["Ongoing", "Offer Received", "On Hold"].includes(r.status)).length;
 
   const flags: FlagDef[] = [
     { label: "Active LMPs", value: active, accent: "info", infoKey: "snapshot.active-lmps", kind: "active", icon: Layers },
     { label: "Overdue", value: s.byKey.overdue, accent: "risk", infoKey: "snapshot.overdue", kind: "overdue", icon: AlertTriangle },
     { label: "Zero Candidates", value: zeroCandidateCount, accent: "orange", infoKey: "snapshot.zero-candidates", kind: "zero-candidates", icon: Users },
+    { label: "Converted But Empty", value: s.byKey["converted-status-no-converted-candidate"], accent: "risk", infoKey: "snapshot.converted-status-no-converted-candidate", kind: "converted-status-no-converted-candidate", icon: CircleAlert },
     { label: "Update Due Today", value: s.byKey["daily-progress-pending"], accent: "yellow", infoKey: "snapshot.update-due-today", kind: "daily-progress-pending", icon: CalendarClock },
     { label: "Mentor Not Aligned", value: s.byKey["mentor-not-aligned"], accent: "risk", infoKey: "snapshot.mentor-not-aligned", kind: "mentor-not-aligned", icon: UserRound },
     { label: "Prep Doc Not Shared", value: s.byKey["prep-doc-not-shared"], accent: "orange", infoKey: "snapshot.prep-doc-not-shared", kind: "prep-doc-not-shared", icon: FileWarning },
@@ -59,7 +62,7 @@ export function PocOperationalFlags({
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-x-6 gap-y-gutter">
+    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-9 gap-x-6 gap-y-gutter">
       {flags.map(({ label, value, accent, infoKey, kind, icon: Icon }) => {
         const clickable = !!onItemClick;
         const hex = ACCENT_HEX[accent];

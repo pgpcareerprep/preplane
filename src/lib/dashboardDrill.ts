@@ -8,7 +8,7 @@ import { isConverted, isDormant } from "@/lib/lmpProcessQueries";
 import { flagRows } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import type { StudentDrillRow } from "@/components/insights/LxDrillDown";
-import { isOptedOutStatus } from "@/lib/studentAnalytics";
+import { isCandidatePipelineConverted, isOptedOutStatus } from "@/lib/studentAnalytics";
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
@@ -61,8 +61,30 @@ export function lmpsMissingPrepDoc(rows: Process[]): Process[] {
   return rows.filter((r) => r.prepDoc !== "Sent" && (r.status === "Ongoing" || r.status === "Offer Received"));
 }
 
-export function lmpsByFlag(rows: Process[], todaySet: Set<string>, key: LmpFlagKey): Process[] {
-  return flagRows(rows, todaySet).filter((f) => f.flags.some((x) => x.key === key)).map((f) => f.process);
+export type CandidatePipelineRow = {
+  lmpId: string;
+  pipelineStage?: string | null;
+  pipeline_stage?: string | null;
+};
+
+export function buildConvertedCandidateCountByLmp(candidates: CandidatePipelineRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const c of candidates) {
+    if (!isCandidatePipelineConverted(c)) continue;
+    m.set(c.lmpId, (m.get(c.lmpId) ?? 0) + 1);
+  }
+  return m;
+}
+
+export function lmpsByFlag(
+  rows: Process[],
+  todaySet: Set<string>,
+  key: LmpFlagKey,
+  convertedCandidateCountByLmp?: Map<string, number>,
+): Process[] {
+  return flagRows(rows, todaySet, convertedCandidateCountByLmp)
+    .filter((f) => f.flags.some((x) => x.key === key))
+    .map((f) => f.process);
 }
 
 export function lmpsZeroCandidates(
@@ -88,6 +110,7 @@ export function snapshotDrill(
   rows: Process[],
   todaySet: Set<string>,
   candidateCountByLmp?: Map<string, number>,
+  convertedCandidateCountByLmp?: Map<string, number>,
 ): { rows: Process[]; title: string } {
   if (kind === "active") return { rows: lmpsActive(rows), title: "Active LMPs" };
   if (kind === "zero-candidates") {
@@ -101,8 +124,12 @@ export function snapshotDrill(
     "mentor-not-aligned":     "LMPs with mentor not aligned",
     "prep-doc-not-shared":    "LMPs where prep doc is not shared",
     "mock-pending":           "LMPs with mock pending",
+    "converted-status-no-converted-candidate": "Converted LMPs with no converted candidate",
   };
-  return { rows: lmpsByFlag(rows, todaySet, kind), title: LABEL[kind] ?? "LMPs" };
+  return {
+    rows: lmpsByFlag(rows, todaySet, kind, convertedCandidateCountByLmp),
+    title: LABEL[kind] ?? "LMPs",
+  };
 }
 
 export function lmpsMentorPending(rows: Process[]): Process[] {

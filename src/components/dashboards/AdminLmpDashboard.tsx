@@ -41,6 +41,7 @@ import { info } from "@/lib/dashboardInfo";
 import {
   lmpsForDomain, lmpsForPoc,
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill, countZeroCandidateLmps,
+  buildConvertedCandidateCountByLmp,
 } from "@/lib/dashboardDrill";
 import { STATUS_META } from "@/lib/lmpTypes";
 import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
@@ -271,6 +272,11 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     candidatesByLmp.forEach((rows, lmpId) => m.set(lmpId, rows.length));
     return m;
   }, [candidatesByLmp]);
+
+  const convertedCandidateCountByLmp = useMemo(
+    () => buildConvertedCandidateCountByLmp(filteredCandidates),
+    [filteredCandidates],
+  );
 
   /* ─────── Status counts (canonical 7-bucket model) ─────── */
   const lsc = lmpStatusCounts(filteredRecords);
@@ -786,7 +792,13 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     );
   };
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind, filtered, todaySet, candidateCountByLmp);
+    const { rows, title } = snapshotDrill(
+      kind,
+      filtered,
+      todaySet,
+      candidateCountByLmp,
+      convertedCandidateCountByLmp,
+    );
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
@@ -1197,6 +1209,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         rows={filtered}
         todaySet={todaySet}
         zeroCandidateCount={zeroCandidateLmpsCount}
+        convertedCandidateCountByLmp={convertedCandidateCountByLmp}
         onItemClick={openSnapshot}
       />
       </LxSectionBlock>

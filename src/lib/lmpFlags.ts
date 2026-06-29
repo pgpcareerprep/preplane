@@ -11,7 +11,8 @@ export type LmpFlagKey =
   | "stale"
   | "mentor-not-aligned"
   | "prep-doc-not-shared"
-  | "mock-pending";
+  | "mock-pending"
+  | "converted-status-no-converted-candidate";
 
 export type LmpFlagPriority = "high" | "medium" | "low";
 export type LmpFlagAccent = "risk" | "orange" | "yellow" | "success" | "info";
@@ -31,6 +32,12 @@ export const FLAG_META: Record<LmpFlagKey, Omit<LmpFlag, "reason">> = {
   "daily-progress-pending":  { key: "daily-progress-pending",  label: "Update due today",       priority: "medium", accent: "yellow"  },
   "prep-doc-not-shared":     { key: "prep-doc-not-shared",     label: "Prep doc not shared",    priority: "medium", accent: "orange"  },
   "mock-pending":            { key: "mock-pending",            label: "Mock pending",           priority: "medium", accent: "yellow"  },
+  "converted-status-no-converted-candidate": {
+    key: "converted-status-no-converted-candidate",
+    label: "Converted but empty",
+    priority: "high",
+    accent: "risk",
+  },
 };
 
 const PRIORITY_RANK: Record<LmpFlagPriority, number> = { high: 0, medium: 1, low: 2 };
@@ -42,6 +49,8 @@ const ACTIVE_STATUSES = new Set<Process["status"]>([
 export interface FlagExtras {
   /** True if a daily log was recorded for this LMP today. */
   hasDailyLogToday: boolean;
+  /** Live converted-pipeline candidate counts keyed by LMP process id. */
+  convertedCandidateCountByLmp?: Map<string, number>;
 }
 
 export function ageDaysOf(p: Process): number {
@@ -91,6 +100,17 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
     out.push({ ...FLAG_META["mock-pending"], reason: `In ${p.placementProgress}, mock not completed` });
   }
 
+  // Converted status mismatch — LMP marked Converted but no candidate in Converted pipeline
+  if (p.status === "Converted") {
+    const convertedCount = extras.convertedCandidateCountByLmp?.get(p.processId) ?? 0;
+    if (convertedCount === 0) {
+      out.push({
+        ...FLAG_META["converted-status-no-converted-candidate"],
+        reason: "LMP status is Converted but no candidate is in the Converted pipeline",
+      });
+    }
+  }
+
   return out;
 }
 
@@ -101,10 +121,17 @@ export type FlaggedRow = {
   topPriority: LmpFlagPriority;
 };
 
-export function flagRows(rows: Process[], todaySet: Set<string>): FlaggedRow[] {
+export function flagRows(
+  rows: Process[],
+  todaySet: Set<string>,
+  convertedCandidateCountByLmp?: Map<string, number>,
+): FlaggedRow[] {
   const out: FlaggedRow[] = [];
   for (const p of rows) {
-    const flags = computeFlags(p, { hasDailyLogToday: todaySet.has(p.processId) });
+    const flags = computeFlags(p, {
+      hasDailyLogToday: todaySet.has(p.processId),
+      convertedCandidateCountByLmp,
+    });
     if (!flags.length) continue;
     const topPriority = flags.reduce<LmpFlagPriority>(
       (acc, f) => (PRIORITY_RANK[f.priority] < PRIORITY_RANK[acc] ? f.priority : acc),
@@ -127,13 +154,18 @@ export type SnapshotFlagKey =
   | "mentor-not-aligned"
   | "prep-doc-not-shared"
   | "mock-pending"
-  | "stale";
+  | "stale"
+  | "converted-status-no-converted-candidate";
 
 export interface FlagSummary {
   byKey: Record<SnapshotFlagKey, number>;
 }
 
-export function summarizeFlags(rows: Process[], todaySet: Set<string>): FlagSummary {
+export function summarizeFlags(
+  rows: Process[],
+  todaySet: Set<string>,
+  convertedCandidateCountByLmp?: Map<string, number>,
+): FlagSummary {
   const byKey: Record<SnapshotFlagKey, number> = {
     "overdue": 0,
     "daily-progress-pending": 0,
@@ -141,9 +173,13 @@ export function summarizeFlags(rows: Process[], todaySet: Set<string>): FlagSumm
     "prep-doc-not-shared": 0,
     "mock-pending": 0,
     "stale": 0,
+    "converted-status-no-converted-candidate": 0,
   };
   for (const p of rows) {
-    const flags = computeFlags(p, { hasDailyLogToday: todaySet.has(p.processId) });
+    const flags = computeFlags(p, {
+      hasDailyLogToday: todaySet.has(p.processId),
+      convertedCandidateCountByLmp,
+    });
     for (const f of flags) {
       if (f.key in byKey) byKey[f.key as SnapshotFlagKey] += 1;
     }
