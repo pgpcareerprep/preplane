@@ -35,6 +35,9 @@ const AlumniPage         = lazy(() => import("./pages/AlumniPage"));
 const StudentDetailPage  = lazy(() => import("./pages/StudentDetailPage"));
 const HistoryPage        = lazy(() => import("./pages/ImportHistoryPage"));
 
+// Lazy: mobile quick-actions PWA (no AppShell)
+const QuickActionsPage   = lazy(() => import("./pages/QuickActionsPage"));
+
 // Lazy: settings layout + sub-pages
 const SettingsLayout     = lazy(() => import("@/components/settings/SettingsLayout").then(m => ({ default: m.SettingsLayout })));
 const GeneralPage        = lazy(() => import("./pages/settings/GeneralPage"));
@@ -68,6 +71,14 @@ const App = () => (
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/feedback/:token" element={<Suspense fallback={<PageLoader />}><StudentFeedbackPage /></Suspense>} />
+            {/* Mobile PWA quick-actions — no AppShell, no desktop providers */}
+            <Route path="/quick/*" element={
+              <AuthGate>
+                <Suspense fallback={<PageLoader />}>
+                  <QuickActionsPage />
+                </Suspense>
+              </AuthGate>
+            } />
             {/* Protected routes */}
             <Route path="*" element={
               <AuthGate>
