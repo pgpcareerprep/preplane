@@ -26,10 +26,11 @@ function link(pocId: string, lmpId: string, role: "prep" | "support", status: st
   };
 }
 
-function candidate(lmpId: string, studentId: string, primaryDomain?: string): CandidateRaw {
+function candidate(lmpId: string, studentId: string, pipelineStage?: string, primaryDomain?: string): CandidateRaw {
   return {
     lmp_id: lmpId,
     student_id: studentId,
+    ...(pipelineStage ? { pipeline_stage: pipelineStage } : {}),
     students: primaryDomain ? { primary_domain: primaryDomain } : null,
   };
 }
@@ -43,7 +44,7 @@ describe("Student-wise heatmap", () => {
   ];
   const candidates = [
     candidate("lmp1", "s1"),
-    candidate("lmp2", "s2", "Sales"),
+    candidate("lmp2", "s2", "converted", "Sales"),
   ];
 
   it("renders student rows per POC", () => {
@@ -93,7 +94,7 @@ describe("Domain-wise heatmap", () => {
   it("deduplicates global LMP totals", () => {
     const pocs = [poc("p1", "Alice")];
     const links = [link("p1", "lmp1", "prep", "converted", "Sales")];
-    const { summary } = buildDomainWiseData(pocs, links, [candidate("lmp1", "s1", "Sales")]);
+    const { summary } = buildDomainWiseData(pocs, links, [candidate("lmp1", "s1", "converted", "Sales")]);
     expect(summary.totalLmps).toBe(1);
     expect(summary.studentsPlaced).toBe(1);
   });

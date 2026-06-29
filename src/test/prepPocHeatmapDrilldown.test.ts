@@ -49,11 +49,13 @@ function candidate(
   studentId: string,
   name?: string,
   primaryDomain?: string,
+  pipelineStage?: string,
 ): CandidateRaw {
   return {
     lmp_id: lmpId,
     student_id: studentId,
     student_name: name ?? studentId,
+    ...(pipelineStage ? { pipeline_stage: pipelineStage } : {}),
     students: {
       id: studentId,
       name: name ?? studentId,
@@ -80,7 +82,7 @@ function buildFixture() {
     candidate("lmp2", "s2", "Student B", "Sales"),
     candidate("lmp2", "s3", "Student C", "Sales"),
     candidate("lmp3", "s4", "Student D", "Sales"),
-    candidate("lmp4", "s5", "Student E", "Sales"),
+    candidate("lmp4", "s5", "Student E", "Sales", "converted"),
     candidate("lmp5", "s6", "Student F", "Finance"),
     candidate("lmp6", "s7", "Student G", "Finance"),
   ];

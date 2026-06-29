@@ -324,7 +324,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
         label: "Students Placed", minWidth: 96,
         palette: P_SAGE, totalAccent: A_SAGE,
-        tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC.",
+        tooltip: "Distinct students with a valid final placement outcome through LMPs attributed to this POC (pipeline Converted box only).",
       },
     ],
   },

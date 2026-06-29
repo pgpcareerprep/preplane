@@ -3,10 +3,10 @@ import {
   mergeHeatmapAssignmentLinks,
   resolvePlacedStudentIdsOnLmp,
   effectiveStatusBucketForStudentLmp,
+  isCandidateInConvertedPipeline,
   buildSessionCountsByPocStudent,
 } from "@/lib/prepPocHeatmapSources";
 import type { CandidateRaw, LinkRaw } from "@/lib/prepPocHeatmapAgg";
-import { mapStatusToBucket } from "@/lib/prepPocHeatmapAgg";
 
 describe("mergeHeatmapAssignmentLinks", () => {
   it("adds synthetic prep/support links from lmp_processes ids", () => {
@@ -26,35 +26,59 @@ describe("mergeHeatmapAssignmentLinks", () => {
 });
 
 describe("resolvePlacedStudentIdsOnLmp", () => {
-  it("counts pipeline converted even when LMP is prep-done", () => {
-    const candidates: CandidateRaw[] = [{
-      lmp_id: "lmp1",
-      student_id: "s1",
-      pipeline_stage: "converted",
-      students: { name: "Sam" },
-    }];
-    const placed = resolvePlacedStudentIdsOnLmp(
-      mapStatusToBucket("prep-done"),
-      { status: "prep-done", final_converted_names: null },
-      candidates,
-      new Map([["sam", "s1"]]),
-    );
-    expect([...placed]).toEqual(["s1"]);
+  it("counts only candidates in the pipeline Converted box", () => {
+    const candidates: CandidateRaw[] = [
+      { lmp_id: "lmp1", student_id: "s1", pipeline_stage: "converted" },
+      { lmp_id: "lmp1", student_id: "s2", pipeline_stage: "r2" },
+      {
+        lmp_id: "lmp1",
+        student_id: "s3",
+        pipeline_stage: "r1",
+        students: { placement_status: "Placed" },
+      },
+    ];
+    expect([...resolvePlacedStudentIdsOnLmp(candidates)]).toEqual(["s1"]);
   });
 
-  it("matches final_converted_names to roster ids", () => {
-    const placed = resolvePlacedStudentIdsOnLmp(
-      "converted",
-      { status: "converted", final_converted_names: "Aarushi" },
-      [],
-      new Map([["aarushi", "s9"]]),
-    );
-    expect([...placed]).toEqual(["s9"]);
+  it("does not count all candidates when only LMP status would be converted", () => {
+    const candidates: CandidateRaw[] = [
+      { lmp_id: "lmp1", student_id: "s1", pipeline_stage: "r2" },
+      { lmp_id: "lmp1", student_id: "s2", pipeline_stage: "pool" },
+    ];
+    expect(resolvePlacedStudentIdsOnLmp(candidates).size).toBe(0);
+  });
+
+  it("counts converted candidates on prep-ongoing LMPs", () => {
+    const placed = resolvePlacedStudentIdsOnLmp([
+      { lmp_id: "lmp1", student_id: "s1", pipeline_stage: "converted" },
+    ]);
+    expect([...placed]).toEqual(["s1"]);
   });
 });
 
 describe("effectiveStatusBucketForStudentLmp", () => {
-  it("prefers converted pipeline stage", () => {
+  it("uses pipeline converted, not global placement_status", () => {
+    expect(
+      effectiveStatusBucketForStudentLmp("prepOngoing", {
+        lmp_id: "l1",
+        student_id: "s1",
+        pipeline_stage: "r2",
+        students: { placement_status: "Placed" },
+      }),
+    ).toBe("prepOngoing");
+  });
+
+  it("maps converted LMP with non-converted candidate to prep ongoing", () => {
+    expect(
+      effectiveStatusBucketForStudentLmp("converted", {
+        lmp_id: "l1",
+        student_id: "s1",
+        pipeline_stage: "r2",
+      }),
+    ).toBe("prepOngoing");
+  });
+
+  it("returns converted when candidate is in Converted box", () => {
     expect(
       effectiveStatusBucketForStudentLmp("prepDone", {
         lmp_id: "l1",
@@ -62,6 +86,13 @@ describe("effectiveStatusBucketForStudentLmp", () => {
         pipeline_stage: "converted",
       }),
     ).toBe("converted");
+  });
+});
+
+describe("isCandidateInConvertedPipeline", () => {
+  it("matches pipeline stage aliases used by the LMP UI", () => {
+    expect(isCandidateInConvertedPipeline({ lmp_id: "l1", student_id: "s1", pipeline_stage: "offer" })).toBe(true);
+    expect(isCandidateInConvertedPipeline({ lmp_id: "l1", student_id: "s1", pipeline_stage: "r2" })).toBe(false);
   });
 });
 

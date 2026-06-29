@@ -27,8 +27,12 @@ function link(pocId: string, lmpId: string, role: "prep" | "support", status: st
   };
 }
 
-function candidate(lmpId: string, studentId: string): CandidateRaw {
-  return { lmp_id: lmpId, student_id: studentId };
+function candidate(lmpId: string, studentId: string, pipelineStage?: string): CandidateRaw {
+  return {
+    lmp_id: lmpId,
+    student_id: studentId,
+    ...(pipelineStage ? { pipeline_stage: pipelineStage } : {}),
+  };
 }
 
 // ── Status mapping ────────────────────────────────────────────────────────────
@@ -171,8 +175,8 @@ describe("Case 5: One student in multiple LMPs (one converted)", () => {
     link("p1", "lmp2", "prep", "converted"),
   ];
   const candidates = [
-    candidate("lmp1", "s1"),
-    candidate("lmp2", "s1"), // same student in second LMP
+    candidate("lmp1", "s1", "converted"),
+    candidate("lmp2", "s1", "converted"), // same student in second LMP
   ];
   const result = buildHeatmapData(pocs, links, candidates);
   const row = result.rows[0];
@@ -186,7 +190,7 @@ describe("Case 5: One student in multiple LMPs (one converted)", () => {
 describe("Case 6: Duplicate candidate rows (same student twice in same LMP)", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "converted")];
-  const candidates = [candidate("lmp1", "s1"), candidate("lmp1", "s1")];
+  const candidates = [candidate("lmp1", "s1", "converted"), candidate("lmp1", "s1", "converted")];
   const result = buildHeatmapData(pocs, links, candidates);
   const row = result.rows[0];
 
@@ -199,9 +203,9 @@ describe("Case 7: Multiple candidate records for same student", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "converted")];
   const candidates = [
-    candidate("lmp1", "s1"),
-    candidate("lmp1", "s1"), // duplicate
-    candidate("lmp1", "s2"),
+    candidate("lmp1", "s1", "converted"),
+    candidate("lmp1", "s1", "converted"), // duplicate
+    candidate("lmp1", "s2", "converted"),
   ];
   const result = buildHeatmapData(pocs, links, candidates);
   const row = result.rows[0];
@@ -211,10 +215,28 @@ describe("Case 7: Multiple candidate records for same student", () => {
 
 // ── 8. Valid final placement (converted LMP) ───────────────────────────────────
 
-describe("Case 8: Student in converted LMP counts as placed", () => {
+describe("Case 8: Student in pipeline Converted box counts as placed", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "converted")];
-  const candidates = [candidate("lmp1", "s1")];
+  const candidates = [candidate("lmp1", "s1", "converted")];
+  const result = buildHeatmapData(pocs, links, candidates);
+
+  it("studentsPlaced=1", () => expect(result.rows[0].studentsPlaced).toBe(1));
+});
+
+describe("Case 8b: Converted LMP without pipeline Converted does not count all candidates", () => {
+  const pocs = [poc("p1", "Alice")];
+  const links = [link("p1", "lmp1", "prep", "converted")];
+  const candidates = [candidate("lmp1", "s1", "r2")];
+  const result = buildHeatmapData(pocs, links, candidates);
+
+  it("studentsPlaced=0", () => expect(result.rows[0].studentsPlaced).toBe(0));
+});
+
+describe("Case 8c: Prep-ongoing LMP with pipeline Converted candidate counts as placed", () => {
+  const pocs = [poc("p1", "Alice")];
+  const links = [link("p1", "lmp1", "prep", "prep-ongoing")];
+  const candidates = [candidate("lmp1", "s1", "converted")];
   const result = buildHeatmapData(pocs, links, candidates);
 
   it("studentsPlaced=1", () => expect(result.rows[0].studentsPlaced).toBe(1));
@@ -585,9 +607,9 @@ describe("query contract — no candidate_count from lmp_processes", () => {
     const links: LinkRaw[] = [link("p1", "lmp1", "prep", "converted", "Product")];
     // Two candidate rows for the same student — dedup must prevent double-count
     const candidates: CandidateRaw[] = [
-      candidate("lmp1", "student-A"),
-      candidate("lmp1", "student-A"), // duplicate row
-      candidate("lmp1", "student-B"),
+      candidate("lmp1", "student-A", "converted"),
+      candidate("lmp1", "student-A", "converted"), // duplicate row
+      candidate("lmp1", "student-B", "converted"),
     ];
     const result = buildHeatmapData(pocs, links, candidates);
     expect(result.rows[0].studentsPlaced).toBe(2); // deduped, not 3
@@ -611,7 +633,7 @@ describe("query contract — no candidate_count from lmp_processes", () => {
       link("p1", "lmp2", "prep", "not-converted"),
       link("p2", "lmp1", "support", "converted"), // shared LMP — global dedup
     ];
-    const candidates: CandidateRaw[] = [candidate("lmp1", "s1")];
+    const candidates: CandidateRaw[] = [candidate("lmp1", "s1", "converted")];
     const result = buildHeatmapData(pocs, links, candidates);
     expect(result.summary.uniqueLmpCount).toBe(2); // lmp1 + lmp2 globally
     expect(result.summary.uniqueStudentsPlaced).toBe(1); // s1 once

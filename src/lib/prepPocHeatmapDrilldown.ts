@@ -290,6 +290,7 @@ function buildStudentRecord(
   const profile = idx.studentProfileMap.get(studentId);
   const domain = resolveLmpDomainFields(details).display;
   const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
+  const effectiveBucket = effectiveStatusBucketForStudentLmp(bucket, candidate);
 
   return {
     pocId,
@@ -307,7 +308,10 @@ function buildStudentRecord(
     company: details?.company || "",
     role: details?.role || "",
     domain,
-    placementStatus: profile?.placement_status || (bucket === "converted" ? "Converted" : statusBucketLabel(bucket)),
+    placementStatus:
+      effectiveBucket === "converted"
+        ? "Converted"
+        : statusBucketLabel(effectiveBucket),
     placementDate: details?.updated_at || details?.created_at || "",
     primaryPoc: idx.primaryPocsByLmp.get(lmpId) || "",
     supportPoc: idx.supportPocsByLmp.get(lmpId) || "",
@@ -377,19 +381,20 @@ export function buildHeatmapDrilldownSource(
       domainLmps.push({ ...base, domainId, domainName, pocId: "", pocName: "" });
     }
 
-    const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
+    const lmpBucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
     for (const studentId of idx.lmpStudentsMap.get(lmpId) ?? []) {
-      const studentKey = `${domainId}:${studentId}:${bucket}`;
+      const candidate = idx.candidateByStudentLmp.get(`${studentId}:${lmpId}`);
+      const effectiveBucket = effectiveStatusBucketForStudentLmp(lmpBucket, candidate);
+      const studentKey = `${domainId}:${studentId}:${effectiveBucket}`;
       if (seenDomainStudents.has(studentKey)) continue;
       seenDomainStudents.add(studentKey);
 
-      const candidate = idx.candidateByStudentLmp.get(`${studentId}:${lmpId}`);
       const profile = idx.studentProfileMap.get(studentId);
       const details = idx.lmpDetailsById.get(lmpId);
       const matchingDomain = domainName;
-      let outcomeStatus = statusBucketLabel(bucket);
-      if (bucket === "converted") outcomeStatus = "Placed";
-      else if (bucket === "notConverted") outcomeStatus = "Not Placed";
+      let outcomeStatus = statusBucketLabel(effectiveBucket);
+      if (effectiveBucket === "converted") outcomeStatus = "Placed";
+      else if (effectiveBucket === "notConverted") outcomeStatus = "Not Placed";
 
       domainStudents.push({
         pocId: "",
@@ -407,7 +412,8 @@ export function buildHeatmapDrilldownSource(
         company: details?.company || "",
         role: details?.role || "",
         domain: matchingDomain,
-        placementStatus: profile?.placement_status || outcomeStatus,
+        placementStatus:
+          effectiveBucket === "converted" ? "Converted" : outcomeStatus,
         placementDate: details?.updated_at || details?.created_at || "",
         primaryPoc: idx.primaryPocsByLmp.get(lmpId) || "",
         supportPoc: idx.supportPocsByLmp.get(lmpId) || "",

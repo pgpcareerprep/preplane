@@ -3,7 +3,6 @@
  * placed-student detection, and student effective status.
  */
 
-import { parseConvertedNames, normalizeConvertedName } from "@/lib/convertedStudentNames";
 import { isEligiblePrepPocProfile, type PocProfileLike } from "@/lib/prepPocEligibility";
 import { resolveStageToRoundId } from "@/lib/pipelineStage";
 import type {
@@ -30,21 +29,10 @@ export type HeatmapSessionRaw = {
   completed_at: string | null;
 };
 
-const PLACED_STATUS_HINTS = new Set([
-  "placed",
-  "converted",
-  "offer received",
-  "offer-received",
-  "joined",
-  "accepted",
-  "hired",
-]);
-
-export function isPlacedPlacementStatus(status: string | null | undefined): boolean {
-  const s = norm(status);
-  if (!s) return false;
-  if (PLACED_STATUS_HINTS.has(s)) return true;
-  return s.includes("placed") && !s.includes("not placed") && !s.includes("unplaced");
+/** True when the candidate appears in the LMP pipeline Converted column. */
+export function isCandidateInConvertedPipeline(candidate: CandidateRaw | null | undefined): boolean {
+  if (!candidate) return false;
+  return resolveStageToRoundId(candidate.pipeline_stage) === "converted";
 }
 
 export function resolveLmpDomainFields(
@@ -125,57 +113,29 @@ export function filterEligibleHeatmapPocs(pocs: PocRaw[], links: LinkRaw[]): Poc
   return pocs.filter((p) => isEligiblePrepPocProfile(p as PocProfileLike, assignmentPocIds));
 }
 
-export function buildStudentIdByNormalizedName(candidates: CandidateRaw[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const c of candidates) {
-    if (!c.student_id) continue;
-    const names = [
-      c.students?.name,
-      c.student_name,
-      c.students?.roll_no,
-      c.roll_no,
-      c.students?.student_code,
-    ];
-    for (const raw of names) {
-      const key = normalizeConvertedName(String(raw ?? ""));
-      if (key) map.set(key, c.student_id);
-    }
-  }
-  return map;
-}
-
+/**
+ * Student-level outcome bucket for aggregation across a POC's LMPs.
+ * Conversion/placement comes only from the pipeline Converted box — not LMP status
+ * or global students.placement_status.
+ */
 export function effectiveStatusBucketForStudentLmp(
   lmpBucket: StatusBucket,
   candidate?: CandidateRaw | null,
 ): StatusBucket {
-  if (candidate) {
-    if (resolveStageToRoundId(candidate.pipeline_stage) === "converted") return "converted";
-    if (isPlacedPlacementStatus(candidate.students?.placement_status)) return "converted";
-  }
+  if (isCandidateInConvertedPipeline(candidate)) return "converted";
+
+  // LMP may be marked converted/closed while individual candidates remain in earlier rounds.
+  if (lmpBucket === "converted") return "prepOngoing";
   return lmpBucket;
 }
 
-export function resolvePlacedStudentIdsOnLmp(
-  lmpBucket: StatusBucket,
-  details: LmpProcessForHeatmap | undefined,
-  candidatesOnLmp: CandidateRaw[],
-  nameToStudentId: Map<string, string>,
-): Set<string> {
+/** Distinct student_ids whose pipeline_stage is in the Converted box for this LMP. */
+export function resolvePlacedStudentIdsOnLmp(candidatesOnLmp: CandidateRaw[]): Set<string> {
   const placed = new Set<string>();
-
   for (const c of candidatesOnLmp) {
     if (!c.student_id) continue;
-    const effective = effectiveStatusBucketForStudentLmp(lmpBucket, c);
-    if (effective === "converted") placed.add(c.student_id);
+    if (isCandidateInConvertedPipeline(c)) placed.add(c.student_id);
   }
-
-  if (lmpBucket === "converted") {
-    for (const name of parseConvertedNames(details?.final_converted_names)) {
-      const sid = nameToStudentId.get(normalizeConvertedName(name));
-      if (sid) placed.add(sid);
-    }
-  }
-
   return placed;
 }
 

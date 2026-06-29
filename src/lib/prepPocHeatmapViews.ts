@@ -15,13 +15,12 @@ import {
 } from "@/lib/prepPocHeatmapAgg";
 import {
   buildSessionCountsByPocStudent,
-  buildStudentIdByNormalizedName,
-  classifyStudentStatuses,
   effectiveStatusBucketForStudentLmp,
   filterEligibleHeatmapPocs,
   mergeHeatmapAssignmentLinks,
   resolveLmpDomainFields,
   resolvePlacedStudentIdsOnLmp,
+  classifyStudentStatuses,
   type HeatmapSessionRaw,
   type LmpProcessAssignmentRow,
 } from "@/lib/prepPocHeatmapSources";
@@ -122,7 +121,6 @@ function buildSharedIndexes(
   const candidatesByLmp = new Map<string, CandidateRaw[]>();
   const studentProfileMap = new Map<string, CandidateRaw["students"]>();
   const candidateByStudentLmp = new Map<string, CandidateRaw>();
-  const nameToStudentId = buildStudentIdByNormalizedName(candidates);
 
   for (const c of candidates) {
     if (!c.student_id || !c.lmp_id) continue;
@@ -160,7 +158,6 @@ function buildSharedIndexes(
     candidatesByLmp,
     studentProfileMap,
     candidateByStudentLmp,
-    nameToStudentId,
     pocLinkIndex,
     activePrepPocIds,
     eligiblePocs,
@@ -358,13 +355,7 @@ export function buildDomainWiseData(
     const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
     row.byBucket[bucket].add(lmpId);
 
-    const details = idx.lmpDetailsById.get(lmpId);
-    for (const sid of resolvePlacedStudentIdsOnLmp(
-      bucket,
-      details,
-      idx.candidatesByLmp.get(lmpId) ?? [],
-      idx.nameToStudentId,
-    )) {
+    for (const sid of resolvePlacedStudentIdsOnLmp(idx.candidatesByLmp.get(lmpId) ?? [])) {
       row.placedStudents.add(sid);
     }
   }

@@ -1,5 +1,4 @@
 import {
-  buildStudentIdByNormalizedName,
   classifyStudentStatuses,
   filterEligibleHeatmapPocs,
   resolveLmpDomainFields,
@@ -22,8 +21,9 @@ import {
  * Domain load applies to PREP-role LMPs only (primary assignments).
  * LMPs with no domain set are classified as in-domain to avoid false cross-domain noise.
  *
- * Students Placed = distinct student_ids from lmp_candidates
- * where the linked LMP has status = converted / offer-received.
+ * Students Placed = distinct student_ids from lmp_candidates whose
+ * pipeline_stage resolves to the Converted box (same rule as LMP pipeline UI).
+ * LMP process status is used only for LMP-level buckets, not to infer candidate conversion.
  */
 
 export type PocRaw = {
@@ -260,7 +260,6 @@ export function buildHeatmapData(
   _sessions: HeatmapSessionRaw[] = [],
 ): PrepPocHeatmapResponse {
   const eligiblePocs = filterEligibleHeatmapPocs(pocs, links);
-  const nameToStudentId = buildStudentIdByNormalizedName(candidates);
 
   // Index: lmp_id → status bucket
   const lmpStatusMap = new Map<string, StatusBucket>();
@@ -367,7 +366,7 @@ export function buildHeatmapData(
       const bucket = lmpStatusMap.get(id) ?? "unknown";
       const lmpCandidates = candidatesByLmp.get(id) ?? [];
       const studentsMapped = lmpStudentsMap.get(id)?.size ?? 0;
-      const placedOnLmp = resolvePlacedStudentIdsOnLmp(bucket, details, lmpCandidates, nameToStudentId);
+      const placedOnLmp = resolvePlacedStudentIdsOnLmp(lmpCandidates);
       const studentsPlaced = placedOnLmp.size;
       const domain = resolveLmpDomainFields(details).display;
       sourceLmps.push({
@@ -418,7 +417,7 @@ export function buildHeatmapData(
             company: details?.company || "",
             role: details?.role || "",
             domain,
-            placementStatus: candidate?.students?.placement_status || "Converted",
+            placementStatus: "Converted",
             placementDate: details?.updated_at || details?.created_at || "",
             primaryPoc: primaryPocsByLmp.get(id) || "",
             supportPoc: supportPocsByLmp.get(id) || "",
@@ -427,17 +426,10 @@ export function buildHeatmapData(
       }
     }
 
-    // Students placed: merged candidate, pipeline, placement_status, and final_converted_names
+    // Students placed: pipeline Converted box only (per LMP)
     const pocPlacedStudents = new Set<string>();
     for (const id of totalIds) {
-      const bucket = lmpStatusMap.get(id) ?? "unknown";
-      const details = lmpDetailsById.get(id);
-      for (const sid of resolvePlacedStudentIdsOnLmp(
-        bucket,
-        details,
-        candidatesByLmp.get(id) ?? [],
-        nameToStudentId,
-      )) {
+      for (const sid of resolvePlacedStudentIdsOnLmp(candidatesByLmp.get(id) ?? [])) {
         pocPlacedStudents.add(sid);
       }
     }
@@ -504,14 +496,7 @@ export function buildHeatmapData(
   // Global placed students — deduplicated across all POC LMPs
   const globalPlacedStudents = new Set<string>();
   for (const id of scopedLmpIds) {
-    const bucket = lmpStatusMap.get(id) ?? "unknown";
-    const details = lmpDetailsById.get(id);
-    for (const sid of resolvePlacedStudentIdsOnLmp(
-      bucket,
-      details,
-      candidatesByLmp.get(id) ?? [],
-      nameToStudentId,
-    )) {
+    for (const sid of resolvePlacedStudentIdsOnLmp(candidatesByLmp.get(id) ?? [])) {
       globalPlacedStudents.add(sid);
     }
   }
