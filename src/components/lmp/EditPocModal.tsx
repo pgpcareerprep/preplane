@@ -124,7 +124,8 @@ export function EditPocModal({
                   slot === "domain"
                     ? currentDomain === p.name
                     : currentBehavioral === p.name;
-                const overload = p.currentLoad >= p.maxThreshold;
+                const overload = p.maxThreshold > 0 && p.currentLoad >= p.maxThreshold;
+                const showLoad = p.maxThreshold > 0;
                 return (
                   <button
                     key={p.name}
@@ -146,8 +147,11 @@ export function EditPocModal({
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-medium text-n900 truncate">{p.name}</div>
-                      <div className="text-[11px] text-n500 truncate">{p.label}</div>
+                      <div className="text-[11px] text-n500 truncate">
+                        {p.domains.length ? p.domains.join(", ") : "—"}
+                      </div>
                     </div>
+                    {showLoad && (
                     <div className="text-right text-[11px] text-n600 shrink-0 tabular-nums">
                       {p.currentLoad}/{p.maxThreshold}
                       {overload && (
@@ -156,6 +160,7 @@ export function EditPocModal({
                         </span>
                       )}
                     </div>
+                    )}
                     {selected && <Check className="h-4 w-4 text-orange-500 shrink-0" />}
                   </button>
                 );

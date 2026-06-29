@@ -11,6 +11,7 @@ import { ACCESS_LABEL, type PocAccessLevel } from "@/lib/pocDomains";
 import { useCreatePoc, useUpdatePoc, type PocFormValues } from "@/lib/hooks/usePocMutations";
 import { useDomainOptions } from "@/lib/hooks/useDomainOptions";
 import { PocDeleteDialog } from "./PocDeleteDialog";
+import { isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
 
 const ROLE_OPTIONS = [
   { value: "prep_poc", label: "Prep POC" },
@@ -60,7 +61,7 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
               status: (poc.status === "inactive" ? "inactive" : "active"),
               primary_domain: poc.primary_domain ?? "",
               domain_tags: poc.domain_tags ?? [],
-              max_threshold: poc.max_threshold ?? 8,
+              max_threshold: isOutreachOnlyPoc(poc.role_type) ? null : (poc.max_threshold ?? 8),
               access_level: (poc.access_level as PocAccessLevel) ?? "poc",
             }
           : empty,
@@ -72,6 +73,8 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
   const set = <K extends keyof PocFormValues>(k: K, v: PocFormValues[K]) =>
     setValues((s) => ({ ...s, [k]: v }));
 
+  const isOutreach = isOutreachOnlyPoc(values.role_type);
+
   const validate = () => {
     const e: typeof errors = {};
     if (!values.name.trim()) e.name = "Name is required";
@@ -80,7 +83,11 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
     if (!emailTrimmed) e.email = "Email is required so the user can sign in";
     else if (emailTrimmed.length > 255) e.email = "Email too long";
     else if (!/^\S+@\S+\.\S+$/.test(emailTrimmed)) e.email = "Invalid email";
-    if (values.max_threshold < 1 || values.max_threshold > 50) e.max_threshold = "1–50";
+    if (!isOutreach) {
+      if (values.max_threshold == null || values.max_threshold < 1 || values.max_threshold > 50) {
+        e.max_threshold = "1–50";
+      }
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -92,6 +99,7 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
       name: values.name.trim(),
       email: values.email?.trim() || null,
       primary_domain: values.primary_domain || null,
+      max_threshold: isOutreach ? null : values.max_threshold,
     };
     if (isEdit) {
       await update.mutateAsync({ id: poc.id, values: payload, previousName: poc.name });
@@ -155,7 +163,14 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
                   <Label className="text-[12px]">POC Type</Label>
                   <select
                     value={values.role_type}
-                    onChange={(e) => set("role_type", e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setValues((s) => ({
+                        ...s,
+                        role_type: next,
+                        ...(isOutreachOnlyPoc(next) ? { max_threshold: null } : {}),
+                      }));
+                    }}
                     className="mt-1 w-full h-9 rounded-md border bg-card px-3 text-[13px]"
                   >
                     {ROLE_OPTIONS.map((r) => (
@@ -263,19 +278,21 @@ export function PocEditDrawer({ open, onOpenChange, poc }: Props) {
               </div>
             </div>
 
-            {/* Capacity */}
+            {/* Capacity — operational POCs only */}
+            {!isOutreach && (
             <div>
               <Label className="text-[12px]">Max active LMP threshold</Label>
               <Input
                 type="number"
                 min={1}
                 max={50}
-                value={values.max_threshold}
+                value={values.max_threshold ?? 8}
                 onChange={(e) => set("max_threshold", parseInt(e.target.value, 10) || 0)}
                 className="mt-1 w-32"
               />
               {errors.max_threshold && <p className="text-[11px] text-red-600 mt-1">{errors.max_threshold}</p>}
             </div>
+            )}
 
             {/* Actions */}
             <div className="flex items-center justify-between pt-4 border-t">

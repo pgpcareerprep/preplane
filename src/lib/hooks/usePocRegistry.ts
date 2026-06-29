@@ -4,6 +4,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { isOutreachOnlyPoc, pocDomainDisplayLabel } from "@/lib/prepPocEligibility";
 
 export type PocRegistryEntry = {
   id: string;
@@ -44,17 +45,19 @@ function roleTypeToPocType(role_type?: string | null): PocRegistryEntry["poc_typ
 }
 
 export function mapPocProfile(p: any): PocRegistryEntry {
+  const domains = mergePocDomains(p.primary_domain, p.domain_tags);
+  const outreach = isOutreachOnlyPoc(p.role_type);
   return {
     id: p.id,
     name: p.name,
     initials: p.initials || deriveInitials(p.name),
-    label: p.label || p.name,
+    label: pocDomainDisplayLabel(p),
     color: p.color || "bg-orange-200 text-orange-600",
     poc_type: roleTypeToPocType(p.role_type),
-    domains: mergePocDomains(p.primary_domain, p.domain_tags),
+    domains,
     primary_domain: p.primary_domain ?? null,
     skill_tags: p.skill_tags ?? [],
-    max_threshold: p.max_threshold ?? 8,
+    max_threshold: outreach ? 0 : (p.max_threshold ?? 8),
     availability: statusToAvailability(p.status),
     behavioral_pool_member: !!p.behavioral_pool_member,
     company_experience: p.company_experience ?? [],

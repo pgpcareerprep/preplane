@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { clearCachePrefix } from "@/lib/hooks/useDbData";
+import { isOutreachOnlyPoc, pocInternalLabel } from "@/lib/prepPocEligibility";
 
 export type PocFormValues = {
   name: string;
@@ -10,7 +11,7 @@ export type PocFormValues = {
   status: "active" | "inactive";
   primary_domain?: string | null;
   domain_tags: string[];
-  max_threshold: number;
+  max_threshold: number | null;
   access_level?: "admin" | "allocator" | "poc";
 };
 
@@ -53,11 +54,12 @@ function pocDisplayPayload(values: PocFormValues) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("") || values.name.slice(0, 2).toUpperCase();
+  const isOutreach = isOutreachOnlyPoc(values.role_type);
   return {
     initials,
-    label: values.role_type === "outreach_poc" ? "Outreach" : "Prep",
+    label: pocInternalLabel(values.role_type),
     color: "bg-orange-200 text-orange-600",
-    max_threshold: values.max_threshold,
+    max_threshold: isOutreach ? null : values.max_threshold,
   };
 }
 

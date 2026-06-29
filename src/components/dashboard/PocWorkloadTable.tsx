@@ -48,7 +48,7 @@ export function PocWorkloadTable() {
       .map((p) => ({
         name: p.name,
         initials: p.initials,
-        domain: p.label,
+        domain: p.domains.length ? p.domains.join(", ") : "—",
         active: p.currentLoad,
         threshold: p.maxThreshold,
         health: healthFromLoad(p.currentLoad, p.maxThreshold),

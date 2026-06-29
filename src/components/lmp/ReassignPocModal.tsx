@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as ReactQuery from "@tanstack/react-query";
 import { Loader2, Search, X } from "lucide-react";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
-import { isOutreachOnlyPoc } from "@/lib/prepPocEligibility";
+import { isOutreachOnlyPoc, pocRoleTypeLabel } from "@/lib/prepPocEligibility";
 import { supabase } from "@/integrations/supabase/client";
 import { usePocProfiles, useLmpProcesses, clearCachePrefix } from "@/lib/hooks/useDbData";
 import { useRole } from "@/lib/rolesContext";
@@ -432,7 +432,8 @@ export function ReassignPocModal({
                         : outreachIds.includes(p.id);
                   const load = p.active_load ?? 0;
                   const threshold = p.max_threshold ?? 0;
-                  const over = threshold > 0 && load >= threshold;
+                  const over = activeRow !== "outreach" && threshold > 0 && load >= threshold;
+                  const showLoad = activeRow !== "outreach" && threshold > 0;
                   return (
                     <li key={p.id}>
                       <button
@@ -457,8 +458,8 @@ export function ReassignPocModal({
                         <div className="min-w-0 flex-1">
                           <div className="text-[13px] font-medium text-n900 truncate">{p.name}</div>
                           <div className="text-[11.5px] text-n500 truncate">
-                            {p.role_type ?? "POC"}
-                            {threshold > 0 && (
+                            {pocRoleTypeLabel(p.role_type)}
+                            {showLoad && (
                               <>
                                 {" · Load "}
                                 <span className={cn(over && "text-coral-600 font-medium")}>

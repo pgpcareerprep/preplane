@@ -23,6 +23,45 @@ export function isOutreachOnlyPoc(roleType: string | null | undefined): boolean 
   return r === "outreach_poc" || r === "outreach";
 }
 
+/** Operational POCs participate in workload/capacity; outreach POCs do not. */
+export function isOperationalPocRole(roleType: string | null | undefined): boolean {
+  return !isOutreachOnlyPoc(roleType);
+}
+
+/** UI role badge — derived from role_type, not the stored label column. */
+export function pocRoleTypeLabel(roleType: string | null | undefined): string {
+  const r = (roleType ?? "prep_poc").toLowerCase();
+  if (r === "outreach_poc" || r === "outreach") return "Outreach POC";
+  if (r === "admin") return "Admin";
+  if (r === "allocator") return "Allocator";
+  if (r === "support_poc") return "Support POC";
+  return "Prep POC";
+}
+
+/** Internal label persisted on poc_profiles — not used for UI identity. */
+export function pocInternalLabel(roleType: string | null | undefined): string {
+  return pocRoleTypeLabel(roleType);
+}
+
+export function pocDomainDisplayLabel(p: {
+  primary_domain?: string | null;
+  domain_tags?: string[] | null;
+}): string {
+  const primary = (p.primary_domain ?? "").trim();
+  const tags = Array.isArray(p.domain_tags)
+    ? p.domain_tags.map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const d of primary ? [primary, ...tags] : tags) {
+    const key = d.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    parts.push(d);
+  }
+  return parts.length ? parts.join(", ") : "—";
+}
+
 export function pocHasAssignedDomains(p: PocProfileLike): boolean {
   const primary = (p.primary_domain ?? "").trim();
   const tags = Array.isArray(p.domain_tags)

@@ -1026,7 +1026,10 @@ function PocSwitcher({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[12px] font-semibold text-n800 truncate">{p.name}</div>
-                <div className="text-[10px] text-n500">{p.label} · Load {p.currentLoad}/{p.maxThreshold}</div>
+                <div className="text-[10px] text-n500">
+                  {p.label}
+                  {p.maxThreshold > 0 && ` · Load ${p.currentLoad}/${p.maxThreshold}`}
+                </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {inDomain && <span className="text-[9px] font-medium text-sage-700 bg-sage-50 border border-sage-200 px-1.5 py-0.5 rounded-full">In-Domain</span>}

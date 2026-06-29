@@ -43,6 +43,8 @@ function rowToCapability(r: any): PocCapability {
       : normalizedStatus === "on_leave" || normalizedStatus === "leave"
         ? "on_leave"
         : "available";
+  const outreach = rt === "outreach_poc" || rt === "outreach";
+  const domainLabel = domains.length ? domains.join(", ") : "—";
   return {
     id: r.id ?? r.poc_id ?? undefined,
     name: r.name,
@@ -50,11 +52,11 @@ function rowToCapability(r: any): PocCapability {
     domains,
     primaryDomains: r.primary_domain ? [r.primary_domain] : [],
     secondaryDomains: domains.filter((d) => d !== r.primary_domain),
-    label: r.label || r.primary_domain || "POC",
+    label: domainLabel,
     color: r.color || "bg-orange-200 text-orange-600",
     pocType,
     currentLoad: Number(r.live_active_lmp_count ?? r.active_load ?? 0),
-    maxThreshold: Number(r.max_threshold ?? 8),
+    maxThreshold: outreach ? 0 : Number(r.max_threshold ?? 8),
     skillTags: Array.isArray(r.skill_tags) ? r.skill_tags : [],
     lastAssignedAt: r.last_assigned_at ?? r.last_activity_at ?? "",
     availability,

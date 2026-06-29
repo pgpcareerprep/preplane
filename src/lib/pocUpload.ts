@@ -138,8 +138,12 @@ export async function uploadPocs(
       if (!rec.role_type) rec.role_type = "prep_poc";
       if (!rec.status) rec.status = "active";
       if (!rec.domain_tags) rec.domain_tags = [];
-      if (rec.max_threshold == null) rec.max_threshold = 8;
-      else if (rec.max_threshold < 1 || rec.max_threshold > 50) {
+      const isOutreach = rec.role_type === "outreach_poc" || rec.role_type === "outreach";
+      if (isOutreach) {
+        rec.max_threshold = null;
+      } else if (rec.max_threshold == null) {
+        rec.max_threshold = 8;
+      } else if (rec.max_threshold < 1 || rec.max_threshold > 50) {
         errors.push(`Row ${rowNum}: max_threshold ${rec.max_threshold} out of range (1–50) — clamped`);
         rec.max_threshold = Math.max(1, Math.min(50, rec.max_threshold));
       }
