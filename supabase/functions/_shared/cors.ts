@@ -1,8 +1,6 @@
 import { DEFAULT_APP_ORIGIN } from "./appConfig.ts";
 
 const ALLOWED_ORIGINS = new Set<string>([
-  "https://preplane.netlify.app",
-  "https://heroic-nougat-e7d667.netlify.app",
   DEFAULT_APP_ORIGIN,
 ]);
 
