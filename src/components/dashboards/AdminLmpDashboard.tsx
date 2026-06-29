@@ -41,7 +41,7 @@ import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState, type ConvertedStudentDrillRow } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
 import {
-  lmpsForDomain, lmpsForPoc,
+  lmpsForPoc,
   studentsInBucket, studentsByPrimaryDomain, snapshotDrill, countZeroCandidateLmps,
   buildConvertedCandidateCountByLmp,
 } from "@/lib/dashboardDrill";
@@ -1246,7 +1246,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             accent: "teal",
             info: info("attention.best-domain"),
             onClick: bestDomain
-              ? () => openLmps(lmpsForDomain(filtered, bestDomain.name), `${bestDomain.name} · LMPs`)
+              ? () => openDomainLmps(bestDomain.name)
               : undefined,
           },
           {
