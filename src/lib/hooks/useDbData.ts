@@ -302,6 +302,15 @@ async function recomputePipelineStageFields(lmpId: string) {
 }
 
 
+/** User-facing message when candidate insert/update is blocked by RLS. */
+export function formatCandidateAddError(err: unknown): string {
+  const msg = String((err as { message?: string })?.message ?? err ?? "");
+  if (/row-level security|row level security|violates.*policy|\brls\b|42501/i.test(msg)) {
+    return "You are not linked as an operational POC for this LMP. Please ask an admin to verify your POC profile mapping and LMP assignment.";
+  }
+  return msg || "Unknown error";
+}
+
 export function useAddLmpCandidates() {
   const qc = useQueryClient();
   return useMutation({
@@ -369,13 +378,17 @@ export function useAddLmpCandidates() {
         toast({
           title: `${added}/${total} candidates added`,
           description: added === 0
-            ? "All candidates were already linked or blocked by access rules."
+            ? formatCandidateAddError(new Error("blocked by access rules"))
             : `${total - added} were already linked or blocked.`,
         });
       }
     },
     onError: (e: Error) => {
-      toast({ title: "Failed to add candidates", description: e.message, variant: "destructive" });
+      toast({
+        title: "Failed to add candidates",
+        description: formatCandidateAddError(e),
+        variant: "destructive",
+      });
     },
   });
 }

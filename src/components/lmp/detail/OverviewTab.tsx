@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { type LmpRecord, HEALTH_META, STATUS_META } from "@/lib/lmpTypes";
 import { useLmpRows } from "@/lib/sheets/hooks";
-import { useLmpCandidates, useAddLmpCandidates } from "@/lib/hooks/useDbData";
+import { useLmpCandidates, useAddLmpCandidates, formatCandidateAddError } from "@/lib/hooks/useDbData";
 import { useDbLmpId } from "@/lib/hooks/useDbLmpId";
 import { useLmpRounds } from "@/lib/hooks/useLmpRounds";
 import { DEFAULT_ROUNDS, type Round } from "@/lib/lmpProcessMutations";
@@ -129,8 +129,10 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
             toast.warning(`${failures.length} skipped`, { description: failures.join(", ") });
           }
         },
-        onError: (err: any) => {
-          toast.error("Failed to add candidates", { description: err?.message ?? "Unknown error" });
+        onError: (err: unknown) => {
+          toast.error("Failed to add candidates", {
+            description: formatCandidateAddError(err),
+          });
         },
       });
     } catch (err: any) {

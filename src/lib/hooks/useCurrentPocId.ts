@@ -9,6 +9,7 @@ import { useRole } from "@/lib/rolesContext";
  */
 export function useCurrentPocId(): string | null {
   const { user } = useRole();
+  if (user.pocProfileId) return user.pocProfileId;
   const email = (user?.email || "").toLowerCase().trim();
   const { data } = useQuery({
     queryKey: ["current-poc-id", email],
