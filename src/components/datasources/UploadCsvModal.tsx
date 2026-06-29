@@ -23,7 +23,7 @@ import {
   type StudentUploadAssignment,
 } from "@/lib/studentUpload";
 import { useCohorts, usePrograms } from "@/lib/hooks/useCohortProgram";
-import { formatBatchLabel } from "@/lib/cohortProgram";
+import { formatBatchLabel, normalizeProgramCode } from "@/lib/cohortProgram";
 import {
   autoMapPocColumns, uploadPocs, POC_DB_FIELDS, POC_REQUIRED_FIELDS,
 } from "@/lib/pocUpload";
@@ -33,7 +33,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { loadSavedMapping, saveMapping, clearMapping } from "@/lib/columnMappingStore";
 import { UploadReportPanel } from "@/components/upload/UploadReportPanel";
 
-type Step = "pick" | "map" | "assign" | "preview" | "uploading" | "done";
+type Step = "pick" | "map" | "preview" | "uploading" | "done";
 
 function csvEscape(v: unknown): string {
   const s = v == null ? "" : String(v);
@@ -125,7 +125,6 @@ export function UploadCsvModal({
   const [showAllErrors, setShowAllErrors] = useState(false);
   const [assignCohortId, setAssignCohortId] = useState("");
   const [assignProgramId, setAssignProgramId] = useState("");
-  const [useCsvCohortProgram, setUseCsvCohortProgram] = useState(false);
   const [allowReassignment, setAllowReassignment] = useState(false);
 
   const { data: uploadCohorts = [] } = useCohorts(true);
@@ -148,6 +147,7 @@ export function UploadCsvModal({
     "students_template.csv";
   const needsMapping = NEEDS_MAPPING[source];
   const fieldOptions = FIELD_OPTIONS[source];
+  const canPickFile = source !== "student_db" || (!!assignCohortId && !!assignProgramId);
 
   const autoMapFor = (fields: string[]): ColumnMapping[] => {
     if (source === "mentor_union") return autoMapColumns(fields);
@@ -160,7 +160,7 @@ export function UploadCsvModal({
   const reset = () => {
     setFile(null); setStep("pick"); setHeaders([]); setRows([]); setMapping([]); setResult(null); setShowAllErrors(false);
     setUsingSavedMapping(false); setSaveAsDefault(false);
-    setAssignCohortId(""); setAssignProgramId(""); setUseCsvCohortProgram(false); setAllowReassignment(false);
+    setAssignCohortId(""); setAssignProgramId(""); setAllowReassignment(false);
   };
 
   const close = () => { reset(); onOpenChange(false); };
@@ -197,6 +197,10 @@ export function UploadCsvModal({
   };
 
   const handleFile = async (f: File) => {
+    if (source === "student_db" && (!assignCohortId || !assignProgramId)) {
+      toast.error("Select a cohort and program before uploading students.");
+      return;
+    }
     setFile(f);
     const isCsv = /\.csv$/i.test(f.name);
     const isXlsx = /\.xlsx$/i.test(f.name);
@@ -343,16 +347,30 @@ export function UploadCsvModal({
       programId: program.id,
       cohortCode: cohort.code,
       programCode: program.code,
-      useCsvValues: useCsvCohortProgram,
+      useCsvValues: false,
       allowReassignment,
       programs: uploadPrograms,
     };
-  }, [source, assignCohortId, assignProgramId, uploadCohorts, uploadPrograms, useCsvCohortProgram, allowReassignment]);
+  }, [source, assignCohortId, assignProgramId, uploadCohorts, uploadPrograms, allowReassignment]);
 
   const goAfterMap = () => {
-    if (source === "student_db") setStep("assign");
-    else setStep("preview");
+    setStep("preview");
   };
+
+  const studentCsvProgramWarning = useMemo(() => {
+    if (source !== "student_db" || !studentAssignment) return "";
+    const cohortMapping = mapping.find((m) => m.dbField === "cohort");
+    if (!cohortMapping) return "";
+    const selectedProgram = normalizeProgramCode(studentAssignment.programCode);
+    const conflicting = rows.some((row) => {
+      const raw = String(row[cohortMapping.csvColumn] ?? "").trim();
+      if (!raw) return false;
+      return normalizeProgramCode(raw) !== selectedProgram && !normalizeProgramCode(raw).includes(selectedProgram);
+    });
+    return conflicting
+      ? "CSV program differs from selected program. Selected upload program will be used."
+      : "";
+  }, [mapping, rows, source, studentAssignment]);
 
   const downloadValidationReport = () => {
     const csv = "row_number,errors\n" + validation.invalid
@@ -369,6 +387,11 @@ export function UploadCsvModal({
         const r = await uploadMentors(rows, mapping, admin, file?.name || "mentor_union.csv");
         setResult(r);
       } else if (source === "student_db") {
+        if (!studentAssignment) {
+          toast.error("Select a cohort and program before uploading students.");
+          setStep("pick");
+          return;
+        }
         const r = await uploadStudents(rows, mapping, admin, file?.name || "students.csv", studentAssignment);
         setResult(r);
       } else if (source === "poc_db") {
@@ -430,16 +453,68 @@ export function UploadCsvModal({
         <div className="flex-1 overflow-auto px-6 py-5 space-y-4">
           {step === "pick" && (
             <>
+              {source === "student_db" && (
+                <div className="rounded-md border border-n200 bg-card p-4 space-y-3">
+                  <div>
+                    <div className="text-[12px] font-semibold text-n900">Student upload assignment</div>
+                    <p className="text-[12px] text-n500 mt-0.5">
+                      Select the cohort and program before uploading. This assignment will be used for every imported student.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-[12px] font-medium text-n700">Cohort</label>
+                      <select
+                        className="mt-1 w-full h-9 rounded-md border border-n300 bg-card px-2 text-[13px]"
+                        value={assignCohortId}
+                        onChange={(e) => { setAssignCohortId(e.target.value); setAssignProgramId(""); }}
+                      >
+                        <option value="">Select cohort…</option>
+                        {uploadCohorts.map((c) => (
+                          <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[12px] font-medium text-n700">Program</label>
+                      <select
+                        className="mt-1 w-full h-9 rounded-md border border-n300 bg-card px-2 text-[13px]"
+                        value={assignProgramId}
+                        onChange={(e) => setAssignProgramId(e.target.value)}
+                        disabled={!assignCohortId}
+                      >
+                        <option value="">Select program…</option>
+                        {uploadPrograms.map((p) => (
+                          <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {studentAssignment && (
+                    <p className="text-[12px] text-n600">
+                      Batch: <strong>{formatBatchLabel(studentAssignment.cohortCode, studentAssignment.programCode)}</strong>
+                    </p>
+                  )}
+                  <label className="flex items-center gap-2 text-[12px] text-n700 cursor-pointer">
+                    <input type="checkbox" checked={allowReassignment} onChange={(e) => setAllowReassignment(e.target.checked)} />
+                    Allow updating students already assigned to a different cohort/program
+                  </label>
+                </div>
+              )}
               <div
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragOver={(e) => { e.preventDefault(); if (canPickFile) setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => {
                   e.preventDefault(); setDragging(false);
+                  if (!canPickFile) {
+                    toast.error("Select a cohort and program before uploading students.");
+                    return;
+                  }
                   const f = e.dataTransfer.files?.[0]; if (f) handleFile(f);
                 }}
                 className={cn(
                   "rounded-md border-2 border-dashed p-8 text-center transition-colors",
-                  dragging ? "border-orange-500 bg-orange-50" : "border-orange-200 bg-orange-50/40",
+                  !canPickFile ? "border-n200 bg-n50 opacity-75" : dragging ? "border-orange-500 bg-orange-50" : "border-orange-200 bg-orange-50/40",
                 )}
               >
                 <div className="mx-auto h-10 w-10 rounded-md bg-card text-orange-500 grid place-items-center shadow-sm mb-2">
@@ -447,11 +522,17 @@ export function UploadCsvModal({
                 </div>
                 <p className="text-[13px] text-n700">
                   Drop a CSV or Excel file here or{" "}
-                  <button onClick={() => inputRef.current?.click()} className="text-orange-600 font-medium hover:underline">
+                  <button
+                    disabled={!canPickFile}
+                    onClick={() => inputRef.current?.click()}
+                    className={cn("font-medium hover:underline", canPickFile ? "text-orange-600" : "text-n400 cursor-not-allowed")}
+                  >
                     browse
                   </button>
                 </p>
-                <p className="text-[11px] text-n500 mt-1">CSV or Excel · max 20 MB</p>
+                <p className="text-[11px] text-n500 mt-1">
+                  {canPickFile ? "CSV or Excel · max 20 MB" : "Select cohort and program to enable upload"}
+                </p>
                 <input ref={inputRef} type="file" accept=".csv,.xlsx" className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
               </div>
@@ -559,67 +640,6 @@ export function UploadCsvModal({
             </div>
           )}
 
-          {step === "assign" && source === "student_db" && (
-            <div className="space-y-4">
-              <p className="text-[13px] text-n700">Select cohort and program for all uploaded students.</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="text-[12px] font-medium text-n700">Cohort</label>
-                  <select
-                    className="mt-1 w-full h-9 rounded-md border border-n300 bg-card px-2 text-[13px]"
-                    value={assignCohortId}
-                    onChange={(e) => { setAssignCohortId(e.target.value); setAssignProgramId(""); }}
-                  >
-                    <option value="">Select cohort…</option>
-                    {uploadCohorts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[12px] font-medium text-n700">Program</label>
-                  <select
-                    className="mt-1 w-full h-9 rounded-md border border-n300 bg-card px-2 text-[13px]"
-                    value={assignProgramId}
-                    onChange={(e) => setAssignProgramId(e.target.value)}
-                    disabled={!assignCohortId}
-                  >
-                    <option value="">Select program…</option>
-                    {uploadPrograms.map((p) => (
-                      <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              {studentAssignment && (
-                <p className="text-[12px] text-n600">
-                  Batch label: <strong>{formatBatchLabel(studentAssignment.cohortCode, studentAssignment.programCode)}</strong>
-                </p>
-              )}
-              <label className="flex items-center gap-2 text-[12px] text-n700 cursor-pointer">
-                <input type="checkbox" checked={useCsvCohortProgram} onChange={(e) => setUseCsvCohortProgram(e.target.checked)} />
-                Use cohort/program values from CSV when mapped
-              </label>
-              <label className="flex items-center gap-2 text-[12px] text-n700 cursor-pointer">
-                <input type="checkbox" checked={allowReassignment} onChange={(e) => setAllowReassignment(e.target.checked)} />
-                Allow updating students already assigned to a different cohort/program
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={!assignCohortId || !assignProgramId}
-                  onClick={() => setStep("preview")}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-md text-[13px] font-medium px-4 py-2 shadow-sm transition-colors",
-                    assignCohortId && assignProgramId ? "bg-orange-500 hover:bg-orange-600 text-white" : "bg-n200 text-n400 cursor-not-allowed",
-                  )}
-                >
-                  Continue → Preview
-                </button>
-                <button onClick={() => setStep("map")} className="text-[12px] text-n500 hover:text-n700 px-2 py-2">← Back</button>
-              </div>
-            </div>
-          )}
-
           {step === "preview" && (
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -676,6 +696,13 @@ export function UploadCsvModal({
                       <p key={err}>{err}</p>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {source === "student_db" && studentCsvProgramWarning && (
+                <div className="mb-3 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{studentCsvProgramWarning}</span>
                 </div>
               )}
 
@@ -754,11 +781,11 @@ export function UploadCsvModal({
                   onClick={doUpload}
                   disabled={
                     (source === "alumni_db" && aluMissingHeaders.length > 0) ||
-                    (source === "student_db" && studentDuplicateErrors.length > 0)
+                    (source === "student_db" && (studentDuplicateErrors.length > 0 || !studentAssignment))
                   }
                   className={cn("inline-flex items-center gap-2 rounded-md text-[13px] font-medium px-4 py-2 shadow-sm transition-colors",
                     (source === "alumni_db" && aluMissingHeaders.length > 0) ||
-                    (source === "student_db" && studentDuplicateErrors.length > 0)
+                    (source === "student_db" && (studentDuplicateErrors.length > 0 || !studentAssignment))
                       ? "bg-n200 text-n400 cursor-not-allowed"
                       : "bg-orange-500 hover:bg-orange-600 text-white")}
                 >

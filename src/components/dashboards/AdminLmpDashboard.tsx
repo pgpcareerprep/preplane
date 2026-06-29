@@ -50,6 +50,8 @@ import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
 import { CohortSummaryCard } from "@/components/dashboard/CohortSummaryCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
+import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/ui/multi-select-filter";
+import { formatBatchLabel } from "@/lib/cohortProgram";
 import type { ReactNode } from "react";
 
 import { parseConvertedNames, normalizeConvertedName } from "@/lib/convertedStudentNames";
@@ -77,6 +79,18 @@ type DomainAnalyticsRow = {
   studentsOpted: number;
   conversionPct: number | null;
   insight: "Highest load" | "Strong conversion" | "Balanced" | "Watchlist" | "No current load";
+};
+
+type StudentProgramGroup = {
+  key: string;
+  label: string;
+  cohortId: string | null;
+  programId: string | null;
+  total: number;
+  single: number;
+  multiple: number;
+  inactive: number;
+  optedOut: number;
 };
 
 const ACTIVE_LMP_STATUSES = new Set(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
@@ -114,6 +128,19 @@ function canonicalStatus(status: import("@/types/lmp").LmpStatus): CanonicalLmpS
   return canonicalLmpStatus(status);
 }
 
+function bucketStudent(group: StudentProgramGroup, activeLmpCount: number, placementStatus?: string | null) {
+  group.total += 1;
+  if (isOptedOutStatus(placementStatus)) {
+    group.optedOut += 1;
+  } else if (activeLmpCount === 0) {
+    group.inactive += 1;
+  } else if (activeLmpCount === 1) {
+    group.single += 1;
+  } else {
+    group.multiple += 1;
+  }
+}
+
 export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
   const { user } = useRole();
   const {
@@ -123,19 +150,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     prepPocOptions,
   } = useDashboardFilterOptions();
   const { pocLmpIdsMap } = useEligiblePrepPocs();
-  // Total student count from canonical students DB (independent of any filter).
-  const { data: totalStudentsDb = 0 } = useQuery({
-    queryKey: ["students_total_count"],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("students")
-        .select("*", { count: "exact", head: true });
-      if (error) throw new Error(error.message);
-      return count ?? 0;
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
   // Live student roster (name + cohort + domain + lmp counts) — drives cohort, domain & participation cards.
   const { data: studentRoster = [] } = useQuery({
     queryKey: ["students_roster_full"],
@@ -252,14 +266,55 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const studentFilterState = useStudentFilters();
   const { data: cohortMaster = [] } = useCohorts(false);
   const { data: programMaster = [] } = usePrograms(null, false);
+  const cohortById = useMemo(() => new Map(cohortMaster.map((c) => [c.id, c])), [cohortMaster]);
+  const selectedCohortSet = useMemo(() => new Set(studentFilterState.cohortIds), [studentFilterState.cohortIds]);
+  const cohortFilterOptions = useMemo<MultiSelectFilterOption[]>(
+    () => cohortMaster.map((c) => ({
+      value: c.id,
+      label: c.code,
+      description: c.name,
+    })),
+    [cohortMaster],
+  );
+  const studentProgramOptions = useMemo<MultiSelectFilterOption[]>(() => {
+    const scoped = studentFilterState.cohortIds.length
+      ? programMaster.filter((p) => selectedCohortSet.has(p.cohort_id))
+      : programMaster;
+    const codeCounts = scoped.reduce((acc, p) => {
+      acc.set(p.code, (acc.get(p.code) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+    const showCohortPrefix = studentFilterState.cohortIds.length !== 1;
+    return scoped.map((p) => {
+      const cohortCode = cohortById.get(p.cohort_id)?.code ?? "";
+      const duplicateCode = (codeCounts.get(p.code) ?? 0) > 1;
+      return {
+        value: p.id,
+        label: showCohortPrefix || duplicateCode ? `${cohortCode} · ${p.code}` : p.code,
+        description: p.name,
+      };
+    });
+  }, [cohortById, programMaster, selectedCohortSet, studentFilterState.cohortIds]);
+  const setStudentCohortIds = (cohortIds: string[]) => {
+    const allowedProgramIds = new Set(
+      (cohortIds.length ? programMaster.filter((p) => cohortIds.includes(p.cohort_id)) : programMaster)
+        .map((p) => p.id),
+    );
+    studentFilterState.setCohortIds(cohortIds);
+    studentFilterState.setProgramIds(studentFilterState.programIds.filter((id) => allowedProgramIds.has(id)));
+  };
   const enrichedStudentRoster = useMemo(
     () =>
       studentRoster.map((s) => ({
         ...s,
-        cohortCode: cohortMaster.find((c) => c.id === s.cohortId)?.code ?? "",
+        cohort_id: s.cohortId,
+        program_id: s.programId,
+        cohort_code: cohortById.get(s.cohortId ?? "")?.code ?? "",
+        program_code: programMaster.find((p) => p.id === s.programId)?.code ?? "",
+        cohortCode: cohortById.get(s.cohortId ?? "")?.code ?? "",
         programCode: programMaster.find((p) => p.id === s.programId)?.code ?? "",
       })),
-    [studentRoster, cohortMaster, programMaster],
+    [studentRoster, cohortById, programMaster],
   );
   const scopedStudentRoster = useFilteredStudentRoster(
     enrichedStudentRoster,
@@ -378,21 +433,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       else { multiple += 1; active += 1; }
     });
 
-    // Cohort split — opted-out is its own segment
-    const cohortAgg: Record<string, { total: number; single: number; multiple: number; inactive: number; optedOut: number }> = {};
-    scopedStudentRoster.filter((s) => s.name && s.cohort).forEach((s) => {
-      const b = cohortAgg[s.cohort] ?? { total: 0, single: 0, multiple: 0, inactive: 0, optedOut: 0 };
-      b.total += 1;
-      if (isOptedOutStatus(s.placementStatus)) { b.optedOut += 1; }
-      else {
-        const c = s.activeLmpCount;
-        if (c === 0) b.inactive += 1;
-        else if (c === 1) b.single += 1;
-        else b.multiple += 1;
-      }
-      cohortAgg[s.cohort] = b;
-    });
-
     return {
       optedOutStudents: optedOut,
       eligibleStudents: scopedStudentRoster.length - optedOut,
@@ -400,19 +440,84 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       noActiveProcess: noActive,
       singleProcess: single,
       multipleProcesses: multiple,
-      cohortAgg,
     };
   }, [scopedStudentRoster]);
+
+  const studentProgramGroups = useMemo(() => {
+    const scopedPrograms = programMaster.filter((program) => {
+      if (studentFilterState.cohortIds.length && !studentFilterState.cohortIds.includes(program.cohort_id)) return false;
+      if (studentFilterState.programIds.length && !studentFilterState.programIds.includes(program.id)) return false;
+      return true;
+    });
+    const showCohortPrefix = studentFilterState.cohortIds.length !== 1;
+    const codeCounts = scopedPrograms.reduce((acc, program) => {
+      acc.set(program.code, (acc.get(program.code) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+    const groups = new Map<string, StudentProgramGroup>();
+    for (const program of scopedPrograms) {
+      const cohort = cohortById.get(program.cohort_id);
+      const duplicateCode = (codeCounts.get(program.code) ?? 0) > 1;
+      const label = showCohortPrefix || duplicateCode
+        ? `${cohort?.code ?? "—"} · ${program.code}`
+        : program.code;
+      groups.set(program.id, {
+        key: program.id,
+        label,
+        cohortId: program.cohort_id,
+        programId: program.id,
+        total: 0,
+        single: 0,
+        multiple: 0,
+        inactive: 0,
+        optedOut: 0,
+      });
+    }
+
+    for (const student of scopedStudentRoster) {
+      const programId = student.programId ?? student.program_id ?? null;
+      const cohortId = student.cohortId ?? student.cohort_id ?? null;
+      const key = programId ?? `unassigned:${cohortId ?? "none"}`;
+      if (!groups.has(key)) {
+        const cohortCode = cohortById.get(cohortId ?? "")?.code ?? student.cohortCode ?? student.cohort_code ?? "Unassigned";
+        const programCode = student.programCode ?? student.program_code ?? "Unassigned";
+        groups.set(key, {
+          key,
+          label: cohortId || programId ? formatBatchLabel(cohortCode, programCode) || programCode : "Unassigned",
+          cohortId,
+          programId,
+          total: 0,
+          single: 0,
+          multiple: 0,
+          inactive: 0,
+          optedOut: 0,
+        });
+      }
+      bucketStudent(groups.get(key)!, student.activeLmpCount ?? 0, student.placementStatus);
+    }
+
+    return [...groups.values()].sort((a, b) => {
+      const cohortCmp = (cohortById.get(a.cohortId ?? "")?.code ?? "").localeCompare(cohortById.get(b.cohortId ?? "")?.code ?? "");
+      if (cohortCmp) return cohortCmp;
+      return a.label.localeCompare(b.label);
+    });
+  }, [
+    cohortById,
+    programMaster,
+    scopedStudentRoster,
+    studentFilterState.cohortIds,
+    studentFilterState.programIds,
+  ]);
 
   /* ─────── Students in selected LMPs (candidate-based) ─────── */
   const studentsInSelectedLmps = useMemo(() => {
     const uniqueKeys = new Set<string>();
     filteredCandidates.forEach((c) => uniqueKeys.add(getCandidateIdentityKey(c)));
-    const rosterKeyMap = new Map<string, typeof studentRoster[0]>();
-    studentRoster.forEach((s) => rosterKeyMap.set(getStudentIdentityKey(s), s));
+    const rosterKeyMap = new Map<string, typeof scopedStudentRoster[0]>();
+    scopedStudentRoster.forEach((s) => rosterKeyMap.set(getStudentIdentityKey(s), s));
     const rows = Array.from(uniqueKeys).map((k) => rosterKeyMap.get(k)).filter((s): s is typeof studentRoster[0] => !!s);
-    return { count: uniqueKeys.size, rows };
-  }, [filteredCandidates, studentRoster]);
+    return { count: rows.length, rows };
+  }, [filteredCandidates, scopedStudentRoster]);
 
   /* ─────── Converted students KPI (pipeline Converted box only) ─────── */
   const convertedStudentsData = useMemo(() => {
@@ -420,9 +525,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const seenStudentLmp = new Set<string>();
     const rows: ConvertedStudentDrillRow[] = [];
 
-    const rosterByKey = new Map<string, typeof studentRoster[0]>();
-    const rosterById = new Map<string, typeof studentRoster[0]>();
-    studentRoster.forEach((s) => {
+    const rosterByKey = new Map<string, typeof scopedStudentRoster[0]>();
+    const rosterById = new Map<string, typeof scopedStudentRoster[0]>();
+    scopedStudentRoster.forEach((s) => {
       rosterByKey.set(getStudentIdentityKey(s), s);
       if (s.id) rosterById.set(s.id, s);
     });
@@ -434,6 +539,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
         const rosterKey = getCandidateIdentityKey(cand);
         const student = rosterByKey.get(rosterKey) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
+        if (!student) continue;
         const identity = getCanonicalStudentIdentity(cand, student);
         const dedupKey = `${identity}::${rec.id}`;
         if (seenStudentLmp.has(dedupKey)) continue;
@@ -450,9 +556,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             "",
           email: student?.email || cand.email || "",
           phone: student?.phone || "",
-          cohort: student?.cohort || "—",
-          primaryDomain: student?.primaryDomain || "—",
-          secondaryDomain: student?.secondaryDomain || "—",
+          cohort: formatBatchLabel(student.cohortCode, student.programCode) || student.cohort || "—",
+          primaryDomain: student.primaryDomain || "—",
+          secondaryDomain: student.secondaryDomain || "—",
           company: (rec as any).company || "—",
           role: (rec as any).role || "—",
           lmpDomain: (rec as any).domain || "—",
@@ -464,28 +570,36 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
           closingDate: (rec as any).closingDate || "—",
           lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
           lmpId: rec.id,
-          matchStatus: student ? "matched" : "not_matched",
+          matchStatus: "matched",
         });
       }
     }
 
     return { uniqueCount: uniqueStudents.size, recordCount: rows.length, rows };
-  }, [filteredRecords, candidatesByLmp, studentRoster]);
+  }, [filteredRecords, candidatesByLmp, scopedStudentRoster]);
 
-  const convertedPerCohort = useMemo(() => {
+  const convertedPerProgramGroup = useMemo(() => {
+    const groupKeyByStudentIdentity = new Map<string, string>();
+    for (const student of scopedStudentRoster) {
+      const identity = (student.email ?? "").trim().toLowerCase() || normalizeConvertedName(student.name);
+      const programId = student.programId ?? student.program_id ?? null;
+      const cohortId = student.cohortId ?? student.cohort_id ?? null;
+      if (identity) groupKeyByStudentIdentity.set(identity, programId ?? `unassigned:${cohortId ?? "none"}`);
+    }
     const m = new Map<string, number>();
     const seen = new Set<string>();
     for (const row of convertedStudentsData.rows) {
-      if (row.matchStatus !== "matched" || !row.cohort || row.cohort === "—") continue;
       const identity = row.email.trim().toLowerCase() || normalizeConvertedName(row.studentName);
       if (!identity) continue;
-      const dedup = `${row.cohort}::${identity}`;
+      const groupKey = groupKeyByStudentIdentity.get(identity);
+      if (!groupKey) continue;
+      const dedup = `${groupKey}::${identity}`;
       if (seen.has(dedup)) continue;
       seen.add(dedup);
-      m.set(row.cohort, (m.get(row.cohort) ?? 0) + 1);
+      m.set(groupKey, (m.get(groupKey) ?? 0) + 1);
     }
     return m;
-  }, [convertedStudentsData.rows]);
+  }, [convertedStudentsData.rows, scopedStudentRoster]);
 
   const todaySet = useTodayDailyLogIds();
   const [drill, setDrill] = useState<DrillState | null>(null);
@@ -853,34 +967,30 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         typeOptions={typeOptions}
         showPrepPoc
         showOutreachPoc
+        right={
+          <>
+            <MultiSelectFilter
+              label="Cohort"
+              placeholder="All cohorts"
+              options={cohortFilterOptions}
+              selected={studentFilterState.cohortIds}
+              onChange={setStudentCohortIds}
+            />
+            <MultiSelectFilter
+              label="Program"
+              placeholder="All programs"
+              options={studentProgramOptions}
+              selected={studentFilterState.programIds}
+              onChange={studentFilterState.setProgramIds}
+            />
+            {studentFilterState.hasFilters && (
+              <button type="button" className="text-[12px] text-orange-600 hover:underline" onClick={studentFilterState.clear}>
+                Clear
+              </button>
+            )}
+          </>
+        }
       />
-
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Student scope</span>
-        <select
-          className="h-8 rounded-md border border-input bg-background px-2 text-[12px]"
-          value={studentFilterState.cohortIds[0] ?? ""}
-          onChange={(e) => studentFilterState.setCohortIds(e.target.value ? [e.target.value] : [])}
-        >
-          <option value="">All cohorts</option>
-          {cohortMaster.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-        </select>
-        <select
-          className="h-8 rounded-md border border-input bg-background px-2 text-[12px]"
-          value={studentFilterState.programIds[0] ?? ""}
-          onChange={(e) => studentFilterState.setProgramIds(e.target.value ? [e.target.value] : [])}
-        >
-          <option value="">All programs</option>
-          {programMaster
-            .filter((p) => !studentFilterState.cohortIds[0] || p.cohort_id === studentFilterState.cohortIds[0])
-            .map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}
-        </select>
-        {studentFilterState.hasFilters && (
-          <button type="button" className="text-[12px] text-orange-600 hover:underline" onClick={studentFilterState.clear}>
-            Clear filters
-          </button>
-        )}
-      </div>
 
       {/* ─────── SECTION 1: LMP Health Summary ─────── */}
       <LmpHealthSummaryCard
@@ -1117,7 +1227,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       {/* Row 1 — 8 KPI cards in one row */}
       <div className="overflow-x-auto -mx-1 px-1 pb-1">
         <div className="grid grid-cols-8 gap-6 min-w-[1040px]">
-        <LxKpi compact label="Total Students" accent="info" value={totalStudentsDb}
+        <LxKpi compact label="Total Students" accent="info" value={scopedStudentRoster.length}
           sub="Live · students DB" info={info("admin.students.total-db")}
           onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(scopedStudentRoster, { bucket: "all" }) })} />
         <LxKpi compact label="Students in Selected LMPs" accent="teal" value={studentsInSelectedLmps.count}
@@ -1151,47 +1261,58 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         </div>
       </div>
 
-      {/* Row 2 — cohort distribution */}
+      {/* Row 2 — program distribution */}
       <LxGrid>
-        {Object.keys(studentStats.cohortAgg).length === 0 ? (
+        {studentProgramGroups.length === 0 ? (
           <LxCard span={12}>
             <div className="px-4 py-8 text-center text-[12px]" style={{ color: "var(--lx-text-3)" }}>
-              No students in DB yet.
+              No students in selected cohort/program yet.
             </div>
           </LxCard>
         ) : (
-          Object.entries(studentStats.cohortAgg)
-            .filter(([, c]) => c && typeof c === "object")
-            .sort((a, b) => (b[1]?.total ?? 0) - (a[1]?.total ?? 0))
-            .map(([cohort, c]) => {
-              const eligible = c.total - c.optedOut;
-              const active = c.single + c.multiple;
-              const cohortConverted = convertedPerCohort.get(cohort) ?? 0;
-              const convPct = eligible > 0 ? (cohortConverted / eligible) * 100 : null;
-              const openCohort = (bucket: "single" | "multiple" | "no-active" | "opted-out" | "all", subtitle: string) =>
-                setDrill({ kind: "students", title: `${cohort} · ${subtitle}`, rows: studentsInBucket(scopedStudentRoster, { cohort, bucket }) });
+          studentProgramGroups
+            .map((group) => {
+              const eligible = group.total - group.optedOut;
+              const active = group.single + group.multiple;
+              const converted = convertedPerProgramGroup.get(group.key) ?? 0;
+              const convPct = eligible > 0 ? (converted / eligible) * 100 : null;
+              const openProgram = (bucket: "single" | "multiple" | "no-active" | "opted-out" | "all", subtitle: string) =>
+                setDrill({
+                  kind: "students",
+                  title: `${group.label} · ${subtitle}`,
+                  rows: studentsInBucket(scopedStudentRoster, {
+                    cohortId: group.cohortId ?? undefined,
+                    programId: group.programId ?? undefined,
+                    bucket,
+                  }),
+                });
 
-              const cohortCsvRows = studentsInBucket(scopedStudentRoster, { cohort, bucket: "all" });
-              const exportCohortCsv = () => {
+              const programCsvRows = studentsInBucket(scopedStudentRoster, {
+                cohortId: group.cohortId ?? undefined,
+                programId: group.programId ?? undefined,
+                bucket: "all",
+              });
+              const exportProgramCsv = () => {
                 const h = ["name", "email", "cohort", "primaryDomain", "secondaryDomain", "placementStatus", "activeLmpCount", "lmpCount"];
-                const body = cohortCsvRows.map((s) => h.map((k) => csvEscape((s as any)[k])).join(",")).join("\n");
-                downloadDashboardCsv(`cohort-${cohort.replace(/\s+/g, "-").toLowerCase()}.csv`, `${h.join(",")}\n${body}`);
+                const body = programCsvRows.map((s) => h.map((k) => csvEscape((s as any)[k])).join(",")).join("\n");
+                downloadDashboardCsv(`program-${group.label.replace(/\s+/g, "-").toLowerCase()}.csv`, `${h.join(",")}\n${body}`);
               };
 
               return (
                 <CohortSummaryCard
-                  key={cohort}
-                  cohort={cohort}
-                  total={c.total}
+                  key={group.key}
+                  eyebrow="Program"
+                  cohort={group.label}
+                  total={group.total}
                   eligible={eligible}
                   active={active}
-                  converted={cohortConverted}
-                  cohortConverted={cohortConverted}
+                  converted={converted}
+                  cohortConverted={converted}
                   convPct={convPct}
-                  single={c.single}
-                  multiple={c.multiple}
-                  inactive={c.inactive}
-                  optedOut={c.optedOut}
+                  single={group.single}
+                  multiple={group.multiple}
+                  inactive={group.inactive}
+                  optedOut={group.optedOut}
                   onSegmentClick={(bucket) => {
                     const subtitles: Record<typeof bucket, string> = {
                       single: "in 1 active process",
@@ -1199,9 +1320,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                       "no-active": "no active process",
                       "opted-out": "opted out",
                     };
-                    openCohort(bucket, subtitles[bucket]);
+                    openProgram(bucket, subtitles[bucket]);
                   }}
-                  onExport={exportCohortCsv}
+                  onExport={exportProgramCsv}
                 />
               );
             })

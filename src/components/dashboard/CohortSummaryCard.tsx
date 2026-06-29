@@ -24,6 +24,7 @@ const SEGMENTS: Array<{
 
 export type CohortSummaryCardProps = {
   cohort: string;
+  eyebrow?: string;
   total: number;
   eligible: number;
   active: number;
@@ -40,6 +41,7 @@ export type CohortSummaryCardProps = {
 
 export function CohortSummaryCard({
   cohort,
+  eyebrow = "Cohort",
   total,
   eligible,
   active,
@@ -85,7 +87,7 @@ export function CohortSummaryCard({
             className="text-[10px] font-semibold uppercase tracking-[0.06em]"
             style={{ color: "var(--lx-text-3)" }}
           >
-            Cohort
+            {eyebrow}
           </div>
           <h3
             className="text-[18px] font-semibold leading-tight tracking-[-0.01em] truncate"

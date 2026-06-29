@@ -35,15 +35,25 @@ export function filterStudentsByCohortProgram<T extends StudentCohortFields>(
   if (!cohortIds.length && !programIds.length) return rows;
   return rows.filter((s) => {
     if (cohortIds.length) {
-      const matchId = s.cohort_id && cohortIds.includes(s.cohort_id);
+      const studentCohortId = s.cohort_id ?? s.cohortId;
+      const matchId = studentCohortId && cohortIds.includes(studentCohortId);
       const code = getStudentCohortCode(s, cohorts);
       const matchCode = code && cohortIds.some((id) => cohorts?.find((c) => c.id === id)?.code === code);
       if (!matchId && !matchCode) return false;
     }
     if (programIds.length) {
-      const matchId = s.program_id && programIds.includes(s.program_id);
+      const studentProgramId = s.program_id ?? s.programId;
+      const studentCohortId = s.cohort_id ?? s.cohortId;
+      const studentCohortCode = getStudentCohortCode(s, cohorts);
+      const matchId = studentProgramId && programIds.includes(studentProgramId);
       const code = getStudentProgramCode(s, programs);
-      const matchCode = code && programIds.some((id) => programs?.find((p) => p.id === id)?.code === code);
+      const matchCode = code && programIds.some((id) => {
+        const program = programs?.find((p) => p.id === id);
+        if (!program || program.code !== code) return false;
+        if (studentCohortId) return program.cohort_id === studentCohortId;
+        const programCohortCode = cohorts?.find((c) => c.id === program.cohort_id)?.code;
+        return !programCohortCode || !studentCohortCode || programCohortCode === studentCohortCode;
+      });
       if (!matchId && !matchCode) return false;
     }
     return true;

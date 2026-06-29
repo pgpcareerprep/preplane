@@ -6,6 +6,8 @@ export type ProgramRow = Tables<"programs">;
 export type StudentCohortFields = {
   cohort_id?: string | null;
   program_id?: string | null;
+  cohortId?: string | null;
+  programId?: string | null;
   cohort?: string | null;
   cohort_code?: string | null;
   cohort_name?: string | null;
@@ -51,7 +53,7 @@ export function getStudentProgramCode(
   programs?: ProgramRow[],
 ): string {
   if (student.program_code) return student.program_code;
-  const prog = programs?.find((p) => p.id === student.program_id);
+  const prog = programs?.find((p) => p.id === (student.program_id ?? student.programId));
   if (prog) return prog.code;
   return deriveLegacyProgramCode(student.cohort, student.roll_no);
 }
@@ -61,7 +63,7 @@ export function getStudentCohortCode(
   cohorts?: CohortRow[],
 ): string {
   if (student.cohort_code) return student.cohort_code;
-  const co = cohorts?.find((c) => c.id === student.cohort_id);
+  const co = cohorts?.find((c) => c.id === (student.cohort_id ?? student.cohortId));
   if (co) return co.code;
   return "";
 }

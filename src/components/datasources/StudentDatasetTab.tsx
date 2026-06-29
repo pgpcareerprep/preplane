@@ -16,6 +16,7 @@ import { exportTableToCsv, dateStamp } from "@/lib/exportCsv";
 import { CreateCohortModal } from "./CreateCohortModal";
 import { AddProgramModal } from "./AddProgramModal";
 import { cn } from "@/lib/utils";
+import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/ui/multi-select-filter";
 
 const PAGE_SIZE = 50;
 
@@ -44,6 +45,31 @@ export function StudentDatasetTab({ onUpload }: Props) {
   const { data: cohorts = [] } = useCohorts(false);
   const { data: allPrograms = [] } = usePrograms(null, false);
   const { names: domains, display: domainDisplay, matches: domainMatches } = useResolveDomain();
+  const cohortById = useMemo(() => new Map(cohorts.map((c) => [c.id, c])), [cohorts]);
+  const selectedCohortSet = useMemo(() => new Set(cohortFilter), [cohortFilter]);
+  const cohortOptions = useMemo<MultiSelectFilterOption[]>(
+    () => cohorts.map((c) => ({ value: c.id, label: c.code, description: c.name })),
+    [cohorts],
+  );
+  const programOptions = useMemo<MultiSelectFilterOption[]>(() => {
+    const scoped = cohortFilter.length
+      ? allPrograms.filter((p) => selectedCohortSet.has(p.cohort_id))
+      : allPrograms;
+    const codeCounts = scoped.reduce((acc, p) => {
+      acc.set(p.code, (acc.get(p.code) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+    const showCohortPrefix = cohortFilter.length !== 1;
+    return scoped.map((p) => {
+      const cohortCode = cohortById.get(p.cohort_id)?.code ?? "";
+      const duplicateCode = (codeCounts.get(p.code) ?? 0) > 1;
+      return {
+        value: p.id,
+        label: showCohortPrefix || duplicateCode ? `${cohortCode} · ${p.code}` : p.code,
+        description: p.name,
+      };
+    });
+  }, [allPrograms, cohortById, cohortFilter, selectedCohortSet]);
 
   const { data: students = [], isLoading } = useStudentsDataset({
     search,
@@ -94,9 +120,23 @@ export function StudentDatasetTab({ onUpload }: Props) {
   const toggleCohort = (id: string) => {
     setCohortFilter((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      if (next.length !== 1) setProgramFilter([]);
+      const allowedProgramIds = new Set(
+        (next.length ? allPrograms.filter((p) => next.includes(p.cohort_id)) : allPrograms)
+          .map((p) => p.id),
+      );
+      setProgramFilter((current) => current.filter((programId) => allowedProgramIds.has(programId)));
       return next;
     });
+    setPage(1);
+  };
+
+  const setCohorts = (ids: string[]) => {
+    const allowedProgramIds = new Set(
+      (ids.length ? allPrograms.filter((p) => ids.includes(p.cohort_id)) : allPrograms)
+        .map((p) => p.id),
+    );
+    setCohortFilter(ids);
+    setProgramFilter((current) => current.filter((programId) => allowedProgramIds.has(programId)));
     setPage(1);
   };
 
@@ -245,6 +285,20 @@ export function StudentDatasetTab({ onUpload }: Props) {
             </button>
           )}
         </div>
+        <MultiSelectFilter
+          label="Cohort"
+          placeholder="All cohorts"
+          options={cohortOptions}
+          selected={cohortFilter}
+          onChange={setCohorts}
+        />
+        <MultiSelectFilter
+          label="Program"
+          placeholder="All programs"
+          options={programOptions}
+          selected={programFilter}
+          onChange={(ids) => { setProgramFilter(ids); setPage(1); }}
+        />
         <select
           className="h-8 rounded-md border border-input bg-background px-2 text-[13px]"
           value={placementStatus}
