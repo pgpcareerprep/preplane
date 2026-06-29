@@ -13,6 +13,8 @@ import {
   isOptedOutStatus,
   OPTED_OUT_STATUSES,
   getStudentIdentityKey,
+  getCanonicalStudentIdentity,
+  isCandidatePipelineConverted,
 } from "@/lib/studentAnalytics";
 
 /* ─────────────────────────────── normalizePlacementStatus ─────────────────── */
@@ -103,5 +105,35 @@ describe("getStudentIdentityKey", () => {
     expect(idKey).not.toBe(emailKey);
     expect(idKey.startsWith("id:")).toBe(true);
     expect(emailKey.startsWith("email:")).toBe(true);
+  });
+});
+
+describe("isCandidatePipelineConverted", () => {
+  it("accepts pipeline converted and legacy aliases", () => {
+    expect(isCandidatePipelineConverted({ pipelineStage: "converted" })).toBe(true);
+    expect(isCandidatePipelineConverted({ pipelineStage: "offer" })).toBe(true);
+    expect(isCandidatePipelineConverted({ pipeline_stage: "accepted" })).toBe(true);
+  });
+
+  it("rejects non-converted stages", () => {
+    expect(isCandidatePipelineConverted({ pipelineStage: "r2" })).toBe(false);
+    expect(isCandidatePipelineConverted({ pipelineStage: "pool" })).toBe(false);
+  });
+});
+
+describe("getCanonicalStudentIdentity", () => {
+  it("collapses candidate id-key and name-key for the same student", () => {
+    const student = { id: "stu-1", email: "dev@school.com", name: "Devavrat Bhotica" };
+    const fromCandidate = getCanonicalStudentIdentity(
+      { studentId: "stu-1", email: "dev@school.com", studentName: "Devavrat Bhotica" },
+      student,
+    );
+    const fromNameOnly = getCanonicalStudentIdentity(
+      { studentId: null, email: null, studentName: "Devavrat Bhotica" },
+      student,
+    );
+    expect(fromCandidate).toBe("id:stu-1");
+    expect(fromNameOnly).toBe("id:stu-1");
+    expect(fromCandidate).toBe(fromNameOnly);
   });
 });

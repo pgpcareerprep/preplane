@@ -20,6 +20,7 @@ import { resolveDomainName } from "@/lib/domainAlias";
 import { rankPerformance } from "@/lib/performanceConversion";
 import {
   isOptedOutStatus, getStudentIdentityKey, getCandidateIdentityKey,
+  isCandidatePipelineConverted, getCanonicalStudentIdentity, placedStudentNameKey,
 } from "@/lib/studentAnalytics";
 
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
@@ -385,17 +386,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     return { count: uniqueKeys.size, rows };
   }, [filteredCandidates, studentRoster]);
 
-  /* ─────── Converted students KPI (candidate-priority matching) ─────── */
+  /* ─────── Converted students KPI (pipeline Converted box only) ─────── */
   const convertedStudentsData = useMemo(() => {
-    const CONV_STAGES = new Set(["converted", "offer", "final", "accepted", "placed"]);
-    const CONV_LMP_STATUSES = new Set(["converted", "offer-received"]);
-    const isConvCand = (c: typeof allCandidateRows[0]) => {
-      const stage = (c.pipelineStage ?? "").toLowerCase();
-      return CONV_STAGES.has(stage) || (c.offerStatus ?? "").toLowerCase() === "accepted";
-    };
-
-    const uniqueKeys = new Set<string>();
-    const seenKeyLmp = new Set<string>();
+    const uniqueStudents = new Set<string>();
+    const seenStudentLmp = new Set<string>();
     const rows: ConvertedStudentDrillRow[] = [];
 
     const rosterByKey = new Map<string, typeof studentRoster[0]>();
@@ -405,105 +399,58 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       if (s.id) rosterById.set(s.id, s);
     });
 
-    const pushCandidateRow = (
-      rec: (typeof filteredRecords)[0],
-      cand: (typeof allCandidateRows)[0],
-    ) => {
-      const key = getCandidateIdentityKey(cand);
-      uniqueKeys.add(key);
-      const dedupKey = `${key}::${rec.id}`;
-      if (seenKeyLmp.has(dedupKey)) return;
-      seenKeyLmp.add(dedupKey);
-      const student = rosterByKey.get(key) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
-      rows.push({
-        studentName: cand.studentName || student?.name || "—",
-        studentIdDisplay:
-          student?.rollNo ||
-          student?.studentCode ||
-          cand.rollNo ||
-          cand.studentId ||
-          "",
-        email: student?.email || cand.email || "",
-        phone: student?.phone || "",
-        cohort: student?.cohort || "—",
-        primaryDomain: student?.primaryDomain || "—",
-        secondaryDomain: student?.secondaryDomain || "—",
-        company: (rec as any).company || "—",
-        role: (rec as any).role || "—",
-        lmpDomain: (rec as any).domain || "—",
-        processType: (rec as any).type || "—",
-        lmpStatus: rec.status,
-        displayStatus: STATUS_META[rec.status]?.label || rec.status,
-        prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
-        outreachPoc: (rec as any).outreachPoc?.name || "—",
-        closingDate: (rec as any).closingDate || "—",
-        lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
-        lmpId: rec.id,
-        matchStatus: student ? "matched" : "not_matched",
-      });
-    };
-
-    const pushNameRow = (rec: (typeof filteredRecords)[0], name: string) => {
-      const normKey = normalizeConvertedName(name);
-      if (!normKey) return;
-      const key = `name:${normKey}`;
-      uniqueKeys.add(key);
-      const dedupKey = `${key}::${rec.id}`;
-      if (seenKeyLmp.has(dedupKey)) return;
-      seenKeyLmp.add(dedupKey);
-      const matches = studentRoster.filter((s) => normalizeConvertedName(s.name) === normKey);
-      const matchStatus: ConvertedStudentDrillRow["matchStatus"] =
-        matches.length === 0 ? "not_matched" : matches.length === 1 ? "matched" : "ambiguous";
-      const student = matchStatus === "matched" ? matches[0] : null;
-      rows.push({
-        studentName: name,
-        studentIdDisplay: student?.rollNo || student?.studentCode || student?.id || "",
-        email: student?.email || "",
-        phone: student?.phone || "",
-        cohort: student?.cohort || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-        primaryDomain: student?.primaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-        secondaryDomain: student?.secondaryDomain || (matchStatus === "ambiguous" ? "Ambiguous" : "Not matched"),
-        company: (rec as any).company || "—",
-        role: (rec as any).role || "—",
-        lmpDomain: (rec as any).domain || "—",
-        processType: (rec as any).type || "—",
-        lmpStatus: rec.status,
-        displayStatus: STATUS_META[rec.status]?.label || rec.status,
-        prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
-        outreachPoc: (rec as any).outreachPoc?.name || "—",
-        closingDate: (rec as any).closingDate || "—",
-        lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
-        lmpId: rec.id,
-        matchStatus,
-      });
-    };
-
     for (const rec of filteredRecords) {
       const cands = candidatesByLmp.get(rec.id) ?? [];
-      const isConvertedLmp = CONV_LMP_STATUSES.has(rec.status);
+      for (const cand of cands) {
+        if (!isCandidatePipelineConverted(cand)) continue;
 
-      // 1. Candidates with converted pipeline stage / accepted offer
-      cands.filter(isConvCand).forEach((cand) => pushCandidateRow(rec, cand));
+        const rosterKey = getCandidateIdentityKey(cand);
+        const student = rosterByKey.get(rosterKey) ?? (cand.studentId ? rosterById.get(cand.studentId) : undefined);
+        const identity = getCanonicalStudentIdentity(cand, student);
+        const dedupKey = `${identity}::${rec.id}`;
+        if (seenStudentLmp.has(dedupKey)) continue;
+        seenStudentLmp.add(dedupKey);
+        uniqueStudents.add(identity);
 
-      // 2. Names from finalConvertedNames (always merge — not only when no conv candidates)
-      parseConvertedNames((rec as any).finalConvertedNames).forEach((name) => pushNameRow(rec, name));
-
-      // 3. Converted LMP: include any remaining mapped candidates not yet captured
-      if (isConvertedLmp) {
-        cands.forEach((cand) => pushCandidateRow(rec, cand));
+        rows.push({
+          studentName: cand.studentName || student?.name || "—",
+          studentIdDisplay:
+            student?.rollNo ||
+            student?.studentCode ||
+            cand.rollNo ||
+            cand.studentId ||
+            "",
+          email: student?.email || cand.email || "",
+          phone: student?.phone || "",
+          cohort: student?.cohort || "—",
+          primaryDomain: student?.primaryDomain || "—",
+          secondaryDomain: student?.secondaryDomain || "—",
+          company: (rec as any).company || "—",
+          role: (rec as any).role || "—",
+          lmpDomain: (rec as any).domain || "—",
+          processType: (rec as any).type || "—",
+          lmpStatus: rec.status,
+          displayStatus: STATUS_META[rec.status]?.label || rec.status,
+          prepPoc: (rec as any).prepPoc?.name || (rec as any).domainPrepPoc?.name || "—",
+          outreachPoc: (rec as any).outreachPoc?.name || "—",
+          closingDate: (rec as any).closingDate || "—",
+          lmpCode: (rec as any).lmpCode || rec.id.slice(0, 8),
+          lmpId: rec.id,
+          matchStatus: student ? "matched" : "not_matched",
+        });
       }
     }
 
-    return { uniqueCount: uniqueKeys.size, recordCount: rows.length, rows };
+    return { uniqueCount: uniqueStudents.size, recordCount: rows.length, rows };
   }, [filteredRecords, candidatesByLmp, studentRoster]);
 
-  /* ─────── Per-cohort conversion count (matched unique students) ─────── */
   const convertedPerCohort = useMemo(() => {
     const m = new Map<string, number>();
     const seen = new Set<string>();
     for (const row of convertedStudentsData.rows) {
       if (row.matchStatus !== "matched" || !row.cohort || row.cohort === "—") continue;
       const identity = row.email.trim().toLowerCase() || normalizeConvertedName(row.studentName);
+      if (!identity) continue;
       const dedup = `${row.cohort}::${identity}`;
       if (seen.has(dedup)) continue;
       seen.add(dedup);
@@ -596,6 +543,13 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       return next;
     };
 
+    const rosterByKey = new Map<string, typeof studentRoster[0]>();
+    const rosterById = new Map<string, typeof studentRoster[0]>();
+    studentRoster.forEach((s) => {
+      rosterByKey.set(getStudentIdentityKey(s), s);
+      if (s.id) rosterById.set(s.id, s);
+    });
+
     for (const rec of filteredRecords) {
       const domain = resolveDomainName(rec.domain, canonicalDomains) ?? rec.domain?.trim();
       if (!domain || domain.toLowerCase() === "unmapped") continue;
@@ -603,8 +557,15 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       row.lmpIds.add(rec.id);
       if (ACTIVE_LMP_STATUSES.has(rec.status)) row.activeIds.add(rec.id);
       if (CONVERTED_LMP_STATUSES.has(rec.status)) row.convertedIds.add(rec.id);
-      if (rec.status === "converted") {
-        parseConvertedNames(rec.finalConvertedNames).forEach((name) => row.placedStudents.add(normalizeConvertedName(name)));
+
+      const cands = candidatesByLmp.get(rec.id) ?? [];
+      for (const cand of cands) {
+        if (!isCandidatePipelineConverted(cand)) continue;
+        const student =
+          rosterByKey.get(getCandidateIdentityKey(cand)) ??
+          (cand.studentId ? rosterById.get(cand.studentId) : undefined);
+        const nameKey = placedStudentNameKey(cand, student);
+        if (nameKey) row.placedStudents.add(nameKey);
       }
     }
 
@@ -667,7 +628,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     });
     rows.forEach((row, index) => { row.rank = index + 1; });
     return rows;
-  }, [canonicalDomains, filteredRecords, studentRoster]);
+  }, [canonicalDomains, filteredRecords, studentRoster, candidatesByLmp]);
 
   const visibleDomainRows = useMemo(() => {
     const scoped = domainLoadFilter === "all"
@@ -701,14 +662,28 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const placedStudents = new Set<string>();
     const optedStudents = new Set<string>();
 
+    const rosterByKey = new Map<string, typeof studentRoster[0]>();
+    const rosterById = new Map<string, typeof studentRoster[0]>();
+    studentRoster.forEach((s) => {
+      rosterByKey.set(getStudentIdentityKey(s), s);
+      if (s.id) rosterById.set(s.id, s);
+    });
+
     for (const rec of filteredRecords) {
       const domain = resolveDomainName(rec.domain, canonicalDomains) ?? rec.domain?.trim();
       if (!domain || !visibleDomains.has(domain)) continue;
       totalLmpIds.add(rec.id);
       if (ACTIVE_LMP_STATUSES.has(rec.status)) activeLmpIds.add(rec.id);
       if (CONVERTED_LMP_STATUSES.has(rec.status)) convertedLmpIds.add(rec.id);
-      if (rec.status === "converted") {
-        parseConvertedNames(rec.finalConvertedNames).forEach((name) => placedStudents.add(normalizeConvertedName(name)));
+
+      const cands = candidatesByLmp.get(rec.id) ?? [];
+      for (const cand of cands) {
+        if (!isCandidatePipelineConverted(cand)) continue;
+        const student =
+          rosterByKey.get(getCandidateIdentityKey(cand)) ??
+          (cand.studentId ? rosterById.get(cand.studentId) : undefined);
+        const nameKey = placedStudentNameKey(cand, student);
+        if (nameKey) placedStudents.add(nameKey);
       }
     }
 
@@ -739,7 +714,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         return a.domain.localeCompare(b.domain);
       })[0]?.domain ?? "—",
     };
-  }, [canonicalDomains, filteredRecords, studentRoster, visibleDomainRows]);
+  }, [canonicalDomains, filteredRecords, studentRoster, visibleDomainRows, candidatesByLmp]);
 
   // ── Drill openers ──
   const openLmps = (rows: typeof filtered, title: string, subtitle?: string) =>

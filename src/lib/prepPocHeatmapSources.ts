@@ -4,7 +4,7 @@
  */
 
 import { isEligiblePrepPocProfile, type PocProfileLike } from "@/lib/prepPocEligibility";
-import { resolveStageToRoundId } from "@/lib/pipelineStage";
+import { isCandidatePipelineConverted } from "@/lib/studentAnalytics";
 import type {
   CandidateRaw,
   LinkRaw,
@@ -31,8 +31,7 @@ export type HeatmapSessionRaw = {
 
 /** True when the candidate appears in the LMP pipeline Converted column. */
 export function isCandidateInConvertedPipeline(candidate: CandidateRaw | null | undefined): boolean {
-  if (!candidate) return false;
-  return resolveStageToRoundId(candidate.pipeline_stage) === "converted";
+  return isCandidatePipelineConverted(candidate);
 }
 
 export function resolveLmpDomainFields(

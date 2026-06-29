@@ -3,6 +3,9 @@
  * All functions are side-effect-free and testable without DOM or Supabase.
  */
 
+import { resolveStageToRoundId } from "@/lib/pipelineStage";
+import { normalizeConvertedName } from "@/lib/convertedStudentNames";
+
 export const OPTED_OUT_STATUSES = new Set([
   // Spec-required exact values
   "opted out",
@@ -51,6 +54,46 @@ export function getCandidateIdentityKey(candidate: {
   const e = (candidate.email ?? "").trim().toLowerCase();
   if (e) return `email:${e}`;
   return `name:${candidate.studentName.trim().toLowerCase()}`;
+}
+
+/** True when the candidate is in the LMP pipeline Converted column. */
+export function isCandidatePipelineConverted(candidate: {
+  pipelineStage?: string | null;
+  pipeline_stage?: string | null;
+} | null | undefined): boolean {
+  if (!candidate) return false;
+  const stage = candidate.pipelineStage ?? candidate.pipeline_stage ?? null;
+  return resolveStageToRoundId(stage) === "converted";
+}
+
+/**
+ * Canonical identity for deduping the same student across candidate rows and name fields.
+ * Prefers student_id → email → normalized name.
+ */
+export function getCanonicalStudentIdentity(
+  candidate: { studentId?: string | null; email?: string | null; studentName: string },
+  student?: { id?: string | null; email?: string | null; name: string } | null,
+): string {
+  if (candidate.studentId) return `id:${candidate.studentId}`;
+  if (student?.id) return `id:${student.id}`;
+  const email = (student?.email ?? candidate.email ?? "").trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const name = normalizeConvertedName(student?.name ?? candidate.studentName);
+  if (name) return `name:${name}`;
+  return getCandidateIdentityKey(candidate);
+}
+
+/** Normalized display name key for domain-level placed/opted comparisons. */
+export function placedStudentNameKey(
+  candidate: { studentId?: string | null; email?: string | null; studentName: string },
+  student?: { id?: string | null; email?: string | null; name: string } | null,
+): string {
+  const rosterKey = getCandidateIdentityKey(candidate);
+  const resolved =
+    student ??
+    (candidate.studentId ? { id: candidate.studentId, email: candidate.email, name: candidate.studentName } : null);
+  const name = resolved?.name || candidate.studentName;
+  return normalizeConvertedName(name);
 }
 
 /** 11-column domain preference vs placement outcome row. */

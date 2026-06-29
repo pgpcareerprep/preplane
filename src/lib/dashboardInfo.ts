@@ -55,7 +55,7 @@ export const DASHBOARD_INFO = {
   "admin.students.no-active":         "Students with zero active LMPs, excluding opted-out students. Formula: active_lmp_count = 0 AND placement_status is not opted-out.",
   "admin.students.opted-out":         "Students whose placement_status is marked as opted out, withdrawn, not participating, defaulted, or equivalent. These students are excluded from active/inactive counts.",
   "admin.students.eligible-pool":     "Total students minus opted-out. Used as denominator for cohort conversion rates.",
-  "admin.students.converted":         "Unique converted students across LMPs in the current scope. Matched by lmp_candidates.student_id first, then email, then name.",
+  "admin.students.converted":         "Unique students in the pipeline Converted box (lmp_candidates.pipeline_stage) across LMPs in the current scope. LMP status and final_converted_names are not used.",
   "admin.students.preference-outcome":"Primary and secondary domain preferences vs actual placement outcomes. Primary Fulfilled % = primary-interested students converted in that domain ÷ primary-interested students.",
   "admin.students.poc-movement":      "Student funnel per POC across their LMPs. Unique Students = distinct candidates on their LMPs. R1/R2/R3 = students who reached each round stage.",
   // Legacy keys kept for backward compatibility

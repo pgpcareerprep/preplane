@@ -2,6 +2,7 @@ import { resolveDomainName } from "@/lib/domainAlias";
 import {
   getCandidateIdentityKey,
   getStudentIdentityKey,
+  isCandidatePipelineConverted,
   type DomainPreferenceRow,
   type PocMovementRow,
 } from "@/lib/studentAnalytics";
@@ -47,7 +48,6 @@ export type DomainPreferenceRowWithDrill = DomainPreferenceRow & {
 };
 
 const TERM = new Set(["converted", "not-converted", "other-reasons", "closed", "dormant", "converted-na"]);
-const CONV_STAGES = new Set(["converted", "offer", "final", "accepted", "placed"]);
 
 function normName(n: string) {
   return n.replace(/\s+/g, " ").trim().toLowerCase();
@@ -108,19 +108,12 @@ export function computeDomainPreferencePlacementData(
     if (cands.length > 0) {
       cands.forEach((c) => {
         const key = getCandidateIdentityKey(c);
-        const stage = (c.pipelineStage ?? "").toLowerCase();
-        const offer = (c.offerStatus ?? "").toLowerCase();
-        const isConv = CONV_STAGES.has(stage) || offer === "accepted";
         if (!TERM.has(r.status)) actSet.add(key);
-        if (isConv) convSet.add(key);
+        if (isCandidatePipelineConverted(c)) convSet.add(key);
       });
-    } else {
-      if (!TERM.has(r.status)) {
-        [(r as any).r1Shortlisted, (r as any).r2Shortlisted, (r as any).r3Shortlisted]
-          .forEach((f) => parseTxt(f).forEach((n) => actSet.add(`name:${n}`)));
-      }
-      [(r as any).convertNames, (r as any).finalConvert, (r as any).finalConvertedNames]
-        .forEach((f) => parseTxt(f).forEach((n) => convSet.add(`name:${n}`)));
+    } else if (!TERM.has(r.status)) {
+      [(r as any).r1Shortlisted, (r as any).r2Shortlisted, (r as any).r3Shortlisted]
+        .forEach((f) => parseTxt(f).forEach((n) => actSet.add(`name:${n}`)));
     }
   });
 
@@ -221,15 +214,13 @@ export function computePocLensData(
           if (c.r2Status) e.r2.add(key);
           if (c.r3Status) e.r3.add(key);
           if (stage === "offer" || stage === "final" || offer === "accepted" || offer === "pending") e.offers.add(key);
-          if (CONV_STAGES.has(stage) || offer === "accepted") e.converted.add(key);
+          if (isCandidatePipelineConverted(c)) e.converted.add(key);
         });
       } else {
         parseTxt((r as any).r1Shortlisted).forEach((n) => { const k = `name:${n}`; e.uniqueStudents.add(k); e.r1.add(k); });
         parseTxt((r as any).r2Shortlisted).forEach((n) => { const k = `name:${n}`; e.uniqueStudents.add(k); e.r2.add(k); });
         parseTxt((r as any).r3Shortlisted).forEach((n) => { const k = `name:${n}`; e.uniqueStudents.add(k); e.r3.add(k); });
         parseTxt((r as any).finalConvert).forEach((n) => { const k = `name:${n}`; e.uniqueStudents.add(k); e.offers.add(k); });
-        [(r as any).convertNames, (r as any).finalConvert, (r as any).finalConvertedNames]
-          .forEach((f) => parseTxt(f).forEach((n) => { const k = `name:${n}`; e.uniqueStudents.add(k); e.converted.add(k); }));
       }
     });
   });
