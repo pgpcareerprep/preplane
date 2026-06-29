@@ -785,8 +785,8 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       `${filtered.length} in current view`,
     );
   };
-  const openSnapshot = (kind: "active" | "high" | Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind as any, filtered, todaySet, candidateCountByLmp);
+  const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
+    const { rows, title } = snapshotDrill(kind, filtered, todaySet, candidateCountByLmp);
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 

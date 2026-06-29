@@ -1,4 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader,
@@ -19,7 +21,7 @@ import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentSnapshotStrip } from "./sections/RecentSnapshotStrip";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
-import { snapshotDrill, lmpsHighPriority } from "@/lib/dashboardDrill";
+import { snapshotDrill, countZeroCandidateLmps } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
@@ -94,6 +96,49 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
   const filteredRecords = useMemo(
     () => lmpRows.filter((r) => filteredIds.has(r.id)),
     [filteredIds, lmpRows],
+  );
+
+  const { data: allCandidateRows = [] } = useQuery({
+    queryKey: ["lmp_candidates_all"],
+    queryFn: async () => {
+      const PAGE = 1000;
+      let from = 0;
+      const out: { lmpId: string }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("lmp_candidates")
+          .select("id, lmp_id")
+          .range(from, from + PAGE - 1);
+        if (error) throw new Error(error.message);
+        const rows = data ?? [];
+        out.push(...rows.map((c) => ({ lmpId: (c.lmp_id ?? "") as string })));
+        if (rows.length < PAGE) break;
+        from += PAGE;
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
+  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_all"]], {
+    cachePrefixes: ['["db-lmp-candidates', '["db-lmp-candidate-counts'],
+  });
+
+  const filteredCandidates = useMemo(
+    () => allCandidateRows.filter((c) => filteredIds.has(c.lmpId)),
+    [allCandidateRows, filteredIds],
+  );
+
+  const candidateCountByLmp = useMemo(() => {
+    const m = new Map<string, number>();
+    filteredCandidates.forEach((c) => m.set(c.lmpId, (m.get(c.lmpId) ?? 0) + 1));
+    return m;
+  }, [filteredCandidates]);
+
+  const zeroCandidateLmpsCount = useMemo(
+    () => countZeroCandidateLmps(filtered, candidateCountByLmp),
+    [filtered, candidateCountByLmp],
   );
 
   const lsc = lmpStatusCounts(filteredRecords);
@@ -201,7 +246,7 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
   };
 
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind, filtered, todaySet);
+    const { rows, title } = snapshotDrill(kind, filtered, todaySet, candidateCountByLmp);
     openLmps(rows, title, `${rows.length} of ${filtered.length} in view`);
   };
 
@@ -395,18 +440,9 @@ export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode
           <RecentSnapshotStrip
             rows={filtered}
             todaySet={todaySet}
+            zeroCandidateCount={zeroCandidateLmpsCount}
             onItemClick={openSnapshot}
           />
-          <div className="px-4 pb-4">
-            <button
-              type="button"
-              onClick={() => openLmps(lmpsHighPriority(filtered, todaySet), "High-priority LMPs")}
-              className="w-full mt-2 text-[11.5px] font-medium py-2 rounded-lg border transition-colors hover:opacity-90"
-              style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-2)", background: "var(--lx-soft)" }}
-            >
-              View all high-priority →
-            </button>
-          </div>
         </LxCard>
       </LxGrid>
 

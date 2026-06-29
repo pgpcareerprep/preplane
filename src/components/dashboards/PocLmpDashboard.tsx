@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   LuminaShell, LxPageHeader, LxLivePill, LxGrid, LxCard, LxCardHeader,
   LX_HEX,
@@ -23,7 +25,7 @@ import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
-import { snapshotDrill, lmpsByPlacementStep } from "@/lib/dashboardDrill";
+import { snapshotDrill, lmpsByPlacementStep, countZeroCandidateLmps } from "@/lib/dashboardDrill";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
@@ -101,6 +103,49 @@ export function PocLmpDashboard({
   });
   const filteredIds = useMemo(() => new Set(filtered.map((r) => r.processId)), [filtered]);
   const filteredRecords = useMemo(() => lmpRows.filter((r) => filteredIds.has(r.id)), [filteredIds, lmpRows]);
+
+  const { data: allCandidateRows = [] } = useQuery({
+    queryKey: ["lmp_candidates_all"],
+    queryFn: async () => {
+      const PAGE = 1000;
+      let from = 0;
+      const out: { lmpId: string }[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("lmp_candidates")
+          .select("id, lmp_id")
+          .range(from, from + PAGE - 1);
+        if (error) throw new Error(error.message);
+        const rows = data ?? [];
+        out.push(...rows.map((c) => ({ lmpId: (c.lmp_id ?? "") as string })));
+        if (rows.length < PAGE) break;
+        from += PAGE;
+      }
+      return out;
+    },
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
+  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_all"]], {
+    cachePrefixes: ['["db-lmp-candidates', '["db-lmp-candidate-counts'],
+  });
+
+  const filteredCandidates = useMemo(
+    () => allCandidateRows.filter((c) => filteredIds.has(c.lmpId)),
+    [allCandidateRows, filteredIds],
+  );
+
+  const candidateCountByLmp = useMemo(() => {
+    const m = new Map<string, number>();
+    filteredCandidates.forEach((c) => m.set(c.lmpId, (m.get(c.lmpId) ?? 0) + 1));
+    return m;
+  }, [filteredCandidates]);
+
+  const zeroCandidateLmpsCount = useMemo(
+    () => countZeroCandidateLmps(filtered, candidateCountByLmp),
+    [filtered, candidateCountByLmp],
+  );
 
   const { domainOptions, statusOptions, typeOptions } = useDashboardFilterOptions();
 
@@ -210,7 +255,7 @@ export function PocLmpDashboard({
     );
   };
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
-    const { rows, title } = snapshotDrill(kind, filtered, todaySet);
+    const { rows, title } = snapshotDrill(kind, filtered, todaySet, candidateCountByLmp);
     openLmps(rows, `My ${title.toLowerCase()}`, `${rows.length} of ${filtered.length} in my scope`);
   };
   const openChecklist = (
@@ -278,7 +323,12 @@ export function PocLmpDashboard({
         onSupportClick={() => openLmps(supportProcs, "Support POC LMPs", `${supportProcs.length} processes`)}
       />
 
-      <PocOperationalFlags rows={filtered} todaySet={todaySet} onItemClick={openSnapshot} />
+      <PocOperationalFlags
+        rows={filtered}
+        todaySet={todaySet}
+        zeroCandidateCount={zeroCandidateLmpsCount}
+        onItemClick={openSnapshot}
+      />
 
       {/* Checklist + Active table */}
       <LxGrid>

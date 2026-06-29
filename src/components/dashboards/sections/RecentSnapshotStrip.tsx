@@ -4,7 +4,7 @@ import { summarizeFlags } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import { info } from "@/lib/dashboardInfo";
 
-export type SnapshotDrillKind = "active" | "high" | "zero-candidates" | LmpFlagKey;
+export type SnapshotDrillKind = "active" | "zero-candidates" | LmpFlagKey;
 
 export function RecentSnapshotStrip({
   rows, todaySet, onItemClick, zeroCandidateCount = 0,
@@ -20,15 +20,14 @@ export function RecentSnapshotStrip({
   return (
     <LxAttentionStrip
       items={[
-        { label: "Active LMPs",      value: active,                          accent: "info",   info: info("snapshot.active-lmps"),     onClick: click("active") },
-        { label: "High priority",    value: s.high,                          accent: "risk",   info: info("snapshot.high-priority"),   onClick: click("high") },
-        { label: "Overdue",          value: s.byKey["overdue"],              accent: "risk",   info: info("snapshot.overdue"),         onClick: click("overdue") },
-        { label: "Zero candidates",  value: zeroCandidateCount,              accent: "orange", info: info("snapshot.zero-candidates"), onClick: click("zero-candidates") },
-        { label: "Update due today", value: s.byKey["daily-progress-pending"], accent: "yellow", info: info("snapshot.update-due-today"), onClick: click("daily-progress-pending") },
-        { label: "Mentor 20d+",      value: s.byKey["mentor-pending-20d"],   accent: "risk",   info: info("snapshot.mentor-20d"),      onClick: click("mentor-pending-20d") },
-        { label: "Prep doc pending", value: s.byKey["prep-doc-pending"],     accent: "orange", info: info("snapshot.prep-doc-pending"), onClick: click("prep-doc-pending") },
-        { label: "Mock pending",     value: s.byKey["mock-pending"],         accent: "yellow", info: info("snapshot.mock-pending"),    onClick: click("mock-pending") },
-        { label: "Stale 14d+",       value: s.byKey["status-stale-14d"],     accent: "orange", info: info("snapshot.stale-14d"),       onClick: click("status-stale-14d") },
+        { label: "Active LMPs", value: active, accent: "info", info: info("snapshot.active-lmps"), onClick: click("active") },
+        { label: "Overdue", value: s.byKey["overdue"], accent: "risk", info: info("snapshot.overdue"), onClick: click("overdue") },
+        { label: "Zero Candidates", value: zeroCandidateCount, accent: "orange", info: info("snapshot.zero-candidates"), onClick: click("zero-candidates") },
+        { label: "Update Due Today", value: s.byKey["daily-progress-pending"], accent: "yellow", info: info("snapshot.update-due-today"), onClick: click("daily-progress-pending") },
+        { label: "Mentor Not Aligned", value: s.byKey["mentor-not-aligned"], accent: "risk", info: info("snapshot.mentor-not-aligned"), onClick: click("mentor-not-aligned") },
+        { label: "Prep Doc Not Shared", value: s.byKey["prep-doc-not-shared"], accent: "orange", info: info("snapshot.prep-doc-not-shared"), onClick: click("prep-doc-not-shared") },
+        { label: "Mock Pending", value: s.byKey["mock-pending"], accent: "yellow", info: info("snapshot.mock-pending"), onClick: click("mock-pending") },
+        { label: "Stale", value: s.byKey["stale"], accent: "orange", info: info("snapshot.stale"), onClick: click("stale") },
       ]}
     />
   );

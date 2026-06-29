@@ -65,10 +65,6 @@ export function lmpsByFlag(rows: Process[], todaySet: Set<string>, key: LmpFlagK
   return flagRows(rows, todaySet).filter((f) => f.flags.some((x) => x.key === key)).map((f) => f.process);
 }
 
-export function lmpsHighPriority(rows: Process[], todaySet: Set<string>): Process[] {
-  return flagRows(rows, todaySet).filter((f) => f.topPriority === "high").map((f) => f.process);
-}
-
 export function lmpsZeroCandidates(
   rows: Process[],
   candidateCountByLmp: Map<string, number>,
@@ -88,25 +84,23 @@ export function countZeroCandidateLmps(
 
 /** Resolve a snapshot-strip key to a drill row set + human title. */
 export function snapshotDrill(
-  kind: "active" | "high" | "zero-candidates" | LmpFlagKey,
+  kind: "active" | "zero-candidates" | LmpFlagKey,
   rows: Process[],
   todaySet: Set<string>,
   candidateCountByLmp?: Map<string, number>,
 ): { rows: Process[]; title: string } {
   if (kind === "active") return { rows: lmpsActive(rows), title: "Active LMPs" };
-  if (kind === "high")   return { rows: lmpsHighPriority(rows, todaySet), title: "High-priority LMPs" };
   if (kind === "zero-candidates") {
     const map = candidateCountByLmp ?? new Map<string, number>();
-    return { rows: lmpsZeroCandidates(rows, map), title: "LMPs with no students" };
+    return { rows: lmpsZeroCandidates(rows, map), title: "LMPs with zero candidates" };
   }
   const LABEL: Record<LmpFlagKey, string> = {
     "overdue":                "Overdue LMPs",
-    "daily-progress-pending": "LMPs without an update today",
-    "status-stale-14d":       "Stale LMPs (14d+ no update)",
-    "mentor-pending-20d":     "LMPs older than 20d without aligned mentor",
-    "prep-doc-pending":       "LMPs missing prep doc",
+    "daily-progress-pending": "LMPs due for update today",
+    "stale":                  "Stale LMPs",
+    "mentor-not-aligned":     "LMPs with mentor not aligned",
+    "prep-doc-not-shared":    "LMPs where prep doc is not shared",
     "mock-pending":           "LMPs with mock pending",
-    "no-recent-activity":     "LMPs with no recent activity",
   };
   return { rows: lmpsByFlag(rows, todaySet, kind), title: LABEL[kind] ?? "LMPs" };
 }

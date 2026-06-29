@@ -17,14 +17,13 @@ export const DASHBOARD_INFO = {
 
   // ── Snapshot / activity strip
   "snapshot.active-lmps":          "LMPs in Ongoing, Offer Received, or On Hold status — i.e. anything still actively being worked.",
-  "snapshot.high-priority":        "LMPs with at least one high-priority flag (overdue, mentor pending 20d+, stale 14d+).",
   "snapshot.overdue":              "Active LMPs past their next expected progress update date.",
   "snapshot.zero-candidates":      "Active LMPs with no students linked yet.",
   "snapshot.update-due-today":     "Active LMPs without a daily progress log recorded today.",
-  "snapshot.mentor-20d":           "Active LMPs older than 20 days with no aligned mentor.",
-  "snapshot.prep-doc-pending":     "Active LMPs whose prep document has not been marked Sent.",
+  "snapshot.mentor-not-aligned":   "Active LMPs where mentor has not been aligned.",
+  "snapshot.prep-doc-not-shared":"Active LMPs where the prep document has not been shared.",
   "snapshot.mock-pending":         "LMPs in R1/R2/R3/Offer where the POC has not marked the mock as completed.",
-  "snapshot.stale-14d":            "Active LMPs with no status update in 14+ days.",
+  "snapshot.stale":                "Active LMPs with no meaningful status/progress update for more than 4 days.",
 
   // ── POC heatmap (admin)
   "admin.heatmap":                 "Each row is an active Prep POC. Columns show that POC's load across LMP lifecycle stages. Click any cell to see the linked LMPs.",
