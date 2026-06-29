@@ -121,6 +121,7 @@ export function snapshotDrill(
     "overdue":                "Overdue LMPs",
     "daily-progress-pending": "LMPs due for update today",
     "stale":                  "Stale LMPs",
+    "not-started-stale-4d":   "Not Started LMPs not updated for 4+ days",
     "mentor-not-aligned":     "LMPs with mentor not aligned",
     "prep-doc-not-shared":    "LMPs where prep doc is not shared",
     "mock-pending":           "LMPs with mock pending",

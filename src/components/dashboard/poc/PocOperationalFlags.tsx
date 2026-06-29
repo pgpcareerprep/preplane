@@ -6,7 +6,7 @@ import { LxInfo } from "@/components/insights/LxInfo";
 import { LX_HEX, type LxAccent } from "@/components/insights/primitives";
 import { cn } from "@/lib/utils";
 import {
-  AlertTriangle, CalendarClock, CircleAlert, Clock, FileWarning, Layers, Mic, UserRound, Users,
+  AlertTriangle, CalendarClock, CircleAlert, CircleDashed, Clock, FileWarning, Layers, Mic, UserRound, Users,
 } from "lucide-react";
 
 export type SnapshotDrillKind = "active" | "zero-candidates" | LmpFlagKey;
@@ -59,10 +59,11 @@ export function PocOperationalFlags({
     { label: "Prep Doc Not Shared", value: s.byKey["prep-doc-not-shared"], accent: "orange", infoKey: "snapshot.prep-doc-not-shared", kind: "prep-doc-not-shared", icon: FileWarning },
     { label: "Mock Pending", value: s.byKey["mock-pending"], accent: "yellow", infoKey: "snapshot.mock-pending", kind: "mock-pending", icon: Mic },
     { label: "Stale", value: s.byKey.stale, accent: "orange", infoKey: "snapshot.stale", kind: "stale", icon: Clock },
+    { label: "Not Started 4D+", value: s.byKey["not-started-stale-4d"], accent: "orange", infoKey: "snapshot.not-started-stale-4d", kind: "not-started-stale-4d", icon: CircleDashed },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-9 gap-x-6 gap-y-gutter">
+    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-10 gap-x-6 gap-y-gutter">
       {flags.map(({ label, value, accent, infoKey, kind, icon: Icon }) => {
         const clickable = !!onItemClick;
         const hex = ACCENT_HEX[accent];

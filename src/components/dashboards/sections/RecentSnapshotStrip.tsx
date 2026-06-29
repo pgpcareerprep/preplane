@@ -30,6 +30,7 @@ export function RecentSnapshotStrip({
         { label: "Prep Doc Not Shared", value: s.byKey["prep-doc-not-shared"], accent: "orange", info: info("snapshot.prep-doc-not-shared"), onClick: click("prep-doc-not-shared") },
         { label: "Mock Pending", value: s.byKey["mock-pending"], accent: "yellow", info: info("snapshot.mock-pending"), onClick: click("mock-pending") },
         { label: "Stale", value: s.byKey["stale"], accent: "orange", info: info("snapshot.stale"), onClick: click("stale") },
+        { label: "Not Started 4D+", value: s.byKey["not-started-stale-4d"], accent: "orange", info: info("snapshot.not-started-stale-4d"), onClick: click("not-started-stale-4d") },
       ]}
     />
   );

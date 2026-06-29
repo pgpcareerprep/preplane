@@ -4,11 +4,13 @@
  */
 import type { Process } from "@/lib/lmpProcessQueries";
 import { daysSince } from "@/lib/lmpProcessQueries";
+import { normalizeLmpStatus } from "@/lib/config/lmpStatus";
 
 export type LmpFlagKey =
   | "overdue"
   | "daily-progress-pending"
   | "stale"
+  | "not-started-stale-4d"
   | "mentor-not-aligned"
   | "prep-doc-not-shared"
   | "mock-pending"
@@ -29,6 +31,7 @@ export const FLAG_META: Record<LmpFlagKey, Omit<LmpFlag, "reason">> = {
   "overdue":                 { key: "overdue",                 label: "Overdue",                priority: "high",   accent: "risk"    },
   "mentor-not-aligned":      { key: "mentor-not-aligned",      label: "Mentor not aligned",     priority: "high",   accent: "risk"    },
   "stale":                   { key: "stale",                   label: "Stale",                  priority: "high",   accent: "orange"  },
+  "not-started-stale-4d":    { key: "not-started-stale-4d",    label: "Not Started 4D+",      priority: "high",   accent: "orange"  },
   "daily-progress-pending":  { key: "daily-progress-pending",  label: "Update due today",       priority: "medium", accent: "yellow"  },
   "prep-doc-not-shared":     { key: "prep-doc-not-shared",     label: "Prep doc not shared",    priority: "medium", accent: "orange"  },
   "mock-pending":            { key: "mock-pending",            label: "Mock pending",           priority: "medium", accent: "yellow"  },
@@ -57,6 +60,16 @@ export function ageDaysOf(p: Process): number {
   return daysSince(p.dateCreated);
 }
 
+function isNotStartedLmp(p: Process): boolean {
+  if (normalizeLmpStatus(p.filterStatus) === "not_started") return true;
+  return normalizeLmpStatus(p.displayStatus) === "not_started";
+}
+
+function daysSinceLastMeaningfulUpdate(p: Process, fallbackToCreated = false): number {
+  const iso = p.lastProgressUpdatedAt || p.lastUpdated || (fallbackToCreated ? p.dateCreated : "");
+  return daysSince(iso);
+}
+
 export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
   const out: LmpFlag[] = [];
   const isActive = ACTIVE_STATUSES.has(p.status);
@@ -82,6 +95,15 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
   // Stale — no meaningful update in more than 4 days
   if (isActive && sinceUpdate > 4) {
     out.push({ ...FLAG_META["stale"], reason: `No update in ${sinceUpdate} days` });
+  }
+
+  // Not Started 4D+ — still Not Started with no meaningful update in more than 4 days
+  const sinceNotStartedUpdate = daysSinceLastMeaningfulUpdate(p, true);
+  if (isNotStartedLmp(p) && sinceNotStartedUpdate > 4) {
+    out.push({
+      ...FLAG_META["not-started-stale-4d"],
+      reason: `Not Started with no update in ${sinceNotStartedUpdate} days`,
+    });
   }
 
   // Daily progress pending — active and no log today
@@ -155,6 +177,7 @@ export type SnapshotFlagKey =
   | "prep-doc-not-shared"
   | "mock-pending"
   | "stale"
+  | "not-started-stale-4d"
   | "converted-status-no-converted-candidate";
 
 export interface FlagSummary {
@@ -173,6 +196,7 @@ export function summarizeFlags(
     "prep-doc-not-shared": 0,
     "mock-pending": 0,
     "stale": 0,
+    "not-started-stale-4d": 0,
     "converted-status-no-converted-candidate": 0,
   };
   for (const p of rows) {

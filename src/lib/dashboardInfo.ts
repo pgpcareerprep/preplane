@@ -25,6 +25,7 @@ export const DASHBOARD_INFO = {
   "snapshot.prep-doc-not-shared":"Active LMPs where the prep document has not been shared.",
   "snapshot.mock-pending":         "LMPs in R1/R2/R3/Offer where the POC has not marked the mock as completed.",
   "snapshot.stale":                "Active LMPs with no meaningful status/progress update for more than 4 days.",
+  "snapshot.not-started-stale-4d": "LMPs still marked as Not Started with no meaningful progress or status update for more than 4 days.",
 
   // ── POC heatmap (admin)
   "admin.heatmap":                 "Each row is an active Prep POC. Columns show that POC's load across LMP lifecycle stages. Click any cell to see the linked LMPs.",
