@@ -14,7 +14,7 @@ import { LmpFilterBar, EMPTY_LMP_FILTERS, type LmpFilters } from "@/components/l
 import { LmpKanban } from "@/components/lmp/LmpKanban";
 import { LmpCardList, type SortState } from "@/components/lmp/LmpCardList";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
-import { type LmpBoardScope, isUserOperationalPoc } from "@/lib/lmpViewingContext";
+import { type LmpBoardScope, isUserOperationalPoc, parseScopeFromParams, applyBoardScopeToParams } from "@/lib/lmpViewingContext";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -132,8 +132,13 @@ export default function LmpBoardPage() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [sort, setSort] = useState<SortState>({ key: "age", dir: "asc" });
 
-  // Board scope — default to "self" for all roles including admin/allocator.
-  const [scope, setScope] = useState<LmpBoardScope>({ kind: "self" });
+  const [scope, setScope] = useState<LmpBoardScope>(() =>
+    parseScopeFromParams(searchParams),
+  );
+
+  useEffect(() => {
+    setScope(parseScopeFromParams(searchParams));
+  }, [searchParams]);
 
   // Auto-sync: when View As changes (or View As user changes), immediately
   // reset to Self scope and clear page-local filters so the new perspective
@@ -143,11 +148,15 @@ export default function LmpBoardPage() {
     const sig = isViewAsActive ? (effectivePocId ?? effectiveUser.email) : null;
     if (sig !== prevViewAsSig.current) {
       prevViewAsSig.current = sig;
-      setScope({ kind: "self" });
       setFilters(EMPTY_LMP_FILTERS);
       setOverdueOnly(false);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        applyBoardScopeToParams(next, { kind: "self" });
+        return next;
+      }, { replace: true });
     }
-  }, [isViewAsActive, effectivePocId, effectiveUser.email]);
+  }, [isViewAsActive, effectivePocId, effectiveUser.email, setSearchParams]);
 
   // Effective identity for self-scope resolution.
   const effectivePocName = effectiveUser.pocProfileName ?? effectiveUser.name ?? "";
@@ -198,14 +207,29 @@ export default function LmpBoardPage() {
     scope.pocId;
 
   const handleScopeChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+
     if (value === "__self__") {
       setScope({ kind: "self" });
+      applyBoardScopeToParams(next, { kind: "self" });
     } else if (value === "__all__") {
       setScope({ kind: "all" });
+      applyBoardScopeToParams(next, { kind: "all" });
     } else {
       const opt = prepPocOptions.find((o) => o.value === value);
-      setScope({ kind: "poc", pocId: value, pocName: opt?.label ?? value });
+      const pocName = opt?.label ?? value;
+      setScope({ kind: "poc", pocId: value, pocName });
+      applyBoardScopeToParams(next, { kind: "poc", pocId: value, pocName });
     }
+
+    setSearchParams(next, { replace: true });
+  };
+
+  const restoreToMyView = () => {
+    const next = new URLSearchParams(searchParams);
+    applyBoardScopeToParams(next, { kind: "self" });
+    setScope({ kind: "self" });
+    setSearchParams(next, { replace: true });
   };
 
   // KPI strip target string for legacy compatibility.
@@ -258,6 +282,16 @@ export default function LmpBoardPage() {
                 <span className="inline-flex items-center h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-n50 dark:bg-d-surface text-[12.5px] text-n700 dark:text-d-text">
                   My LMPs
                 </span>
+              )}
+
+              {canChangeBoardScope && scope.kind !== "self" && (
+                <button
+                  type="button"
+                  onClick={restoreToMyView}
+                  className="h-8 px-3 rounded-md border border-n200 dark:border-d-border bg-white dark:bg-d-surface text-[12px] font-medium text-n700 dark:text-d-text hover:bg-n50 dark:hover:bg-d-surface-2"
+                >
+                  Restore to my view
+                </button>
               )}
             </div>
 

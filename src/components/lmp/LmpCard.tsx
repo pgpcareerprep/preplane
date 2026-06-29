@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { MoreVertical, UserCog, Eye, Users, RefreshCw, MessageSquare, CalendarClock, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { type LmpRecord, STATUS_META, ageLabel } from "@/lib/lmpTypes";
 import { TriPocRow } from "@/components/lmp/TriPocRow";
 import { TAG_STYLES } from "@/lib/pocAllocation";
+import { buildLmpDetailHref } from "@/lib/lmpViewingContext";
 import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpComments } from "@/lib/hooks/useLmpComments";
 import { useLmpProcessComment } from "@/lib/hooks/useLmpProcessComment";
@@ -33,6 +34,12 @@ import {
 
 export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const detailHref = buildLmpDetailHref(
+    rec.id,
+    "kanban",
+    `${location.pathname}${location.search}`,
+  );
   const { data: dbComments = [] } = useLmpComments(rec.id);
   const { data: sheetComment = "" } = useLmpProcessComment(rec.id);
   const { open: openChat } = useLmpChatDrawer();
@@ -58,7 +65,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
     if (dragging) return;
     const t = e.target as HTMLElement;
     if (t.closest("a,button,[data-stop-card-click]")) return;
-    navigate(`/lmp/${encodeURIComponent(rec.id)}?from=kanban`);
+    navigate(detailHref);
   };
 
   return (
@@ -102,7 +109,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=kanban`)}>
+              <DropdownMenuItem onClick={() => navigate(detailHref)}>
                 <Eye className="h-4 w-4" /> View details
               </DropdownMenuItem>
               {canAssignPoc && (

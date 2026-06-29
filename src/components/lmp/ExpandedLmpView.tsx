@@ -7,7 +7,7 @@ import { useRole } from "@/lib/rolesContext";
 import { useSaveNextProgressDate } from "@/lib/hooks/useProgressHistory";
 import { JdButton } from "./JdButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AddCandidatesModal } from "@/components/lmp/detail/AddCandidatesModal";
@@ -23,7 +23,7 @@ import { ChecklistCard } from "./bento/ChecklistCard";
 import { DocumentsCard, normalizeDocuments, type DocumentLink, type DocumentAddContext } from "./bento/DocumentsCard";
 import type { DocumentLinkInput } from "./bento/DocumentLinkModal";
 import { FIXED_PIPELINE_ROUNDS, resolveStageToRoundId } from "@/lib/pipelineStage";
-import { useLmpMode } from "@/lib/lmpViewingContext";
+import { useLmpMode, buildLmpDetailHref } from "@/lib/lmpViewingContext";
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { supabase } from "@/integrations/supabase/client";
 import type { Mentor } from "@/lib/mentor";
@@ -46,6 +46,10 @@ export function ExpandedLmpView({
 }) {
   void onChangeStatus;
   const navigate = useNavigate();
+  const location = useLocation();
+  const boardReturnPath = `${location.pathname}${location.search}`;
+  const detailHref = (extra?: Record<string, string>) =>
+    buildLmpDetailHref(rec.id, "cards", boardReturnPath, extra);
   const seniority = (rec as any).jdSeniority ?? (rec as any).seniority ?? undefined;
   const mode = useLmpMode(rec);
   const summary = mode === "summary";
@@ -311,7 +315,7 @@ const { update: updateMutation } = useLmpMutation();
               />
               <button
                 type="button"
-                onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}
+                onClick={() => navigate(detailHref())}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-n200 bg-card text-[12.5px] font-medium text-n700 hover:text-n900 hover:border-n300 hover:bg-n50 transition-all"
               >
                 <ExternalLink className="h-3.5 w-3.5" /> Open
@@ -328,7 +332,7 @@ const { update: updateMutation } = useLmpMutation();
               <button
                 type="button"
                 disabled={summary}
-                onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?tab=mentors&from=cards`)}
+                onClick={() => navigate(detailHref({ tab: "mentors" }))}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[12.5px] font-medium shadow-sm shadow-orange-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
                 <Play className="h-3.5 w-3.5" strokeWidth={2.25} /> Run Mentor

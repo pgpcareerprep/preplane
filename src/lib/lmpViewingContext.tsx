@@ -29,6 +29,64 @@ export type LmpBoardScope =
   | { kind: "all" }
   | { kind: "poc"; pocId: string; pocName: string };
 
+/** Parse admin/allocator board scope from URL search params. */
+export function parseScopeFromParams(params: URLSearchParams): LmpBoardScope {
+  const scopeParam = params.get("scope");
+
+  if (scopeParam === "all") {
+    return { kind: "all" };
+  }
+
+  if (scopeParam === "poc") {
+    const pocId = params.get("pocId");
+    const pocName = params.get("pocName");
+    if (pocId && pocName) {
+      return { kind: "poc", pocId, pocName };
+    }
+  }
+
+  return { kind: "self" };
+}
+
+/** Write board scope into URL search params (mutates `params`). */
+export function applyBoardScopeToParams(params: URLSearchParams, scope: LmpBoardScope): void {
+  if (scope.kind === "self") {
+    params.set("scope", "self");
+    params.delete("pocId");
+    params.delete("pocName");
+    return;
+  }
+  if (scope.kind === "all") {
+    params.set("scope", "all");
+    params.delete("pocId");
+    params.delete("pocName");
+    return;
+  }
+  params.set("scope", "poc");
+  params.set("pocId", scope.pocId);
+  params.set("pocName", scope.pocName);
+}
+
+/** Detail page href that preserves the current board URL for back navigation. */
+export function buildLmpDetailHref(
+  lmpId: string,
+  from: "cards" | "kanban",
+  returnPath: string,
+  extra?: Record<string, string>,
+): string {
+  const params = new URLSearchParams({ from, returnTo: returnPath, ...extra });
+  return `/lmp/${encodeURIComponent(lmpId)}?${params.toString()}`;
+}
+
+/** Resolve the LMP board back link from detail page query params. */
+export function resolveLmpBoardBackHref(
+  returnTo: string | null,
+  from: "cards" | "kanban",
+): string {
+  if (returnTo) return returnTo;
+  return from === "kanban" ? "/lmp" : "/lmp?view=cards";
+}
+
 type PocOption = {
   name: string;
   initials: string;

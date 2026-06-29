@@ -1,5 +1,5 @@
 import { forwardRef, useMemo, useState, type ButtonHTMLAttributes } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronDown,
@@ -29,7 +29,7 @@ import {
 import { useLmpChatDrawer } from "@/lib/lmpChatContext";
 import { useLmpComments } from "@/lib/hooks/useLmpComments";
 import { useLmpProcessComment } from "@/lib/hooks/useLmpProcessComment";
-import { useLmpMode } from "@/lib/lmpViewingContext";
+import { useLmpMode, buildLmpDetailHref } from "@/lib/lmpViewingContext";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { useAvatarUrl } from "@/lib/hooks/useAvatarUrls";
 import { useRole } from "@/lib/rolesContext";
@@ -185,6 +185,10 @@ function LmpStripCard({
   onChangeStatus: (s: LmpStatus) => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const boardReturnPath = `${location.pathname}${location.search}`;
+  const detailHref = (lmpId: string, extra?: Record<string, string>) =>
+    buildLmpDetailHref(lmpId, "cards", boardReturnPath, extra);
   
   const { data: dbComments = [] } = useLmpComments(rec.id);
   const { data: sheetComment = "" } = useLmpProcessComment(rec.id);
@@ -291,7 +295,7 @@ function LmpStripCard({
           </IconAction>}
           <IconAction
             label="View details"
-            onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}
+            onClick={() => navigate(detailHref(rec.id))}
           >
             <Eye className="h-4 w-4" />
           </IconAction>
@@ -313,7 +317,7 @@ function LmpStripCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}>
+              <DropdownMenuItem onClick={() => navigate(detailHref(rec.id))}>
                 Open Details
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onToggleExpand}>
@@ -410,7 +414,7 @@ function LmpStripCard({
               <MessageSquare className="h-4 w-4" />
             </IconAction>
           )}
-          <IconAction label="View details" onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}>
+          <IconAction label="View details" onClick={() => navigate(detailHref(rec.id))}>
             <Eye className="h-4 w-4" />
           </IconAction>
           <IconAction label={expanded ? "Collapse" : "Expand"} onClick={onToggleExpand}>
@@ -427,7 +431,7 @@ function LmpStripCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => navigate(`/lmp/${encodeURIComponent(rec.id)}?from=cards`)}>
+              <DropdownMenuItem onClick={() => navigate(detailHref(rec.id))}>
                 Open Details
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onToggleExpand}>

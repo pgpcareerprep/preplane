@@ -21,7 +21,13 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
+import {
+  isUserOperationalPoc,
+  parseScopeFromParams,
+  applyBoardScopeToParams,
+  resolveLmpBoardBackHref,
+  buildLmpDetailHref,
+} from "@/lib/lmpViewingContext";
 import type { LmpBoardScope } from "@/lib/lmpViewingContext";
 import type { LmpRecord } from "@/lib/lmpTypes";
 
@@ -268,5 +274,62 @@ describe("LmpBoardScope — empty state labels", () => {
     const scope: LmpBoardScope = { kind: "all" };
     const title = scope.kind === "all" ? "No LMP records match the current filters." : "";
     expect(title).toBe("No LMP records match the current filters.");
+  });
+});
+
+describe("LmpBoardScope — URL persistence", () => {
+  const POC_ID = "550e8400-e29b-41d4-a716-446655440000";
+
+  it("parses poc scope from URL params", () => {
+    const params = new URLSearchParams({
+      scope: "poc",
+      pocId: POC_ID,
+      pocName: "Kriti Sharma",
+      view: "cards",
+    });
+    expect(parseScopeFromParams(params)).toEqual({
+      kind: "poc",
+      pocId: POC_ID,
+      pocName: "Kriti Sharma",
+    });
+  });
+
+  it("round-trips scope through URL params", () => {
+    const params = new URLSearchParams({ view: "cards" });
+    applyBoardScopeToParams(params, { kind: "poc", pocId: POC_ID, pocName: "Kriti Sharma" });
+    expect(params.get("scope")).toBe("poc");
+    expect(params.get("pocId")).toBe(POC_ID);
+    expect(params.get("pocName")).toBe("Kriti Sharma");
+    expect(params.get("view")).toBe("cards");
+  });
+
+  it("restore-to-self clears poc params but keeps view", () => {
+    const params = new URLSearchParams({
+      view: "kanban",
+      scope: "poc",
+      pocId: POC_ID,
+      pocName: "Kriti Sharma",
+    });
+    applyBoardScopeToParams(params, { kind: "self" });
+    expect(params.get("scope")).toBe("self");
+    expect(params.get("pocId")).toBeNull();
+    expect(params.get("view")).toBe("kanban");
+  });
+
+  it("detail back link prefers returnTo over default", () => {
+    const returnPath = "/lmp?view=cards&scope=poc&pocId=abc&pocName=Kriti%20Sharma";
+    expect(resolveLmpBoardBackHref(returnPath, "cards")).toBe(returnPath);
+    expect(resolveLmpBoardBackHref(null, "cards")).toBe("/lmp?view=cards");
+  });
+
+  it("buildLmpDetailHref embeds returnTo for back navigation", () => {
+    const href = buildLmpDetailHref(
+      "lmp-1",
+      "cards",
+      "/lmp?view=cards&scope=poc&pocId=abc&pocName=Kriti%20Sharma",
+    );
+    expect(href).toContain("returnTo=");
+    expect(href).toContain("from=cards");
+    expect(href.startsWith("/lmp/lmp-1?")).toBe(true);
   });
 });

@@ -18,7 +18,7 @@ import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
 import { normalizeLmpOwnership, useLmpPermission } from "@/lib/hooks/usePermissions";
 import { useRole } from "@/lib/rolesContext";
 import { Eye } from "lucide-react";
-import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
+import { resolveLmpBoardBackHref } from "@/lib/lmpViewingContext";
 
 const TABS = ["Overview", "Mentors", "Feedback"] as const;
 type Tab = typeof TABS[number];
@@ -27,6 +27,7 @@ export default function LmpDetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const from = searchParams.get("from") === "kanban" ? "kanban" : "cards";
+  const returnTo = searchParams.get("returnTo");
   const rawId = id ? decodeURIComponent(id) : "";
 
   const { data: lmp, isLoading } = useLmpById(rawId);
@@ -62,7 +63,7 @@ export default function LmpDetailPage() {
   const operationalReadOnly = !!lmp && !isRoleLoading && pocProfileReady && !canOperateLmp;
   const showViewOnlyBanner = operationalReadOnly;
 
-  const backHref = from === "kanban" ? "/lmp" : "/lmp?view=cards";
+  const backHref = resolveLmpBoardBackHref(returnTo, from);
 
   if (isLoading) {
     return (
