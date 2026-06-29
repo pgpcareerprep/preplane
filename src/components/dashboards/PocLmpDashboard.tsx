@@ -160,7 +160,11 @@ export function PocLmpDashboard({
   const convertedCount = filteredRecords.filter((r) => r.status === "converted" || r.status === "offer-received").length;
   const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
   const eligibleCount = convertedCount + notConvertedCount;
-  const conversionRate = calculateOutcomeConversionRate(convertedCount, notConvertedCount);
+  const conversionRate = calculateOutcomeConversionRate(
+    convertedCount,
+    totalLmpCount,
+    lsc["other-reasons"],
+  );
   const totalLmpCount = filteredRecords.length;
   const lsc = lmpStatusCounts(filteredRecords);
 

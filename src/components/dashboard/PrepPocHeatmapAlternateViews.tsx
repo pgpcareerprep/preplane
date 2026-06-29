@@ -140,7 +140,7 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     cols: [
       { dataKey: "studentsPlaced", colType: "heat", label: "Students Placed", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome in this domain." },
       { dataKey: "placementRatePct", colType: "rate", label: "Placement Rate", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Students Placed divided by total student opted for this domain." },
-      { dataKey: "lmpConversion", colType: "conversion", label: "LMP Conversion", minWidth: 108, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Converted LMPs divided by eligible closed LMPs." },
+      { dataKey: "lmpConversion", colType: "conversion", label: "LMP Conversion", minWidth: 108, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Converted LMPs divided by total LMPs minus Other Reasons." },
     ],
   },
 ];

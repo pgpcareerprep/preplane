@@ -188,17 +188,16 @@ export function buildConversionReport(
 
   const globalPlacedStudents = new Set<string>();
   let globalConverted = 0;
-  let globalEligible = 0;
+  let globalOtherReasons = 0;
   for (const id of scopedLmpIds) {
     const bucket = lmpStatusMap.get(id) ?? "unknown";
     if (bucket === "converted") {
       globalConverted++;
       for (const sid of lmpStudentsMap.get(id) ?? []) globalPlacedStudents.add(sid);
     }
-    if (bucket === "converted" || bucket === "notConverted" || bucket === "otherReasons") {
-      globalEligible++;
-    }
+    if (bucket === "otherReasons") globalOtherReasons++;
   }
+  const globalEligible = scopedLmpIds.size - globalOtherReasons;
 
   const pocRows: ConversionReportPocRow[] = [];
   for (const poc of activePocs) {
@@ -207,7 +206,7 @@ export function buildConversionReport(
     if (!totalIds.size) continue;
 
     let converted = 0;
-    let eligibleClosed = 0;
+    let otherReasons = 0;
     const placedStudents = new Set<string>();
     for (const id of totalIds) {
       const bucket = lmpStatusMap.get(id) ?? "unknown";
@@ -215,10 +214,9 @@ export function buildConversionReport(
         converted++;
         for (const sid of lmpStudentsMap.get(id) ?? []) placedStudents.add(sid);
       }
-      if (bucket === "converted" || bucket === "notConverted" || bucket === "otherReasons") {
-        eligibleClosed++;
-      }
+      if (bucket === "otherReasons") otherReasons++;
     }
+    const eligibleClosed = totalIds.size - otherReasons;
     pocRows.push({
       pocName: poc.name,
       eligibleClosed,
@@ -276,14 +274,13 @@ export function buildConversionReport(
   for (const domainKeyVal of allDomains) {
     const ids = domainLmps.get(domainKeyVal) ?? new Set<string>();
     let convertedLmps = 0;
-    let eligibleClosed = 0;
+    let otherReasons = 0;
     for (const id of ids) {
       const bucket = lmpStatusMap.get(id) ?? "unknown";
       if (bucket === "converted") convertedLmps++;
-      if (bucket === "converted" || bucket === "notConverted" || bucket === "otherReasons") {
-        eligibleClosed++;
-      }
+      if (bucket === "otherReasons") otherReasons++;
     }
+    const eligibleClosed = ids.size - otherReasons;
     const studentsOpted = (domainOptedStudents.get(domainKeyVal) ?? new Set()).size;
     const studentsPlaced = (domainPlacedStudents.get(domainKeyVal) ?? new Set()).size;
     if (!ids.size && !studentsOpted && !studentsPlaced) continue;

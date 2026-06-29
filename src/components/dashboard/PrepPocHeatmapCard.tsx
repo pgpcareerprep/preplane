@@ -224,7 +224,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "onHoldCount", metricKey: "onHold", colType: "heat",
         label: "On Hold", minWidth: 72,
         palette: P_ON_HOLD, totalAccent: A_ORANGE,
-        tooltip: "LMPs currently mapped to On Hold status. Shown here for operational visibility — excluded from the conversion denominator and existing load calculations are unchanged.",
+        tooltip: "LMPs currently mapped to On Hold status. Included in the LMP conversion denominator.",
       },
     ],
   },
@@ -318,7 +318,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
         label: "LMP Conversion", minWidth: 108,
         palette: P_SAGE, totalAccent: A_SAGE,
-        tooltip: "Converted ÷ eligible closed LMPs (excludes On Hold). Format: converted/eligible – %.",
+        tooltip: "Converted ÷ (Total LMPs − Other Reasons). Format: converted/eligible – %.",
       },
       {
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
@@ -940,7 +940,7 @@ export function PrepPocHeatmapCard({
             <KpiCard icon={TrendingUp} label="Converted LMP %"
               value={data.summary.convertedLmpPercentage !== null ? `${data.summary.convertedLmpPercentage.toFixed(0)}%` : "—"}
               accentCss="var(--lx-info)"
-              tooltip="Globally distinct converted LMPs ÷ eligible closed LMPs (excludes On Hold)." />
+              tooltip="Globally distinct converted LMPs ÷ (total scoped LMPs − Other Reasons)." />
           </div>
         )}
         {!isLoading && data && activeView === "student" && (

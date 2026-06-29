@@ -92,31 +92,80 @@ export const STATUS_LIST: ProcessStatus[] = [
 export { SLA_DORMANT_DAYS, POC_OVERLOAD_THRESHOLD } from "@/lib/config/thresholds";
 import { SLA_DORMANT_DAYS } from "@/lib/config/thresholds";
 
+/** DB statuses grouped into the canonical "other-reasons" bucket. */
+export const OTHER_REASONS_LMP_STATUSES = new Set([
+  "other-reasons",
+  "dormant",
+  "closed",
+  "converted-na",
+]);
+
+export function isOtherReasonsLmpStatus(status: string | null | undefined): boolean {
+  return OTHER_REASONS_LMP_STATUSES.has((status ?? "").trim().toLowerCase());
+}
+
+export function isConvertedLmpStatus(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s === "converted" || s === "offer-received";
+}
+
 /**
- * Outcome-based conversion rate: Converted / (Converted + Not Converted).
- * Excludes active statuses (Not Started, Prep Ongoing, Prep Done, On Hold,
- * Other Reasons) from the denominator. Returns 0 when no terminal outcome exists.
+ * LMP conversion rate: Converted ÷ (Total LMPs − Other Reasons).
+ * Returns null when the denominator is zero.
  */
-export function calculateOutcomeConversionRate(convertedCount: number, notConvertedCount: number): number {
-  const denominator = convertedCount + notConvertedCount;
-  if (denominator === 0) return 0;
+export function calculateLmpConversionRate(
+  convertedCount: number,
+  totalCount: number,
+  otherReasonsCount: number,
+): number | null {
+  const denominator = totalCount - otherReasonsCount;
+  if (denominator <= 0) return null;
   return (convertedCount / denominator) * 100;
+}
+
+/**
+ * Outcome-based LMP conversion rate.
+ * @deprecated Prefer calculateLmpConversionRate — kept as a convenience wrapper.
+ */
+export function calculateOutcomeConversionRate(
+  convertedCount: number,
+  totalCount: number,
+  otherReasonsCount: number,
+): number {
+  return calculateLmpConversionRate(convertedCount, totalCount, otherReasonsCount) ?? 0;
+}
+
+export function tallyLmpConversionFromStatuses(
+  statuses: Iterable<string | null | undefined>,
+): { converted: number; total: number; otherReasons: number } {
+  let converted = 0;
+  let otherReasons = 0;
+  let total = 0;
+  for (const status of statuses) {
+    total += 1;
+    if (isConvertedLmpStatus(status)) converted += 1;
+    if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+  }
+  return { converted, total, otherReasons };
+}
+
+export function sumLmpStatusCounts(lsc: LmpStatusCounts): number {
+  return Object.values(lsc).reduce((sum, count) => sum + count, 0);
 }
 
 export type LmpStatusCounts = ReturnType<typeof lmpStatusCounts>;
 
 /**
  * Process-wise conversion for the admin health summary.
- * Denominator = terminal outcomes only: Converted + Not Converted + Closed (other-reasons).
- * Excludes active pipeline (not-started, prep-ongoing, prep-done) and on-hold.
+ * Denominator = total in-view LMPs minus other-reasons.
  */
 export function computeProcessWiseConversion(lsc: LmpStatusCounts) {
   const closedProcesses = lsc["other-reasons"];
   const notConverted = lsc["not-converted"];
   const converted = lsc.converted;
-  const eligibleProcesses = converted + notConverted + closedProcesses;
-  const processConversionPct =
-    eligibleProcesses > 0 ? (converted / eligibleProcesses) * 100 : null;
+  const total = sumLmpStatusCounts(lsc);
+  const eligibleProcesses = total - closedProcesses;
+  const processConversionPct = calculateLmpConversionRate(converted, total, closedProcesses);
   return { closedProcesses, notConverted, eligibleProcesses, processConversionPct };
 }
 
@@ -249,16 +298,17 @@ export function domainBreakdown(rows: LmpRecord[]) {
   return DOMAINS.map((d) => {
     const list = rows.filter((r) => r.domain === d);
     const total = list.length;
-    const convertedCount = list.filter((r) => r.status === "converted").length;
+    const convertedCount = list.filter((r) => isConvertedLmpStatus(r.status)).length;
     const notConvertedCount = list.filter((r) => r.status === "not-converted").length;
+    const otherReasonsCount = list.filter((r) => isOtherReasonsLmpStatus(r.status)).length;
     return {
       domain: d,
       total,
       ongoing: list.filter((r) => r.status === "prep-ongoing" || r.status === "ongoing" || r.status === "prep-done").length,
       offer: list.filter((r) => r.status === "offer-received").length,
       converted: convertedCount,
-      risk: list.filter((r) => r.status === "hold" || r.status === "not-converted" || r.status === "other-reasons" || r.status === "closed" || r.status === "dormant").length,
-      conversionRate: calculateOutcomeConversionRate(convertedCount, notConvertedCount),
+      risk: list.filter((r) => r.status === "hold" || r.status === "not-converted" || isOtherReasonsLmpStatus(r.status)).length,
+      conversionRate: calculateOutcomeConversionRate(convertedCount, total, otherReasonsCount),
       offerRate: total ? (list.filter((r) => r.status === "offer-received" || r.status === "converted").length / total) * 100 : 0,
     };
   });

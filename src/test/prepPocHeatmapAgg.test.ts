@@ -384,22 +384,22 @@ describe("Case 18: Other reasons (dormant, closed, other-reasons)", () => {
   const row = result.rows[0];
 
   it("otherReasonsCount=3", () => expect(row.otherReasonsCount).toBe(3));
-  it("eligibleClosedCount=3 (OR counts toward denominator)", () => {
-    expect(row.eligibleClosedCount).toBe(3);
+  it("eligibleClosedCount=0 when all LMPs are other-reasons", () => {
+    expect(row.eligibleClosedCount).toBe(0);
   });
 });
 
 // ── 19. Zero eligible conversion denominator ─────────────────────────────────
 
-describe("Case 19: Zero eligible closed denominator", () => {
+describe("Case 19: Active pipeline in conversion denominator", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "not-started")];
   const result = buildHeatmapData(pocs, links, []);
   const row = result.rows[0];
 
-  it("lmpConversionPercentage=null when no eligible LMPs", () => {
-    expect(row.eligibleClosedCount).toBe(0);
-    expect(row.lmpConversionPercentage).toBeNull();
+  it("lmpConversionPercentage=0% when denominator exists but no conversions", () => {
+    expect(row.eligibleClosedCount).toBe(1);
+    expect(row.lmpConversionPercentage).toBe(0);
   });
 });
 
@@ -564,7 +564,7 @@ describe("Drill-down filters reconcile with visible heatmap cells", () => {
     const drill = filterHeatmapMetricRecords(result.source, "p1", "lmpConversion");
     expect(drill.convertedLmps).toHaveLength(row.convertedCount);
     expect(drill.denominatorLmps).toHaveLength(row.eligibleClosedCount);
-    expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(false);
+    expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(true);
   });
 });
 
@@ -638,7 +638,7 @@ describe("query contract — no candidate_count from lmp_processes", () => {
     expect(result.summary.uniqueLmpCount).toBe(2); // lmp1 + lmp2 globally
     expect(result.summary.uniqueStudentsPlaced).toBe(1); // s1 once
     expect(result.summary.convertedLmpCount).toBe(1);
-    expect(result.summary.eligibleClosedLmpCount).toBe(2); // converted + not-converted
+    expect(result.summary.eligibleClosedLmpCount).toBe(2); // total scoped minus other reasons
   });
 
   it("activePocCount counts only POCs with LMP load > 0", () => {

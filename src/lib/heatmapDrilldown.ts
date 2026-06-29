@@ -196,12 +196,10 @@ export function drillFilter(ctx: DrilldownContext, metric: HeatmapMetricKey): Dr
     }
 
     case "lmpConversion": {
-      // eligibleIds = converted ∪ notConverted ∪ otherReasons (excludes onHold)
-      const eligibleIds = new Set<string>([
-        ...ctx.convertedIds,
-        ...ctx.notConvertedIds,
-        ...ctx.otherReasonsIds,
-      ]);
+      const eligibleIds = new Set<string>();
+      for (const id of ctx.totalIds) {
+        if (!ctx.otherReasonsIds.has(id)) eligibleIds.add(id);
+      }
       return {
         kind: "conversion",
         convertedIds: new Set(ctx.convertedIds),

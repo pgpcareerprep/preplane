@@ -226,7 +226,7 @@ export function LmpHealthSummaryCard({
   isError?: boolean;
   onStatusClick?: (status: ActiveLmpStatus) => void;
 }) {
-  // ── Conversion: terminal outcomes only (converted + not-converted + closed) ──
+  // ── Conversion: Converted ÷ (Total LMPs − Other Reasons) ──
   const { closedProcesses, notConverted, eligibleProcesses, processConversionPct } =
     computeProcessWiseConversion(lsc);
 

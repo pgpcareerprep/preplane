@@ -11,7 +11,7 @@ export const DASHBOARD_INFO = {
   // ── Admin · Hero / Status
   "admin.hero.in-view":            "Count of LMP processes that match the current filters above (Range, Domain, Status, Type, POC).",
   "admin.hero.overall":            "All LMP processes in the system regardless of filters. Sub-text shows how many of those have a final-conversion record.",
-  "admin.hero.conversion":         "Converted ÷ In-view processes. A row counts as Converted when Status = Converted OR a Final Convert name is recorded.",
+  "admin.hero.conversion":         "Converted ÷ (Total in-view LMPs − Other Reasons). A row counts as Converted when Status = Converted or Offer Received.",
   "admin.status.donut":            "Share of in-view LMPs by Status. Click a segment to list those processes.",
   "admin.status.strip":            "Per-status count and % of the in-view pipeline. Click any tile to see those LMPs.",
 
@@ -71,16 +71,16 @@ export const DASHBOARD_INFO = {
   "admin.students.eligible":       "Total students minus opted-out students.",
 
   // ── Admin · Attention / Performance strip
-  "attention.best-poc":            "POC with the highest Converted ÷ (Converted + Not Converted) rate in the current filtered scope. Requires at least one terminal outcome.",
-  "attention.best-pod":            "POD with the highest distinct-LMP conversion rate in the current filtered scope.",
-  "attention.best-domain":         "Domain with the highest Converted ÷ (Converted + Not Converted) rate in the current filtered scope. Uses canonical domain IDs.",
+  "attention.best-poc":            "POC with the highest LMP conversion rate (Converted ÷ Total − Other Reasons) in the current filtered scope.",
+  "attention.best-pod":            "POD with the highest LMP conversion rate in the current filtered scope.",
+  "attention.best-domain":         "Domain with the highest LMP conversion rate (Converted ÷ Total − Other Reasons) in the current filtered scope. Uses canonical domain IDs.",
   "attention.most-overloaded-poc": "Active POC with the highest active_load value (across all roles).",
   "attention.pending-offers":      "All LMPs currently in Offer Received status (live DB count).",
   "attention.missing-prep-pocs":   "Active LMPs with no Prep POC assignment (prepPocId is null), excluding terminal statuses (Converted, Not Converted, Other Reasons, Closed).",
   "attention.overloaded-pocs":     "POCs whose active_load exceeds their max_threshold.",
 
   // ── POC · personal
-  "poc.hero.conversion":           "Your conversion rate across processes where YOU are listed as Prep / Support / Outreach POC.",
+  "poc.hero.conversion":           "Your conversion rate: Converted ÷ (Total LMPs − Other Reasons) across processes where you are listed as Prep / Support / Outreach POC.",
   "poc.kpi.active":                "Your processes in Ongoing status — i.e. work in flight.",
   "poc.kpi.offer":                 "Your processes in Offer Received status — awaiting accept / decline.",
   "poc.kpi.risk":                  "Your processes that are On Hold, Dormant, or Closed without conversion.",
@@ -89,7 +89,7 @@ export const DASHBOARD_INFO = {
   "poc.checklist":                 "Step-by-step task completion across your LMPs. The done / total ratio reflects rows that satisfy each step.",
   "poc.active-table":              "Your in-flight LMPs (Ongoing / Offer Received / On Hold), sorted by most-recently-updated.",
   "poc.lmps.total":                "Total LMPs assigned to you, from the LMP Tracker.",
-  "poc.lmps.conversion":           "Your overall conversion rate.",
+  "poc.lmps.conversion":           "Converted ÷ (Total LMPs − Other Reasons) in your scope.",
 
   // ── Allocator
   "alloc.hero.completeness":       "Required fields filled across all in-scope LMPs, expressed as a percentage.",

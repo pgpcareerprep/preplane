@@ -1,4 +1,11 @@
-import { type Domain, type Process, isConverted, calculateOutcomeConversionRate } from "@/lib/lmpProcessQueries";
+import {
+  type Domain,
+  type Process,
+  isConverted,
+  calculateOutcomeConversionRate,
+  isConvertedLmpStatus,
+  isOtherReasonsLmpStatus,
+} from "@/lib/lmpProcessQueries";
 import type { LmpRecord } from "@/lib/lmpTypes";
 
 /**
@@ -47,9 +54,14 @@ export function domainAllocation(
     const crD = list.filter((r) => isCrossDomain(r, map));
     const pct = (arr: Process[]) => {
       if (statusMap) {
-        const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
-        const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
-        return calculateOutcomeConversionRate(c, nc);
+        let converted = 0;
+        let otherReasons = 0;
+        for (const p of arr) {
+          const status = statusMap.get(p.processId);
+          if (isConvertedLmpStatus(status)) converted += 1;
+          if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+        }
+        return calculateOutcomeConversionRate(converted, arr.length, otherReasons);
       }
       return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
     };
@@ -90,9 +102,14 @@ export function pocPurityMatrix(
     const crD = owned.filter((r) => r.domain !== primary);
     const conv = (arr: Process[]) => {
       if (statusMap) {
-        const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
-        const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
-        return +calculateOutcomeConversionRate(c, nc).toFixed(0);
+        let converted = 0;
+        let otherReasons = 0;
+        for (const p of arr) {
+          const status = statusMap.get(p.processId);
+          if (isConvertedLmpStatus(status)) converted += 1;
+          if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+        }
+        return +calculateOutcomeConversionRate(converted, arr.length, otherReasons).toFixed(0);
       }
       return arr.length ? +((arr.filter(isConverted).length / arr.length) * 100).toFixed(0) : 0;
     };
@@ -117,9 +134,14 @@ export function allocationKpis(rows: Process[], map: PocPrimaryDomainMap, record
   const crD = rows.filter((r) => isCrossDomain(r, map));
   const conv = (arr: Process[]) => {
     if (statusMap) {
-      const c = arr.filter((p) => statusMap.get(p.processId) === "converted").length;
-      const nc = arr.filter((p) => statusMap.get(p.processId) === "not-converted").length;
-      return calculateOutcomeConversionRate(c, nc);
+      let converted = 0;
+      let otherReasons = 0;
+      for (const p of arr) {
+        const status = statusMap.get(p.processId);
+        if (isConvertedLmpStatus(status)) converted += 1;
+        if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+      }
+      return calculateOutcomeConversionRate(converted, arr.length, otherReasons);
     }
     return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
   };

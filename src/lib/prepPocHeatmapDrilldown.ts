@@ -540,7 +540,7 @@ export function filterDomainWiseMetricRecords(
 
   if (metricKey === "lmpConversion") {
     const denominatorLmps = filterDomainLmps(source, domainId, data.domainRows, (r) =>
-      r.statusBucket === "converted" || r.statusBucket === "notConverted" || r.statusBucket === "otherReasons",
+      r.statusBucket !== "otherReasons",
     );
     const convertedLmps = denominatorLmps.filter((r) => r.statusBucket === "converted");
     return {

@@ -107,11 +107,11 @@ describe("Domain-wise heatmap", () => {
     expect(rows[0]?.placementRatePct).toBeNull();
   });
 
-  it("handles LMP conversion zero denominator", () => {
+  it("handles LMP conversion with active pipeline in denominator", () => {
     const pocs = [poc("p1", "Alice")];
     const links = [link("p1", "lmp1", "prep", "not-started", "Finance")];
     const { summary } = buildDomainWiseData(pocs, links, []);
-    expect(summary.lmpConversionPct).toBeNull();
+    expect(summary.lmpConversionPct).toBe(0);
   });
 });
 

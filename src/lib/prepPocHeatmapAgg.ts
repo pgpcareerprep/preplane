@@ -13,10 +13,8 @@ import {
  * Status treatment for "On hold":
  *   - For LMP LOAD display (Current vs Closed column): On hold counts as Closed.
  *     This matches the reference visual where Closed = Conv + NC + OH + OR.
- *   - For LMP Conversion denominator: On hold is EXCLUDED.
- *     Denominator = Converted + Not Converted + Other reasons only.
- *   This distinction is intentional: OH is paused work (no longer "current")
- *   but may still convert, so it is not a final outcome for conversion math.
+ *   - For LMP Conversion denominator: Total LMPs minus Other Reasons.
+ *     Active pipeline and on-hold LMPs remain in the denominator.
  *
  * Domain load applies to PREP-role LMPs only (primary assignments).
  * LMPs with no domain set are classified as in-domain to avoid false cross-domain noise.
@@ -451,8 +449,8 @@ export function buildHeatmapData(
     const closedLmpCount =
       convertedCount + notConvertedCount + onHoldCount + otherReasonsCount + unknownCount;
 
-    // Conversion denominator excludes On hold (see module docstring)
-    const eligibleClosedCount = convertedCount + notConvertedCount + otherReasonsCount;
+    // Conversion denominator = total LMPs minus other-reasons outcomes
+    const eligibleClosedCount = totalIds.size - otherReasonsCount;
     const lmpConversionPercentage =
       eligibleClosedCount > 0 ? (convertedCount / eligibleClosedCount) * 100 : null;
 
@@ -503,14 +501,13 @@ export function buildHeatmapData(
 
   // Global conversion — from the scoped LMP set
   let globalConvertedCount = 0;
-  let globalEligibleCount = 0;
+  let globalOtherReasonsCount = 0;
   for (const id of scopedLmpIds) {
     const bucket = lmpStatusMap.get(id) ?? "unknown";
     if (bucket === "converted") globalConvertedCount++;
-    if (bucket === "converted" || bucket === "notConverted" || bucket === "otherReasons") {
-      globalEligibleCount++;
-    }
+    if (bucket === "otherReasons") globalOtherReasonsCount++;
   }
+  const globalEligibleCount = scopedLmpIds.size - globalOtherReasonsCount;
 
   const activePocCount = rows.filter((r) => r.totalLmpLoad > 0).length;
 
@@ -587,11 +584,7 @@ export function filterHeatmapMetricRecords(
   }
 
   if (metricKey === "lmpConversion") {
-    const denominatorLmps = pocLmps.filter((record) =>
-      record.statusBucket === "converted" ||
-      record.statusBucket === "notConverted" ||
-      record.statusBucket === "otherReasons",
-    );
+    const denominatorLmps = pocLmps.filter((record) => record.statusBucket !== "otherReasons");
     const convertedLmps = denominatorLmps.filter((record) => record.statusBucket === "converted");
     return {
       recordType: "conversion",

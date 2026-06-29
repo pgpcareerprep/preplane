@@ -67,8 +67,8 @@ export function calculatePocConversion(
   pocDomains: string[],
   lmpRows: Array<{ status: string; domain: string; prepPoc?: { name: string }; domainPrepPoc?: { name: string }; outreachPoc?: { name: string } }>
 ): PocConversionStats {
-  let domainTotal = 0, domainConverted = 0;
-  let crossTotal = 0, crossConverted = 0;
+  let domainTotal = 0, domainConverted = 0, domainOtherReasons = 0;
+  let crossTotal = 0, crossConverted = 0, crossOtherReasons = 0;
 
   for (const r of lmpRows) {
     const isPocAssigned =
@@ -76,32 +76,39 @@ export function calculatePocConversion(
     if (!isPocAssigned) continue;
 
     const isInDomain = pocDomains.some(d => d.toLowerCase() === r.domain.toLowerCase());
-    const isConverted = r.status === "converted" || r.status === "converted-na";
+    const isConvertedStatus = r.status === "converted" || r.status === "offer-received";
+    const isOtherReasons = r.status === "other-reasons" || r.status === "dormant" || r.status === "closed";
 
     if (isInDomain) {
       domainTotal++;
-      if (isConverted) domainConverted++;
+      if (isConvertedStatus) domainConverted++;
+      if (isOtherReasons) domainOtherReasons++;
     } else {
       crossTotal++;
-      if (isConverted) crossConverted++;
+      if (isConvertedStatus) crossConverted++;
+      if (isOtherReasons) crossOtherReasons++;
     }
   }
 
   const overallTotal = domainTotal + crossTotal;
   const overallConverted = domainConverted + crossConverted;
-  const pct = (n: number, d: number) => d > 0 ? Math.round((n / d) * 100) : 0;
+  const overallOtherReasons = domainOtherReasons + crossOtherReasons;
+  const pct = (converted: number, total: number, otherReasons: number) => {
+    const denom = total - otherReasons;
+    return denom > 0 ? Math.round((converted / denom) * 100) : 0;
+  };
 
   return {
     domainTotal,
     domainConverted,
-    domainPct: pct(domainConverted, domainTotal),
+    domainPct: pct(domainConverted, domainTotal, domainOtherReasons),
     crossTotal,
     crossConverted,
-    crossPct: crossTotal > 0 ? pct(crossConverted, crossTotal) : null,
+    crossPct: crossTotal - crossOtherReasons > 0 ? pct(crossConverted, crossTotal, crossOtherReasons) : null,
     overallTotal,
     overallConverted,
-    overallPct: pct(overallConverted, overallTotal),
-    rankingScore: pct(domainConverted, domainTotal),
+    overallPct: pct(overallConverted, overallTotal, overallOtherReasons),
+    rankingScore: pct(domainConverted, domainTotal, domainOtherReasons),
   };
 }
 

@@ -2,9 +2,8 @@
  * Unit tests for LmpHealthSummaryCard derived metrics.
  *
  * Process-wise Conversion formula:
- *   eligibleProcesses = converted + not-converted + other-reasons (closed)
+ *   eligibleProcesses = total LMPs − other-reasons
  *   processConversionPct = converted / eligibleProcesses
- *   Excludes active pipeline and on-hold from denominator.
  *
  * Closed definition: lsc["other-reasons"] absorbs DB statuses
  *   { "other-reasons", "dormant", "closed", "converted-na" }
@@ -48,7 +47,7 @@ describe("Donut reconciliation — 7 buckets sum to Total LMPs", () => {
 // ── Process-wise Conversion formula ──────────────────────────────────────────
 
 describe("Process-wise Conversion formula", () => {
-  it("uses Converted ÷ (Converted + Not Converted + Closed)", () => {
+  it("uses Converted ÷ (Total LMPs − Other Reasons)", () => {
     const lsc = makeFullLsc({
       "not-started": 40,
       converted: 4,
@@ -60,11 +59,11 @@ describe("Process-wise Conversion formula", () => {
       computeProcessWiseConversion(lsc);
     expect(closedProcesses).toBe(2);
     expect(notConverted).toBe(3);
-    expect(eligibleProcesses).toBe(9); // 4 + 3 + 2
-    expect(processConversionPct).toBeCloseTo((4 / 9) * 100, 5);
+    expect(eligibleProcesses).toBe(48);
+    expect(processConversionPct).toBeCloseTo((4 / 48) * 100, 5);
   });
 
-  it("excludes active pipeline and on-hold from denominator", () => {
+  it("includes active pipeline and on-hold in the denominator", () => {
     const lsc = makeFullLsc({
       "not-started": 47,
       "prep-ongoing": 10,
@@ -74,23 +73,23 @@ describe("Process-wise Conversion formula", () => {
       hold: 3,
     });
     const { eligibleProcesses, processConversionPct } = computeProcessWiseConversion(lsc);
-    expect(eligibleProcesses).toBe(26); // 7 + 12 + 7 — not 66
-    expect(processConversionPct).toBeCloseTo((7 / 26) * 100, 5);
+    expect(eligibleProcesses).toBe(79);
+    expect(processConversionPct).toBeCloseTo((7 / 79) * 100, 5);
   });
 
-  it("returns null when no terminal outcomes exist", () => {
+  it("returns 0% when only non-converted active pipeline exists", () => {
     const lsc = makeFullLsc({ "not-started": 10, hold: 2 });
     const { processConversionPct } = computeProcessWiseConversion(lsc);
-    expect(processConversionPct).toBeNull();
+    expect(processConversionPct).toBe(0);
   });
 
-  it("returns 100% when all terminal processes are converted", () => {
+  it("returns 100% when all non-other-reasons processes are converted", () => {
     const lsc = makeFullLsc({ converted: 5 });
     const { processConversionPct } = computeProcessWiseConversion(lsc);
     expect(processConversionPct).toBe(100);
   });
 
-  it("returns 0% when no conversions but terminal outcomes exist", () => {
+  it("returns 0% when no conversions but eligible denominator exists", () => {
     const lsc = makeFullLsc({ "not-converted": 5 });
     const { processConversionPct } = computeProcessWiseConversion(lsc);
     expect(processConversionPct).toBe(0);
@@ -157,13 +156,13 @@ describe("Closed definition (from lmpStatusCounts canonical)", () => {
     const lsc = makeFullLsc({ "other-reasons": 7, converted: 2, "not-converted": 1 });
     const { closedProcesses, eligibleProcesses } = computeProcessWiseConversion(lsc);
     expect(closedProcesses).toBe(7);
-    expect(eligibleProcesses).toBe(10);
+    expect(eligibleProcesses).toBe(3);
   });
 
-  it("On Hold is excluded from conversion denominator", () => {
+  it("On Hold remains in the conversion denominator", () => {
     const lsc = makeFullLsc({ hold: 3, converted: 2, "other-reasons": 0 });
     const { eligibleProcesses } = computeProcessWiseConversion(lsc);
-    expect(eligibleProcesses).toBe(2);
+    expect(eligibleProcesses).toBe(5);
   });
 });
 

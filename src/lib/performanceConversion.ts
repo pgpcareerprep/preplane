@@ -2,17 +2,15 @@
  * Shared conversion-rate utilities used by the Performance Summary Strip.
  *
  * Formula (canonical across POC, POD, and domain performance):
- *   Conversion % = Converted ÷ (Converted + Not Converted) × 100
- *
- * Only LMPs with a terminal outcome (Converted OR Not Converted) count toward
- * the denominator. All other statuses (Not Started, Prep Ongoing, Prep Done,
- * On Hold, Other Reasons) are excluded unless the canonical lmpStatusCounts
- * function already maps them to one of the two outcome buckets.
+ *   Conversion % = Converted ÷ (Total LMPs − Other Reasons) × 100
  */
+
+import { calculateLmpConversionRate } from "@/lib/lmpProcessQueries";
 
 export type PerformanceCounts = {
   converted: number;
-  notConverted: number;
+  total: number;
+  otherReasons: number;
 };
 
 /**
@@ -20,14 +18,16 @@ export type PerformanceCounts = {
  * null prevents a misleading "0%" being displayed for a POC/domain with zero history.
  */
 export function calculatePerformanceConversion(counts: PerformanceCounts): number | null {
-  const eligible = counts.converted + counts.notConverted;
-  if (eligible <= 0) return null;
-  return (counts.converted / eligible) * 100;
+  return calculateLmpConversionRate(counts.converted, counts.total, counts.otherReasons);
 }
 
 export type PerformanceEntry = PerformanceCounts & {
   name: string;
 };
+
+function conversionDenominator(counts: PerformanceCounts): number {
+  return counts.total - counts.otherReasons;
+}
 
 /**
  * Stable tie-break sort order for ranking POCs, PODs, and domains.
@@ -35,8 +35,8 @@ export type PerformanceEntry = PerformanceCounts & {
  * Priority:
  *   1. Higher conversion percentage
  *   2. Higher Converted count
- *   3. Higher eligible outcome count (converted + not-converted)
- *   4. Lower Not Converted count
+ *   3. Higher eligible denominator (total − other reasons)
+ *   4. Lower Other Reasons count
  *   5. Alphabetical name (stable output)
  */
 export function comparePerformance(a: PerformanceEntry, b: PerformanceEntry): number {
@@ -44,10 +44,10 @@ export function comparePerformance(a: PerformanceEntry, b: PerformanceEntry): nu
   const pctB = calculatePerformanceConversion(b);
   if (pctA !== null && pctB !== null && pctB !== pctA) return pctB - pctA;
   if (b.converted !== a.converted) return b.converted - a.converted;
-  const eligA = a.converted + a.notConverted;
-  const eligB = b.converted + b.notConverted;
+  const eligA = conversionDenominator(a);
+  const eligB = conversionDenominator(b);
   if (eligB !== eligA) return eligB - eligA;
-  if (a.notConverted !== b.notConverted) return a.notConverted - b.notConverted;
+  if (a.otherReasons !== b.otherReasons) return a.otherReasons - b.otherReasons;
   return a.name.localeCompare(b.name);
 }
 
@@ -61,14 +61,12 @@ export type RankedPerformanceResult = {
 /**
  * Given a map of entity→counts, return the top-ranked entity or null.
  *
- * Entities with zero eligible outcomes (converted + not-converted = 0) are
- * excluded from ranking — they have no meaningful conversion signal.
- * Minimum eligible threshold: 1.
+ * Entities with zero eligible denominator are excluded from ranking.
  */
 export function rankPerformance(
   entries: PerformanceEntry[],
 ): RankedPerformanceResult | null {
-  const eligible = entries.filter((e) => e.converted + e.notConverted >= 1);
+  const eligible = entries.filter((e) => conversionDenominator(e) > 0);
   if (!eligible.length) return null;
 
   const best = [...eligible].sort(comparePerformance)[0];
@@ -77,7 +75,7 @@ export function rankPerformance(
   return {
     name: best.name,
     converted: best.converted,
-    eligible: best.converted + best.notConverted,
+    eligible: conversionDenominator(best),
     pct,
   };
 }
