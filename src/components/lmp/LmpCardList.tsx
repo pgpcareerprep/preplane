@@ -39,7 +39,6 @@ import { EditLmpModal } from "./EditLmpModal";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
@@ -649,25 +648,23 @@ function PocAvatars({ rec }: { rec: LmpRecord }) {
   const overflow = items.length - visible.length;
 
   return (
-    <TooltipProvider delayDuration={120}>
-      <div className="flex items-center -space-x-1.5" onClick={(e) => e.stopPropagation()}>
-        {visible.map((p) => (
-          <Tooltip key={p.name}>
-            <TooltipTrigger asChild>
-              <PocAvatarBadge p={p} />
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-[11px] font-medium">
-              {p.initials}: {p.name}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-        {overflow > 0 && (
-          <span className="h-7 w-7 rounded-full ring-2 ring-white bg-n100 text-n600 text-[10px] font-semibold flex items-center justify-center">
-            +{overflow}
-          </span>
-        )}
-      </div>
-    </TooltipProvider>
+    <div className="flex items-center -space-x-1.5" onClick={(e) => e.stopPropagation()}>
+      {visible.map((p) => (
+        <Tooltip key={p.name} delayDuration={120}>
+          <TooltipTrigger asChild>
+            <PocAvatarBadge p={p} />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-[11px] font-medium">
+            {p.initials}: {p.name}
+          </TooltipContent>
+        </Tooltip>
+      ))}
+      {overflow > 0 && (
+        <span className="h-7 w-7 rounded-full ring-2 ring-white bg-n100 text-n600 text-[10px] font-semibold flex items-center justify-center">
+          +{overflow}
+        </span>
+      )}
+    </div>
   );
 }
 
