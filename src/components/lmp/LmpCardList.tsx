@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useMemo, useState, type ButtonHTMLAttributes } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -655,7 +655,7 @@ function PocAvatars({ rec }: { rec: LmpRecord }) {
             <PocAvatarBadge p={p} />
           </TooltipTrigger>
           <TooltipContent side="top" className="text-[11px] font-medium">
-            {p.initials}: {p.name}
+            {p.name}
           </TooltipContent>
         </Tooltip>
       ))}
@@ -670,8 +670,12 @@ function PocAvatars({ rec }: { rec: LmpRecord }) {
 
 type PocAvatarItem = { name: string; initials: string; color: string; role: PocRole; domain?: PocDomain };
 
-const PocAvatarBadge = forwardRef<HTMLButtonElement, { p: PocAvatarItem }>(function PocAvatarBadge(
-  { p },
+type PocAvatarBadgeProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  p: PocAvatarItem;
+};
+
+const PocAvatarBadge = forwardRef<HTMLButtonElement, PocAvatarBadgeProps>(function PocAvatarBadge(
+  { p, className, onClick, ...props },
   ref,
 ) {
   const photoUrl = useAvatarUrl(p.name);
@@ -680,11 +684,17 @@ const PocAvatarBadge = forwardRef<HTMLButtonElement, { p: PocAvatarItem }>(funct
       ref={ref}
       type="button"
       aria-label={`${p.initials}: ${p.name}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
       className={cn(
         "h-7 w-7 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-semibold overflow-hidden shrink-0 cursor-default",
         !photoUrl && p.color,
         ringClass(p.role, p.domain),
+        className,
       )}
+      {...props}
     >
       {photoUrl ? (
         <img src={photoUrl} alt="" className="h-full w-full object-cover" />
