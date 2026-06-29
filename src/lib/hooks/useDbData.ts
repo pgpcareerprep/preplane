@@ -314,7 +314,14 @@ export function formatCandidateAddError(err: unknown): string {
 export function useAddLmpCandidates() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (candidates: { lmp_id: string; student_name: string; student_id?: string; roll_no?: string; pipeline_stage?: string }[]) => {
+    mutationFn: async (candidates: {
+      lmp_id: string;
+      student_name: string;
+      student_id?: string;
+      roll_no?: string;
+      pipeline_stage?: string;
+      metadata?: Record<string, unknown>;
+    }[]) => {
       if (!candidates.length) return { inserted: [], skipped: 0 };
       // Use merge upsert (no ignoreDuplicates) so the DB returns rows and we
       // can detect silent drops. Unique constraint (lmp_id, student_name)
@@ -359,6 +366,7 @@ export function useAddLmpCandidates() {
       qc.invalidateQueries({ queryKey: ["db-students-with-load"] });
       qc.invalidateQueries({ queryKey: ["db-students"] });
       qc.invalidateQueries({ queryKey: ["lmp_candidates_live"] });
+      qc.invalidateQueries({ queryKey: ["lmp-cohort-program-summaries"] });
       if (lmpId) qc.invalidateQueries({ queryKey: ["lmp_candidates_live", lmpId] });
       qc.refetchQueries({ queryKey: ["db-lmp-candidate-counts"] });
       if (lmpId) {
@@ -793,9 +801,13 @@ export function invalidateDataSourceCaches(qc: ReturnType<typeof useQueryClient>
     qc.invalidateQueries({ queryKey: ["db-students"] });
     qc.invalidateQueries({ queryKey: ["db-student"] });
     qc.invalidateQueries({ queryKey: ["db-students-with-load"] });
+    qc.invalidateQueries({ queryKey: ["students-dataset"] });
+    qc.invalidateQueries({ queryKey: ["cohorts"] });
+    qc.invalidateQueries({ queryKey: ["programs"] });
     qc.invalidateQueries({ queryKey: ["students_total_count"] });
     qc.invalidateQueries({ queryKey: ["students_roster_full"] });
-    qc.invalidateQueries({ queryKey: ["lmp_candidates_all"] });
+      qc.invalidateQueries({ queryKey: ["lmp_candidates_all"] });
+      qc.invalidateQueries({ queryKey: ["lmp-cohort-program-summaries"] });
     qc.invalidateQueries({ queryKey: ["prep_poc_heatmap_v3"] });
     qc.invalidateQueries({ queryKey: ["analytics"] });
     qc.invalidateQueries({ queryKey: ["dashboard-kpis"] });

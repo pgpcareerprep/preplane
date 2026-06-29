@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { ColumnMapping, MentorCsvRow } from "@/lib/mentorUpload";
 import { fetchCanonicalDomains, normalizeDomain, normalizeDomainList } from "@/lib/domainNormalize";
+import { formatLegacyCohortText, resolveProgramFromLegacyText } from "@/lib/cohortProgram";
+import type { ProgramWithAliases } from "@/lib/cohortProgram";
 import { validateStudentCsvDuplicates } from "@/lib/uploadValidation";
 
 export type StudentCsvRow = MentorCsvRow;
@@ -73,6 +75,16 @@ export function autoMapStudentColumns(csvHeaders: string[]): ColumnMapping[] {
 
 export const STUDENT_REQUIRED_FIELDS = ["name|roll_no", "email", "primary_domain"];
 
+export type StudentUploadAssignment = {
+  cohortId: string;
+  programId: string;
+  cohortCode: string;
+  programCode: string;
+  useCsvValues?: boolean;
+  allowReassignment?: boolean;
+  programs?: ProgramWithAliases[];
+};
+
 export type StudentUploadResult = {
   inserted: number;
   updated: number;
@@ -86,6 +98,8 @@ type ExistingStudent = {
   email: string | null;
   roll_no: string | null;
   name: string;
+  cohort_id?: string | null;
+  program_id?: string | null;
 };
 
 type ParsedStudentRow = {
@@ -109,11 +123,37 @@ const STUDENT_UPLOAD_FIELDS = [
   "other_domains",
   "placement_status",
   "cohort",
+  "cohort_id",
+  "program_id",
   "phone",
   "sync_source",
 ] as const;
 
 const BATCH_SIZE = 50;
+
+function applyAssignment(
+  rec: Record<string, unknown>,
+  assignment?: StudentUploadAssignment,
+): void {
+  if (!assignment) return;
+  if (!assignment.useCsvValues) {
+    rec.cohort_id = assignment.cohortId;
+    rec.program_id = assignment.programId;
+    rec.cohort = formatLegacyCohortText(assignment.cohortCode, assignment.programCode);
+    return;
+  }
+  const programs = assignment.programs ?? [];
+  const resolved = resolveProgramFromLegacyText(
+    rec.cohort as string | undefined,
+    rec.roll_no as string | undefined,
+    programs.filter((p) => p.cohort_id === assignment.cohortId),
+  );
+  rec.cohort_id = assignment.cohortId;
+  rec.program_id = resolved?.id ?? assignment.programId;
+  if (!rec.cohort) {
+    rec.cohort = formatLegacyCohortText(assignment.cohortCode, assignment.programCode);
+  }
+}
 
 function buildStudentPayload(rec: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
@@ -144,7 +184,7 @@ async function fetchExistingStudents(
   for (let i = 0; i < rollNos.length; i += CHUNK) {
     const { data, error } = await supabase
       .from("students")
-      .select("id, email, roll_no, name")
+      .select("id, email, roll_no, name, cohort_id, program_id")
       .in("roll_no", rollNos.slice(i, i + CHUNK));
     if (error) return { students: [], error: error.message };
     addRows(data as ExistingStudent[]);
@@ -153,7 +193,7 @@ async function fetchExistingStudents(
   for (let i = 0; i < emails.length; i += CHUNK) {
     const { data, error } = await supabase
       .from("students")
-      .select("id, email, roll_no, name")
+      .select("id, email, roll_no, name, cohort_id, program_id")
       .in("email", emails.slice(i, i + CHUNK));
     if (error) return { students: [], error: error.message };
     addRows(data as ExistingStudent[]);
@@ -234,6 +274,7 @@ export async function uploadStudents(
   mapping: ColumnMapping[],
   admin: { id?: string; email?: string; name?: string },
   fileName = "students.csv",
+  assignment?: StudentUploadAssignment,
 ): Promise<StudentUploadResult> {
   const errors: string[] = [];
   let inserted = 0;
@@ -278,6 +319,7 @@ export async function uploadStudents(
     }
     if (!rec.name) rec.name = rec.roll_no;
 
+    applyAssignment(rec, assignment);
     parsedRows.push({ rowNum, rec });
   }
 
@@ -356,6 +398,16 @@ export async function uploadStudents(
     const target = emailMatch ?? rollMatch;
 
     if (target) {
+      const reassignment =
+        assignment &&
+        (target.cohort_id !== assignment.cohortId || target.program_id !== assignment.programId);
+      if (reassignment && !assignment.allowReassignment) {
+        errors.push(
+          `Row ${rowNum}: student already exists under a different cohort/program. Enable reassignment confirmation to update.`,
+        );
+        skipped++;
+        continue;
+      }
       toUpdate.push({ rowNum, kind: "update", id: target.id, payload });
       const merged: ExistingStudent = {
         id: target.id,

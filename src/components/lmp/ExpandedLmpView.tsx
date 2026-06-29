@@ -526,6 +526,7 @@ function AddCandidatesModalPersist({
             student_name: c.name,
             student_id: c.studentId,
             pipeline_stage: c.roundId || "pool",
+            metadata: c.metadata,
           })),
         );
       }}

@@ -65,6 +65,8 @@ export type StudentDrillRow = {
   email?: string | null;
   name: string;
   cohort?: string;
+  program?: string;
+  batchLabel?: string;
   primaryDomain?: string;
   secondaryDomain?: string;
   rollNo?: string;
@@ -221,6 +223,8 @@ export function LxDrillDown({
                       { key: "email", label: "Email" },
                       { key: "phone", label: "Phone" },
                       { key: "cohort", label: "Cohort" },
+                      { key: "program", label: "Program" },
+                      { key: "batchLabel", label: "Batch" },
                       { key: "primaryDomain", label: "Primary Domain" },
                       { key: "secondaryDomain", label: "Secondary Domain" },
                       { key: "placementStatus", label: "Placement Status" },
@@ -379,7 +383,7 @@ function StudentTable({ rows }: { rows: StudentDrillRow[] }) {
     <table className="w-full text-[12.5px]">
       <thead className="sticky top-0 z-10" style={{ background: "var(--lx-surface, white)" }}>
         <tr style={{ borderBottom: "1px solid var(--lx-border, rgba(0,0,0,0.06))" }}>
-          {["Name", "Student ID", "Email", "Phone", "Cohort", "Primary Domain", "Secondary Domain", "Active LMPs", "Total LMPs"].map((h) => (
+          {["Name", "Student ID", "Email", "Phone", "Cohort", "Program", "Batch", "Primary Domain", "Secondary Domain", "Active LMPs", "Total LMPs"].map((h) => (
             <th key={h} className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.5px] font-medium"
               style={{ color: "var(--lx-text-3)" }}>{h}</th>
           ))}
@@ -394,6 +398,8 @@ function StudentTable({ rows }: { rows: StudentDrillRow[] }) {
             <td className="px-3 py-2 truncate max-w-[180px]" style={{ color: "var(--lx-text-2)" }}>{r.email || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.phone || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.cohort || "—"}</td>
+            <td className="px-3 py-2 truncate max-w-[100px]" style={{ color: "var(--lx-text-2)" }}>{r.program || "—"}</td>
+            <td className="px-3 py-2 truncate max-w-[120px]" style={{ color: "var(--lx-text-2)" }}>{r.batchLabel || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: "var(--lx-text-2)" }}>{r.primaryDomain || "—"}</td>
             <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: "var(--lx-text-2)" }}>{r.secondaryDomain || "—"}</td>
             <td className="px-3 py-2 font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>{r.activeLmpCount ?? 0}</td>

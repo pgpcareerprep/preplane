@@ -65,15 +65,21 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
   // (props are sourced from mock/sheet data and re-mount on navigation,
   // causing CV-upload rows to vanish and stale entries to reappear).
   const allCandidates = useMemo<Candidate[]>(() => {
-    return (dbCandidates as any[]).map((c: any) => ({
-      id: c.id,
-      studentId: c.student_id || undefined,
-      name: c.student_name,
-      initials: (c.student_name || "").split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("") || "??",
-      color: "bg-orange-200 text-orange-600",
-      cohort: c.pipeline_stage || "Pool",
-      roundId: resolveStageToRoundId(c.pipeline_stage, rounds),
-    }));
+    return (dbCandidates as any[]).map((c: any) => {
+      const meta = (c.metadata ?? {}) as Record<string, string>;
+      const batch =
+        meta.derived_batch_label ||
+        (meta.cohort_code && meta.program_code ? `${meta.cohort_code} · ${meta.program_code}` : "");
+      return {
+        id: c.id,
+        studentId: c.student_id || undefined,
+        name: c.student_name,
+        initials: (c.student_name || "").split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("") || "??",
+        color: "bg-orange-200 text-orange-600",
+        cohort: batch || c.pipeline_stage || "Pool",
+        roundId: resolveStageToRoundId(c.pipeline_stage, rounds),
+      };
+    });
   }, [dbCandidates, rounds]);
 
   const handleAddCandidates = async (items: Candidate[]) => {
@@ -112,6 +118,7 @@ export function OverviewTab({ req, candidates }: { req: Requisition; candidates:
           student_name: c.name,
           student_id: studentId,
           pipeline_stage: (c.roundId || "pool") as string,
+          metadata: c.metadata && Object.keys(c.metadata).length ? c.metadata : undefined,
         });
       }
 

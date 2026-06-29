@@ -7,12 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, User, Briefcase } from "lucide-react";
 import { motion } from "framer-motion";
 import { useMemo } from "react";
-
-function deriveProgram(rollNo: string): "TBM" | "YLC" | "" {
-  if (rollNo?.startsWith("YLC")) return "YLC";
-  if (rollNo?.startsWith("PGP")) return "TBM";
-  return "";
-}
+import { getStudentProgramCode, getStudentBatchLabel } from "@/lib/cohortProgram";
 
 function deriveCohortYear(rollNo: string): string {
   const m = rollNo?.match(/^(?:PGP|YLC)(\d{4})/);
@@ -37,7 +32,8 @@ export default function StudentDetailPage() {
   if (isLoading) return <div className="space-y-4 p-8">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>;
   if (!student) return <div className="p-8 text-center text-muted-foreground">Student not found.</div>;
 
-  const prog = deriveProgram(s.roll_no || "");
+  const prog = getStudentProgramCode(s);
+  const batchLabel = getStudentBatchLabel(s);
   const year = deriveCohortYear(s.roll_no || "");
 
   const lmpStatusColor = (status: string) => {
@@ -73,7 +69,11 @@ export default function StudentDetailPage() {
                     {prog}
                   </Badge>
                 )}
-                {year && <Badge variant="outline" className="text-[11px]">{year}</Badge>}
+                {batchLabel && batchLabel !== "—" && (
+                  <Badge variant="outline" className="text-[11px]">
+                    {batchLabel}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>

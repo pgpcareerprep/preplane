@@ -5,22 +5,9 @@ import { useStudentsWithLoad } from "@/lib/hooks/useDbData";
 import { useResolveDomain } from "@/lib/hooks/useResolveDomain";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ClearDataSourceButton } from "./ClearDataSourceButton";
+import { getStudentProgramCode } from "@/lib/cohortProgram";
 
 const PAGE_SIZE = 50;
-
-function deriveProgram(s: any): string {
-  const cohort = String(s?.cohort || "").trim().toUpperCase();
-  if (cohort) {
-    if (cohort.startsWith("YLC")) return "YLC";
-    if (cohort.startsWith("PGP") || cohort.startsWith("TBM")) return "TBM";
-    return cohort;
-  }
-  const rollNo = s?.roll_no;
-  if (!rollNo) return "—";
-  if (String(rollNo).startsWith("YLC")) return "YLC";
-  if (String(rollNo).startsWith("PGP")) return "TBM";
-  return "—";
-}
 
 export function ViewAllStudentsModal({
   open, onOpenChange,
@@ -36,7 +23,7 @@ export function ViewAllStudentsModal({
     const q = search.toLowerCase().trim();
     return (students as any[]).filter((s) => {
       if (domain && !domainMatches(s.primary_domain, domain)) return false;
-      if (program && deriveProgram(s) !== program) return false;
+      if (program && getStudentProgramCode(s) !== program) return false;
       if (!q) return true;
       return (
         (s.name || "").toLowerCase().includes(q) ||
@@ -164,7 +151,7 @@ export function ViewAllStudentsModal({
                     <td className="px-2 py-2 text-n600">{s.email || "—"}</td>
                     <td className="px-2 py-2 text-n600">{domainDisplay(s.primary_domain)}</td>
                     <td className="px-2 py-2 text-n600">{renderSecondary(s)}</td>
-                    <td className="px-2 py-2 text-n600">{deriveProgram(s)}</td>
+                    <td className="px-2 py-2 text-n600">{getStudentProgramCode(s)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">
                       {Number(s.total_lmp_count || 0) > 0 ? (
                         <span className="inline-flex items-center justify-center min-w-[28px] h-5 rounded-full bg-orange-50 text-orange-700 border border-orange-200 text-[11px] font-semibold px-2">

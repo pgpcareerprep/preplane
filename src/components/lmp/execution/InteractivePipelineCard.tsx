@@ -418,6 +418,7 @@ export function InteractivePipelineCard({ lmpId, lmp, readOnly = false, canManag
               student_name: c.name,
               student_id: c.studentId,
               pipeline_stage: c.roundId || "pool",
+              metadata: c.metadata,
             }))
           );
         }}

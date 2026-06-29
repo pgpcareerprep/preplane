@@ -12,8 +12,11 @@ export type Candidate = {
   name: string;
   initials: string;
   color: string;
+  /** Batch label or pipeline stage label for display. */
   cohort: string;
   roundId: string; // "pool" or round.id
+  /** Optional snapshot written to lmp_candidates.metadata on add. */
+  metadata?: Record<string, string>;
 };
 
 export type Round = { id: string; name: string; type: string };

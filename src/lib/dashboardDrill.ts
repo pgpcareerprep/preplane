@@ -9,6 +9,7 @@ import { flagRows } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import type { StudentDrillRow } from "@/components/insights/LxDrillDown";
 import { isCandidatePipelineConverted, isOptedOutStatus } from "@/lib/studentAnalytics";
+import { formatBatchLabel, getStudentCohortCode, getStudentProgramCode } from "@/lib/cohortProgram";
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
@@ -199,6 +200,10 @@ export type RosterRow = {
   email?: string | null;
   name: string;
   cohort?: string;
+  cohortId?: string | null;
+  programId?: string | null;
+  cohortCode?: string | null;
+  programCode?: string | null;
   primaryDomain?: string;
   secondaryDomain?: string;
   rollNo?: string;
@@ -213,11 +218,15 @@ export function studentsInBucket(
   roster: RosterRow[],
   opts: {
     cohort?: string;
+    cohortId?: string;
+    programId?: string;
     bucket?: "single" | "multiple" | "inactive" | "no-active" | "active" | "opted-out" | "eligible" | "all";
     domain?: string;
   } = {},
 ): StudentDrillRow[] {
   return roster.filter((s) => {
+    if (opts.cohortId && s.cohortId !== opts.cohortId) return false;
+    if (opts.programId && s.programId !== opts.programId) return false;
     if (opts.cohort && norm(s.cohort) !== norm(opts.cohort)) return false;
     if (opts.domain) {
       const d = norm(opts.domain);
@@ -235,6 +244,22 @@ export function studentsInBucket(
     if (opts.bucket === "multiple") return c >= 2;
     if (opts.bucket === "active") return c >= 1;
     return true;
+  }).map((s) => {
+    const fields = {
+      cohort_id: s.cohortId,
+      program_id: s.programId,
+      cohort: s.cohort,
+      roll_no: s.rollNo,
+      cohort_code: s.cohortCode,
+      program_code: s.programCode,
+    };
+    const programCode = s.programCode || getStudentProgramCode(fields);
+    const cohortCode = s.cohortCode || getStudentCohortCode(fields);
+    return {
+      ...s,
+      program: programCode,
+      batchLabel: formatBatchLabel(cohortCode, programCode) || s.cohort,
+    };
   });
 }
 

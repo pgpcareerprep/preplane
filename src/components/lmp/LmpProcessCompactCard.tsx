@@ -23,6 +23,7 @@ import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { toast } from "sonner";
 import { useRole } from "@/lib/rolesContext";
 import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
+import { LmpCohortProgramBadgeByLmp } from "./LmpCohortProgramBadges";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
   ongoing: "pill-ongoing",
@@ -247,6 +248,9 @@ export function LmpProcessCompactCard({
       <p className="mt-1 text-[12px] text-n500 truncate">
         {req.domain}{req.seniority ? ` · ${req.seniority}` : ""}
       </p>
+      <div className="mt-1.5">
+        <LmpCohortProgramBadgeByLmp lmpId={req.id} />
+      </div>
 
       {/* Ownership avatars + Match signal (Level 1 + Level 2 bridge) */}
       <div className="mt-4 flex items-center justify-between gap-2">

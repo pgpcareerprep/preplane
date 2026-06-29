@@ -18,6 +18,7 @@ import {
 import { useLmpMutation } from "@/lib/sheets/hooks";
 import { useDeleteLmpProcess } from "@/lib/hooks/useDbData";
 import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
+import { LmpCohortProgramBadgeByLmp } from "./LmpCohortProgramBadges";
 
 const DOT_COLORS = [
   "bg-orange-200 text-orange-600",
@@ -188,6 +189,9 @@ export function PocLmpProcessCard({ req, index }: { req: Requisition; index: num
         <p className="mt-1 text-[12px] text-n500 truncate">
           {req.domain}{req.seniority ? ` · ${req.seniority}` : ""}
         </p>
+        <div className="mt-1.5">
+          <LmpCohortProgramBadgeByLmp lmpId={req.id} />
+        </div>
 
         <div className="my-4 h-px bg-n200" />
 

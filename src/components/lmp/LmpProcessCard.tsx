@@ -7,6 +7,7 @@ import type { Responsibility } from "@/lib/workspaceViewContext";
 import { PocAvatarStack } from "./PocAvatarStack";
 import { useLmpCandidateCounts } from "@/lib/hooks/useDbData";
 import { useAvatarUrl } from "@/lib/hooks/useAvatarUrls";
+import { LmpCohortProgramBadgeByLmp } from "./LmpCohortProgramBadges";
 
 const STATUS_PILL: Record<ReqStatus, string> = {
   "ongoing": "pill-ongoing",
@@ -63,6 +64,9 @@ export function LmpProcessCard({
         {req.company} <span className="text-n500 font-normal">—</span> {req.role}
       </h4>
       <p className="mt-1 text-[13px] text-n500">{req.domain} · {req.seniority} · {req.stage}</p>
+      <div className="mt-2">
+        <LmpCohortProgramBadgeByLmp lmpId={req.id} />
+      </div>
 
       {/* Ownership line */}
       <div className="mt-2 inline-flex items-center gap-1.5 text-[12px]">

@@ -8,7 +8,8 @@ import {
 } from "@/components/insights/primitives";
 import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
-import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
+import { useStudentFilters, useFilteredStudentRoster } from "@/lib/hooks/useStudentFilters";
+import { useCohorts, usePrograms } from "@/lib/hooks/useCohortProgram";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
 import {
@@ -146,7 +147,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       while (true) {
         const { data, error } = await supabase
           .from("students")
-          .select("id, email, name, cohort, primary_domain, secondary_domain, lmp_count, active_lmp_count, placement_status, roll_no, student_code, phone")
+          .select("id, email, name, cohort, cohort_id, program_id, primary_domain, secondary_domain, lmp_count, active_lmp_count, placement_status, roll_no, student_code, phone")
           .range(from, from + PAGE - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
@@ -159,6 +160,8 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         email: (s.email ?? null) as string | null,
         name: (s.name ?? "").trim(),
         cohort: (s.cohort ?? "").trim(),
+        cohortId: (s.cohort_id ?? null) as string | null,
+        programId: (s.program_id ?? null) as string | null,
         primaryDomain: (s.primary_domain ?? "").trim(),
         secondaryDomain: (s.secondary_domain ?? "").trim(),
         rollNo: (s.roll_no ?? "").trim(),
@@ -245,6 +248,24 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const { data: lmpRecords = [] } = useLmpRows();
   const { data: domainRows = [] } = useDomains();
   const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
+  const studentFilterState = useStudentFilters();
+  const { data: cohortMaster = [] } = useCohorts(false);
+  const { data: programMaster = [] } = usePrograms(null, false);
+  const enrichedStudentRoster = useMemo(
+    () =>
+      studentRoster.map((s) => ({
+        ...s,
+        cohortCode: cohortMaster.find((c) => c.id === s.cohortId)?.code ?? "",
+        programCode: programMaster.find((p) => p.id === s.programId)?.code ?? "",
+      })),
+    [studentRoster, cohortMaster, programMaster],
+  );
+  const scopedStudentRoster = useFilteredStudentRoster(
+    enrichedStudentRoster,
+    { cohortIds: studentFilterState.cohortIds, programIds: studentFilterState.programIds },
+    cohortMaster,
+    programMaster,
+  );
   const filteredIds = useMemo(() => new Set(filtered.map((row) => row.processId)), [filtered]);
   const filteredRecords = useMemo(
     () => lmpRecords.filter((row) => filteredIds.has(row.id)),
@@ -348,7 +369,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   /* ─────── Student analytics KPI counts (live · students DB) ─────── */
   const studentStats = useMemo(() => {
     let optedOut = 0, active = 0, single = 0, multiple = 0, noActive = 0;
-    studentRoster.forEach((s) => {
+    scopedStudentRoster.forEach((s) => {
       if (isOptedOutStatus(s.placementStatus)) { optedOut += 1; return; }
       const c = s.activeLmpCount;
       if (c === 0) noActive += 1;
@@ -358,7 +379,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
     // Cohort split — opted-out is its own segment
     const cohortAgg: Record<string, { total: number; single: number; multiple: number; inactive: number; optedOut: number }> = {};
-    studentRoster.filter((s) => s.name && s.cohort).forEach((s) => {
+    scopedStudentRoster.filter((s) => s.name && s.cohort).forEach((s) => {
       const b = cohortAgg[s.cohort] ?? { total: 0, single: 0, multiple: 0, inactive: 0, optedOut: 0 };
       b.total += 1;
       if (isOptedOutStatus(s.placementStatus)) { b.optedOut += 1; }
@@ -373,14 +394,14 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
     return {
       optedOutStudents: optedOut,
-      eligibleStudents: studentRoster.length - optedOut,
+      eligibleStudents: scopedStudentRoster.length - optedOut,
       activeStudents: active,
       noActiveProcess: noActive,
       singleProcess: single,
       multipleProcesses: multiple,
       cohortAgg,
     };
-  }, [studentRoster]);
+  }, [scopedStudentRoster]);
 
   /* ─────── Students in selected LMPs (candidate-based) ─────── */
   const studentsInSelectedLmps = useMemo(() => {
@@ -833,6 +854,33 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         showOutreachPoc
       />
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Student scope</span>
+        <select
+          className="h-8 rounded-md border border-input bg-background px-2 text-[12px]"
+          value={studentFilterState.cohortIds[0] ?? ""}
+          onChange={(e) => studentFilterState.setCohortIds(e.target.value ? [e.target.value] : [])}
+        >
+          <option value="">All cohorts</option>
+          {cohortMaster.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+        </select>
+        <select
+          className="h-8 rounded-md border border-input bg-background px-2 text-[12px]"
+          value={studentFilterState.programIds[0] ?? ""}
+          onChange={(e) => studentFilterState.setProgramIds(e.target.value ? [e.target.value] : [])}
+        >
+          <option value="">All programs</option>
+          {programMaster
+            .filter((p) => !studentFilterState.cohortIds[0] || p.cohort_id === studentFilterState.cohortIds[0])
+            .map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}
+        </select>
+        {studentFilterState.hasFilters && (
+          <button type="button" className="text-[12px] text-orange-600 hover:underline" onClick={studentFilterState.clear}>
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {/* ─────── SECTION 1: LMP Health Summary ─────── */}
       <LmpHealthSummaryCard
         total={filteredRecords.length}
@@ -1070,25 +1118,25 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         <div className="grid grid-cols-8 gap-6 min-w-[1040px]">
         <LxKpi compact label="Total Students" accent="info" value={totalStudentsDb}
           sub="Live · students DB" info={info("admin.students.total-db")}
-          onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(studentRoster, { bucket: "all" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "All students", subtitle: "Live students DB", rows: studentsInBucket(scopedStudentRoster, { bucket: "all" }) })} />
         <LxKpi compact label="Students in Selected LMPs" accent="teal" value={studentsInSelectedLmps.count}
           sub="Unique via lmp_candidates" info={info("admin.students.selected-lmps")}
           onClick={() => setDrill({ kind: "students", title: "Students in selected LMPs", subtitle: `${studentsInSelectedLmps.count} unique students in current scope`, rows: studentsInSelectedLmps.rows })} />
         <LxKpi compact label="Students in Active Processes" accent="success" value={studentStats.activeStudents}
           sub="active_lmp_count ≥ 1" info={info("admin.students.active-processes")}
-          onClick={() => setDrill({ kind: "students", title: "Students in active processes", subtitle: "≥ 1 active LMP", rows: studentsInBucket(studentRoster, { bucket: "active" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "Students in active processes", subtitle: "≥ 1 active LMP", rows: studentsInBucket(scopedStudentRoster, { bucket: "active" }) })} />
         <LxKpi compact label="In 1 Active Process" accent="success" value={studentStats.singleProcess}
           sub="Exactly 1 active LMP" info={info("admin.students.one-active")}
-          onClick={() => setDrill({ kind: "students", title: "In 1 active process", rows: studentsInBucket(studentRoster, { bucket: "single" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "In 1 active process", rows: studentsInBucket(scopedStudentRoster, { bucket: "single" }) })} />
         <LxKpi compact label="In 2+ Active Processes" accent="ai" value={studentStats.multipleProcesses}
           sub="2+ active LMPs" info={info("admin.students.two-plus-active")}
-          onClick={() => setDrill({ kind: "students", title: "In 2+ active processes", rows: studentsInBucket(studentRoster, { bucket: "multiple" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "In 2+ active processes", rows: studentsInBucket(scopedStudentRoster, { bucket: "multiple" }) })} />
         <LxKpi compact label="No Active Process" accent="risk" value={studentStats.noActiveProcess}
           sub="Excl. opted-out" info={info("admin.students.no-active")}
-          onClick={() => setDrill({ kind: "students", title: "No active process", subtitle: "Eligible students with zero active LMPs", rows: studentsInBucket(studentRoster, { bucket: "no-active" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "No active process", subtitle: "Eligible students with zero active LMPs", rows: studentsInBucket(scopedStudentRoster, { bucket: "no-active" }) })} />
         <LxKpi compact label="Opted Out" accent="orange" value={studentStats.optedOutStudents}
           sub="Withdrawn / not participating" info={info("admin.students.opted-out")}
-          onClick={() => setDrill({ kind: "students", title: "Opted-out students", subtitle: "placement_status = opted-out or equivalent", rows: studentsInBucket(studentRoster, { bucket: "opted-out" }) })} />
+          onClick={() => setDrill({ kind: "students", title: "Opted-out students", subtitle: "placement_status = opted-out or equivalent", rows: studentsInBucket(scopedStudentRoster, { bucket: "opted-out" }) })} />
         <LxKpi compact label="Converted Students" accent="success"
           value={convertedStudentsData.uniqueCount}
           sub={studentStats.eligibleStudents > 0 ? `${((convertedStudentsData.uniqueCount / studentStats.eligibleStudents) * 100).toFixed(0)}% of eligible` : "Unique in scope"}
@@ -1120,9 +1168,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
               const cohortConverted = convertedPerCohort.get(cohort) ?? 0;
               const convPct = eligible > 0 ? (cohortConverted / eligible) * 100 : null;
               const openCohort = (bucket: "single" | "multiple" | "no-active" | "opted-out" | "all", subtitle: string) =>
-                setDrill({ kind: "students", title: `${cohort} · ${subtitle}`, rows: studentsInBucket(studentRoster, { cohort, bucket }) });
+                setDrill({ kind: "students", title: `${cohort} · ${subtitle}`, rows: studentsInBucket(scopedStudentRoster, { cohort, bucket }) });
 
-              const cohortCsvRows = studentsInBucket(studentRoster, { cohort, bucket: "all" });
+              const cohortCsvRows = studentsInBucket(scopedStudentRoster, { cohort, bucket: "all" });
               const exportCohortCsv = () => {
                 const h = ["name", "email", "cohort", "primaryDomain", "secondaryDomain", "placementStatus", "activeLmpCount", "lmpCount"];
                 const body = cohortCsvRows.map((s) => h.map((k) => csvEscape((s as any)[k])).join(",")).join("\n");

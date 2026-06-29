@@ -212,6 +212,36 @@ export type Database = {
         }
         Relationships: []
       }
+      cohorts: {
+        Row: {
+          code: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       copilot_cache: {
         Row: {
           cache_key: string
@@ -1840,6 +1870,50 @@ export type Database = {
         }
         Relationships: []
       }
+      programs: {
+        Row: {
+          aliases: string[]
+          code: string
+          cohort_id: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          aliases?: string[]
+          code: string
+          cohort_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          aliases?: string[]
+          code?: string
+          cohort_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "programs_cohort_id_fkey"
+            columns: ["cohort_id"]
+            isOneToOne: false
+            referencedRelation: "cohorts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           access_status: string | null
@@ -2222,6 +2296,7 @@ export type Database = {
           beh_resume: number | null
           behavioral: number | null
           cohort: string | null
+          cohort_id: string | null
           composite_primary: number | null
           composite_secondary: number | null
           created_at: string
@@ -2243,6 +2318,7 @@ export type Database = {
           portfolio: number | null
           practicum: number | null
           primary_domain: string | null
+          program_id: string | null
           resume_score: number | null
           roll_no: string | null
           secondary_domain: string | null
@@ -2257,6 +2333,7 @@ export type Database = {
           beh_resume?: number | null
           behavioral?: number | null
           cohort?: string | null
+          cohort_id?: string | null
           composite_primary?: number | null
           composite_secondary?: number | null
           created_at?: string
@@ -2278,6 +2355,7 @@ export type Database = {
           portfolio?: number | null
           practicum?: number | null
           primary_domain?: string | null
+          program_id?: string | null
           resume_score?: number | null
           roll_no?: string | null
           secondary_domain?: string | null
@@ -2292,6 +2370,7 @@ export type Database = {
           beh_resume?: number | null
           behavioral?: number | null
           cohort?: string | null
+          cohort_id?: string | null
           composite_primary?: number | null
           composite_secondary?: number | null
           created_at?: string
@@ -2313,6 +2392,7 @@ export type Database = {
           portfolio?: number | null
           practicum?: number | null
           primary_domain?: string | null
+          program_id?: string | null
           resume_score?: number | null
           roll_no?: string | null
           secondary_domain?: string | null
@@ -2321,7 +2401,22 @@ export type Database = {
           updated_at?: string
           video_cv?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "students_cohort_id_fkey"
+            columns: ["cohort_id"]
+            isOneToOne: false
+            referencedRelation: "cohorts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sync_conflicts: {
         Row: {
@@ -2948,9 +3043,13 @@ export type Database = {
         Row: {
           active_lmp_count: number | null
           actual_domain: string | null
+          batch_label: string | null
           beh_resume: number | null
           behavioral: number | null
           cohort: string | null
+          cohort_code: string | null
+          cohort_id: string | null
+          cohort_name: string | null
           composite_primary: number | null
           composite_secondary: number | null
           converted_count: number | null
@@ -2963,6 +3062,7 @@ export type Database = {
           keywords: string | null
           last_activity_at: string | null
           live_project: string | null
+          lmp_count: number | null
           mentor_primary: string | null
           mentor_secondary: string | null
           mock_score: number | null
@@ -2973,6 +3073,9 @@ export type Database = {
           portfolio: number | null
           practicum: number | null
           primary_domain: string | null
+          program_code: string | null
+          program_id: string | null
+          program_name: string | null
           resume_score: number | null
           roll_no: string | null
           secondary_domain: string | null

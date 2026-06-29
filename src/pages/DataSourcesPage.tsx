@@ -10,7 +10,6 @@ import { DbSourceCard } from "@/components/datasources/DbSourceCard";
 import { ExternalDiscoveryCard } from "@/components/datasources/ExternalDiscoveryCard";
 import { UploadCsvModal } from "@/components/datasources/UploadCsvModal";
 import { ViewAllMentorsModal } from "@/components/datasources/ViewAllMentorsModal";
-import { ViewAllStudentsModal } from "@/components/datasources/ViewAllStudentsModal";
 import { AlumniViewAllModal } from "@/components/datasources/AlumniViewAllModal";
 import { UploadHistoryModal } from "@/components/datasources/UploadHistoryModal";
 import { ViewAllDomainsModal } from "@/components/datasources/ViewAllDomainsModal";
@@ -29,14 +28,20 @@ import { exportTableToCsv, exportLmpProcessesCsv, dateStamp } from "@/lib/export
 import AuditLogPageContent from "@/pages/AuditLogPage";
 const AiUsagePage = lazy(() => import("@/pages/AiUsagePage"));
 import { MappingInspectorModal } from "@/components/datasources/MappingInspectorModal";
-import { HistoricalLmpBackfillModal } from "@/components/datasources/HistoricalLmpBackfillModal";
+import { StudentDatasetTab } from "@/components/datasources/StudentDatasetTab";
 
 
-const ALL_TABS = [
+const BASE_TABS = [
   { key: "sources", label: "Sources", icon: Database },
+  { key: "student-dataset", label: "Student Dataset", icon: StudentIcon },
+] as const;
+
+const ADMIN_TABS = [
   { key: "audit-log", label: "Audit Log", icon: History },
   { key: "copilot-insights", label: "AI Usage", icon: BarChart2 },
 ] as const;
+
+const ALL_TABS = [...BASE_TABS, ...ADMIN_TABS] as const;
 
 type TabKey = typeof ALL_TABS[number]["key"];
 
@@ -50,7 +55,7 @@ function DataSourcesPageInner() {
   const isAdmin = role === "admin";
   const canBackfillLmp = role === "admin" || role === "allocator";
   const isReadOnly = !isAdmin;
-  const TABS = isAdmin ? ALL_TABS : ALL_TABS.filter((t) => t.key === "sources");
+  const TABS = isAdmin ? [...BASE_TABS, ...ADMIN_TABS] : [...BASE_TABS];
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -174,7 +179,7 @@ function DataSourcesPageInner() {
         )}
       </div>
 
-      <div className={cn("flex items-center gap-1 overflow-x-auto rounded-lg bg-n100 p-1 w-fit", isReadOnly && "hidden")}>
+      <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-n100 p-1 w-fit">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -264,9 +269,9 @@ function DataSourcesPageInner() {
               showHistory={isAdmin}
               onUpload={() => setModal({ source: "student_db", kind: "upload" })}
               onDownloadTemplate={() => downloadCsvTemplate(STU_TEMPLATE_HEADERS, "students_template.csv")}
-              onViewAll={() => setModal({ source: "student_db", kind: "viewAll" })}
+              onViewAll={() => setActiveTab("student-dataset")}
               onViewHistory={() => setModal({ source: "student_db", kind: "history" })}
-              viewAllLabel="View All Students"
+              viewAllLabel="Open Student Dataset"
               failureReason={stuFail?.message}
               onExport={() => exportTableToCsv("students", `students_${dateStamp()}.csv`, { orderBy: "name" })}
             />
@@ -351,17 +356,26 @@ function DataSourcesPageInner() {
             <ExternalDiscoveryCard index={6} readOnly={isReadOnly} />
           </div>
 
-          {modal?.kind === "upload" && (
-            <UploadCsvModal source={modal.source} open onOpenChange={(v) => !v && setModal(null)} />
-          )}
+        </>
+      )}
+
+      {activeTab === "student-dataset" && (
+        <StudentDatasetTab
+          onUpload={isAdmin ? () => setModal({ source: "student_db", kind: "upload" }) : undefined}
+        />
+      )}
+
+      {modal?.kind === "upload" && (
+        <UploadCsvModal source={modal.source} open onOpenChange={(v) => !v && setModal(null)} />
+      )}
+
+      {activeTab === "sources" && (
+        <>
           {modal?.kind === "viewAll" && modal.source === "mentor_union" && (
             <ViewAllMentorsModal open onOpenChange={(v) => !v && setModal(null)} />
           )}
           {modal?.kind === "viewAll" && modal.source === "alumni_db" && (
             <AlumniViewAllModal open onOpenChange={(v) => !v && setModal(null)} readOnly={isReadOnly} />
-          )}
-          {modal?.kind === "viewAll" && modal.source === "student_db" && (
-            <ViewAllStudentsModal open onOpenChange={(v) => !v && setModal(null)} />
           )}
           {modal?.kind === "viewAll" && modal.source === "domain_db" && (
             <ViewAllDomainsModal open onOpenChange={(v) => !v && setModal(null)} />

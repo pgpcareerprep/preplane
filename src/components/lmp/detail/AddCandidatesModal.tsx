@@ -7,25 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import type { Candidate, Round } from "@/lib/lmpProcessMutations";
 import { DEFAULT_ROUNDS } from "@/lib/lmpProcessMutations";
 
+import { useCohorts, usePrograms } from "@/lib/hooks/useCohortProgram";
+import { getStudentBatchLabel, getStudentProgramCode, getStudentCohortCode } from "@/lib/cohortProgram";
+import { buildCandidateMetadataSnapshot } from "@/lib/lmpCohortProgram";
+
 type Tab = "select" | "upload";
-type ProgramFilter = "all" | "TBM" | "YLC";
-
-function deriveProgram(rollNo: string, cohort?: string | null): "TBM" | "YLC" | "" {
-  const src = cohort || rollNo || "";
-  if (/YLC/i.test(src)) return "YLC";
-  if (/PGP|TBM/i.test(src)) return "TBM";
-  return "";
-}
-
-function deriveCohortYear(rollNo: string, cohort?: string | null): string {
-  if (cohort) {
-    const m = cohort.match(/(\d{4})/);
-    if (m) return m[1];
-    if (/^\d{2}$/.test(cohort.trim())) return `20${cohort.trim()}`;
-  }
-  const m = rollNo?.match(/^(?:PGP|YLC)(\d{4})/);
-  return m ? m[1] : "";
-}
 
 export function AddCandidatesModal({
   open,
@@ -47,7 +33,8 @@ export function AddCandidatesModal({
   const roundOptions: Round[] = (rounds && rounds.length > 0) ? rounds : DEFAULT_ROUNDS;
   const initialRoundId = defaultRoundId || "pool";
   const [tab, setTab] = useState<Tab>("select");
-  const [program, setProgram] = useState<ProgramFilter>("all");
+  const [cohortFilter, setCohortFilter] = useState<string>("all");
+  const [programFilter, setProgramFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [files, setFiles] = useState<File[]>([]);
@@ -55,6 +42,8 @@ export function AddCandidatesModal({
   const [roundId, setRoundId] = useState<string>(initialRoundId);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const { data: cohorts = [] } = useCohorts(true);
+  const { data: programs = [] } = usePrograms(cohortFilter === "all" ? null : cohortFilter, true);
   const { data: students = [], isLoading, error: studentsError } = useStudents();
   const taken = useMemo(() => new Set(existingIds), [existingIds]);
   const takenNames = useMemo(
@@ -84,8 +73,18 @@ export function AddCandidatesModal({
     return (students as any[])
       .filter((s) => {
         if (taken.has(s.id)) return false;
-        const prog = deriveProgram(s.roll_no || "", s.cohort);
-        if (program !== "all" && prog !== program) return false;
+        if (cohortFilter !== "all" && s.cohort_id !== cohortFilter) {
+          const code = getStudentCohortCode(s, cohorts);
+          const selected = cohorts.find((c) => c.id === cohortFilter)?.code;
+          if (selected && code !== selected) return false;
+        }
+        if (programFilter !== "all") {
+          if (s.program_id !== programFilter) {
+            const code = getStudentProgramCode(s, programs);
+            const selected = programs.find((p) => p.id === programFilter)?.code;
+            if (selected && code !== selected) return false;
+          }
+        }
         if (tokens.length === 0) return true;
         return tokens.some((t) => matchToken(s, t));
       })
@@ -99,7 +98,7 @@ export function AddCandidatesModal({
           : (a.s.name || "").localeCompare(b.s.name || ""),
       )
       .map((x) => x.s);
-  }, [students, program, tokens, taken]);
+  }, [students, cohortFilter, programFilter, cohorts, programs, tokens, taken]);
 
   const unmatchedTokens = useMemo(() => {
     if (tokens.length < 2) return [] as string[];
@@ -130,7 +129,8 @@ export function AddCandidatesModal({
     setPicked(new Set());
     setFiles([]);
     setQuery("");
-    setProgram("all");
+    setCohortFilter("all");
+    setProgramFilter("all");
     setTab("select");
     setRoundId(initialRoundId);
   };
@@ -145,8 +145,9 @@ export function AddCandidatesModal({
     const fromDb: Candidate[] = (students as any[])
       .filter((s) => picked.has(s.id) && !taken.has(s.id))
       .map((s) => {
-        const prog = deriveProgram(s.roll_no || "", s.cohort);
-        const year = deriveCohortYear(s.roll_no || "", s.cohort);
+        const batchLabel = getStudentBatchLabel(s, cohorts, programs);
+        const cohortCode = getStudentCohortCode(s, cohorts);
+        const programCode = getStudentProgramCode(s, programs);
         const initials = (s.name || "")
           .split(/\s+/)
           .slice(0, 2)
@@ -157,9 +158,15 @@ export function AddCandidatesModal({
           studentId: s.id,
           name: s.name || "",
           initials: initials || "??",
-          color: prog === "YLC" ? "bg-teal-200 text-teal-600" : "bg-orange-200 text-orange-600",
-          cohort: [prog, year].filter(Boolean).join(" ") || "—",
+          color: programCode === "YLC" ? "bg-teal-200 text-teal-600" : "bg-orange-200 text-orange-600",
+          cohort: batchLabel,
           roundId,
+          metadata: buildCandidateMetadataSnapshot({
+            ...s,
+            cohort_code: cohortCode,
+            program_code: programCode,
+            batch_label: batchLabel,
+          }),
         };
       });
 
@@ -249,24 +256,22 @@ export function AddCandidatesModal({
                   className="w-full h-9 rounded-md border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-orange-400"
                 />
               </div>
-              <div className="inline-flex rounded-md border overflow-hidden">
-                {([
-                  { id: "all" as ProgramFilter, label: "All" },
-                  { id: "TBM" as ProgramFilter, label: "TBM" },
-                  { id: "YLC" as ProgramFilter, label: "YLC" },
-                ]).map((o) => (
-                  <button
-                    key={o.id}
-                    onClick={() => setProgram(o.id)}
-                    className={cn(
-                      "px-3 h-9 text-[12px] font-medium transition-colors",
-                      program === o.id ? "bg-orange-50 text-orange-600" : "bg-card text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
+              <select
+                value={cohortFilter}
+                onChange={(e) => { setCohortFilter(e.target.value); setProgramFilter("all"); }}
+                className="h-9 rounded-md border bg-background px-2 text-[12px] min-w-[110px]"
+              >
+                <option value="all">All cohorts</option>
+                {cohorts.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+              <select
+                value={programFilter}
+                onChange={(e) => setProgramFilter(e.target.value)}
+                className="h-9 rounded-md border bg-background px-2 text-[12px] min-w-[110px]"
+              >
+                <option value="all">All programs</option>
+                {programs.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}
+              </select>
             </div>
 
             {tokens.length > 1 && (
@@ -323,8 +328,9 @@ export function AddCandidatesModal({
                   {filtered.map((s: any) => {
                     const isTaken = taken.has(s.id);
                     const isPicked = picked.has(s.id);
-                    const prog = deriveProgram(s.roll_no || "", s.cohort);
-                    const year = deriveCohortYear(s.roll_no || "", s.cohort);
+                    const prog = getStudentProgramCode(s, programs);
+                    const cohortCode = getStudentCohortCode(s, cohorts);
+                    const batchLabel = getStudentBatchLabel(s, cohorts, programs);
                     const initials = (s.name || "").split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("");
                     const primaryDomain = (s.primary_domain || "").trim();
                     const secondaryDomain = (s.secondary_domain || s.other_domains || "").trim();
@@ -365,7 +371,7 @@ export function AddCandidatesModal({
                               </Badge>
                             ) : <span className="text-[11px] text-muted-foreground">—</span>}
                           </span>
-                          <span className="text-[12px] text-muted-foreground tabular-nums">{year || "—"}</span>
+                          <span className="text-[12px] text-muted-foreground tabular-nums truncate" title={batchLabel}>{cohortCode || batchLabel || "—"}</span>
                         </button>
                       </li>
                     );
