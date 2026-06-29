@@ -18,6 +18,7 @@ import { UnifiedOverviewTab } from "@/components/lmp/UnifiedOverviewTab";
 import { normalizeLmpOwnership, useLmpPermission } from "@/lib/hooks/usePermissions";
 import { useRole } from "@/lib/rolesContext";
 import { Eye } from "lucide-react";
+import { OutreachFeedbackModal } from "@/components/lmp/OutreachFeedbackModal";
 import { resolveLmpBoardBackHref } from "@/lib/lmpViewingContext";
 
 const TABS = ["Overview", "Mentors", "Feedback"] as const;
@@ -26,6 +27,9 @@ type Tab = typeof TABS[number];
 export default function LmpDetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  // #region agent log
+  fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a2d878'},body:JSON.stringify({sessionId:'a2d878',location:'LmpDetailPage.tsx:mount',message:'LmpDetailPage render',data:{hasOutreachFeedbackModal:typeof OutreachFeedbackModal !== 'undefined'},timestamp:Date.now(),hypothesisId:'H1',runId:'post-fix'})}).catch(()=>{});
+  // #endregion
   const from = searchParams.get("from") === "kanban" ? "kanban" : "cards";
   const returnTo = searchParams.get("returnTo");
   const rawId = id ? decodeURIComponent(id) : "";
