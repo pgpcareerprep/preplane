@@ -9,7 +9,7 @@ import { useRole } from "@/lib/rolesContext";
  */
 export function useCurrentPocId(): string | null {
   const { user } = useRole();
-  if (user.pocProfileId) return user.pocProfileId;
+  const pocProfileId = user.pocProfileId;
   const email = (user?.email || "").toLowerCase().trim();
   const { data } = useQuery({
     queryKey: ["current-poc-id", email],
@@ -22,9 +22,9 @@ export function useCurrentPocId(): string | null {
         .maybeSingle();
       return (row?.id as string) ?? null;
     },
-    enabled: !!email,
+    enabled: !pocProfileId && !!email,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
-  return data ?? null;
+  return pocProfileId ?? data ?? null;
 }
