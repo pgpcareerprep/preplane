@@ -52,9 +52,6 @@ type ModalState =
   | null;
 
 function DataSourcesPageInner() {
-  // #region agent log
-  fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b3daac'},body:JSON.stringify({sessionId:'b3daac',location:'DataSourcesPage.tsx:DataSourcesPageInner',message:'DataSourcesPageInner render',data:{historicalModalType:typeof HistoricalLmpBackfillModal},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
-  // #endregion
   const { role } = useRole();
   const isAdmin = role === "admin";
   const canBackfillLmp = role === "admin" || role === "allocator";
