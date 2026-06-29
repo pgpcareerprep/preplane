@@ -63,7 +63,7 @@ export function PocOperationalFlags({
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-10 gap-x-6 gap-y-gutter">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-gutter">
       {flags.map(({ label, value, accent, infoKey, kind, icon: Icon }) => {
         const clickable = !!onItemClick;
         const hex = ACCENT_HEX[accent];

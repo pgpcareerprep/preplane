@@ -709,9 +709,15 @@ export function LxHeatmap({
 }
 
 /* ─────────────── Attention strip ─────────────── */
+const ATTENTION_STRIP_GRID_COLS: Partial<Record<number, string>> = {
+  4: "grid-cols-2 sm:grid-cols-4",
+  5: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+};
+
 export function LxAttentionStrip({
   items,
   stretch = false,
+  columns,
 }: {
   items: {
     label: string;
@@ -724,11 +730,16 @@ export function LxAttentionStrip({
   }[];
   /** When true, items expand equally to fill the card width (for compact metric strips). */
   stretch?: boolean;
+  /** When set, lays out items in a fixed-column grid (e.g. 5 → two rows of five). */
+  columns?: number;
 }) {
+  const useGrid = columns != null && columns > 0;
   return (
     <div className={cn(
-      "lx-card p-3 flex items-stretch",
-      stretch ? "flex-nowrap gap-0" : "flex-wrap gap-x-6 gap-y-gutter",
+      "lx-card p-3",
+      useGrid
+        ? cn("grid gap-x-6 gap-y-gutter", ATTENTION_STRIP_GRID_COLS[columns] ?? `grid-cols-${columns}`)
+        : cn("flex items-stretch", stretch ? "flex-nowrap gap-0" : "flex-wrap gap-x-6 gap-y-gutter"),
     )}>
       {items.map((it, i) => {
         const clickable = !!it.onClick;
@@ -736,10 +747,11 @@ export function LxAttentionStrip({
           <div
             key={i}
             className={cn(
-              "flex items-center gap-3 min-w-0 rounded-md border-r last:border-0",
-              stretch ? "flex-1 px-4" : "pr-6",
+              "flex items-center gap-3 min-w-0 rounded-md",
+              !useGrid && "border-r last:border-0",
+              useGrid ? "px-1" : stretch ? "flex-1 px-4" : "pr-6",
               clickable && "cursor-pointer hover:bg-[var(--lx-soft)] transition-colors",
-              clickable && !stretch && "-mx-1 px-1",
+              clickable && !stretch && !useGrid && "-mx-1 px-1",
             )}
             style={{ borderColor: "var(--lx-border)" }}
             onClick={it.onClick}

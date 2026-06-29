@@ -20,6 +20,7 @@ export function RecentSnapshotStrip({
   const click = (k: SnapshotDrillKind) => (onItemClick ? () => onItemClick(k) : undefined);
   return (
     <LxAttentionStrip
+      columns={5}
       items={[
         { label: "Active LMPs", value: active, accent: "info", info: info("snapshot.active-lmps"), onClick: click("active") },
         { label: "Overdue", value: s.byKey["overdue"], accent: "risk", info: info("snapshot.overdue"), onClick: click("overdue") },
