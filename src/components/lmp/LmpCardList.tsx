@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -67,15 +67,6 @@ export type SortState = { key: SortKey; dir: "asc" | "desc" };
 
 type PocRole = "primary" | "support" | "behavioral";
 type PocDomain = "in-domain" | "cross-domain";
-const ROLE_LABEL: Record<PocRole, string> = {
-  primary: "Primary Prep POC",
-  support: "Support POC",
-  behavioral: "Behavioral POC",
-};
-const DOMAIN_LABEL: Record<PocDomain, string> = {
-  "in-domain": "In-domain",
-  "cross-domain": "Cross-domain",
-};
 function ringClass(role: PocRole, domain?: PocDomain): string {
   if (role === "behavioral") return "ring-2 ring-plum-400/70";
   if (role === "support") return "ring-2 ring-plum-400/70";
@@ -266,7 +257,7 @@ function LmpStripCard({
         </div>
 
         {/* 3. POCs */}
-        <div className="flex justify-start">
+        <div className="flex justify-start" data-stop-card-click>
           <PocAvatars rec={rec} />
         </div>
 
@@ -399,7 +390,7 @@ function LmpStripCard({
           </div>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0" data-stop-card-click>
             <PocAvatars rec={rec} />
             <div className="inline-flex items-center gap-1 text-[12px] text-n700 dark:text-muted-foreground tabular-nums">
               <Users className="h-3.5 w-3.5 text-n400" />
@@ -659,18 +650,14 @@ function PocAvatars({ rec }: { rec: LmpRecord }) {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex items-center -space-x-1.5">
+      <div className="flex items-center -space-x-1.5" onClick={(e) => e.stopPropagation()}>
         {visible.map((p) => (
           <Tooltip key={p.name}>
             <TooltipTrigger asChild>
               <PocAvatarBadge p={p} />
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-[11px]">
-              <div className="font-semibold">{p.name}</div>
-              <div className="text-n500">
-                {ROLE_LABEL[p.role]}
-                {p.domain ? ` · ${DOMAIN_LABEL[p.domain]}` : ""}
-              </div>
+            <TooltipContent side="top" className="text-[11px] font-medium">
+              {p.initials}: {p.name}
             </TooltipContent>
           </Tooltip>
         ))}
@@ -684,21 +671,29 @@ function PocAvatars({ rec }: { rec: LmpRecord }) {
   );
 }
 
-function PocAvatarBadge({ p }: { p: { name: string; initials: string; color: string; role: PocRole; domain?: PocDomain } }) {
+type PocAvatarItem = { name: string; initials: string; color: string; role: PocRole; domain?: PocDomain };
+
+const PocAvatarBadge = forwardRef<HTMLButtonElement, { p: PocAvatarItem }>(function PocAvatarBadge(
+  { p },
+  ref,
+) {
   const photoUrl = useAvatarUrl(p.name);
   return (
-    <span
+    <button
+      ref={ref}
+      type="button"
+      aria-label={`${p.initials}: ${p.name}`}
       className={cn(
-        "h-7 w-7 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-semibold overflow-hidden",
+        "h-7 w-7 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-semibold overflow-hidden shrink-0 cursor-default",
         !photoUrl && p.color,
         ringClass(p.role, p.domain),
       )}
     >
       {photoUrl ? (
-        <img src={photoUrl} alt={p.name} className="h-full w-full object-cover" />
+        <img src={photoUrl} alt="" className="h-full w-full object-cover" />
       ) : (
         p.initials
       )}
-    </span>
+    </button>
   );
-}
+});

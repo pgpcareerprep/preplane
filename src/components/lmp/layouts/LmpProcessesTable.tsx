@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUp, ArrowDown, MoreHorizontal, Users, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -58,11 +58,6 @@ function lastActivityFor(r: Requisition): string {
 }
 
 type PocRoleType = "in-domain" | "cross-domain" | "behavioral";
-const ROLE_LABEL: Record<PocRoleType, string> = {
-  "in-domain": "In-domain POC",
-  "cross-domain": "Cross-domain POC",
-  "behavioral": "Support POC",
-};
 const ROLE_RING: Record<PocRoleType, string> = {
   "in-domain": "ring-2 ring-sage-500/70",
   "cross-domain": "ring-2 ring-orange-500/70",
@@ -272,9 +267,8 @@ function PocAvatars({ req }: { req: Requisition }) {
             <TooltipTrigger asChild>
               <PocAvatarBadge p={p} />
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-[11px]">
-              <div className="font-semibold">{p.name}</div>
-              <div className="text-n500">{ROLE_LABEL[p.roleType]}</div>
+            <TooltipContent side="top" className="text-[11px] font-medium">
+              {p.initials}: {p.name}
             </TooltipContent>
           </Tooltip>
         ))}
@@ -288,22 +282,30 @@ function PocAvatars({ req }: { req: Requisition }) {
   );
 }
 
-function PocAvatarBadge({ p }: { p: { name: string; initials: string; color: string; roleType: PocRoleType } }) {
+type PocAvatarItem = { name: string; initials: string; color: string; roleType: PocRoleType };
+
+const PocAvatarBadge = forwardRef<HTMLButtonElement, { p: PocAvatarItem }>(function PocAvatarBadge(
+  { p },
+  ref,
+) {
   const photoUrl = useAvatarUrl(p.name);
   return (
-    <span
+    <button
+      ref={ref}
+      type="button"
+      aria-label={`${p.initials}: ${p.name}`}
       className={cn(
-        "h-7 w-7 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-semibold overflow-hidden",
+        "h-7 w-7 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-semibold overflow-hidden shrink-0 cursor-default",
         !photoUrl && p.color,
         ROLE_RING[p.roleType],
       )}
     >
       {photoUrl ? (
-        <img src={photoUrl} alt={p.name} className="h-full w-full object-cover" />
+        <img src={photoUrl} alt="" className="h-full w-full object-cover" />
       ) : (
         p.initials
       )}
-    </span>
+    </button>
   );
-}
+});
 
