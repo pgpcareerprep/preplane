@@ -22,8 +22,21 @@ import {
   filterEligibleHeatmapPocs,
   resolveLmpDomainFields,
 } from "@/lib/prepPocHeatmapSources";
+import { resolveStageToRoundId, type FixedPipelineStage } from "@/lib/pipelineStage";
 
 const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
+
+const PIPELINE_ROUND_LABELS: Record<FixedPipelineStage, string> = {
+  pool: "Shortlisted Pool",
+  r1: "R1",
+  r2: "R2",
+  r3: "R3",
+  converted: "Converted",
+};
+
+function pipelineRoundLabel(stage: string | null | undefined): string {
+  return PIPELINE_ROUND_LABELS[resolveStageToRoundId(stage)];
+}
 
 // ── Metric keys ───────────────────────────────────────────────────────────────
 
@@ -94,6 +107,20 @@ export function isDomainWiseMetricClickable(dataKey: string): dataKey is DomainW
 export type HeatmapDrilldownStudentWiseRecord = HeatmapDrilldownStudentRecord & {
   matchingBucket: string;
   lastUpdated: string;
+  currentRound: string;
+  otherLmpsCount: number;
+};
+
+export type HeatmapDrilldownLmpGroup = {
+  lmpId: string;
+  lmpCode: string;
+  company: string;
+  role: string;
+  domain: string;
+  primaryPoc: string;
+  supportPoc: string;
+  candidateCount: number;
+  students: HeatmapDrilldownStudentWiseRecord[];
 };
 
 export type HeatmapDrilldownDomainLmpRecord = HeatmapDrilldownLmpRecord & {
@@ -138,6 +165,7 @@ type HeatmapIndexes = {
   pocNameById: Map<string, string>;
   primaryPocsByLmp: Map<string, string>;
   supportPocsByLmp: Map<string, string>;
+  studentLmpIdsMap: Map<string, Set<string>>;
 };
 
 function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw[]): HeatmapIndexes {
@@ -167,11 +195,15 @@ function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw
   const lmpStudentsMap = new Map<string, Set<string>>();
   const studentProfileMap = new Map<string, CandidateRaw["students"]>();
   const candidateByStudentLmp = new Map<string, CandidateRaw>();
+  const studentLmpIdsMap = new Map<string, Set<string>>();
   for (const c of candidates) {
     if (!c.student_id || !c.lmp_id) continue;
     const s = lmpStudentsMap.get(c.lmp_id) ?? new Set<string>();
     s.add(c.student_id);
     lmpStudentsMap.set(c.lmp_id, s);
+    const studentLmps = studentLmpIdsMap.get(c.student_id) ?? new Set<string>();
+    studentLmps.add(c.lmp_id);
+    studentLmpIdsMap.set(c.student_id, studentLmps);
     if (!studentProfileMap.has(c.student_id) && c.students) {
       studentProfileMap.set(c.student_id, c.students);
     }
@@ -206,6 +238,7 @@ function buildIndexes(pocs: PocRaw[], links: LinkRaw[], candidates: CandidateRaw
     pocNameById,
     primaryPocsByLmp,
     supportPocsByLmp,
+    studentLmpIdsMap,
   };
 }
 
@@ -291,6 +324,7 @@ function buildStudentRecord(
   const domain = resolveLmpDomainFields(details).display;
   const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
   const effectiveBucket = effectiveStatusBucketForStudentLmp(bucket, candidate);
+  const totalLmpsForStudent = idx.studentLmpIdsMap.get(studentId)?.size ?? 0;
 
   return {
     pocId,
@@ -317,6 +351,8 @@ function buildStudentRecord(
     supportPoc: idx.supportPocsByLmp.get(lmpId) || "",
     matchingBucket,
     lastUpdated: details?.updated_at || details?.created_at || "",
+    currentRound: pipelineRoundLabel(candidate?.pipeline_stage),
+    otherLmpsCount: Math.max(0, totalLmpsForStudent - 1),
   };
 }
 
@@ -482,6 +518,32 @@ export function filterStudentWiseMetricRecords(
   return { recordType: "student", lmps: [], students, denominatorLmps: [], convertedLmps: [] };
 }
 
+export function groupStudentWiseRecordsByLmp(
+  students: HeatmapDrilldownStudentWiseRecord[],
+): HeatmapDrilldownLmpGroup[] {
+  const groups = new Map<string, HeatmapDrilldownLmpGroup>();
+  for (const student of students) {
+    let group = groups.get(student.lmpId);
+    if (!group) {
+      group = {
+        lmpId: student.lmpId,
+        lmpCode: student.lmpCode,
+        company: student.company,
+        role: student.role,
+        domain: student.domain,
+        primaryPoc: student.primaryPoc,
+        supportPoc: student.supportPoc,
+        candidateCount: 0,
+        students: [],
+      };
+      groups.set(student.lmpId, group);
+    }
+    group.students.push(student);
+    group.candidateCount = group.students.length;
+  }
+  return [...groups.values()].sort((a, b) => b.candidateCount - a.candidateCount);
+}
+
 function recordsForDomain<T extends { domainId: string; domainName: string }>(
   records: T[],
   domainId: string,
@@ -506,21 +568,6 @@ function filterDomainLmps(
     if (!predicate(record)) return false;
     if (seen.has(record.lmpId)) return false;
     seen.add(record.lmpId);
-    return true;
-  });
-}
-
-function filterDomainStudents(
-  source: PrepPocHeatmapDrilldownSource,
-  domainId: string,
-  domainRows: FullPrepPocHeatmapResponse["domainRows"],
-  predicate: (r: HeatmapDrilldownDomainStudentRecord) => boolean,
-): HeatmapDrilldownStudentRecord[] {
-  const seen = new Set<string>();
-  return recordsForDomain(source.domainStudents, domainId, domainRows).filter((record) => {
-    if (!predicate(record)) return false;
-    if (seen.has(record.studentId)) return false;
-    seen.add(record.studentId);
     return true;
   });
 }
@@ -552,34 +599,6 @@ export function filterDomainWiseMetricRecords(
     };
   }
 
-  const studentMetrics: DomainWiseMetricKey[] = [
-    "placedCount", "notPlacedCount", "otherReasonsCount", "studentsPlaced",
-  ];
-  if (studentMetrics.includes(metricKey)) {
-    const predicate = (r: HeatmapDrilldownDomainStudentRecord) => {
-      switch (metricKey) {
-        case "placedCount":
-        case "studentsPlaced":
-          return r.outcomeStatus === "Placed";
-        case "notPlacedCount":
-          return r.outcomeStatus === "Not Placed";
-        case "onHoldCount":
-          return r.outcomeStatus === "On hold";
-        case "otherReasonsCount":
-          return r.outcomeStatus === "Other reasons";
-        default:
-          return false;
-      }
-    };
-    return {
-      recordType: "student",
-      lmps: [],
-      students: filterDomainStudents(source, domainId, data.domainRows, predicate),
-      denominatorLmps: [],
-      convertedLmps: [],
-    };
-  }
-
   const lmps = filterDomainLmps(source, domainId, data.domainRows, (r) => {
     switch (metricKey) {
       case "totalLmps":
@@ -594,8 +613,15 @@ export function filterDomainWiseMetricRecords(
         return r.statusBucket === "prepOngoing";
       case "prepDoneCount":
         return r.statusBucket === "prepDone";
+      case "placedCount":
+      case "studentsPlaced":
+        return r.statusBucket === "converted";
+      case "notPlacedCount":
+        return r.statusBucket === "notConverted";
       case "onHoldCount":
         return r.statusBucket === "onHold";
+      case "otherReasonsCount":
+        return r.statusBucket === "otherReasons";
       default:
         return false;
     }

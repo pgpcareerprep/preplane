@@ -9,8 +9,10 @@ import {
 import {
   filterDomainWiseMetricRecords,
   filterStudentWiseMetricRecords,
+  groupStudentWiseRecordsByLmp,
   isStudentWiseMetricClickable,
   isDomainWiseMetricClickable,
+  type HeatmapDrilldownStudentWiseRecord,
 } from "@/lib/prepPocHeatmapDrilldown";
 import { isAlternateCellClickable } from "@/components/dashboard/PrepPocHeatmapAlternateViews";
 
@@ -134,10 +136,10 @@ describe("Domain-wise drilldown filters", () => {
     expect(drill.lmps.every((l) => l.statusBucket === "prepDone")).toBe(true);
   });
 
-  it("Placed returns student list for domain", () => {
+  it("Placed returns LMP list for domain", () => {
     const drill = filterDomainWiseMetricRecords(data, sales.domainId, "placedCount");
-    expect(drill.recordType).toBe("student");
-    expect(drill.students).toHaveLength(sales.placedCount);
+    expect(drill.recordType).toBe("lmp");
+    expect(drill.lmps.every((l) => l.statusBucket === "converted")).toBe(true);
   });
 
   it("LMP Conversion returns denominator and converted LMP records", () => {
@@ -146,6 +148,42 @@ describe("Domain-wise drilldown filters", () => {
     expect(drill.denominatorLmps).toHaveLength(sales.eligibleClosedCount);
     expect(drill.convertedLmps).toHaveLength(sales.convertedCount);
     expect(drill.denominatorLmps?.some((r) => r.statusBucket === "onHold")).toBe(false);
+  });
+});
+
+describe("groupStudentWiseRecordsByLmp", () => {
+  it("groups students by LMP with currentRound and otherLmpsCount populated", () => {
+    const pocs = [poc("p1", "Vidhu POC")];
+    const links = [
+      link("p1", "lmp1", "prep", "prep-ongoing", "Sales"),
+      link("p1", "lmp2", "prep", "prep-ongoing", "Sales"),
+    ];
+    const candidates = [
+      candidate("lmp1", "s1", "Student A", "Sales"),
+      candidate("lmp2", "s1", "Student A", "Sales"),
+      candidate("lmp2", "s2", "Student B", "Sales", "r2"),
+    ];
+    const data = buildFullHeatmapData(pocs, links, candidates);
+    const drill = filterStudentWiseMetricRecords(data, "p1", "prepOngoingCount");
+    const groups = groupStudentWiseRecordsByLmp(drill.students as HeatmapDrilldownStudentWiseRecord[]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].candidateCount).toBeGreaterThanOrEqual(groups[1].candidateCount);
+
+    const studentA = drill.students.find((s) => s.studentId === "s1") as HeatmapDrilldownStudentWiseRecord;
+    expect(studentA.otherLmpsCount).toBe(1);
+
+    const studentB = drill.students.find((s) => s.studentId === "s2") as HeatmapDrilldownStudentWiseRecord;
+    expect(studentB.currentRound).toBe("R2");
+    expect(studentB.otherLmpsCount).toBe(0);
+
+    const synthetic: HeatmapDrilldownStudentWiseRecord[] = [
+      { ...studentA, studentId: "s1", lmpId: "lmp1" },
+      { ...studentB, studentId: "s2", lmpId: "lmp2" },
+      { ...studentB, studentId: "s3", studentName: "Student C", lmpId: "lmp2" },
+    ];
+    const packed = groupStudentWiseRecordsByLmp(synthetic);
+    expect(packed.find((g) => g.lmpId === "lmp2")?.candidateCount).toBe(2);
   });
 });
 

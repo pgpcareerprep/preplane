@@ -41,10 +41,13 @@ import {
   DOMAIN_WISE_METRIC_LABELS,
   filterDomainWiseMetricRecords,
   filterStudentWiseMetricRecords,
+  groupStudentWiseRecordsByLmp,
   isDomainWiseMetricClickable,
   isStudentWiseMetricClickable,
   STUDENT_WISE_METRIC_LABELS,
   type DomainWiseMetricKey,
+  type HeatmapDrilldownLmpGroup,
+  type HeatmapDrilldownStudentWiseRecord,
   type StudentWiseMetricKey,
 } from "@/lib/prepPocHeatmapDrilldown";
 import {
@@ -1342,6 +1345,7 @@ function HeatmapDrilldownModal({
   const [studentSort, setStudentSort] = useState<StudentSortKey>("studentName");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [page, setPage] = useState(1);
+  const [selectedGroup, setSelectedGroup] = useState<HeatmapDrilldownLmpGroup | null>(null);
   const pageSize = 25;
 
   const result = useMemo(() => {
@@ -1354,6 +1358,9 @@ function HeatmapDrilldownModal({
       setSearchTerm("");
       setStatusFilter("All");
       setPage(1);
+      setSelectedGroup(null);
+    } else {
+      setSelectedGroup(null);
     }
   }, [open, selection?.rowId, selection?.metricKey, selection?.view]);
 
@@ -1405,7 +1412,16 @@ function HeatmapDrilldownModal({
     return [...rows].sort((a, b) => compareValues(a[studentSort], b[studentSort], studentSort === "placementDate"));
   }, [allStudents, searchTerm, studentSort, statusFilter]);
 
-  const modalRows = result?.recordType === "student" ? filteredStudents : filteredLmps;
+  const studentWiseGroups = useMemo(() => {
+    if (selection?.view !== "student") return [];
+    return groupStudentWiseRecordsByLmp(filteredStudents as HeatmapDrilldownStudentWiseRecord[]);
+  }, [selection?.view, filteredStudents]);
+
+  const modalRows = selection?.view === "student"
+    ? studentWiseGroups
+    : result?.recordType === "student"
+      ? filteredStudents
+      : filteredLmps;
   const totalPages = Math.max(1, Math.ceil(modalRows.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pageRows = modalRows.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -1561,6 +1577,11 @@ function HeatmapDrilldownModal({
             <div className="rounded-2xl border border-border bg-card px-6 py-10 text-center text-[13px] text-muted-foreground">
               No records found for this metric.
             </div>
+          ) : selection?.view === "student" ? (
+            <StudentWiseLmpGroupTable
+              groups={pageRows as HeatmapDrilldownLmpGroup[]}
+              onOpenGroup={setSelectedGroup}
+            />
           ) : result.recordType === "student" ? (
             <StudentDrilldownTable rows={pageRows as HeatmapDrilldownStudentRecord[]} showDomainFields={selection?.view === "domain"} />
           ) : (
@@ -1588,6 +1609,24 @@ function HeatmapDrilldownModal({
           </div>
         </div>
       </DialogContent>
+
+      <Dialog open={selectedGroup !== null} onOpenChange={(next) => { if (!next) setSelectedGroup(null); }}>
+        <DialogContent className="flex max-h-[85vh] w-[min(1100px,calc(100vw-32px))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+          <DialogHeader className="border-b border-border bg-card px-6 py-4 text-left">
+            <DialogTitle className="text-[18px] font-bold text-foreground">
+              {selectedGroup ? `${selectedGroup.company} · ${selectedGroup.role}` : "Student roster"}
+            </DialogTitle>
+            <DialogDescription className="text-[12px] text-muted-foreground">
+              {selectedGroup?.candidateCount ?? 0} candidate{(selectedGroup?.candidateCount ?? 0) === 1 ? "" : "s"} on this LMP
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto bg-muted/30 px-6 py-4">
+            {selectedGroup && (
+              <StudentDrilldownTable rows={selectedGroup.students} showRosterExtras />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -1632,15 +1671,65 @@ function LmpDrilldownTable({ rows, onView }: { rows: HeatmapDrilldownLmpRecord[]
   );
 }
 
+function StudentWiseLmpGroupTable({
+  groups,
+  onOpenGroup,
+}: {
+  groups: HeatmapDrilldownLmpGroup[];
+  onOpenGroup: (group: HeatmapDrilldownLmpGroup) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <table className="w-full min-w-[980px] text-left text-[12px]">
+        <thead className="sticky top-0 z-10 bg-muted text-[10.5px] uppercase tracking-wide text-muted-foreground">
+          <tr>
+            {["LMP / Company", "Process ID", "Domain", "Primary POC", "Support POC", "Candidates", "Actions"].map((h) => (
+              <th key={h} className="border-b border-border px-3 py-3 font-bold">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.lmpId} className="border-b border-border last:border-b-0 hover:bg-muted/50">
+              <td className="px-3 py-3">
+                <div className="font-semibold text-foreground">{g.company || "Untitled"}</div>
+                <div className="text-muted-foreground">{g.role || "No role"}</div>
+              </td>
+              <td className="px-3 py-3 font-mono text-[11px] text-muted-foreground">{g.lmpCode || g.lmpId}</td>
+              <td className="px-3 py-3 text-foreground">{g.domain || "Unmapped"}</td>
+              <td className="px-3 py-3 text-foreground">{g.primaryPoc || "—"}</td>
+              <td className="px-3 py-3 text-foreground">{g.supportPoc || "—"}</td>
+              <td className="px-3 py-3 font-semibold text-foreground">{g.candidateCount}</td>
+              <td className="px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => onOpenGroup(g)}
+                  className="rounded-lg border border-border px-2.5 py-1.5 font-semibold text-foreground hover:bg-muted"
+                >
+                  View roster
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function StudentDrilldownTable({
   rows,
   showDomainFields = false,
+  showRosterExtras = false,
 }: {
   rows: HeatmapDrilldownStudentRecord[];
   showDomainFields?: boolean;
+  showRosterExtras?: boolean;
 }) {
   const headers = showDomainFields
     ? ["Student", "Student ID", "Email", "Phone", "Cohort", "Primary Domain", "Secondary Domain", "Matching Domain", "Linked LMP", "Company", "Status / Outcome", "Primary POC", "Support POC"]
+    : showRosterExtras
+    ? ["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Bucket", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC", "Current Round", "Other LMPs", "Last Updated"]
     : ["Student", "Student ID", "Email", "Phone", "Primary Domain", "Secondary Domain", "Cohort", "Bucket", "Placed Company", "LMP", "Domain", "Placement", "Primary POC", "Support POC", "Last Updated"];
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -1654,7 +1743,14 @@ function StudentDrilldownTable({
         </thead>
         <tbody>
           {rows.map((r) => {
-            const ext = r as HeatmapDrilldownStudentRecord & { matchingBucket?: string; outcomeStatus?: string; lastUpdated?: string; matchingDomain?: string };
+            const ext = r as HeatmapDrilldownStudentRecord & {
+              matchingBucket?: string;
+              outcomeStatus?: string;
+              lastUpdated?: string;
+              matchingDomain?: string;
+              currentRound?: string;
+              otherLmpsCount?: number;
+            };
             return (
               <tr key={`${r.studentId}-${r.lmpId}`} className="border-b border-border last:border-b-0 hover:bg-muted/50">
                 <td className="px-3 py-3 font-semibold text-foreground">{r.studentName}</td>
@@ -1685,6 +1781,12 @@ function StudentDrilldownTable({
                     <td className="px-3 py-3 text-foreground">{r.placementStatus}</td>
                     <td className="px-3 py-3 text-foreground">{r.primaryPoc || "—"}</td>
                     <td className="px-3 py-3 text-foreground">{r.supportPoc || "—"}</td>
+                    {showRosterExtras && (
+                      <>
+                        <td className="px-3 py-3 text-foreground">{ext.currentRound || "—"}</td>
+                        <td className="px-3 py-3 text-foreground">{ext.otherLmpsCount ?? 0}</td>
+                      </>
+                    )}
                     <td className="px-3 py-3 text-muted-foreground">{formatDate(ext.lastUpdated || r.placementDate)}</td>
                   </>
                 )}
