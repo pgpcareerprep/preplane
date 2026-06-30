@@ -38,25 +38,14 @@ const voiceProviderStorage = new AsyncLocalStorage<{ provider: VoiceProviderStat
 // Retryable HTTP status codes — any other failure is non-retryable
 const VOICE_RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 
-// Vault secrets cache (per cold start)
-const _voiceVault = new Map<string, string>();
-let _voiceVaultLoaded = false;
+// Vault secrets cache (per cold start) — delegates to shared module.
+import { ensureVaultLoaded, getSecret } from "../_shared/providers/secrets.ts";
+
 async function loadVoiceVault(): Promise<void> {
-  if (_voiceVaultLoaded) return;
-  _voiceVaultLoaded = true;
-  try {
-    const sbUrl = Deno.env.get("SUPABASE_URL")!;
-    const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const { createClient: cc } = await import("npm:@supabase/supabase-js@2");
-    const vaultSb = cc(sbUrl, sbKey, { db: { schema: "vault" }, auth: { persistSession: false } });
-    const { data } = await vaultSb.from("decrypted_secrets").select("name,decrypted_secret");
-    for (const row of (data ?? []) as any[]) {
-      if (row.name && row.decrypted_secret) _voiceVault.set(row.name, row.decrypted_secret.trim());
-    }
-  } catch { /* non-fatal */ }
+  await ensureVaultLoaded();
 }
 function voiceEnv(name: string): string | undefined {
-  return Deno.env.get(name)?.trim() || _voiceVault.get(name) || undefined;
+  return getSecret(name);
 }
 
 type VoiceRequestState = {
@@ -78,6 +67,7 @@ const SYSTEM_PROMPT = `You are a CONVERSATIONAL VOICE assistant for the LMP plac
 
 OUTPUT RULES
 - 1 short spoken sentence (max 30 words). Plain spoken English. NO markdown, NO bullets, NO emojis, NO lists.
+- Exception: after web_search, up to 3 spoken sentences (max ~60 words).
 - Be warm and natural. Speak numbers and names as a human would.
 - Never say "I'll call the tool" — just do it and speak the result.
 
@@ -135,6 +125,12 @@ TOOLS — YOU MUST USE THEM
 - "Recommend POCs" / "who should be POC" -> recommend_pocs.
 - "Log submission" / "log interview round" -> log_submission (then verbal confirm via prepare_write staging).
 - "How many submissions" -> search_lmp_records or get_analytics.
+- External / current real-world facts about a company, industry, or public news
+  (e.g. "what does Stripe do", "who is the CEO of Google") -> web_search.
+  NEVER use search_lmp_records / list_entities for these — those are PrepLane DB only.
+- After web_search returns: speak a 2-3 sentence synthesis only (max ~60 words).
+  Do NOT read URLs or the sources list aloud. Mention "I found this from [source]"
+  only if the user explicitly asks where you got it.
 - Greetings / chitchat / clarifying questions -> respond directly with no tool.
 - If you are unsure what the user means, prefer calling resolve_entity or get_analytics over refusing.
 - NEVER reply with "Sorry I didn't catch that" — if you can't parse the request, call resolve_entity
