@@ -5,6 +5,8 @@
  */
 import type { Process, ProcessStatus } from "@/lib/lmpProcessQueries";
 import { isConverted, isDormant } from "@/lib/lmpProcessQueries";
+import type { ChecklistSheetKey } from "@/lib/lmpChecklist";
+import type { LmpRecord } from "@/lib/lmpTypes";
 import { flagRows } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
 import type { StudentDrillRow } from "@/components/insights/LxDrillDown";
@@ -136,6 +138,18 @@ export function snapshotDrill(
 
 export function lmpsMentorPending(rows: Process[]): Process[] {
   return rows.filter((r) => r.mentorAligned !== "Yes" && (r.status === "Ongoing" || r.status === "Offer Received"));
+}
+
+export function lmpsByChecklistItem(
+  rows: Process[],
+  recordsById: Map<string, LmpRecord>,
+  sheetKey: ChecklistSheetKey,
+): { done: Process[]; pending: Process[] } {
+  const isDone = (p: Process) => !!recordsById.get(p.processId)?.[sheetKey];
+  return {
+    done: rows.filter(isDone),
+    pending: rows.filter((p) => !isDone(p)),
+  };
 }
 
 export function lmpsByPlacementStep(

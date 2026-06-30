@@ -87,7 +87,7 @@ export const DASHBOARD_INFO = {
   "poc.kpi.risk":                  "Your processes that are On Hold, Dormant, or Closed without conversion.",
   "poc.kpi.total":                 "All processes in your scope after filters.",
   "poc.status-bar":                "Your processes split by Status. Click a segment to drill in.",
-  "poc.checklist":                 "Step-by-step task completion across your LMPs. The done / total ratio reflects rows that satisfy each step.",
+  "poc.checklist":                 "Execution checklist completion across your LMPs — same four items as on each LMP board (mentor, prep doc, assignment review, mock).",
   "poc.active-table":              "Your in-flight LMPs (Ongoing / Offer Received / On Hold), sorted by most-recently-updated.",
   "poc.lmps.total":                "Total LMPs assigned to you, from the LMP Tracker.",
   "poc.lmps.conversion":           "Converted ÷ (Total LMPs − Other Reasons) in your scope.",

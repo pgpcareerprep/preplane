@@ -8,6 +8,7 @@ import type { DocumentLink, DocumentAddContext } from "./DocumentsCard";
 import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { EXECUTION_CHECKLIST_DEFS } from "@/lib/lmpChecklist";
 
 type CheckItem = {
   id: string;
@@ -18,12 +19,7 @@ type CheckItem = {
   note?: string;
 };
 
-const CHECKLIST_DEFS: { id: string; label: string; owner: string; sheetKey: string }[] = [
-  { id: "ck-mentor", label: "Mentor aligned", owner: "POC", sheetKey: "mentorAligned" },
-  { id: "ck-prepdoc", label: "Prep doc shared", owner: "POC", sheetKey: "prepDocShared" },
-  { id: "ck-assign", label: "Assignment review", owner: "Mentor", sheetKey: "assignmentReview" },
-  { id: "ck-mock", label: "1:1 mock completed", owner: "Mentor", sheetKey: "mockDoneByPoc" },
-];
+const CHECKLIST_DEFS = EXECUTION_CHECKLIST_DEFS;
 
 export type SheetChecklistValues = {
   mentorAligned?: boolean;

@@ -25,7 +25,8 @@ import { ActionRequiredCard } from "./sections/ActionRequiredCard";
 import { RecentActivityCard } from "./sections/RecentActivityCard";
 import { LxDrillDown, type DrillState } from "@/components/insights/LxDrillDown";
 import { info } from "@/lib/dashboardInfo";
-import { snapshotDrill, lmpsByPlacementStep, countZeroCandidateLmps, buildConvertedCandidateCountByLmp } from "@/lib/dashboardDrill";
+import { snapshotDrill, lmpsByChecklistItem, countZeroCandidateLmps, buildConvertedCandidateCountByLmp } from "@/lib/dashboardDrill";
+import { EXECUTION_CHECKLIST_DEFS, type ChecklistSheetKey } from "@/lib/lmpChecklist";
 import { useLmpRows } from "@/lib/sheets/hooks";
 import { isUserOperationalPoc } from "@/lib/lmpViewingContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
@@ -168,42 +169,17 @@ export function PocLmpDashboard({
     lsc["other-reasons"],
   );
 
-  // Task completion
-  const prepDone = filtered.filter((r) => r.prepDoc === "Sent").length;
-  const mentorDone = filtered.filter((r) => r.mentorAligned === "Yes").length;
-  const roundDone = filtered.filter((r) =>
-    r.placementProgress === "R1" || r.placementProgress === "R2" ||
-    r.placementProgress === "R3" || r.placementProgress === "Offer" ||
-    r.placementProgress === "Converted",
-  ).length;
-  const finishedIds = useMemo(
-    () => new Set(
-      filteredRecords
-        .filter((r) => {
-          const bucket = canonicalLmpStatus(r.status);
-          return bucket === "converted" || bucket === "not-converted" || bucket === "other-reasons";
-        })
-        .map((r) => r.id),
-    ),
+  const recordsById = useMemo(
+    () => new Map(filteredRecords.map((r) => [r.id, r])),
     [filteredRecords],
   );
-  const finished = filtered.filter((p) => finishedIds.has(p.processId));
-  const outcomeLogged = finished.filter((p) => {
-    const rec = filteredRecords.find((r) => r.id === p.processId);
-    if (!rec) return false;
-    const bucket = canonicalLmpStatus(rec.status);
-    if (bucket === "not-converted") return true;
-    if (bucket === "converted") return !!p.convertNames;
-    return bucket === "other-reasons";
-  }).length;
 
-  const checklist = [
-    { label: "Confirm selection",   done: filtered.filter((r) => r.placementProgress !== "Not Started").length, total: filtered.length },
-    { label: "Share prep doc",      done: prepDone,        total: filtered.length },
-    { label: "Align mentors",       done: mentorDone,      total: filtered.length },
-    { label: "Track rounds",        done: roundDone,       total: filtered.length },
-    { label: "Close & log outcome", done: outcomeLogged,   total: finished.length },
-  ];
+  const checklist = EXECUTION_CHECKLIST_DEFS.map((def) => ({
+    label: def.label,
+    sheetKey: def.sheetKey,
+    done: filteredRecords.filter((r) => !!r[def.sheetKey]).length,
+    total: filteredRecords.length,
+  }));
 
   // Domain & assignment breakdown (user-specific via allocationTags)
   const myLmpRowById = new Map(
@@ -277,11 +253,11 @@ export function PocLmpDashboard({
     openLmps(rows, `My ${title.toLowerCase()}`, `${rows.length} of ${filtered.length} in my scope`);
   };
   const openChecklist = (
-    step: "selected" | "prep-sent" | "mentor-aligned" | "round-tracked" | "outcome-logged",
+    sheetKey: ChecklistSheetKey,
     label: string,
     which: "done" | "pending",
   ) => {
-    const split = lmpsByPlacementStep(filtered, step);
+    const split = lmpsByChecklistItem(filtered, recordsById, sheetKey);
     openLmps(split[which], `${label} · ${which === "done" ? "completed" : "pending"}`, `${split[which].length} LMPs`);
   };
 
@@ -359,24 +335,18 @@ export function PocLmpDashboard({
             {checklist.map((row, i) => {
               const pct = row.total ? (row.done / row.total) * 100 : 0;
               const accent = pct >= 80 ? "success" : pct >= 60 ? "yellow" : "risk";
-              const stepKey = (
-                i === 0 ? "selected" :
-                i === 1 ? "prep-sent" :
-                i === 2 ? "mentor-aligned" :
-                i === 3 ? "round-tracked" : "outcome-logged"
-              ) as Parameters<typeof openChecklist>[0];
               return (
-                <li key={row.label}>
+                <li key={row.sheetKey}>
                   <div className="flex items-baseline justify-between text-[12.5px] mb-1.5">
-                    <button onClick={() => openChecklist(stepKey, row.label, "pending")} className="text-left hover:underline" style={{ color: "var(--lx-text-2)" }}>{row.label}</button>
+                    <button onClick={() => openChecklist(row.sheetKey, row.label, "pending")} className="text-left hover:underline" style={{ color: "var(--lx-text-2)" }}>{row.label}</button>
                     <span className="font-mono tabular-nums" style={{ color: "var(--lx-text)" }}>
-                      <button onClick={() => openChecklist(stepKey, row.label, "done")} className="hover:underline">{row.done}</button>
+                      <button onClick={() => openChecklist(row.sheetKey, row.label, "done")} className="hover:underline">{row.done}</button>
                       <span style={{ color: "var(--lx-text-3)" }}> / {row.total}</span>
                       <span className="ml-2 font-semibold" style={{ color: LX_HEX[accent] }}>{pct.toFixed(0)}%</span>
                     </span>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden cursor-pointer"
-                    onClick={() => openChecklist(stepKey, row.label, "pending")}
+                    onClick={() => openChecklist(row.sheetKey, row.label, "pending")}
                     style={{ background: "var(--lx-soft)" }}>
                     <motion.div
                       initial={{ width: 0 }}
