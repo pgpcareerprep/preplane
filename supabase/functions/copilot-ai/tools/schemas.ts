@@ -557,4 +557,23 @@ export const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the live public web for current external facts via Google Search grounding. " +
+        "Use ONLY for external/current real-world facts not in the platform DB — company background, news, funding rounds, leadership changes, industry trends, and general knowledge. " +
+        "NEVER use for student/LMP/POC/mentor data — those have dedicated tools (search_lmp_records, get_student_profile, search_students, list_entities, find_mentors_for_jd, etc.). " +
+        "Read-only; no permission check required.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Concise web search question about external/current facts." },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
