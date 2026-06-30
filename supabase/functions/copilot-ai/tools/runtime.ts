@@ -10,6 +10,7 @@ import {
 } from "../requestContext.ts";
 import { retrieveRAGContext } from "../rag.ts";
 import { getCacheClient } from "../cache.ts";
+import { executeWebSearch } from "./web_search.ts";
 
 async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok: true } | { ok: false; reason: string }> {
   const actorRole = requestState().context.role;
@@ -1678,6 +1679,9 @@ export async function executeTool(
           guidance: "Render a `mentor-shortlist-card` with these results. Set assign_action_template to 'Assign mentor {name} (id={mentor_id}) to {company} · {role}' so user clicks trigger the standard prepare_write/execute_pending flow.",
         });
       }
+
+      case "web_search":
+        return executeWebSearch(args);
 
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
