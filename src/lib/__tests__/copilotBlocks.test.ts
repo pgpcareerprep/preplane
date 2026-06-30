@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBlocks } from "@/lib/copilotBlocks";
+import { parseBlocks, isIncompleteBlocksFence } from "@/lib/copilotBlocks";
 
 describe("parseBlocks (Copilot acceptance suite)", () => {
   it("returns empty blocks and original text when no fence is present", () => {
@@ -109,6 +109,26 @@ describe("parseBlocks (Copilot acceptance suite)", () => {
     if (blocks[0].type === "case-study-card") {
       expect(blocks[0].company).toBe("Stripe");
       expect(blocks[0].rubric).toHaveLength(1);
+    }
+  });
+});
+
+describe("truncated :::blocks stream handling", () => {
+  const truncated =
+    ':::blocks [{"type":"executive-summary", "content": "Uber - Supply Manager (B2B ETS) is currently prep-ongoing. The primary Prep';
+
+  it("detects incomplete fence without closing :::", () => {
+    expect(isIncompleteBlocksFence(truncated)).toBe(true);
+    expect(isIncompleteBlocksFence(':::blocks\n[{"type":"text","content":"ok"}]\n:::')).toBe(false);
+  });
+
+  it("salvages executive-summary from truncated stream", () => {
+    const { blocks, fenceDetected } = parseBlocks(truncated);
+    expect(fenceDetected).toBe(true);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("executive-summary");
+    if (blocks[0].type === "executive-summary") {
+      expect(blocks[0].content).toContain("Uber - Supply Manager");
     }
   });
 });

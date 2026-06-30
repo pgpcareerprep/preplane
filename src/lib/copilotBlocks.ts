@@ -512,6 +512,23 @@ function extractPartialObjects(body: string): unknown[] {
   return out;
 }
 
+/** True when content opens a :::blocks fence but never closes with \\n:::. */
+export function isIncompleteBlocksFence(content: string): boolean {
+  if (!content.includes(":::blocks")) return false;
+  return !/\n:::\s*$/.test(content.trim()) && !content.includes("\n:::");
+}
+
+/** Salvage renderable blocks from a truncated stream (e.g. timeout mid-executive-summary). */
+function salvagePartialBlocks(content: string): CopilotBlock[] {
+  const match = content.match(
+    /"type"\s*:\s*"executive-summary"[\s\S]*?"content"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/,
+  );
+  if (!match?.[1]) return [];
+  const summary = match[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
+  if (!summary) return [];
+  return [{ type: "executive-summary", content: summary }];
+}
+
 export function parseBlocks(
   content: string,
 ): { blocks: CopilotBlock[]; plainText: string; fenceDetected: boolean } {
@@ -547,6 +564,10 @@ export function parseBlocks(
     // Partial: extract whatever balanced objects we have so far.
     const partials = extractPartialObjects(fenceBody.slice(1)); // drop leading `[`
     blocks = partials.filter(isValidBlock);
+  }
+
+  if (blocks.length === 0 && closeIdx < 0) {
+    blocks = salvagePartialBlocks(content).filter(isValidBlock);
   }
 
   const plainText = (before + after).trim();

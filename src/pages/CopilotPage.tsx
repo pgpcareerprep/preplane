@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { parseBlocks } from "@/lib/copilotBlocks";
+import { parseBlocks, isIncompleteBlocksFence } from "@/lib/copilotBlocks";
 const BlockRenderer = lazy(() => import("@/components/copilot/BlockRenderer").then((m) => ({ default: m.BlockRenderer })));
 import {
   Sparkles, ArrowUp, Paperclip, AtSign, Mic, ChevronDown,
@@ -398,7 +398,7 @@ function CopilotPageInner() {
       setThreads(prev => prev.map(t =>
         t.id === activeId
           ? { ...t, messages: t.messages.map(m => m.id === assistantId
-              ? ({ ...m, content: message, streaming: false, error: true, retryText: userText } as any)
+              ? ({ ...m, content: message, errorMessage: message, streaming: false, error: true, retryText: userText } as any)
               : m) }
           : t
       ));
@@ -521,6 +521,15 @@ function CopilotPageInner() {
       // Empty stream fallback — never leave a blank bubble.
       if (!assistantContent.trim()) {
         replaceAssistantWithError("I received an empty response. The AI model may be overloaded — please try again in a moment.");
+      } else if (isIncompleteBlocksFence(assistantContent)) {
+        const cutOffMsg = "The response was cut off before it finished. Partial results are shown above — tap Retry to try again.";
+        setThreads(prev => prev.map(t =>
+          t.id === activeId
+            ? { ...t, messages: t.messages.map(m => m.id === assistantId
+                ? ({ ...m, content: assistantContent, errorMessage: cutOffMsg, streaming: false, error: true, retryText: userText } as any)
+                : m) }
+            : t
+        ));
       } else {
         setThreads(prev => prev.map(t =>
           t.id === activeId
@@ -540,7 +549,9 @@ function CopilotPageInner() {
       if (assistantContent.trim()) {
         setThreads(prev => prev.map(t =>
           t.id === activeId
-            ? { ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: assistantContent, streaming: false, error: true, retryText: userText } as any : m) }
+            ? { ...t, messages: t.messages.map(m => m.id === assistantId
+                ? ({ ...m, content: assistantContent, errorMessage: friendly, streaming: false, error: true, retryText: userText } as any)
+                : m) }
             : t
         ));
       } else {
@@ -787,13 +798,16 @@ function CopilotPageInner() {
                 if (m.role === "note") return <InlineNote key={m.id} text={m.content} />;
                 if ((m as any).error) {
                   const retryText = (m as any).retryText as string | undefined;
+                  const errorMessage = (m as any).errorMessage as string | undefined;
+                  const salvaged = parseBlocks(m.content || "").blocks;
+                  const showPartial = salvaged.length > 0 && isIncompleteBlocksFence(m.content || "");
                   return (
                     <div key={m.id} className="space-y-2">
-                      {m.content && !m.content.startsWith("⚠️") && (
+                      {showPartial && (
                         <AssistantMarkdown content={m.content} ts={m.ts} streaming={false} onFollowUp={send} onAction={handleCopilotAction} exportTitle={active?.title} />
                       )}
                       <CopilotErrorBubble
-                        message={m.content?.replace(/^⚠️\s*/, "") || "Something went wrong."}
+                        message={errorMessage || m.content?.replace(/^⚠️\s*/, "") || "Something went wrong."}
                         onRetry={retryText ? () => send(retryText) : undefined}
                       />
                     </div>
@@ -1298,7 +1312,7 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, expor
           </div>
         )}
 
-        {!hasBlocks && !intro && !hasSections && (
+        {!hasBlocks && !intro && !hasSections && !(fenceDetected && text.includes(":::blocks")) && (
           <div className={PROSE_BASE}>
             <ReactMarkdown>{text}</ReactMarkdown>
           </div>
