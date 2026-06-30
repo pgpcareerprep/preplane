@@ -6,6 +6,8 @@ import { requestState } from "../requestContext.ts";
 const WEB_SEARCH_TTL_SEC = 900; // 15 minutes
 const WEB_SEARCH_MODEL = "gemini-2.0-flash";
 const WEB_SEARCH_TIMEOUT_MS = 8_000;
+const WEB_SEARCH_HOURLY_LIMIT = 20;
+const HOUR_MS = 60 * 60 * 1000;
 
 export type WebSearchSource = { title: string; url: string };
 export type WebSearchResult = { answer: string; sources: WebSearchSource[] };
@@ -22,6 +24,27 @@ function normalizeQuery(query: string): string {
 
 function emptyResult(note: string): WebSearchResult {
   return { answer: note, sources: [] };
+}
+
+const _userWebSearchWindows = new Map<string, { count: number; resetAt: number }>();
+
+export function checkWebSearchRateLimit(userId: string | null | undefined): { allowed: boolean; message?: string } {
+  if (!userId) return { allowed: true };
+  const now = Date.now();
+  let entry = _userWebSearchWindows.get(userId);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + HOUR_MS };
+    _userWebSearchWindows.set(userId, entry);
+  }
+  if (entry.count >= WEB_SEARCH_HOURLY_LIMIT) {
+    return {
+      allowed: false,
+      message:
+        "Web search rate limit reached (20 searches per hour). Try again later or use platform DB tools for PrepLane data.",
+    };
+  }
+  entry.count++;
+  return { allowed: true };
 }
 
 function extractSources(chunks: GroundingChunk[] | undefined): WebSearchSource[] {
@@ -60,6 +83,10 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
   }
 
   const userId = requestState().context.userId ?? null;
+  const rate = checkWebSearchRateLimit(userId);
+  if (!rate.allowed) {
+    return emptyResult(rate.message || "Web search rate limit reached.");
+  }
 
   const cached = await readWebSearchCache(normalized);
   if (cached) return cached;
