@@ -74,6 +74,10 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 
 // ── POC list item ─────────────────────────────────────────────────────────────
 
+function pocKey(p: PocCapability): string {
+  return p.id ?? p.name;
+}
+
 function PocItem({ poc, selected, onSelect }: { poc: PocCapability; selected: boolean; onSelect: () => void }) {
   const load = poc.currentLoad;
   const max = poc.maxThreshold || 8;
@@ -116,6 +120,65 @@ function PocItem({ poc, selected, onSelect }: { poc: PocCapability; selected: bo
   );
 }
 
+function SelectedPocChip({ label, name, onClear }: { label: string; name: string; onClear?: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary">
+      <span className="text-muted-foreground font-normal">{label}:</span> {name}
+      {onClear && (
+        <button type="button" onClick={onClear} className="rounded-full p-0.5 hover:bg-primary/10" aria-label={`Clear ${label}`}>
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function OptionalPocPicker({
+  label,
+  pocs,
+  selectedId,
+  excludedIds,
+  onSelect,
+}: {
+  label: string;
+  pocs: PocCapability[];
+  selectedId: string | null;
+  excludedIds: Set<string>;
+  onSelect: (id: string | null) => void;
+}) {
+  const options = pocs.filter((p) => !excludedIds.has(pocKey(p)));
+  return (
+    <div className="rounded-xl border border-border bg-card/50 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{label}</label>
+        {selectedId && (
+          <button type="button" onClick={() => onSelect(null)} className="text-[11px] font-medium text-primary">
+            Clear
+          </button>
+        )}
+      </div>
+      {options.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-2">No other POCs available.</p>
+      ) : (
+        <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+          {options.map((poc) => {
+            const key = pocKey(poc);
+            return (
+              <li key={key}>
+                <PocItem
+                  poc={poc}
+                  selected={selectedId === key}
+                  onSelect={() => onSelect(selectedId === key ? null : key)}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Main wizard ───────────────────────────────────────────────────────────────
 
 export function QuickCreateLmpView() {
@@ -147,6 +210,7 @@ export function QuickCreateLmpView() {
   const [pocSearch, setPocSearch] = useState("");
   const [prepPocId, setPrepPocId] = useState<string | null>(null);
   const [supportPocId, setSupportPocId] = useState<string | null>(null);
+  const [outreachPocId, setOutreachPocId] = useState<string | null>(null);
 
   // Step 3 — Candidates
   const [candidateSearch, setCandidateSearch] = useState("");
@@ -190,8 +254,21 @@ export function QuickCreateLmpView() {
     ).slice(0, 80);
   }, [students, candidateSearch]);
 
-  const prepPoc = pocList.find((p) => p.id === prepPocId);
-  const supportPoc = pocList.find((p) => p.id === supportPocId) ?? null;
+  const prepPoc = pocList.find((p) => pocKey(p) === prepPocId);
+  const supportPoc = pocList.find((p) => pocKey(p) === supportPocId) ?? null;
+  const outreachPoc = pocList.find((p) => pocKey(p) === outreachPocId) ?? null;
+
+  const supportExcluded = useMemo(() => {
+    const ids = new Set<string>();
+    if (prepPocId) ids.add(prepPocId);
+    return ids;
+  }, [prepPocId]);
+
+  const outreachExcluded = useMemo(() => {
+    const ids = new Set<string>(supportExcluded);
+    if (supportPocId) ids.add(supportPocId);
+    return ids;
+  }, [supportExcluded, supportPocId]);
 
   const canProceedStep0 = company.trim().length > 0 && role.trim().length > 0 && domain.length > 0;
   const canProceedStep1 = true; // JD is optional
@@ -209,6 +286,7 @@ export function QuickCreateLmpView() {
     try {
       const prepAssigned = makePocAssignment(prepPoc, domain);
       const supportAssigned = supportPoc ? makePocAssignment(supportPoc, domain) : null;
+      const outreachAssigned = outreachPoc ? makePocAssignment(outreachPoc, domain) : null;
       const allocation = buildAllocation(prepAssigned, supportAssigned);
 
       const jdPayload: CreateLmpPayload["jd"] = jdMode === "paste" && jdText.trim()
@@ -227,7 +305,7 @@ export function QuickCreateLmpView() {
         selection: {
           prepPoc: prepAssigned,
           supportPoc: supportAssigned,
-          outreachPoc: null,
+          outreachPoc: outreachAssigned,
           allocation,
         },
         jd: jdPayload,
@@ -258,7 +336,7 @@ export function QuickCreateLmpView() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [prepPoc, supportPoc, domain, jdMode, jdText, jdLink, type, company, role, user, pickedStudents, students, addCandidates, queryClient]);
+  }, [prepPoc, supportPoc, outreachPoc, domain, jdMode, jdText, jdLink, type, company, role, user, pickedStudents, students, addCandidates, queryClient]);
 
   // ── Success screen ──────────────────────────────────────────────────────────
 
@@ -293,7 +371,7 @@ export function QuickCreateLmpView() {
               setCreatedLmpId(null); setStep(0);
               setCompany(""); setRole(""); setDomain(""); setType("Full Time");
               setJdMode("skip"); setJdText(""); setJdLink("");
-              setPrepPocId(null); setSupportPocId(null);
+              setPrepPocId(null); setSupportPocId(null); setOutreachPocId(null);
               setPickedStudents(new Set());
             }}
             className="text-xs text-primary font-medium"
@@ -449,35 +527,51 @@ export function QuickCreateLmpView() {
                 />
               </div>
               {pocLoading && <p className="text-xs text-muted-foreground text-center py-4">Loading POCs…</p>}
-              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-                {filteredPocs.map((poc) => (
-                  <li key={poc.id ?? poc.name}>
-                    <PocItem
-                      poc={poc}
-                      selected={prepPocId === (poc.id ?? poc.name)}
-                      onSelect={() => setPrepPocId(poc.id ?? poc.name)}
-                    />
-                  </li>
-                ))}
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                {filteredPocs.map((poc) => {
+                  const key = pocKey(poc);
+                  return (
+                    <li key={key}>
+                      <PocItem
+                        poc={poc}
+                        selected={prepPocId === key}
+                        onSelect={() => {
+                          setPrepPocId(key);
+                          if (supportPocId === key) setSupportPocId(null);
+                          if (outreachPocId === key) setOutreachPocId(null);
+                        }}
+                      />
+                    </li>
+                  );
+                })}
               </ul>
             </div>
 
             {prepPocId && (
-              <div>
-                <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Support POC (optional)</label>
-                <ul className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {filteredPocs
-                    .filter((p) => (p.id ?? p.name) !== prepPocId)
-                    .map((poc) => (
-                      <li key={poc.id ?? poc.name}>
-                        <PocItem
-                          poc={poc}
-                          selected={supportPocId === (poc.id ?? poc.name)}
-                          onSelect={() => setSupportPocId((prev) => prev === (poc.id ?? poc.name) ? null : (poc.id ?? poc.name))}
-                        />
-                      </li>
-                    ))}
-                </ul>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {prepPoc && <SelectedPocChip label="Prep" name={prepPoc.name} />}
+                  {supportPoc && (
+                    <SelectedPocChip label="Support" name={supportPoc.name} onClear={() => setSupportPocId(null)} />
+                  )}
+                  {outreachPoc && (
+                    <SelectedPocChip label="Outreach" name={outreachPoc.name} onClear={() => setOutreachPocId(null)} />
+                  )}
+                </div>
+                <OptionalPocPicker
+                  label="Support POC (optional)"
+                  pocs={filteredPocs}
+                  selectedId={supportPocId}
+                  excludedIds={supportExcluded}
+                  onSelect={setSupportPocId}
+                />
+                <OptionalPocPicker
+                  label="Outreach POC (optional)"
+                  pocs={filteredPocs}
+                  selectedId={outreachPocId}
+                  excludedIds={outreachExcluded}
+                  onSelect={setOutreachPocId}
+                />
               </div>
             )}
           </>
