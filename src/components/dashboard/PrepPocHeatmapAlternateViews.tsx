@@ -45,7 +45,7 @@ export const STUDENT_SECTION_CONFIG: AltSectionDef[] = [
     cols: [
       { dataKey: "totalStudents", colType: "heat", label: "Total", subLabel: "(Till Today)", minWidth: 68, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Distinct students linked to this POC's LMPs in the current scope." },
       { dataKey: "currentStudents", colType: "heat", label: "Current", subLabel: "(Active)", minWidth: 68, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Students currently in Not Started, Prep Ongoing or Prep Done." },
-      { dataKey: "placedStudentsLoad", colType: "heat", label: "Placed", minWidth: 60, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Students with a valid final placement outcome." },
+      { dataKey: "closedStudentsCount", colType: "heat", label: "Closed", minWidth: 60, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Students no longer in active prep (total minus current)." },
     ],
   },
   {
@@ -115,6 +115,7 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
       { dataKey: "notStartedCount", colType: "heat", label: "Not Started", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Not Started for this domain." },
       { dataKey: "prepOngoingCount", colType: "heat", label: "Prep Ongoing", minWidth: 90, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Prep Ongoing for this domain." },
       { dataKey: "prepDoneCount", colType: "heat", label: "Prep Done", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Prep Done for this domain." },
+      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold in this domain." },
     ],
   },
   {
@@ -125,9 +126,8 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     headerBg: "rgba(242, 246, 241, 0.55)",
     subheaderBg: "rgba(242, 246, 241, 0.3)",
     cols: [
-      { dataKey: "placedCount", colType: "heat", label: "Placed", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct placed students in this domain." },
-      { dataKey: "notPlacedCount", colType: "heat", label: "Not Placed", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to not placed outcomes in this domain." },
-      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold in this domain." },
+      { dataKey: "placedCount", colType: "heat", label: "Converted", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct placed students in this domain." },
+      { dataKey: "notPlacedCount", colType: "heat", label: "Not Converted", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to not placed outcomes in this domain." },
       { dataKey: "otherReasonsCount", colType: "heat", label: "Other reasons", minWidth: 96, palette: P_ORANGE, totalAccent: A_ORANGE, tooltip: "Students mapped to other terminal outcomes in this domain." },
     ],
   },
