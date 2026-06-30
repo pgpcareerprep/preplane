@@ -59,6 +59,7 @@ export const STUDENT_SECTION_CONFIG: AltSectionDef[] = [
       { dataKey: "notStartedCount", colType: "heat", label: "Not Started", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Students whose current prep status is Not Started." },
       { dataKey: "prepOngoingCount", colType: "heat", label: "Prep Ongoing", minWidth: 90, palette: P_SKY, totalAccent: A_SKY, tooltip: "Students currently in Prep Ongoing." },
       { dataKey: "prepDoneCount", colType: "heat", label: "Prep Done", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Students marked Prep Done." },
+      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold." },
     ],
   },
   {
@@ -69,8 +70,8 @@ export const STUDENT_SECTION_CONFIG: AltSectionDef[] = [
     headerBg: "rgba(242, 246, 241, 0.55)",
     subheaderBg: "rgba(242, 246, 241, 0.3)",
     cols: [
-      { dataKey: "placedCount", colType: "heat", label: "Placed", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome." },
-      { dataKey: "notPlacedCount", colType: "heat", label: "Not Placed", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to an unsuccessful final outcome." },
+      { dataKey: "placedCount", colType: "heat", label: "Converted", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome." },
+      { dataKey: "notPlacedCount", colType: "heat", label: "Not Converted", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to an unsuccessful final outcome." },
       { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold." },
       { dataKey: "otherReasonsCount", colType: "heat", label: "Other reasons", minWidth: 96, palette: P_ORANGE, totalAccent: A_ORANGE, tooltip: "Students mapped to other terminal or exception outcomes." },
     ],
@@ -84,7 +85,7 @@ export const STUDENT_SECTION_CONFIG: AltSectionDef[] = [
     subheaderBg: "rgba(242, 246, 241, 0.22)",
     cols: [
       { dataKey: "placementRatePct", colType: "rate", label: "Placement Rate", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Students Placed divided by total unique students for this POC." },
-      { dataKey: "avgSessionsPerStudent", colType: "text", label: "Avg. Sessions", subLabel: "(Per Student)", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Average completed prep sessions per student. Shows — when session data is unavailable." },
+      { dataKey: "placedCount", colType: "heat", label: "Students Placed", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome." },
     ],
   },
 ];
