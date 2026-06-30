@@ -724,6 +724,12 @@ async function handleRequest(req: Request) {
       round++;
       roundBudgetUsed++;
       maybeSoftWarn();
+      const roundWallStart = performance.now();
+      const logRoundTiming = (outcome: string) => {
+        console.warn(
+          `[tool-round] round=${round} budget_used=${roundBudgetUsed} outcome=${outcome} wall_ms=${Math.round(performance.now() - roundWallStart)}`,
+        );
+      };
 
       // Tool-call rounds: try all providers in order via callToolModel.
       // Gemini → OpenRouter → Grok with per-model retries on retryable errors.
@@ -778,6 +784,7 @@ async function handleRequest(req: Request) {
           __stall_nudged: true,
         };
         aiMessages.push(nudge);
+        logRoundTiming("stall_nudge");
         continue;
       }
 
@@ -906,8 +913,11 @@ async function handleRequest(req: Request) {
         maybeSoftWarn();
 
         // Continue the loop — the AI will process tool results
+        logRoundTiming("tools_done");
         continue;
       }
+
+      logRoundTiming("final_synthesis");
 
       // No tool calls — final synthesis. Use best available model (hybrid fallback).
       // Analysis-tier intents: use non-streaming so we can validate and repair the output.
