@@ -63,6 +63,7 @@ describe("Student-wise heatmap", () => {
     const { rows } = buildStudentWiseData(pocs, links, candidates);
     const alice = rows.find((r) => r.pocId === "p1")!;
     expect(alice.totalStudents).toBe(2);
+    expect(alice.closedStudentsCount).toBe(alice.totalStudents - alice.currentStudents);
   });
 
   it("uses On hold label path via outcome bucket", () => {
