@@ -83,7 +83,7 @@ export const FIELD_PERMISSIONS = {
   r1_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r2_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r3_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  final_converted_numbers: { editable: ["admin", "allocator"], requiresOwnership: false },
+  final_converted_numbers: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   final_converted_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   prep_doc: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   remarks: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
@@ -100,5 +100,5 @@ export const POC_WRITABLE_LMP_COLUMNS = [
   "next_progress_reminder_type", "last_progress_updated_at",
   "remarks", "mentor_aligned", "prep_doc_shared", "assignment_review",
   "one_to_one_mock", "behavioral_status", "status", "r1_names", "r2_names",
-  "r3_names", "final_converted_names", "prep_doc",
+  "r3_names", "final_converted_names", "final_converted_numbers", "prep_doc",
 ] as const;

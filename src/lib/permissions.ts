@@ -197,7 +197,7 @@ const FIELD_PERMISSIONS: Record<LmpField, FieldPermission> = {
   r1_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r2_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   r3_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
-  final_converted_numbers: { editable: ["admin", "allocator"], requiresOwnership: true },
+  final_converted_numbers: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   final_converted_names: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   prep_doc: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
   remarks: { editable: ["admin", "allocator", "poc"], requiresOwnership: true },
