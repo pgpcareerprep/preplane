@@ -95,3 +95,25 @@ describe("PDF export intent detection", () => {
     if (!result.ok) expect(result.clarify).toMatch(/last 2 answers/i);
   });
 });
+
+describe("PDF details fence leak guard", () => {
+  it("second parseBlocks pass recovers blocks from leftover fence in plainText", () => {
+    const inner = JSON.stringify([{ type: "text", content: "Should not leak raw JSON" }]);
+    const content = `:::blocks\n${JSON.stringify([{ type: "executive-summary", content: "Summary only" }])}\n:::\n:::blocks\n${inner}\n:::`;
+    const first = parseBlocks(content);
+    expect(first.blocks).toHaveLength(1);
+    expect(first.plainText).toContain(":::blocks");
+
+    const second = parseBlocks(first.plainText);
+    expect(second.blocks.some((b) => b.type === "text")).toBe(true);
+    expect(second.plainText).not.toContain(":::blocks");
+  });
+
+  it("stripBlocksFence removes unparseable fence spans", () => {
+    const leaky = 'Some intro\n:::blocks\n[{"broken": true}\n:::\nTail text';
+    const stripped = leaky.replace(/:::blocks[\s\S]*?:::/g, "").trim();
+    expect(stripped).not.toContain(":::blocks");
+    expect(stripped).toContain("Some intro");
+    expect(stripped).toContain("Tail text");
+  });
+});

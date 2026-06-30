@@ -335,6 +335,10 @@ function renderBlocksToDoc(
   return y;
 }
 
+function stripBlocksFence(body: string): string {
+  return body.replace(/:::blocks[\s\S]*?:::/g, "").trim();
+}
+
 function renderPlainTextDetails(
   doc: JsPdfDoc,
   body: string,
@@ -342,8 +346,21 @@ function renderPlainTextDetails(
   y: number,
   margin: number,
   maxWidth: number,
+  autoTable: AutoTableFn,
 ): number {
-  const stripped = stripMarkdown(body);
+  let detailsBody = body;
+
+  if (detailsBody.includes(":::blocks")) {
+    const reparsed = parseBlocks(detailsBody);
+    if (reparsed.blocks.length) {
+      y = renderBlocksToDoc(doc, reparsed.blocks, y, margin, maxWidth, autoTable);
+      detailsBody = reparsed.plainText;
+    } else {
+      detailsBody = stripBlocksFence(detailsBody);
+    }
+  }
+
+  const stripped = stripMarkdown(detailsBody);
   if (!stripped) return y;
   y = ensureSpace(doc, y, 24, margin);
   if (blocks.length) {
@@ -388,7 +405,7 @@ export async function downloadCopilotMessagePdf(content: string, title = "LMP Co
   let y = writeDocumentHeader(doc, title, margin);
 
   y = renderBlocksToDoc(doc, blocks, y, margin, maxWidth, autoTable);
-  y = renderPlainTextDetails(doc, plainText || content, blocks, y, margin, maxWidth);
+  y = renderPlainTextDetails(doc, plainText || content, blocks, y, margin, maxWidth, autoTable);
 
   if (!blocks.length && !stripMarkdown(plainText || content)) {
     throw new Error("Nothing to export in this message.");
@@ -431,7 +448,7 @@ export async function downloadCopilotReportPdf(
     y += 6;
 
     y = renderBlocksToDoc(doc, blocks, y, margin, maxWidth, autoTable);
-    y = renderPlainTextDetails(doc, plainText || section.content, blocks, y, margin, maxWidth);
+    y = renderPlainTextDetails(doc, plainText || section.content, blocks, y, margin, maxWidth, autoTable);
     y += 12;
   }
 
