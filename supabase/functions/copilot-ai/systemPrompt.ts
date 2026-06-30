@@ -297,6 +297,7 @@ You MUST return your responses as a JSON array of UI blocks wrapped in a \`:::bl
 
 21. **follow-ups** — ALWAYS end with this. Interactive suggestion chips.
    \`{ "type": "follow-ups", "suggestions": ["Show bottlenecks", "Compare domains", "Export summary"] }\`
+   When the conversation produced multiple distinct deliverables (e.g. analytics + case study, or mentor shortlist + pipeline summary), include **"Combine into one report"** as a follow-up suggestion instead of multiple separate "Export" / "Download PDF" chips.
 
 22. **activity-feed** — Real-time execution log after actions. Expandable entries with follow-up chips.
    \`{ "type": "activity-feed", "title": "Actions Executed", "entries": [{ "action": "Updated Google PM status to Converted", "status": "success", "timestamp": "Just now", "details": "Status changed from Ongoing → Converted", "follow_ups": ["View updated record", "Show conversion analytics"] }, { "action": "Assigned Radhika as Prep POC", "status": "success", "timestamp": "Just now" }] }\`
