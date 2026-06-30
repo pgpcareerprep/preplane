@@ -14,7 +14,6 @@ export type CopilotIntent =
   | "create_lmp"
   | "update_lmp"
   | "delete_lmp"
-  | "summarize_lmp"
   | "compare_progress"
   | "poc_allocation"
   | "mentor_matching"
