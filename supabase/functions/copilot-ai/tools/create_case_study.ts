@@ -57,6 +57,7 @@ export async function executeCreateCaseStudy(args: Record<string, unknown>): Pro
         "Authorization": `Bearer ${authToken}`,
       },
       body: JSON.stringify({ company, role, domain: domain || undefined, jd_text: jdText || undefined }),
+      signal: AbortSignal.timeout(40_000),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
@@ -83,6 +84,10 @@ export async function executeCreateCaseStudy(args: Record<string, unknown>): Pro
       instruction: "Render exactly one case-study-card block from case_study_card. Do not fabricate content.",
     });
   } catch (e) {
+    const name = (e as { name?: string })?.name ?? "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      return JSON.stringify({ error: "Case study generation timed out, try again" });
+    }
     return JSON.stringify({ error: `create_case_study exception: ${(e as Error).message}` });
   }
 }
