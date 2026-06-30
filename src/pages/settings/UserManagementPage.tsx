@@ -218,7 +218,7 @@ export default function UserManagementPage() {
         ))}
       </div>
 
-      <section className="rounded-lg bg-card border border-n200 shadow-sm overflow-hidden">
+      <section className="rounded-2xl bg-card border border-n200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>

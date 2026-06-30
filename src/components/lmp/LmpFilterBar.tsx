@@ -110,14 +110,14 @@ export function LmpFilterBar({
   const count = activeCount(value);
 
   return (
-    <div className="rounded-xl bg-card border border-n200 dark:border-border shadow-sm p-2.5 flex flex-col md:flex-row md:items-center gap-2">
+    <div className="rounded-card bg-card border border-n200 dark:border-border shadow-sm p-2.5 flex flex-col md:flex-row md:items-center gap-2">
       <div className="relative flex-1 min-w-0">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-n400" strokeWidth={1.75} />
         <input
           value={value.q}
           onChange={(e) => onChange({ ...value, q: e.target.value })}
           placeholder="Search role, company, POC…"
-          className="w-full h-11 md:h-9 rounded-lg border border-n200 dark:border-border bg-n50/60 dark:bg-muted/40 pl-9 pr-3 text-[13px] text-n800 dark:text-foreground placeholder:text-n400 focus:outline-none focus:border-orange-400 focus:bg-card focus:ring-2 focus:ring-orange-100 transition-all"
+          className="w-full h-11 md:h-9 rounded-control border border-n200 dark:border-border bg-n50/60 dark:bg-muted/40 pl-9 pr-3 text-[13px] text-n800 dark:text-foreground placeholder:text-n400 focus:outline-none focus:border-orange-400 focus:bg-card focus:ring-2 focus:ring-orange-100 transition-all"
         />
       </div>
 
@@ -135,7 +135,7 @@ export function LmpFilterBar({
           <button
             type="button"
             onClick={() => onChange({ ...EMPTY_LMP_FILTERS, q: value.q })}
-            className="inline-flex items-center gap-1 h-9 px-2.5 rounded-lg text-[12px] text-n500 hover:text-n800 hover:bg-n100 transition-colors"
+            className="inline-flex items-center gap-1 h-9 px-2.5 rounded-control text-[12px] text-n500 hover:text-n800 hover:bg-n100 transition-colors"
           >
             <X className="h-3 w-3" /> Clear
           </button>
@@ -150,7 +150,7 @@ export function LmpFilterBar({
             <button
               type="button"
               className={cn(
-                "inline-flex items-center gap-1.5 h-11 px-3 rounded-lg border text-[13px] font-medium transition-colors",
+                "inline-flex items-center gap-1.5 h-11 px-3 rounded-control border text-[13px] font-medium transition-colors",
                 count > 0
                   ? "border-orange-300 bg-orange-50 text-orange-700"
                   : "border-n200 bg-n50/60 text-n700",
@@ -182,7 +182,7 @@ export function LmpFilterBar({
                 <button
                   type="button"
                   onClick={() => onChange({ ...EMPTY_LMP_FILTERS, q: value.q })}
-                  className="w-full h-11 rounded-lg border border-n200 text-[13px] text-n600 hover:bg-n100"
+                  className="w-full h-11 rounded-control border border-n200 text-[13px] text-n600 hover:bg-n100"
                 >
                   Clear filters
                 </button>
@@ -190,7 +190,7 @@ export function LmpFilterBar({
               <button
                 type="button"
                 onClick={() => setSheetOpen(false)}
-                className="w-full h-11 rounded-lg bg-orange-500 text-[#1A1916] text-[13px] font-medium"
+                className="w-full h-11 rounded-control bg-orange-500 text-[#1A1916] text-[13px] font-medium"
               >
                 Apply
               </button>
@@ -201,7 +201,7 @@ export function LmpFilterBar({
           <button
             type="button"
             onClick={() => onChange({ ...EMPTY_LMP_FILTERS, q: value.q })}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-n500 hover:bg-n100"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-control text-n500 hover:bg-n100"
             aria-label="Clear filters"
           >
             <X className="h-4 w-4" />
@@ -233,7 +233,7 @@ function InlineSelect({
         onChange(valueMap ? (valueMap[label] ?? "") : label);
       }}
       className={cn(
-        "h-11 md:h-9 rounded-lg border px-2.5 text-[13px] focus:outline-none transition-colors shrink-0 cursor-pointer",
+        "h-11 md:h-9 rounded-control border px-2.5 text-[13px] focus:outline-none transition-colors shrink-0 cursor-pointer",
         fullWidth ? "w-full" : "w-[130px]",
         value
           ? "border-orange-300 bg-orange-50 text-orange-700 hover:border-orange-400 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/40"

@@ -447,7 +447,7 @@ export function HeatmapMobileSummary({
           <select
             value={activeMetric.key}
             onChange={(e) => setMetricKey(e.target.value)}
-            className="h-10 flex-1 min-w-0 rounded-lg border border-border bg-background px-2 text-[13px]"
+            className="h-10 flex-1 min-w-0 rounded-control border border-border bg-background px-2 text-[13px]"
           >
             {metrics.map((m) => (
               <option key={m.key} value={m.key}>{m.label}</option>

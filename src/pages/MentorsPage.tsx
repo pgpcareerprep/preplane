@@ -9,6 +9,7 @@ import { useAllMentors, type DbMentorRow } from "@/lib/hooks/useDbData";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { SearchInput } from "@/components/ui/search-input";
 import { PillSelect } from "@/components/ui/pill-select";
@@ -218,13 +219,10 @@ export default function MentorsPage() {
         title="Mentors"
         subtitle="Aligned mentors across all live LMP processes — feedback updates in real time."
         right={
-          <button
-            onClick={() => setRunOpen(true)}
-            className="inline-flex items-center gap-2 h-9 rounded-lg bg-orange-500 hover:bg-orange-600 text-white px-3.5 text-[13px] font-medium shadow-sm transition-colors"
-          >
+          <Button onClick={() => setRunOpen(true)} className="gap-2 h-9 px-3.5 text-[13px]">
             <Sparkles className="h-4 w-4" />
             Run Mentor
-          </button>
+          </Button>
         }
       />
       <RunMentorModal open={runOpen} onOpenChange={setRunOpen} />

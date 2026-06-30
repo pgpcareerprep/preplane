@@ -10,7 +10,7 @@ const SOURCE_BADGE: Record<string, string> = {
 
 function MentorRow({ m, onAssign }: { m: MentorShortlistItem; onAssign: () => void }) {
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card border border-n200 hover:border-orange-300 transition-colors">
+    <div className="flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-card border border-n200 hover:border-orange-300 transition-colors">
       <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-orange-100 to-amber-100 grid place-items-center text-[11px] font-bold text-orange-700 shrink-0">
         {m.initials || m.name.slice(0, 2).toUpperCase()}
       </div>

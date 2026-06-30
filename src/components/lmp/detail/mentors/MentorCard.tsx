@@ -412,7 +412,7 @@ function ContactIcon({
 
 function Section({ title, Icon, children, wide }: { title: string; Icon: typeof Building2; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className={cn("rounded-lg bg-card border border-n200 p-3", wide && "md:col-span-2")}>
+    <div className={cn("rounded-2xl bg-card border border-n200 p-3", wide && "md:col-span-2")}>
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.5px] text-n500 font-medium mb-2">
         <Icon className="h-3 w-3" strokeWidth={2} />
         {title}
@@ -469,7 +469,7 @@ function MatchAnalysisPanel({ mentor }: { mentor: Mentor }) {
   const rank = mentor.rank ?? 1;
 
   return (
-    <div className="md:col-span-2 rounded-lg bg-card border border-n200 p-4">
+    <div className="md:col-span-2 rounded-2xl bg-card border border-n200 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.5px] text-n500 font-medium">
           <span>Match Analysis</span>

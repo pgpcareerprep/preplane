@@ -61,7 +61,7 @@ export function PocWorkloadTable() {
   }, [list, convMap]);
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm p-6">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm p-6">
       <div className="flex items-center gap-2 mb-5">
         <h3 className="text-[20px] font-medium text-n900">POC Workload vs Threshold</h3>
         <Info className="h-3.5 w-3.5 text-n400" strokeWidth={1.5} aria-label="Load is active processes ÷ max threshold" />

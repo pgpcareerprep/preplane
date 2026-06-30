@@ -52,7 +52,7 @@ export function ModPocWorkloadTable() {
   }, [list, convMap]);
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm p-6">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm p-6">
       <div className="flex items-baseline justify-between mb-5">
         <h3 className="text-[20px] font-medium text-n900">POC Workload</h3>
         <button className="inline-flex items-center gap-1 text-[13px] font-medium text-orange-500 hover:text-orange-600 transition-colors duration-150">

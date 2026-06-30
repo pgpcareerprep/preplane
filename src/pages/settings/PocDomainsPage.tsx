@@ -108,7 +108,7 @@ function AllocationPathsCard() {
   ];
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm overflow-hidden">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-n200 bg-n50/60 flex items-center gap-2">
         <Info className="h-3.5 w-3.5 text-n500" />
         <h4 className="text-[14px] font-medium text-n900">How allocation paths work</h4>
@@ -195,7 +195,7 @@ function DomainMappingsBoard() {
   }, [pocProfiles]);
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm overflow-hidden">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-n200 bg-n50/60">
         <h4 className="text-[14px] font-medium text-n900">Domain → POC Mappings (Path C)</h4>
         <p className="text-[11px] text-n500">
@@ -404,7 +404,7 @@ function TestAllocationPanel() {
   };
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm overflow-hidden">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full px-5 py-3 border-b border-n200 bg-n50/60 flex items-center justify-between"

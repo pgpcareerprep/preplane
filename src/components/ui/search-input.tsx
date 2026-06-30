@@ -3,10 +3,7 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 
-/**
- * SearchInput — canonical search field used across pages.
- * h-9, rounded-lg, n50/60 surface, orange focus ring.
- */
+/** Canonical search field — h-9, rounded-control (8px), n50 surface. */
 export const SearchInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function SearchInput({ className, placeholder = "Search…", ...rest }, ref) {
     return (
@@ -16,7 +13,7 @@ export const SearchInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTML
           ref={ref}
           placeholder={placeholder}
           className={cn(
-            "pl-9 h-9 rounded-lg bg-n50/60 border-n200 text-[13px] placeholder:text-n400 focus-visible:ring-2 focus-visible:ring-orange-100 focus-visible:ring-offset-0 focus-visible:border-orange-300 transition-colors",
+            "pl-9 h-9 rounded-control bg-n50/60 border-n200 text-[13px] placeholder:text-n400 focus-visible:ring-2 focus-visible:ring-orange-100 focus-visible:ring-offset-0 focus-visible:border-orange-300 transition-colors",
             className,
           )}
           {...rest}

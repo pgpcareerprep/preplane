@@ -112,7 +112,7 @@ export function CopilotTable({ block, onAction }: { block: TableBlock; onAction?
               value={filter}
               onChange={e => setFilter(e.target.value)}
               placeholder="Filter rows…"
-              className="w-full h-8 rounded-lg bg-n50 border border-n100 pl-8 pr-3 text-[12px] text-n800 placeholder:text-n400 outline-none focus:border-orange-200"
+              className="w-full h-8 rounded-control bg-n50 border border-n100 pl-8 pr-3 text-[12px] text-n800 placeholder:text-n400 outline-none focus:border-orange-200"
             />
           </div>
         </motion.div>

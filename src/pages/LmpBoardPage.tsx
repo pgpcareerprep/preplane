@@ -383,7 +383,7 @@ export default function LmpBoardPage() {
 
 function ViewToggle({ value, onChange }: { value: "kanban" | "cards"; onChange: (v: "kanban" | "cards") => void }) {
   return (
-    <div className="inline-flex h-9 rounded-lg border border-n200 bg-n50/60 p-1 shadow-sm">
+    <div className="inline-flex h-9 rounded-control border border-n200 bg-n50/60 p-1 shadow-sm">
       {([
         { v: "cards" as const,  icon: LayoutList, label: "Cards"  },
         { v: "kanban" as const, icon: LayoutGrid, label: "Kanban" },
@@ -392,7 +392,7 @@ function ViewToggle({ value, onChange }: { value: "kanban" | "cards"; onChange: 
           key={opt.v}
           onClick={() => onChange(opt.v)}
           className={cn(
-            "h-full px-3 rounded-md inline-flex items-center gap-1.5 text-[12px] font-medium transition-colors",
+            "h-full px-3 rounded-sm inline-flex items-center gap-1.5 text-[12px] font-medium transition-colors",
             value === opt.v
               ? "bg-orange-500 text-white shadow-sm"
               : "text-n600 hover:text-n900 hover:bg-n100",

@@ -72,7 +72,7 @@ export function SourceCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.07, ease: [0, 0, 0.2, 1] }}
-      className="rounded-lg bg-card border border-n200 shadow-sm p-6 flex flex-col"
+      className="rounded-2xl bg-card border border-n200 shadow-sm p-6 flex flex-col"
     >
       <header className="flex items-start gap-3">
         <div className={cn("h-10 w-10 rounded-md grid place-items-center shrink-0", iconClass)}>

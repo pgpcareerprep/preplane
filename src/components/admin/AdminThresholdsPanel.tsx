@@ -86,7 +86,7 @@ export function AdminThresholdsPanel() {
             const value = values[t.id];
             const pct = ((value - t.min) / (t.max - t.min)) * 100;
             return (
-              <div key={t.id} className="rounded-lg bg-card border border-n200 shadow-sm p-5">
+              <div key={t.id} className="rounded-2xl bg-card border border-n200 shadow-sm p-5">
                 <div className="flex items-start gap-3">
                   <div className="h-9 w-9 grid place-items-center rounded-md bg-orange-50 text-orange-600 shrink-0">
                     <Icon className="h-4 w-4" strokeWidth={1.75} />

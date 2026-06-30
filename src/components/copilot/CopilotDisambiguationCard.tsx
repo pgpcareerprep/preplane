@@ -76,7 +76,7 @@ export function CopilotDisambiguationCard({
               disabled={picked !== null}
               onClick={() => dispatch(c)}
               className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card border border-n200 text-left transition-all",
+                "w-full flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-card border border-n200 text-left transition-all",
                 "hover:border-orange-300 hover:bg-orange-50/40",
                 isPicked && "border-orange-400 ring-1 ring-orange-200",
                 isDimmed && "opacity-50",

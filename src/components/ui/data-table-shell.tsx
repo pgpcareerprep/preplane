@@ -18,7 +18,7 @@ export function DataTableShell({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-n200 bg-card shadow-sm overflow-hidden",
+        "rounded-card border border-n200 bg-card shadow-sm overflow-hidden",
         className,
       )}
     >

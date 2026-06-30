@@ -41,7 +41,7 @@ const DialogContent = React.forwardRef<
         "max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-xl max-md:rounded-b-none max-md:max-h-[92vh] max-md:overflow-y-auto",
         "max-md:data-[state=open]:slide-in-from-bottom max-md:data-[state=closed]:slide-out-to-bottom",
         /* Desktop: centered modal — callers set max-w-*; no default cap so wide modals aren't clipped */
-        "md:left-[50%] md:top-[50%] md:w-[calc(100%-2rem)] md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-xl",
+        "md:left-[50%] md:top-[50%] md:w-[calc(100%-2rem)] md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-modal",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
         "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=closed]:slide-out-to-top-[48%]",

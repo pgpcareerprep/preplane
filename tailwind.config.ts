@@ -214,10 +214,16 @@ export default {
         },
       },
       borderRadius: {
-        "2xl": "16px", /* Lumina v1.1 — cards + bento blocks */
-        xl:    "12px", /* Modals + drawers */
-        lg:    "16px", /* legacy alias → cards */
-        md:    "8px",  /* Lumina v1.1 — buttons + inner elements */
+        /* Lumina semantic tokens — prefer these in new code */
+        control: "var(--radius)",           /* 8px — buttons, inputs, filters, chips */
+        card:    "var(--radius-card)",      /* 16px — cards, bento blocks, tables */
+        modal:   "var(--radius-modal)",     /* 12px — modals, drawers, popovers */
+        pill:    "var(--radius-pill)",      /* 9999px — status badges, tags */
+        /* Tailwind scale (aligned to Lumina) */
+        "2xl": "16px",
+        xl:    "12px",
+        lg:    "8px",   /* controls — was incorrectly 16px */
+        md:    "8px",
         sm:    "6px",
         xs:    "4px",
       },

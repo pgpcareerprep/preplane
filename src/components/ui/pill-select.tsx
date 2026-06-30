@@ -6,10 +6,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 
-/**
- * PillSelect — canonical filter dropdown used in page filter rows.
- * Consistent height (h-9), radius (rounded-lg), border, and focus ring.
- */
+/** Canonical filter dropdown — h-9, rounded-control (8px). */
 export function PillSelect({
   value,
   onChange,
@@ -29,7 +26,7 @@ export function PillSelect({
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger
-        className="h-9 w-auto gap-2 rounded-lg bg-n50/60 border-n200 text-[13px] text-n800 px-3 hover:bg-n100/60 transition-colors [&>svg]:text-n400 focus:ring-2 focus:ring-orange-100"
+        className="h-9 w-auto gap-2 rounded-control bg-n50/60 border-n200 text-[13px] text-n800 px-3 hover:bg-n100/60 transition-colors [&>svg]:text-n400 focus:ring-2 focus:ring-orange-100"
         style={{ minWidth }}
       >
         <span className="inline-flex items-center gap-1.5 min-w-0">

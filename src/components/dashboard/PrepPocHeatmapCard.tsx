@@ -367,7 +367,7 @@ function KpiCard({
   return (
     <div className="flex items-center gap-3 flex-1 min-w-[130px] rounded-2xl border px-4 py-3"
       style={{ background: "var(--lx-surface)", borderColor: "var(--lx-border)", boxShadow: "0 1px 3px rgba(26,25,22,0.05)" }}>
-      <span className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center"
+      <span className="shrink-0 h-9 w-9 rounded-control flex items-center justify-center"
         style={{ background: `color-mix(in srgb, ${accentCss} 12%, var(--lx-soft))` }}>
         <Icon size={17} style={{ color: accentCss }} />
       </span>
@@ -440,7 +440,7 @@ function ColumnsPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-[12.5px] font-semibold transition-colors hover:brightness-97 focus-visible:outline-none focus-visible:ring-2"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-control border text-[12.5px] font-semibold transition-colors hover:brightness-97 focus-visible:outline-none focus-visible:ring-2"
           style={{
             background: "var(--lx-surface)",
             borderColor: "var(--lx-border)",
@@ -504,7 +504,7 @@ function HeatmapSkeleton() {
     <div className="space-y-3 animate-pulse">
       <div className="flex gap-6">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-14 flex-1 rounded-xl" style={{ background: "var(--lx-soft)" }} />
+          <div key={i} className="h-14 flex-1 rounded-control" style={{ background: "var(--lx-soft)" }} />
         ))}
       </div>
       <div className="h-8 rounded" style={{ background: "var(--lx-soft)" }} />
@@ -873,7 +873,7 @@ export function PrepPocHeatmapCard({
           {/* Controls */}
           <div className="flex flex-wrap items-center gap-2">
             {/* Segmented view control */}
-            <div className="flex h-9 rounded-xl border overflow-hidden"
+            <div className="flex h-9 rounded-control border overflow-hidden"
               style={{ borderColor: "var(--lx-border)", background: "var(--lx-soft)" }}>
               {([
                 { id: "lmp", label: "LMP-wise" },
@@ -911,7 +911,7 @@ export function PrepPocHeatmapCard({
             <button
               onClick={handleExport}
               disabled={!data || isLoading}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-[12.5px] font-semibold transition-colors hover:brightness-97 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-control border text-[12.5px] font-semibold transition-colors hover:brightness-97 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2"
               style={{
                 background: "var(--lx-surface)",
                 borderColor: "var(--lx-border)",
@@ -1010,7 +1010,7 @@ export function PrepPocHeatmapCard({
 
         {!isLoading && !isError && data && hasRows && (
           <>
-            <div className="overflow-x-auto rounded-xl border"
+            <div className="overflow-x-auto rounded-control border"
               style={{ borderColor: "var(--lx-border)", background: "var(--lx-surface)" }}>
               {noSections ? (
                 <div className="py-10 px-6 text-center space-y-3">
@@ -1511,7 +1511,7 @@ function HeatmapDrilldownModal({
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               placeholder="Search records..."
-              className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-[13px] text-foreground outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20"
+              className="h-10 w-full rounded-control border border-border bg-background pl-9 pr-3 text-[13px] text-foreground outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20"
             />
           </label>
           {result?.recordType === "student" ? (
@@ -1530,7 +1530,7 @@ function HeatmapDrilldownModal({
             type="button"
             onClick={exportDrilldown}
             disabled={!result || originalCount === 0}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm transition hover:bg-muted disabled:opacity-40"
+            className="inline-flex h-10 items-center gap-2 rounded-control border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm transition hover:bg-muted disabled:opacity-40"
             data-testid="heatmap-drilldown-export"
           >
             <Download size={14} /> Download CSV
@@ -1707,7 +1707,7 @@ function StudentDrilldownTable({
 
 function SortSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm">
+    <label className="inline-flex h-10 items-center gap-2 rounded-control border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground shadow-sm">
       <ArrowUpDown size={13} />
       <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent text-foreground outline-none">
         {options.map(([k, l]) => <option key={k} value={k}>{l}</option>)}

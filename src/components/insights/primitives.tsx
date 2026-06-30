@@ -568,7 +568,7 @@ export function LxFunnel({
         return (
           <li key={s.stage} className="grid grid-cols-[160px_1fr_120px] items-center gap-3 text-[12.5px]">
             <span className="truncate" style={{ color: "var(--lx-text-2)" }}>{s.stage}</span>
-            <span className="relative h-9 rounded-lg overflow-hidden"
+            <span className="relative h-9 rounded-control overflow-hidden"
               style={{ background: "var(--lx-soft)" }}>
               <motion.span
                 initial={{ width: 0 }}

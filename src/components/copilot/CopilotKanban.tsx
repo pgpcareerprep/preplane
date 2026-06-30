@@ -17,7 +17,7 @@ export function CopilotKanban({ block }: { block: KanbanBlock }) {
             </div>
             <div className="space-y-2">
               {col.items.slice(0, 5).map((item, ii) => (
-                <div key={ii} className="rounded-lg bg-card border border-n100 px-3 py-2 shadow-xs">
+                <div key={ii} className="rounded-2xl bg-card border border-n100 px-3 py-2 shadow-xs">
                   <div className="text-[12px] font-medium text-n800 leading-snug">{item.label}</div>
                   {item.sub && <div className="text-[10.5px] text-n500 mt-0.5">{item.sub}</div>}
                   {item.tag && <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[9.5px] font-semibold">{item.tag}</span>}

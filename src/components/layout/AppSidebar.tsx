@@ -104,7 +104,7 @@ export function AppSidebar() {
             onClick={() => setCollapsed(v => !v)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className={cn(
-              "w-full inline-flex items-center gap-2 h-8 rounded-lg text-[11px] text-[#A8A398] hover:text-white hover:bg-card/[0.06] transition-colors",
+              "w-full inline-flex items-center gap-2 h-8 rounded-control text-[11px] text-[#A8A398] hover:text-white hover:bg-card/[0.06] transition-colors",
               collapsed ? "justify-center px-0" : "px-3",
             )}
           >

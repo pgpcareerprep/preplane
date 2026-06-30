@@ -82,7 +82,7 @@ export default function ScoringWeightsPage() {
       )}
 
       {/* Main weights card */}
-      <section className="rounded-lg bg-card border border-n200 shadow-sm p-6">
+      <section className="rounded-2xl bg-card border border-n200 shadow-sm p-6">
         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-8 items-start">
           <div className="space-y-5 min-w-0">
             {SIGNALS.map(s => (
@@ -134,7 +134,7 @@ export default function ScoringWeightsPage() {
       </section>
 
       {/* Sparse JD overrides */}
-      <section className="rounded-lg bg-card border border-n200 shadow-sm overflow-hidden">
+      <section className="rounded-2xl bg-card border border-n200 shadow-sm overflow-hidden">
         <button
           onClick={() => setSparseOpen(o => !o)}
           className="w-full flex items-center justify-between px-6 py-4 hover:bg-n50 transition-colors duration-150"

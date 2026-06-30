@@ -30,7 +30,7 @@ const STATUS_LABEL = {
 
 export function DataSourceHealth() {
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm p-6 flex flex-col">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm p-6 flex flex-col">
       <div className="flex items-baseline justify-between mb-4">
         <h3 className="text-[20px] font-medium text-n900">Data Source Health</h3>
         <span className="text-[12px] text-n500">3 sources</span>

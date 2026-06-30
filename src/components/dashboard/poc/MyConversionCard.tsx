@@ -20,7 +20,7 @@ export function MyConversionCard() {
   const stats = statsFor(convMap, cap?.name || me);
 
   return (
-    <section className="rounded-lg bg-card border border-n200 shadow-sm p-6">
+    <section className="rounded-2xl bg-card border border-n200 shadow-sm p-6">
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <div className="label-eyebrow mb-1">My Performance</div>

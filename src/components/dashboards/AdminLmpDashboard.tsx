@@ -1016,13 +1016,13 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             info={info("admin.domain.bar")}
             right={
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
+                <div className="inline-flex rounded-control p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
                   {(["table", "heatmap"] as const).map((view) => (
                     <button
                       key={view}
                       type="button"
                       onClick={() => setDomainLoadView(view)}
-                      className="h-8 px-3 rounded-md text-[11.5px] font-semibold transition-colors"
+                      className="h-8 px-3 rounded-sm text-[11.5px] font-semibold transition-colors"
                       style={{
                         background: domainLoadView === view ? "var(--lx-surface)" : "transparent",
                         color: domainLoadView === view ? LX_HEX.info : "var(--lx-text-2)",
@@ -1036,7 +1036,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                 <select
                   value={domainLoadFilter}
                   onChange={(event) => setDomainLoadFilter(event.target.value)}
-                  className="h-9 rounded-lg border bg-transparent px-3 text-[11.5px] font-medium outline-none"
+                  className="h-9 rounded-control border bg-transparent px-3 text-[11.5px] font-medium outline-none"
                   style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-2)", background: "var(--lx-surface)" }}
                   aria-label="Filter domain load"
                 >
@@ -1049,7 +1049,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                   type="button"
                   onClick={exportDomainCsv}
                   disabled={visibleDomainRows.length === 0}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[11.5px] font-semibold transition-colors hover:bg-[var(--lx-soft)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-9 items-center gap-2 rounded-control border px-3 text-[11.5px] font-semibold transition-colors hover:bg-[var(--lx-soft)] disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ borderColor: "var(--lx-border)", color: "var(--lx-text)" }}
                 >
                   <Download className="h-3.5 w-3.5" />
