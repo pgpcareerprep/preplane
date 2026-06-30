@@ -342,7 +342,7 @@ export function LmpHealthSummaryCard({
               >
                 Process-wise Conversion
                 <LxInfo
-                  text="Converted ÷ (Converted + Not Converted + Closed) × 100. Excludes active pipeline and on-hold."
+                  text="Converted ÷ (Total LMPs − Other Reasons) × 100. Other Reasons includes closed, dormant, and similar non-outcome statuses."
                   size={12}
                   side="bottom"
                 />
