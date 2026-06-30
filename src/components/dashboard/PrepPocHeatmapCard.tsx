@@ -254,12 +254,6 @@ const SECTION_CONFIG: SectionDef[] = [
         palette: P_ORANGE, totalAccent: A_ORANGE,
         tooltip: "Closed for reasons other than Converted or Not Converted (e.g. role pulled, candidate withdrew).",
       },
-      {
-        dataKey: "unknownCount", metricKey: "unknown", colType: "heat",
-        label: "Unmapped", minWidth: 80,
-        palette: P_ORANGE, totalAccent: A_ORANGE,
-        tooltip: "LMPs with a status that could not be mapped to a known heatmap bucket.",
-      },
     ],
   },
   {
@@ -691,7 +685,6 @@ export function PrepPocHeatmapCard({
       convertedCount: maxFor("convertedCount"),
       notConvertedCount: maxFor("notConvertedCount"),
       otherReasonsCount: maxFor("otherReasonsCount"),
-      unknownCount: maxFor("unknownCount"),
       primaryCount: maxFor("primaryCount"),
       supportCount: maxFor("supportCount"),
       inDomainCount: maxFor("inDomainCount"),
@@ -776,7 +769,6 @@ export function PrepPocHeatmapCard({
       Converted: r.convertedCount,
       "Not Converted": r.notConvertedCount,
       "Other Reasons": r.otherReasonsCount,
-      Unmapped: r.unknownCount,
       Primary: r.primaryCount,
       Support: r.supportCount,
       "In-domain": r.inDomainCount,
@@ -794,7 +786,7 @@ export function PrepPocHeatmapCard({
     downloadCsv(`prep-poc-heatmap-lmp-wise-${dateStamp()}.csv`, csvRows, [
       "POC Name", "Total LMPs", "Current LMPs", "Closed LMPs",
       "Not Started", "Prep Ongoing", "Prep Done", "On Hold",
-      "Converted", "Not Converted", "Other Reasons", "Unmapped",
+      "Converted", "Not Converted", "Other Reasons",
       "Primary", "Support", "In-domain", "Cross-domain",
       "Converted Count", "Eligible Closed Count", "LMP Conversion %", "Students Placed",
     ]);
@@ -1316,7 +1308,7 @@ type HeatmapDrilldownSelection = {
 type LmpSortKey = "company" | "statusLabel" | "domain" | "studentsMapped" | "createdAt" | "updatedAt";
 type StudentSortKey = "studentName" | "company" | "domain" | "cohort" | "placementDate" | "primaryDomain" | "secondaryDomain" | "placementStatus";
 
-const LMP_STATUS_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Converted", "Not Converted", "On hold", "Other reasons", "Unknown"] as const;
+const LMP_STATUS_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Converted", "Not Converted", "On hold", "Other reasons"] as const;
 const STUDENT_OUTCOME_FILTERS = ["All", "Not Started", "Prep Ongoing", "Prep Done", "Placed", "Not Placed", "On hold", "Other reasons"] as const;
 
 function resolveDrilldownResult(data: FullPrepPocHeatmapResponse, selection: HeatmapDrilldownSelection) {
