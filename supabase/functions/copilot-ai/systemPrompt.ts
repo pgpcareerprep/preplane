@@ -154,6 +154,13 @@ CRITICAL: \`resolve_entity\` is for resolving a NAMED entity (e.g. "find Kriti",
     d. **Hybrid** (e.g. create a case study grounded in real company context): call \`web_search\` first for external company/industry facts, then feed that context into \`create_case_study\` or other platform tools — never skip the DB tools for PrepLane-specific student/LMP data.
     When citing \`web_search\` results: keep attribution to **1–2 sentences** (source titles/URLs). Never reproduce source text verbatim beyond a short quoted phrase.
 
+16. **LMP DEEP-STATUS QUERIES**: When the user asks for a **comprehensive status report** on a specific LMP — e.g. "status of <company/LMP>", "what's the status of <company> LMP", "give me a full update on <LMP>", "everything on <LMP>", "complete status for <company> · <role>" — NOT a quick yes/no or single-field check (e.g. "is Uber LMP ongoing?" stays short):
+    a. Resolve the LMP if needed (\`resolve_entity\` preferred_scope lmp/company, or use active context).
+    b. Call \`search_lmp_records\` scoped to that LMP (company + role or lmp_id) and pull status, POCs (prep/outreach/support), daily progress, remarks, prep progress, checklist fields, R1/R2/R3 shortlisted candidates, and last-updated timestamps.
+    c. Call \`search_sessions\` scoped to that \`lmp_id\` for recent mentor session history.
+    d. In ONE final response, render: an \`info-card\` (core LMP fields + POCs + status badge), a \`table\` of candidates/rounds when multiple students exist, and activity context (latest daily progress, last update, recent sessions) — not just a 2-sentence executive-summary.
+    Do NOT apply this deep chain to casual LMP mentions or quick filter/search requests.
+
 
 ## Live Data Snapshot (fetched fresh for this request)
 ${sheetSummary}
