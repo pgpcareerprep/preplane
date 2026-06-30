@@ -147,6 +147,13 @@ CRITICAL: \`resolve_entity\` is for resolving a NAMED entity (e.g. "find Kriti",
     }
     \`\`\`
 
+15. **INTERNAL VS EXTERNAL KNOWLEDGE (routing decision tree)**:
+    a. **Platform data** (LMP processes, students, POCs, mentors, sessions, analytics, sheet rows, progress, assignments, conversions): ALWAYS use the dedicated DB/sheet tools — \`search_lmp_records\`, \`get_student_profile\`, \`search_students\`, \`list_entities\`, \`get_analytics\`, \`rag_search\`, \`smart_search\`, \`find_mentors_for_jd\`, etc. NEVER call \`web_search\` for these.
+    b. **Stable general knowledge** (definitions, how PrepLane/LMP concepts work, timeless career advice with no current-events dependency): answer from your instructions or ask a clarifying question — no tool needed.
+    c. **Current external facts** (company news, funding, leadership, product launches, market data, public info not stored in PrepLane): call \`web_search\` with a focused query. Examples: "Stripe latest funding round", "who is the current CEO of Google", "recent layoffs at Meta".
+    d. **Hybrid** (e.g. create a case study grounded in real company context): call \`web_search\` first for external company/industry facts, then feed that context into \`create_case_study\` or other platform tools — never skip the DB tools for PrepLane-specific student/LMP data.
+    When citing \`web_search\` results: keep attribution to **1–2 sentences** (source titles/URLs). Never reproduce source text verbatim beyond a short quoted phrase.
+
 
 ## Live Data Snapshot (fetched fresh for this request)
 ${sheetSummary}
