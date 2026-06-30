@@ -116,7 +116,7 @@ function QuickHome() {
     [pocId, user.pocProfileName]
   );
   const { data: myLmps = [] } = useLmpProcesses(assignedFilters);
-  const myLmpCount = (myLmps as any[]).filter((r) => isActiveLmpStatus(r.status)).length;
+  const myLmpCount = (myLmps as any[]).length;
 
   // All LMPs for admin summary stats
   const { data: allLmps = [] } = useLmpProcesses();
@@ -250,16 +250,29 @@ function MyLmpsView() {
     [pocId, user.pocProfileName]
   );
   const { data: lmps = [], isLoading } = useLmpProcesses(filters);
-  const active = (lmps as any[]).filter((r) => isActiveLmpStatus(r.status));
+
+  // Status chip colours
+  const statusChipCls = (s: string) => {
+    const map: Record<string, string> = {
+      "not-started":   "bg-slate-100 text-slate-600 border-slate-200",
+      "prep-ongoing":  "bg-blue-50 text-blue-700 border-blue-200",
+      "prep-done":     "bg-emerald-50 text-emerald-700 border-emerald-200",
+      "hold":          "bg-amber-50 text-amber-700 border-amber-200",
+      "converted":     "bg-green-100 text-green-700 border-green-200",
+      "not-converted": "bg-rose-50 text-rose-600 border-rose-200",
+      "other-reasons": "bg-muted text-muted-foreground border-border",
+    };
+    return map[s] ?? "bg-muted text-muted-foreground border-border";
+  };
 
   return (
     <QuickMobileShell title="My LMPs" back>
       {isLoading && <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>}
-      {!isLoading && active.length === 0 && (
-        <p className="text-sm text-muted-foreground py-8 text-center">No active LMPs assigned to you.</p>
+      {!isLoading && (lmps as any[]).length === 0 && (
+        <p className="text-sm text-muted-foreground py-8 text-center">No LMPs assigned to you.</p>
       )}
       <ul className="space-y-2">
-        {active.map((r: any) => (
+        {(lmps as any[]).map((r: any) => (
           <li key={r.id}>
             <button
               className="w-full text-left rounded-2xl border border-border bg-card px-4 py-3.5 hover:bg-muted/30 active:scale-[0.98] transition-all"
@@ -268,8 +281,8 @@ function MyLmpsView() {
             >
               <p className="text-sm font-semibold leading-snug line-clamp-1">{r.company}</p>
               <p className="text-xs text-muted-foreground mt-0.5 leading-snug line-clamp-2">{r.role}</p>
-              <span className="inline-block mt-2 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground capitalize">
-                {String(r.status ?? "").replace(/-/g, " ")}
+              <span className={`inline-block mt-2 rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize ${statusChipCls(String(r.status ?? ""))}`}>
+                {STATUS_META[r.status as LmpStatus]?.label ?? String(r.status ?? "").replace(/-/g, " ")}
               </span>
             </button>
           </li>
