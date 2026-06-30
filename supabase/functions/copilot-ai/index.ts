@@ -702,24 +702,28 @@ async function handleRequest(req: Request) {
 
     const MAX_TOOL_ROUNDS = 8;
     const SOFT_WARN_AT = 6;
+    // Tools that invoke another edge function — count double toward soft-warn budget.
+    const NESTED_EDGE_FUNCTION_TOOLS = new Set(["create_case_study", "analyze_cv", "parse_jd"]);
     let round = 0;
     let softWarned = false;
-    // Per-turn tool-result memo so identical (name,args) calls don't repeat work
-    // even if the model re-issues them across rounds.
-    const toolMemo = new Map<string, string>();
-
-    while (round < MAX_TOOL_ROUNDS) {
-      round++;
-
-      // Inject a single soft warning when we're approaching the cap so the
-      // model wraps up with the data it has instead of stalling on more reads.
-      if (!softWarned && round >= SOFT_WARN_AT) {
+    let roundBudgetUsed = 0;
+    const maybeSoftWarn = () => {
+      if (!softWarned && roundBudgetUsed >= SOFT_WARN_AT) {
         softWarned = true;
         aiMessages.push({
           role: "system",
           content: `You have ${MAX_TOOL_ROUNDS - round + 1} tool round(s) remaining. Stop calling tools and answer the user with the data you've already gathered. Prefer batched search_* tools over per-row get_* calls.`,
         });
       }
+    };
+    // Per-turn tool-result memo so identical (name,args) calls don't repeat work
+    // even if the model re-issues them across rounds.
+    const toolMemo = new Map<string, string>();
+
+    while (round < MAX_TOOL_ROUNDS) {
+      round++;
+      roundBudgetUsed++;
+      maybeSoftWarn();
 
       // Tool-call rounds: try all providers in order via callToolModel.
       // Gemini → OpenRouter → Grok with per-model retries on retryable errors.
@@ -893,7 +897,13 @@ async function handleRequest(req: Request) {
             tool_call_id: tc.id,
             content: result,
           });
+
+          if (NESTED_EDGE_FUNCTION_TOOLS.has(fnName)) {
+            roundBudgetUsed++;
+          }
         }
+
+        maybeSoftWarn();
 
         // Continue the loop — the AI will process tool results
         continue;
