@@ -34,6 +34,7 @@ export type StudentWiseRow = {
   totalStudents: number;
   currentStudents: number;
   placedStudentsLoad: number;
+  closedStudentsCount: number;
   notStartedCount: number;
   prepOngoingCount: number;
   prepDoneCount: number;
@@ -266,6 +267,7 @@ export function buildStudentWiseData(
       totalStudents: buckets.total.size,
       currentStudents: buckets.current.size,
       placedStudentsLoad: buckets.placedLoad.size,
+      closedStudentsCount: buckets.total.size - buckets.current.size,
       notStartedCount: buckets.notStarted.size,
       prepOngoingCount: buckets.prepOngoing.size,
       prepDoneCount: buckets.prepDone.size,
