@@ -37,7 +37,10 @@ import { useCopilotQuota } from "@/lib/hooks/useCopilotQuota";
 import {
   COPILOT_PDF_DOWNLOAD_ACTION,
   downloadCopilotMessagePdf,
+  downloadCopilotReportPdf,
+  isCopilotMultiReportPdfRequest,
   isCopilotPdfExportRequest,
+  resolveCopilotReportSections,
 } from "@/lib/copilot/copilotPdfExport";
 
 const COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
@@ -203,12 +206,11 @@ function CopilotPageInner() {
     const currentMessages = threads.find(t => t.id === activeId)?.messages ?? [];
     const threadTitle = threads.find(t => t.id === activeId)?.title ?? "copilot-report";
 
-    // PDF export runs locally — skip the AI pipeline entirely (instant, no timeout).
-    if (isCopilotPdfExportRequest(userText)) {
-      const priorAssistant = [...currentMessages].reverse().find(
-        (m) => m.role === "assistant" && !(m as any).error && !(m as any).streaming && m.content?.trim(),
-      );
-      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
+    const runLocalPdfExport = async (
+      userMsg: ChatMessage,
+      exportFn: () => Promise<void>,
+      successNote: string,
+    ) => {
       setThreads(prev => prev.map(t =>
         t.id === activeId
           ? {
@@ -223,51 +225,116 @@ function CopilotPageInner() {
       setMentions([]);
       setAttachments([]);
       setPending(true);
+      try {
+        await exportFn();
+        const confirmMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `✅ **PDF downloaded** to your device.\n\n${successNote}`,
+          ts: ts + 1,
+        };
+        setThreads(prev => prev.map(t =>
+          t.id === activeId ? { ...t, messages: [...t.messages, confirmMsg] } : t
+        ));
+        void persistMessage(activeId, confirmMsg);
+        toast.success("PDF downloaded");
+      } catch (e: any) {
+        const errMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `⚠️ PDF export failed: ${e?.message || String(e)}`,
+          ts: ts + 1,
+        };
+        setThreads(prev => prev.map(t =>
+          t.id === activeId ? { ...t, messages: [...t.messages, errMsg] } : t
+        ));
+        void persistMessage(activeId, errMsg);
+        toast.error("PDF export failed", { description: e?.message || String(e) });
+      } finally {
+        setPending(false);
+      }
+    };
 
-      const finishPdfTurn = async () => {
-        if (!priorAssistant?.content?.trim()) {
-          const emptyMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "There is nothing to export yet. Ask for a report first, then say **download as PDF** or use **Download PDF** on any answer.",
-            ts: ts + 1,
-          };
-          setThreads(prev => prev.map(t =>
-            t.id === activeId ? { ...t, messages: [...t.messages, emptyMsg] } : t
-          ));
-          void persistMessage(activeId, emptyMsg);
-          toast.message("Nothing to export yet");
-          return;
-        }
-        try {
-          await downloadCopilotMessagePdf(priorAssistant.content, threadTitle);
-          const confirmMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "✅ **PDF downloaded** to your device.\n\nUse **Download PDF** on any report above to export again.",
-            ts: ts + 1,
-          };
-          setThreads(prev => prev.map(t =>
-            t.id === activeId ? { ...t, messages: [...t.messages, confirmMsg] } : t
-          ));
-          void persistMessage(activeId, confirmMsg);
-          toast.success("PDF downloaded");
-        } catch (e: any) {
-          const errMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: `⚠️ PDF export failed: ${e?.message || String(e)}`,
-            ts: ts + 1,
-          };
-          setThreads(prev => prev.map(t =>
-            t.id === activeId ? { ...t, messages: [...t.messages, errMsg] } : t
-          ));
-          void persistMessage(activeId, errMsg);
-          toast.error("PDF export failed", { description: e?.message || String(e) });
-        }
-      };
+    // Multi-section report PDF — assemble several assistant turns (no AI call).
+    if (isCopilotMultiReportPdfRequest(userText)) {
+      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
+      const resolved = resolveCopilotReportSections(userText, currentMessages);
+      if (!resolved.ok) {
+        setThreads(prev => prev.map(t =>
+          t.id === activeId
+            ? {
+                ...t,
+                title: t.messages.length === 0 ? userText.slice(0, 60) : t.title,
+                messages: [...t.messages, userMsg],
+              }
+            : t
+        ));
+        void persistMessage(activeId, userMsg);
+        setDraft("");
+        setMentions([]);
+        setAttachments([]);
+        const clarifyMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: resolved.clarify,
+          ts: ts + 1,
+        };
+        setThreads(prev => prev.map(t =>
+          t.id === activeId ? { ...t, messages: [...t.messages, clarifyMsg] } : t
+        ));
+        void persistMessage(activeId, clarifyMsg);
+        return;
+      }
+      void runLocalPdfExport(
+        userMsg,
+        () => downloadCopilotReportPdf(resolved.sections, resolved.reportTitle),
+        "Use **Download PDF** on any single answer, or ask to combine specific turns into one report.",
+      );
+      return;
+    }
 
-      void finishPdfTurn().finally(() => setPending(false));
+    // PDF export runs locally — skip the AI pipeline entirely (instant, no timeout).
+    if (isCopilotPdfExportRequest(userText)) {
+      const priorAssistant = [...currentMessages].reverse().find(
+        (m) => m.role === "assistant" && !(m as any).error && !(m as any).streaming && m.content?.trim(),
+      );
+      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
+
+      if (!priorAssistant?.content?.trim()) {
+        setThreads(prev => prev.map(t =>
+          t.id === activeId
+            ? {
+                ...t,
+                title: t.messages.length === 0 ? userText.slice(0, 60) : t.title,
+                messages: [...t.messages, userMsg],
+              }
+            : t
+        ));
+        void persistMessage(activeId, userMsg);
+        setDraft("");
+        setMentions([]);
+        setAttachments([]);
+        setPending(true);
+        const emptyMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "There is nothing to export yet. Ask for a report first, then say **download as PDF** or use **Download PDF** on any answer.",
+          ts: ts + 1,
+        };
+        setThreads(prev => prev.map(t =>
+          t.id === activeId ? { ...t, messages: [...t.messages, emptyMsg] } : t
+        ));
+        void persistMessage(activeId, emptyMsg);
+        toast.message("Nothing to export yet");
+        setPending(false);
+        return;
+      }
+
+      void runLocalPdfExport(
+        userMsg,
+        () => downloadCopilotMessagePdf(priorAssistant.content, threadTitle),
+        "Use **Download PDF** on any report above to export again.",
+      );
       return;
     }
 
