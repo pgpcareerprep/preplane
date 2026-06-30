@@ -553,7 +553,7 @@ export function filterDomainWiseMetricRecords(
   }
 
   const studentMetrics: DomainWiseMetricKey[] = [
-    "placedCount", "notPlacedCount", "onHoldCount", "otherReasonsCount", "studentsPlaced",
+    "placedCount", "notPlacedCount", "otherReasonsCount", "studentsPlaced",
   ];
   if (studentMetrics.includes(metricKey)) {
     const predicate = (r: HeatmapDrilldownDomainStudentRecord) => {
@@ -594,6 +594,8 @@ export function filterDomainWiseMetricRecords(
         return r.statusBucket === "prepOngoing";
       case "prepDoneCount":
         return r.statusBucket === "prepDone";
+      case "onHoldCount":
+        return r.statusBucket === "onHold";
       default:
         return false;
     }

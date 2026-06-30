@@ -418,7 +418,7 @@ export function buildDomainWiseData(
       prepDoneCount,
       placedCount: row.placedStudents.size,
       notPlacedCount: row.notPlacedStudents.size,
-      onHoldCount: row.onHoldStudents.size,
+      onHoldCount: onHoldCount,
       otherReasonsCount: row.otherStudents.size,
       studentsPlaced: row.placedStudents.size,
       placementRatePct,

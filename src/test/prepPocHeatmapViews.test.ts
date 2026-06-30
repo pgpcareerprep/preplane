@@ -114,6 +114,25 @@ describe("Domain-wise heatmap", () => {
     const { summary } = buildDomainWiseData(pocs, links, []);
     expect(summary.lmpConversionPct).toBe(0);
   });
+
+  it("uses On hold LMP count for domain prep status column", () => {
+    const pocs = [poc("p1", "Alice")];
+    const links = [
+      link("p1", "lmp1", "prep", "hold", "Sales"),
+      link("p1", "lmp2", "prep", "hold", "Sales"),
+      link("p1", "lmp3", "prep", "prep-ongoing", "Sales"),
+    ];
+    const candidates = [
+      candidate("lmp1", "s1", undefined, "Sales"),
+      candidate("lmp2", "s2", undefined, "Sales"),
+      candidate("lmp3", "s3", undefined, "Sales"),
+    ];
+    const { rows } = buildDomainWiseData(pocs, links, candidates);
+    const sales = rows.find((r) => r.domainName === "Sales")!;
+    expect(sales.onHoldCount).toBe(2);
+    expect(sales.notStartedCount).toBe(0);
+    expect(sales.prepOngoingCount).toBe(1);
+  });
 });
 
 describe("buildFullHeatmapData", () => {
@@ -139,6 +158,18 @@ describe("buildFullHeatmapData", () => {
 });
 
 describe("On hold label", () => {
+  it("shows On hold only under prep status in student and domain configs", async () => {
+    const { STUDENT_SECTION_CONFIG, DOMAIN_SECTION_CONFIG } = await import("@/components/dashboard/PrepPocHeatmapAlternateViews");
+    const studentPlacement = STUDENT_SECTION_CONFIG.find((s) => s.key === "placementOutcome")!.cols.map((c) => c.label);
+    const studentPrep = STUDENT_SECTION_CONFIG.find((s) => s.key === "prepStatus")!.cols.map((c) => c.label);
+    const domainPlacement = DOMAIN_SECTION_CONFIG.find((s) => s.key === "placementOutcome")!.cols.map((c) => c.label);
+    const domainPrep = DOMAIN_SECTION_CONFIG.find((s) => s.key === "prepStatus")!.cols.map((c) => c.label);
+    expect(studentPrep.some((l) => /on hold/i.test(l))).toBe(true);
+    expect(studentPlacement.some((l) => /on hold/i.test(l))).toBe(false);
+    expect(domainPrep.some((l) => /on hold/i.test(l))).toBe(true);
+    expect(domainPlacement.some((l) => /on hold/i.test(l))).toBe(false);
+  });
+
   it("does not use Held label in student section config", async () => {
     const { STUDENT_SECTION_CONFIG } = await import("@/components/dashboard/PrepPocHeatmapAlternateViews");
     const labels = STUDENT_SECTION_CONFIG.flatMap((s) => s.cols.map((c) => c.label));

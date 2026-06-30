@@ -72,7 +72,6 @@ export const STUDENT_SECTION_CONFIG: AltSectionDef[] = [
     cols: [
       { dataKey: "placedCount", colType: "heat", label: "Converted", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome." },
       { dataKey: "notPlacedCount", colType: "heat", label: "Not Converted", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to an unsuccessful final outcome." },
-      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold." },
       { dataKey: "otherReasonsCount", colType: "heat", label: "Other reasons", minWidth: 96, palette: P_ORANGE, totalAccent: A_ORANGE, tooltip: "Students mapped to other terminal or exception outcomes." },
     ],
   },
@@ -115,7 +114,7 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
       { dataKey: "notStartedCount", colType: "heat", label: "Not Started", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Not Started for this domain." },
       { dataKey: "prepOngoingCount", colType: "heat", label: "Prep Ongoing", minWidth: 90, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Prep Ongoing for this domain." },
       { dataKey: "prepDoneCount", colType: "heat", label: "Prep Done", minWidth: 78, palette: P_SKY, totalAccent: A_SKY, tooltip: "Distinct LMPs in Prep Done for this domain." },
-      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Students mapped to On hold in this domain." },
+      { dataKey: "onHoldCount", colType: "heat", label: "On hold", minWidth: 72, palette: P_ON_HOLD, totalAccent: A_ORANGE, tooltip: "Distinct LMPs in On hold for this domain." },
     ],
   },
   {
@@ -145,6 +144,10 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     ],
   },
 ];
+
+function colKey(sectionKey: string, dataKey: string): string {
+  return `${sectionKey}:${dataKey}`;
+}
 
 function fmtRate(pct: number | null | undefined): string {
   return pct == null ? "—" : `${pct.toFixed(0)}%`;
@@ -230,7 +233,7 @@ export function GenericHeatmapTable({
     <table className="w-full border-separate text-[12px]" style={{ borderSpacing: 0, minWidth: 900, border: "0.5px solid var(--lx-border)" }}>
       <colgroup>
         <col style={{ minWidth: 148, width: 160 }} />
-        {visibleConfig.flatMap((s) => s.cols.map((c) => <col key={c.dataKey} style={{ minWidth: c.minWidth }} />))}
+        {visibleConfig.flatMap((s) => s.cols.map((c) => <col key={colKey(s.key, c.dataKey)} style={{ minWidth: c.minWidth }} />))}
       </colgroup>
       <thead>
         <tr>
@@ -256,7 +259,7 @@ export function GenericHeatmapTable({
         </tr>
         <tr>
           {visibleConfig.flatMap((s) => s.cols.map((col) => (
-            <th key={col.dataKey} className="text-center px-1 pt-1.5 pb-2.5 text-[10px] font-semibold border-b"
+            <th key={colKey(s.key, col.dataKey)} className="text-center px-1 pt-1.5 pb-2.5 text-[10px] font-semibold border-b"
               style={{ color: "var(--lx-text-2)", verticalAlign: "bottom", background: sectionSubheaderBg(s.accent, s.subheaderBg, isDark), borderColor: CELL_BORDER }}>
               <span className="inline-flex flex-col items-center gap-0.5">
                 <span className="leading-tight text-center whitespace-nowrap">{col.label}</span>
@@ -280,7 +283,7 @@ export function GenericHeatmapTable({
                 const dispVal = fmtConversion(dRow.convertedCount, dRow.eligibleClosedCount, dRow.lmpConversionPercentage);
                 const clickable = isAlternateCellClickable(col, 0, dRow) && Boolean(onCellClick);
                 return (
-                  <td key={col.dataKey} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
+                  <td key={colKey(s.key, col.dataKey)} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
                     style={{ background: "var(--lx-surface)", color: dRow.eligibleClosedCount > 0 ? T_SAGE : MUTED_TEXT, borderColor: CELL_BORDER }}>
                     {clickable ? (
                       <button
@@ -310,7 +313,7 @@ export function GenericHeatmapTable({
               if (col.colType === "rate") {
                 const pct = (row as StudentWiseRow & DomainWiseRow).placementRatePct;
                 return (
-                  <td key={col.dataKey} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
+                  <td key={colKey(s.key, col.dataKey)} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
                     style={{ background: "var(--lx-surface)", color: pct != null ? T_SAGE : MUTED_TEXT, borderColor: CELL_BORDER }}>
                     {fmtRate(pct)}
                   </td>
@@ -319,7 +322,7 @@ export function GenericHeatmapTable({
               if (col.colType === "text") {
                 const avg = (row as StudentWiseRow).avgSessionsPerStudent;
                 return (
-                  <td key={col.dataKey} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
+                  <td key={colKey(s.key, col.dataKey)} className="text-center text-[12px] font-semibold tabular-nums border-b py-2"
                     style={{ background: "var(--lx-surface)", color: MUTED_TEXT, borderColor: CELL_BORDER }}>
                     {avg == null ? "—" : avg.toFixed(1)}
                   </td>
@@ -329,7 +332,7 @@ export function GenericHeatmapTable({
               const colMax = colMaxValues[col.dataKey] ?? 1;
               const clickable = isAlternateCellClickable(col, value, row as DomainWiseRow) && Boolean(onCellClick);
               return (
-                <td key={col.dataKey} className="text-center text-[12.5px] font-semibold tabular-nums border-b min-h-[38px] py-0"
+                <td key={colKey(s.key, col.dataKey)} className="text-center text-[12.5px] font-semibold tabular-nums border-b min-h-[38px] py-0"
                   style={{ ...cellStyle(value, colMax, col.palette, isDark), borderColor: CELL_BORDER }}>
                   <AltHeatCell
                     value={value}
@@ -366,11 +369,11 @@ export function buildColMaxValues(rows: Array<StudentWiseRow | DomainWiseRow>, k
   return out;
 }
 
-type MetricOption = { key: string; label: string; colType: AltColType; palette: typeof P_NEUTRAL };
+type MetricOption = { key: string; dataKey: string; label: string; colType: AltColType; palette: typeof P_NEUTRAL };
 
 function flattenMetrics(config: AltSectionDef[]): MetricOption[] {
   return config.flatMap((s) =>
-    s.cols.map((c) => ({ key: c.dataKey, label: c.label, colType: c.colType, palette: c.palette })),
+    s.cols.map((c) => ({ key: colKey(s.key, c.dataKey), dataKey: c.dataKey, label: c.label, colType: c.colType, palette: c.palette })),
   );
 }
 
@@ -390,7 +393,7 @@ function formatMetricValue(
     const avg = (row as StudentWiseRow).avgSessionsPerStudent;
     return avg == null ? "—" : avg.toFixed(1);
   }
-  return String(getRowValue(row, metric.key));
+  return String(getRowValue(row, metric.dataKey));
 }
 
 function metricSortValue(row: StudentWiseRow | DomainWiseRow, metric: MetricOption): number {
@@ -401,7 +404,7 @@ function metricSortValue(row: StudentWiseRow | DomainWiseRow, metric: MetricOpti
     return (row as DomainWiseRow).lmpConversionPercentage ?? -1;
   }
   if (metric.colType === "text") return -1;
-  return getRowValue(row, metric.key);
+  return getRowValue(row, metric.dataKey);
 }
 
 /** Compact ranked list for viewports below lg. */
@@ -459,7 +462,7 @@ export function HeatmapMobileSummary({
       <ol className="divide-y divide-border">
         {ranked.map(({ id, label, row }, idx) => {
           const heatVal = metricSortValue(row, activeMetric);
-          const colMax = colMaxValues[activeMetric.key] ?? 1;
+          const colMax = colMaxValues[activeMetric.dataKey] ?? 1;
           const cell =
             activeMetric.colType === "heat"
               ? cellStyle(heatVal, colMax, activeMetric.palette)
@@ -467,7 +470,7 @@ export function HeatmapMobileSummary({
           const canDrill =
             onCellClick &&
             isAlternateCellClickable(
-              { ...activeMetric, dataKey: activeMetric.key, minWidth: 0, totalAccent: "", tooltip: "" },
+              { ...activeMetric, dataKey: activeMetric.dataKey, minWidth: 0, totalAccent: "", tooltip: "" },
               heatVal,
               row as DomainWiseRow,
             );
@@ -489,7 +492,7 @@ export function HeatmapMobileSummary({
                       rowId: id,
                       rowLabel: label,
                       row,
-                      metricKey: activeMetric.key,
+                      metricKey: activeMetric.dataKey,
                       metricLabel: activeMetric.label,
                       colType: activeMetric.colType,
                       displayedValue: disp,
