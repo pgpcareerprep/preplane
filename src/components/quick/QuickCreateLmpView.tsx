@@ -223,19 +223,6 @@ export function QuickCreateLmpView() {
 
   const TOTAL_STEPS = 4;
 
-  // Guard: only admin/allocator
-  if (!canCreateLmp) {
-    return (
-      <QuickMobileShell title="Create LMP" back>
-        <div className="py-16 text-center space-y-3">
-          <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto" />
-          <p className="text-sm font-semibold">Permission denied</p>
-          <p className="text-xs text-muted-foreground">Only Admin or Allocator can create LMPs.</p>
-        </div>
-      </QuickMobileShell>
-    );
-  }
-
   const filteredPocs = useMemo(() => {
     const q = pocSearch.toLowerCase().trim();
     return pocList
@@ -275,8 +262,6 @@ export function QuickCreateLmpView() {
   const canProceedStep2 = prepPocId !== null;
 
   const canProceed = [canProceedStep0, canProceedStep1, canProceedStep2, true][step] ?? true;
-
-  // ── Submission ──────────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async (allowDuplicate = false) => {
     if (!prepPoc) return;
@@ -337,6 +322,19 @@ export function QuickCreateLmpView() {
       setIsSubmitting(false);
     }
   }, [prepPoc, supportPoc, outreachPoc, domain, jdMode, jdText, jdLink, type, company, role, user, pickedStudents, students, addCandidates, queryClient]);
+
+  // Guard: only admin/allocator
+  if (!canCreateLmp) {
+    return (
+      <QuickMobileShell title="Create LMP" back>
+        <div className="py-16 text-center space-y-3">
+          <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto" />
+          <p className="text-sm font-semibold">Permission denied</p>
+          <p className="text-xs text-muted-foreground">Only Admin or Allocator can create LMPs.</p>
+        </div>
+      </QuickMobileShell>
+    );
+  }
 
   // ── Success screen ──────────────────────────────────────────────────────────
 
