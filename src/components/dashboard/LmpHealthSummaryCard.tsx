@@ -227,8 +227,7 @@ export function LmpHealthSummaryCard({
   onStatusClick?: (status: ActiveLmpStatus) => void;
 }) {
   // ── Conversion: Converted ÷ (Total LMPs − Other Reasons) ──
-  const { closedProcesses, notConverted, eligibleProcesses, processConversionPct } =
-    computeProcessWiseConversion(lsc);
+  const { processConversionPct } = computeProcessWiseConversion(lsc);
 
   const fmtPct = (v: number | null) =>
     v === null ? "—" : `${v.toFixed(1)}%`;
@@ -354,9 +353,6 @@ export function LmpHealthSummaryCard({
                 aria-label={`Process-wise Conversion: ${fmtPct(processConversionPct)}`}
               >
                 {fmtPct(processConversionPct)}
-              </div>
-              <div className="mt-1 text-[13px]" style={{ color: MUTED }}>
-                {lsc.converted} converted · {notConverted + closedProcesses} not converted + closed · {eligibleProcesses} eligible
               </div>
             </div>
           </div>
