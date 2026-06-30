@@ -91,6 +91,17 @@ function statusLabel(s: LmpStatus): string {
   return STATUS_META[s]?.label ?? s;
 }
 
+// ─── POC filter helper ────────────────────────────────────────────────────────
+// When no poc identity is resolved yet (pocId=null, pocName=undefined), passing
+// { pocId: undefined, pocName: undefined } to useLmpProcesses skips both filter
+// clauses and returns ALL LMPs. Use a no-match sentinel to guarantee 0 results
+// instead, so a POC user never accidentally sees every LMP in the system.
+function buildAssignedPocFilter(pocId: string | null, pocName: string | undefined) {
+  if (pocId) return { pocId };
+  if (pocName) return { pocName };
+  return { pocId: "no-identity" };
+}
+
 // ─── Home ────────────────────────────────────────────────────────────────────
 
 function QuickHome() {
@@ -101,7 +112,7 @@ function QuickHome() {
 
   // "My LMPs" badge — ALWAYS counts only assigned LMPs regardless of mode or role
   const assignedFilters = useMemo(
-    () => ({ pocId: pocId ?? undefined, pocName: user.pocProfileName ?? undefined }),
+    () => buildAssignedPocFilter(pocId, user.pocProfileName),
     [pocId, user.pocProfileName]
   );
   const { data: myLmps = [] } = useLmpProcesses(assignedFilters);
@@ -235,7 +246,7 @@ function MyLmpsView() {
 
   // Always filter by assigned — this view is always "my" LMPs
   const filters = useMemo(
-    () => ({ pocId: pocId ?? undefined, pocName: user.pocProfileName ?? undefined }),
+    () => buildAssignedPocFilter(pocId, user.pocProfileName),
     [pocId, user.pocProfileName]
   );
   const { data: lmps = [], isLoading } = useLmpProcesses(filters);
@@ -277,7 +288,7 @@ function PendingUpdatesView() {
 
   // Always filter by assigned for "pending updates"
   const filters = useMemo(
-    () => ({ pocId: pocId ?? undefined, pocName: user.pocProfileName ?? undefined }),
+    () => buildAssignedPocFilter(pocId, user.pocProfileName),
     [pocId, user.pocProfileName]
   );
   const { data: lmps = [], isLoading } = useLmpProcesses(filters);
@@ -1190,7 +1201,7 @@ function QuickModeProvider({ children }: { children: ReactNode }) {
 
   const pocFilters = useMemo(() => {
     if (mode === "my-poc-actions") {
-      return { pocId: pocId ?? undefined, pocName: user.pocProfileName ?? undefined };
+      return buildAssignedPocFilter(pocId, user.pocProfileName);
     }
     return undefined;
   }, [mode, pocId, user.pocProfileName]);
