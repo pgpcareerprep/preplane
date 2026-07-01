@@ -8,7 +8,7 @@ export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GMAIL_OAUTH_SETTINGS_KEY = "gmail_oauth";
 export const GMAIL_OAUTH_PENDING_KEY = "gmail_oauth_pending";
 
-const PENDING_TTL_MS = 15 * 60 * 1000;
+const PENDING_TTL_MS = 60 * 60 * 1000;
 
 export type GmailOAuthSettings = {
   refresh_token: string;
@@ -109,9 +109,14 @@ export async function getOAuthStorageDebug(): Promise<{
   pendingStateExists: boolean;
   pendingStateExpired: boolean | null;
   redirectUri: string;
+  oauthClientIdPrefix: string | null;
+  hasOAuthClientId: boolean;
+  hasOAuthClientSecret: boolean;
 }> {
   const refreshFromEnv = Boolean(Deno.env.get("GMAIL_OAUTH_REFRESH_TOKEN")?.trim());
   const redirectUri = getGmailOAuthRedirectUri();
+  const { clientId } = getOAuthClientConfig();
+  const { hasClientId, hasClientSecret } = getOAuthClientConfigStatus();
 
   const sb = getServiceClient();
   const [{ data: oauthRow }, { data: pendingRow }] = await Promise.all([
@@ -135,6 +140,9 @@ export async function getOAuthStorageDebug(): Promise<{
     pendingStateExists,
     pendingStateExpired,
     redirectUri,
+    oauthClientIdPrefix: clientId ? clientId.slice(0, 24) : null,
+    hasOAuthClientId: hasClientId,
+    hasOAuthClientSecret: hasClientSecret,
   };
 }
 
