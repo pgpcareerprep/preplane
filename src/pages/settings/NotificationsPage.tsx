@@ -263,6 +263,9 @@ export default function NotificationsPage() {
       const { data } = await supabase.functions.invoke("email-auth-diagnose");
       if (data?.diagnostic) setEmailDiag(data.diagnostic as EmailDiagnostic);
       if (typeof data?.readyToSend === "boolean") setEmailReady(data.readyToSend);
+      // #region agent log
+      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:loadEmailDiagnostic',message:'email diagnostic loaded',data:{readyToSend:data?.readyToSend,hasOAuthClient:data?.diagnostic?.hasOAuthClient,hasOAuthClientId:data?.diagnostic?.hasOAuthClientId,hasOAuthClientSecret:data?.diagnostic?.hasOAuthClientSecret,hasOAuthRefreshToken:data?.diagnostic?.hasOAuthRefreshToken,oauthAuthorized:data?.diagnostic?.oauthAuthorized,gmailDelegationAuthorized:data?.diagnostic?.gmailDelegationAuthorized,hasSmtpPassword:data?.diagnostic?.hasSmtpPassword,_debug:data?._debug},timestamp:Date.now(),hypothesisId:'H1-H5'})}).catch(()=>{});
+      // #endregion
     } finally {
       setDiagLoading(false);
     }
@@ -270,10 +273,16 @@ export default function NotificationsPage() {
 
   const completeGmailOAuth = async (code: string, state: string) => {
     setOauthConnecting(true);
+    // #region agent log
+    fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:completeGmailOAuth',message:'oauth callback completing',data:{codeLen:code.length,stateLen:state.length},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
+    // #endregion
     try {
       const { data, error } = await supabase.functions.invoke("gmail-oauth-complete", {
         body: { code, state },
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:completeGmailOAuth:result',message:'oauth complete response',data:{ok:data?.ok,error:data?.error||error?.message||null,senderEmail:data?.senderEmail||null},timestamp:Date.now(),hypothesisId:'H2-H4'})}).catch(()=>{});
+      // #endregion
       if (error) {
         toast.error("Gmail connect failed: " + error.message);
         return;
@@ -298,6 +307,9 @@ export default function NotificationsPage() {
     setOauthStarting(true);
     try {
       const { data, error } = await supabase.functions.invoke("gmail-oauth-start");
+      // #region agent log
+      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:startGmailOAuth',message:'oauth start response',data:{ok:data?.ok,error:data?.error||error?.message||null,redirectUri:data?.redirectUri||null,hasUrl:Boolean(data?.url)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
       if (error) {
         toast.error("Could not start Gmail connect: " + error.message);
         return;
@@ -338,6 +350,10 @@ export default function NotificationsPage() {
     const state = params.get("state");
     if (!code || !state) return;
 
+    // #region agent log
+    fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:oauthCallbackEffect',message:'google redirect params detected',data:{codeLen:code.length,stateLen:state.length,isAdmin},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
+    // #endregion
+
     const cleanUrl = window.location.pathname + window.location.hash;
     window.history.replaceState({}, "", cleanUrl);
     void completeGmailOAuth(code, state);
@@ -376,6 +392,9 @@ export default function NotificationsPage() {
       const { data, error } = await supabase.functions.invoke("send-test-reminder-email", {
         body: { to: testEmail },
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:sendTest',message:'test email response',data:{ok:data?.ok,error:data?.error||error?.message||null,hasOAuthClient:data?.diagnostic?.hasOAuthClient,hasOAuthRefreshToken:data?.diagnostic?.hasOAuthRefreshToken,oauthAuthorized:data?.diagnostic?.oauthAuthorized,method:data?.method||null},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
       if (error) {
         toast.error("Failed: " + error.message);
       } else if (data?.ok) {

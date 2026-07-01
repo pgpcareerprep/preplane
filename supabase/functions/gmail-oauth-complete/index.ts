@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
 
   const pending = await consumeOAuthPendingState(state);
   if (!pending) {
+    console.error("[gmail-oauth-complete] pending state missing or expired", { stateLen: state.length });
     return new Response(
       JSON.stringify({ ok: false, error: "Invalid or expired OAuth state — start connect again." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -39,24 +40,34 @@ Deno.serve(async (req) => {
   }
 
   const redirectUri = pending.redirect_uri || getGmailOAuthRedirectUri();
-  const { refreshToken, senderEmail } = await exchangeAuthorizationCode(code, redirectUri);
+  try {
+    const { refreshToken, senderEmail } = await exchangeAuthorizationCode(code, redirectUri);
 
-  await saveOAuthSettings(
-    {
-      refresh_token: refreshToken,
-      sender_email: senderEmail,
-      connected_at: new Date().toISOString(),
-      connected_by: auth.user.id,
-    },
-    auth.user.id,
-  );
+    await saveOAuthSettings(
+      {
+        refresh_token: refreshToken,
+        sender_email: senderEmail,
+        connected_at: new Date().toISOString(),
+        connected_by: auth.user.id,
+      },
+      auth.user.id,
+    );
 
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      senderEmail,
-      message: `Gmail sender connected as ${senderEmail}`,
-    }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-  );
+    console.log("[gmail-oauth-complete] saved oauth settings", { senderEmail });
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        senderEmail,
+        message: `Gmail sender connected as ${senderEmail}`,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    const errMsg = String((err as Error)?.message || err);
+    console.error("[gmail-oauth-complete] exchange/save failed", errMsg, { redirectUri });
+    return new Response(JSON.stringify({ ok: false, error: errMsg }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 });
