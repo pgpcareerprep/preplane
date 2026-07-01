@@ -2,6 +2,13 @@
 
 import { hasSmtpCredentials } from "./smtp-send.ts";
 import { probeGoogleToken } from "./googleAuth.ts";
+import {
+  getGmailOAuthRedirectUri,
+  getStoredOAuthSettings,
+  hasGmailOAuthRefreshToken,
+  hasOAuthClientConfigured,
+  probeGmailOAuth,
+} from "./gmailOAuth.ts";
 
 export type EmailDiagnostic = {
   delegatedUser: string;
@@ -10,6 +17,12 @@ export type EmailDiagnostic = {
   hasSaEmail: boolean;
   hasPrivateKey: boolean;
   hasSmtpPassword: boolean;
+  hasOAuthClient: boolean;
+  hasOAuthRefreshToken: boolean;
+  oauthAuthorized: boolean;
+  oauthSenderEmail: string | null;
+  oauthError: string | null;
+  oauthRedirectUri: string;
   saKeyValid: boolean;
   saKeyError: string | null;
   gmailDelegationAuthorized: boolean;
@@ -32,8 +45,17 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
   const clientId = Deno.env.get("GOOGLE_SA_CLIENT_ID") || null;
   const hasPrivateKey = Boolean(Deno.env.get("GOOGLE_SA_PRIVATE_KEY"));
   const hasSmtpPassword = hasSmtpCredentials();
+  const hasOAuthClient = hasOAuthClientConfigured();
+  const hasOAuthRefreshToken = await hasGmailOAuthRefreshToken();
+  const oauthRedirectUri = getGmailOAuthRedirectUri();
 
   const fixSteps: string[] = [];
+
+  const oauthProbe = hasOAuthRefreshToken ? await probeGmailOAuth() : { ok: false as const };
+  const oauthAuthorized = oauthProbe.ok;
+  const oauthError = oauthProbe.ok ? null : (oauthProbe.error || null);
+  const oauthSettings = await getStoredOAuthSettings();
+  const oauthSenderEmail = oauthSettings?.sender_email || oauthProbe.senderEmail || null;
 
   // Verify service account key signs correctly (Sheets scope, no delegation).
   const saProbe = await probeGoogleToken(["https://www.googleapis.com/auth/spreadsheets"], false);
@@ -56,18 +78,42 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     }
   }
 
+  if (!oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
+    fixSteps.push(
+      "Recommended: set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, add redirect URI in Google Cloud Console, then use Connect Gmail on this page.",
+    );
+    fixSteps.push(`OAuth redirect URI to authorize: ${oauthRedirectUri}`);
+    fixSteps.push("OAuth scope: https://www.googleapis.com/auth/gmail.send");
+    fixSteps.push(`Sign in with the sender mailbox (e.g. ${delegatedUser}) when connecting.`);
+  }
+
+  if (!hasOAuthClient && !gmailDelegationAuthorized && !hasSmtpPassword) {
+    fixSteps.push(
+      "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET Supabase secrets (Web application OAuth client).",
+    );
+  }
+
+  if (hasOAuthClient && !hasOAuthRefreshToken && !gmailDelegationAuthorized && !hasSmtpPassword) {
+    fixSteps.push("Click Connect Gmail below to authorize sending from your Google account.");
+  }
+
+  if (hasOAuthRefreshToken && !oauthAuthorized) {
+    fixSteps.push("Gmail OAuth refresh token is present but invalid — reconnect Gmail or update GMAIL_OAUTH_REFRESH_TOKEN.");
+    if (oauthError) fixSteps.push(`OAuth error: ${oauthError}`);
+  }
+
   if (!saKeyValid) {
     fixSteps.push(
       "Verify GOOGLE_SA_EMAIL and GOOGLE_SA_PRIVATE_KEY Supabase secrets (private key must include -----BEGIN PRIVATE KEY----- with real newlines or \\n escapes).",
     );
   }
 
-  if (saKeyValid && !gmailDelegationAuthorized) {
+  if (saKeyValid && !gmailDelegationAuthorized && !oauthAuthorized && !hasSmtpPassword) {
     fixSteps.push(
-      "In Google Cloud Console: open the service account → enable Domain-wide delegation → copy the numeric Client ID.",
+      "Alternative: In Google Cloud Console open the service account → enable Domain-wide delegation → copy the numeric Client ID.",
     );
     fixSteps.push(
-      "In Google Workspace Admin: Security → API controls → Domain-wide delegation → Add client → paste Client ID → authorize scope https://www.googleapis.com/auth/gmail.send",
+      "In Google Workspace Admin: Security → API controls → Domain-wide delegation → Add client → authorize scope https://www.googleapis.com/auth/gmail.send",
     );
     if (clientId) {
       fixSteps.push(`Use this Client ID in Admin Console: ${clientId}`);
@@ -79,14 +125,18 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     fixSteps.push(`Delegated mailbox (sub): ${delegatedUser}`);
   }
 
-  if (!gmailDelegationAuthorized && !hasSmtpPassword) {
+  if (!oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
     fixSteps.push(
       "Quick workaround: create a Google App Password for the sender mailbox and set GMAIL_APP_PASSWORD in Supabase secrets.",
     );
   }
 
-  if (hasSmtpPassword) {
-    fixSteps.push("GMAIL_APP_PASSWORD is set — SMTP fallback will be used when Gmail API delegation fails.");
+  if (oauthAuthorized) {
+    fixSteps.push(
+      `Gmail OAuth is connected${oauthSenderEmail ? ` as ${oauthSenderEmail}` : ""} — reminders will send via OAuth.`,
+    );
+  } else if (hasSmtpPassword) {
+    fixSteps.push("GMAIL_APP_PASSWORD is set — SMTP fallback will be used when OAuth and delegation are unavailable.");
   }
 
   return {
@@ -96,10 +146,20 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     hasSaEmail: Boolean(saEmail),
     hasPrivateKey,
     hasSmtpPassword,
+    hasOAuthClient,
+    hasOAuthRefreshToken,
+    oauthAuthorized,
+    oauthSenderEmail,
+    oauthError,
+    oauthRedirectUri,
     saKeyValid,
     saKeyError,
     gmailDelegationAuthorized,
     gmailDelegationError,
     fixSteps,
   };
+}
+
+export function emailAuthReadyToSend(diagnostic: EmailDiagnostic): boolean {
+  return diagnostic.oauthAuthorized || diagnostic.gmailDelegationAuthorized || diagnostic.hasSmtpPassword;
 }

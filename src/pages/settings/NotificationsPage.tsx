@@ -225,6 +225,12 @@ type EmailDiagnostic = {
   hasSaEmail: boolean;
   hasPrivateKey: boolean;
   hasSmtpPassword: boolean;
+  hasOAuthClient: boolean;
+  hasOAuthRefreshToken: boolean;
+  oauthAuthorized: boolean;
+  oauthSenderEmail: string | null;
+  oauthError: string | null;
+  oauthRedirectUri: string;
   saKeyValid: boolean;
   saKeyError: string | null;
   gmailDelegationAuthorized: boolean;
@@ -245,6 +251,8 @@ export default function NotificationsPage() {
   const [emailDiag, setEmailDiag] = useState<EmailDiagnostic | null>(null);
   const [emailReady, setEmailReady] = useState<boolean | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [oauthConnecting, setOauthConnecting] = useState(false);
+  const [oauthStarting, setOauthStarting] = useState(false);
 
   const loadEmailDiagnostic = async () => {
     if (!isAdmin) return;
@@ -255,6 +263,52 @@ export default function NotificationsPage() {
       if (typeof data?.readyToSend === "boolean") setEmailReady(data.readyToSend);
     } finally {
       setDiagLoading(false);
+    }
+  };
+
+  const completeGmailOAuth = async (code: string, state: string) => {
+    setOauthConnecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-oauth-complete", {
+        body: { code, state },
+      });
+      if (error) {
+        toast.error("Gmail connect failed: " + error.message);
+        return;
+      }
+      if (!data?.ok) {
+        toast.error("Gmail connect failed", { description: data?.error || "Unknown error" });
+        return;
+      }
+      toast.success("Gmail connected", {
+        description: data.senderEmail ? `Sending as ${data.senderEmail}` : undefined,
+      });
+      setEmailReady(true);
+      await loadEmailDiagnostic();
+    } catch (e: unknown) {
+      toast.error("Gmail connect failed: " + String((e as Error)?.message || e));
+    } finally {
+      setOauthConnecting(false);
+    }
+  };
+
+  const startGmailOAuth = async () => {
+    setOauthStarting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-oauth-start");
+      if (error) {
+        toast.error("Could not start Gmail connect: " + error.message);
+        return;
+      }
+      if (!data?.ok || !data?.url) {
+        toast.error("Could not start Gmail connect", { description: data?.error || "Unknown error" });
+        return;
+      }
+      window.location.href = data.url as string;
+    } catch (e: unknown) {
+      toast.error("Could not start Gmail connect: " + String((e as Error)?.message || e));
+    } finally {
+      setOauthStarting(false);
     }
   };
 
@@ -274,6 +328,18 @@ export default function NotificationsPage() {
     })();
     void loadEmailDiagnostic();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || oauthConnecting) return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code || !state) return;
+
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, "", cleanUrl);
+    void completeGmailOAuth(code, state);
+  }, [isAdmin, oauthConnecting]);
 
   const toggleDay = (day: string) => {
     setSchedule((s) => ({
@@ -497,10 +563,16 @@ export default function NotificationsPage() {
               </h4>
               {!diagLoading && emailDiag && !emailReady && (
                 <div className="mt-2 space-y-2 text-[12px] text-n700 leading-relaxed">
+                  {emailDiag.oauthSenderEmail && (
+                    <p>OAuth sender: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.oauthSenderEmail}</code></p>
+                  )}
                   {emailDiag.serviceAccountEmail && (
                     <p>Service account: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.serviceAccountEmail}</code></p>
                   )}
                   <p>Sender mailbox: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.delegatedUser}</code></p>
+                  {emailDiag.oauthError && (
+                    <p className="text-amber-800">Gmail OAuth: {emailDiag.oauthError}</p>
+                  )}
                   {emailDiag.gmailDelegationError && (
                     <p className="text-amber-800">Gmail delegation: {emailDiag.gmailDelegationError}</p>
                   )}
@@ -509,11 +581,39 @@ export default function NotificationsPage() {
                       <li key={i}>{step}</li>
                     ))}
                   </ol>
-                  <p className="mt-2 font-medium text-n800">
-                    Fastest fix: set a Google App Password for {emailDiag.delegatedUser}, then run{" "}
-                    <code className="text-[11px] bg-white/60 px-1 rounded">npx supabase secrets set GMAIL_APP_PASSWORD=your-app-password --project-ref sgqwnjajvgjcwqergnsr</code>
-                  </p>
+                  {emailDiag.hasOAuthClient && !emailDiag.oauthAuthorized && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => void startGmailOAuth()}
+                        disabled={oauthStarting || oauthConnecting}
+                        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-n900 text-white text-[12px] font-medium hover:bg-n800 transition-colors disabled:opacity-40"
+                      >
+                        {(oauthStarting || oauthConnecting) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Mail className="h-3.5 w-3.5" />
+                        )}
+                        {oauthConnecting ? "Connecting Gmail…" : "Connect Gmail sender"}
+                      </button>
+                      <p className="mt-1.5 text-[11px] text-n600">
+                        Redirect URI: <code className="bg-white/60 px-1 rounded">{emailDiag.oauthRedirectUri}</code>
+                      </p>
+                    </div>
+                  )}
+                  {!emailDiag.hasOAuthClient && !emailDiag.hasSmtpPassword && (
+                    <p className="mt-2 font-medium text-n800">
+                      Or set a Google App Password for {emailDiag.delegatedUser}, then run{" "}
+                      <code className="text-[11px] bg-white/60 px-1 rounded">npx supabase secrets set GMAIL_APP_PASSWORD=your-app-password --project-ref sgqwnjajvgjcwqergnsr</code>
+                    </p>
+                  )}
                 </div>
+              )}
+              {!diagLoading && emailDiag && emailReady && emailDiag.oauthAuthorized && (
+                <p className="mt-1 text-[12px] text-n700">
+                  Sending via Gmail OAuth as{" "}
+                  <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.oauthSenderEmail}</code>
+                </p>
               )}
             </div>
             {!diagLoading && (

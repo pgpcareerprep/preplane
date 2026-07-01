@@ -1,10 +1,14 @@
-// Sends email via Gmail API using a service account with domain-wide delegation.
-// Requires GOOGLE_SA_EMAIL and GOOGLE_SA_PRIVATE_KEY Supabase secrets.
-// The service account must have domain-wide delegation with the Gmail send scope.
+// Sends email via Gmail API.
+// Priority: OAuth refresh token → SMTP app password → service-account domain-wide delegation.
 
 import { getGmailAccessToken } from "./googleAuth.ts";
 import { FROM_NAME, GMAIL_FROM } from "./emailConstants.ts";
 import { sendViaSmtp, hasSmtpCredentials } from "./smtp-send.ts";
+import {
+  getGmailOAuthAccessToken,
+  getStoredOAuthSettings,
+  hasGmailOAuthRefreshToken,
+} from "./gmailOAuth.ts";
 
 export { GMAIL_FROM } from "./emailConstants.ts";
 
@@ -14,10 +18,16 @@ function base64UrlEncode(data: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function buildRawMessage(opts: { to: string; subject: string; html: string }): string {
+function buildRawMessage(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  fromEmail?: string;
+}): string {
+  const fromEmail = opts.fromEmail || GMAIL_FROM;
   const encodedSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(opts.subject)))}?=`;
   const lines = [
-    `From: ${FROM_NAME} <${GMAIL_FROM}>`,
+    `From: ${FROM_NAME} <${fromEmail}>`,
     `To: ${opts.to}`,
     `Subject: ${encodedSubject}`,
     `MIME-Version: 1.0`,
@@ -29,7 +39,35 @@ function buildRawMessage(opts: { to: string; subject: string; html: string }): s
   return base64UrlEncode(new TextEncoder().encode(lines.join("\r\n")));
 }
 
-async function sendViaGmailApi(opts: {
+async function sendViaOAuthGmailApi(opts: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<{ id: string; threadId: string; method: "gmail-oauth" }> {
+  const settings = await getStoredOAuthSettings();
+  const senderEmail = settings?.sender_email || GMAIL_FROM;
+  const token = await getGmailOAuthAccessToken();
+  const raw = buildRawMessage({ ...opts, fromEmail: senderEmail });
+
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ raw }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Gmail OAuth API send failed for ${senderEmail} [${res.status}]: ${JSON.stringify(data)}`,
+    );
+  }
+  return { id: data.id, threadId: data.threadId, method: "gmail-oauth" };
+}
+
+async function sendViaDelegatedGmailApi(opts: {
   to: string;
   subject: string;
   html: string;
@@ -65,14 +103,22 @@ export async function sendGmail(opts: {
   html: string;
   text?: string;
 }): Promise<{ id: string; threadId: string; method?: string }> {
+  if (await hasGmailOAuthRefreshToken()) {
+    try {
+      return await sendViaOAuthGmailApi(opts);
+    } catch (oauthErr) {
+      console.warn("Gmail OAuth send failed, trying fallbacks:", (oauthErr as Error)?.message);
+    }
+  }
+
   if (hasSmtpCredentials()) {
     try {
       const smtp = await sendViaSmtp(opts);
       return { id: smtp.messageId, threadId: "", method: "smtp" };
     } catch (smtpErr) {
-      console.warn("SMTP send failed, trying Gmail API:", (smtpErr as Error)?.message);
+      console.warn("SMTP send failed, trying Gmail API delegation:", (smtpErr as Error)?.message);
     }
   }
 
-  return await sendViaGmailApi(opts);
+  return await sendViaDelegatedGmailApi(opts);
 }
