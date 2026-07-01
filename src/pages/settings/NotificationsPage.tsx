@@ -240,20 +240,6 @@ type EmailDiagnostic = {
   fixSteps: string[];
 };
 
-type OAuthStorageDebug = {
-  refreshFromEnv: boolean;
-  dbRowExists: boolean;
-  dbHasRefreshToken: boolean;
-  dbSenderEmail: string | null;
-  dbConnectedAt: string | null;
-  pendingStateExists: boolean;
-  pendingStateExpired: boolean | null;
-  redirectUri: string;
-  oauthClientIdPrefix: string | null;
-  hasOAuthClientId: boolean;
-  hasOAuthClientSecret: boolean;
-};
-
 const GMAIL_OAUTH_CALLBACK_KEY = "preplane_gmail_oauth_callback";
 const handledOAuthCallbackStates = new Set<string>();
 
@@ -272,7 +258,6 @@ export default function NotificationsPage() {
   const [diagLoading, setDiagLoading] = useState(false);
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthStarting, setOauthStarting] = useState(false);
-  const [oauthStorageDebug, setOauthStorageDebug] = useState<OAuthStorageDebug | null>(null);
   const oauthCallbackStartedRef = useRef(false);
 
   const loadEmailDiagnostic = async () => {
@@ -282,10 +267,6 @@ export default function NotificationsPage() {
       const { data } = await supabase.functions.invoke("email-auth-diagnose");
       if (data?.diagnostic) setEmailDiag(data.diagnostic as EmailDiagnostic);
       if (typeof data?.readyToSend === "boolean") setEmailReady(data.readyToSend);
-      if (data?._debug) setOauthStorageDebug(data._debug as OAuthStorageDebug);
-      // #region agent log
-      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:loadEmailDiagnostic',message:'email diagnostic loaded',data:{readyToSend:data?.readyToSend,hasOAuthClient:data?.diagnostic?.hasOAuthClient,hasOAuthClientId:data?.diagnostic?.hasOAuthClientId,hasOAuthClientSecret:data?.diagnostic?.hasOAuthClientSecret,hasOAuthRefreshToken:data?.diagnostic?.hasOAuthRefreshToken,oauthAuthorized:data?.diagnostic?.oauthAuthorized,gmailDelegationAuthorized:data?.diagnostic?.gmailDelegationAuthorized,hasSmtpPassword:data?.diagnostic?.hasSmtpPassword,_debug:data?._debug},timestamp:Date.now(),hypothesisId:'H1-H5'})}).catch(()=>{});
-      // #endregion
     } finally {
       setDiagLoading(false);
     }
@@ -293,16 +274,10 @@ export default function NotificationsPage() {
 
   const completeGmailOAuth = async (code: string, state: string) => {
     setOauthConnecting(true);
-    // #region agent log
-    fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:completeGmailOAuth',message:'oauth callback completing',data:{codeLen:code.length,stateLen:state.length},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
-    // #endregion
     try {
       const { data, error } = await supabase.functions.invoke("gmail-oauth-complete", {
         body: { code, state },
       });
-      // #region agent log
-      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:completeGmailOAuth:result',message:'oauth complete response',data:{ok:data?.ok,error:data?.error||error?.message||null,senderEmail:data?.senderEmail||null},timestamp:Date.now(),hypothesisId:'H2-H4'})}).catch(()=>{});
-      // #endregion
       if (error) {
         toast.error("Gmail connect failed: " + error.message);
         return;
@@ -314,7 +289,6 @@ export default function NotificationsPage() {
           if (recheck?.diagnostic?.oauthAuthorized) {
             setEmailReady(true);
             if (recheck.diagnostic) setEmailDiag(recheck.diagnostic as EmailDiagnostic);
-            if (recheck._debug) setOauthStorageDebug(recheck._debug as OAuthStorageDebug);
             toast.success("Gmail connected", {
               description: recheck.diagnostic?.oauthSenderEmail
                 ? `Sending as ${recheck.diagnostic.oauthSenderEmail}`
@@ -342,9 +316,6 @@ export default function NotificationsPage() {
     setOauthStarting(true);
     try {
       const { data, error } = await supabase.functions.invoke("gmail-oauth-start");
-      // #region agent log
-      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:startGmailOAuth',message:'oauth start response',data:{ok:data?.ok,error:data?.error||error?.message||null,redirectUri:data?.redirectUri||null,hasUrl:Boolean(data?.url)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
       if (error) {
         toast.error("Could not start Gmail connect: " + error.message);
         return;
@@ -429,10 +400,6 @@ export default function NotificationsPage() {
     handledOAuthCallbackStates.add(state);
     sessionStorage.setItem(GMAIL_OAUTH_CALLBACK_KEY, JSON.stringify({ code, state, ts: Date.now() }));
 
-    // #region agent log
-    fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:oauthCallbackEffect',message:'google redirect params detected',data:{codeLen:code.length,stateLen:state.length,isAdmin,fromSession:!params.get('code')},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
-    // #endregion
-
     window.history.replaceState({}, "", window.location.pathname + window.location.hash);
     void completeGmailOAuth(code, state).finally(() => {
       sessionStorage.removeItem(GMAIL_OAUTH_CALLBACK_KEY);
@@ -472,9 +439,6 @@ export default function NotificationsPage() {
       const { data, error } = await supabase.functions.invoke("send-test-reminder-email", {
         body: { to: testEmail },
       });
-      // #region agent log
-      fetch('http://127.0.0.1:7312/ingest/b3abaf36-b6fd-4714-96aa-a572e9bc3140',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd0630'},body:JSON.stringify({sessionId:'cd0630',location:'NotificationsPage.tsx:sendTest',message:'test email response',data:{ok:data?.ok,error:data?.error||error?.message||null,hasOAuthClient:data?.diagnostic?.hasOAuthClient,hasOAuthRefreshToken:data?.diagnostic?.hasOAuthRefreshToken,oauthAuthorized:data?.diagnostic?.oauthAuthorized,method:data?.method||null},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       if (error) {
         toast.error("Failed: " + error.message);
       } else if (data?.ok) {
@@ -724,20 +688,6 @@ export default function NotificationsPage() {
                       Or set a Google App Password for {emailDiag.delegatedUser}, then run{" "}
                       <code className="text-[11px] bg-white/60 px-1 rounded">npx supabase secrets set GMAIL_APP_PASSWORD=your-app-password --project-ref sgqwnjajvgjcwqergnsr</code>
                     </p>
-                  )}
-                  {oauthStorageDebug && (
-                    <div className="mt-2 rounded-lg border border-amber-200/80 bg-white/50 px-3 py-2 text-[11px] text-n600 space-y-0.5">
-                      <p className="font-medium text-n800">OAuth storage (server)</p>
-                      <p>Refresh in env secret: {oauthStorageDebug.refreshFromEnv ? "yes" : "no"}</p>
-                      <p>Refresh in database: {oauthStorageDebug.dbHasRefreshToken ? "yes" : "no"}</p>
-                      <p>OAuth client ID prefix: <code>{oauthStorageDebug.oauthClientIdPrefix || "not set"}</code></p>
-                      <p>App client ID prefix: <code>{import.meta.env.VITE_GOOGLE_CLIENT_ID?.slice(0, 24) || "n/a"}</code></p>
-                      {oauthStorageDebug.oauthClientIdPrefix &&
-                        import.meta.env.VITE_GOOGLE_CLIENT_ID &&
-                        !import.meta.env.VITE_GOOGLE_CLIENT_ID.startsWith(oauthStorageDebug.oauthClientIdPrefix) && (
-                        <p className="text-amber-800">OAuth client ID in Supabase does not match the PrepLane web client — use the &quot;PrepLane&quot; Web application credentials.</p>
-                      )}
-                    </div>
                   )}
                 </div>
               )}

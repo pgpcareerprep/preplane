@@ -32,7 +32,6 @@ Deno.serve(async (req) => {
 
   const pending = await consumeOAuthPendingState(state);
   if (!pending) {
-    console.error("[gmail-oauth-complete] pending state missing or expired", { stateLen: state.length });
     return new Response(
       JSON.stringify({ ok: false, error: "Invalid or expired OAuth state — start connect again." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -53,7 +52,6 @@ Deno.serve(async (req) => {
       auth.user.id,
     );
 
-    console.log("[gmail-oauth-complete] saved oauth settings", { senderEmail });
     return new Response(
       JSON.stringify({
         ok: true,
@@ -64,7 +62,6 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     const errMsg = String((err as Error)?.message || err);
-    console.error("[gmail-oauth-complete] exchange/save failed", errMsg, { redirectUri });
     return new Response(JSON.stringify({ ok: false, error: errMsg }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

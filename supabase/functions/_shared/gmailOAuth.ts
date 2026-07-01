@@ -99,53 +99,6 @@ export async function hasGmailOAuthRefreshToken(): Promise<boolean> {
   return Boolean(await getStoredOAuthSettings());
 }
 
-/** Non-secret runtime snapshot for email OAuth debugging. */
-export async function getOAuthStorageDebug(): Promise<{
-  refreshFromEnv: boolean;
-  dbRowExists: boolean;
-  dbHasRefreshToken: boolean;
-  dbSenderEmail: string | null;
-  dbConnectedAt: string | null;
-  pendingStateExists: boolean;
-  pendingStateExpired: boolean | null;
-  redirectUri: string;
-  oauthClientIdPrefix: string | null;
-  hasOAuthClientId: boolean;
-  hasOAuthClientSecret: boolean;
-}> {
-  const refreshFromEnv = Boolean(Deno.env.get("GMAIL_OAUTH_REFRESH_TOKEN")?.trim());
-  const redirectUri = getGmailOAuthRedirectUri();
-  const { clientId } = getOAuthClientConfig();
-  const { hasClientId, hasClientSecret } = getOAuthClientConfigStatus();
-
-  const sb = getServiceClient();
-  const [{ data: oauthRow }, { data: pendingRow }] = await Promise.all([
-    sb.from("system_settings").select("value").eq("key", GMAIL_OAUTH_SETTINGS_KEY).maybeSingle(),
-    sb.from("system_settings").select("value").eq("key", GMAIL_OAUTH_PENDING_KEY).maybeSingle(),
-  ]);
-
-  const oauthValue = oauthRow?.value as GmailOAuthSettings | null;
-  const pending = pendingRow?.value as GmailOAuthPending | null;
-  const pendingStateExists = Boolean(pending?.state);
-  const pendingStateExpired = pendingStateExists
-    ? new Date(pending!.expires_at).getTime() < Date.now()
-    : null;
-
-  return {
-    refreshFromEnv,
-    dbRowExists: Boolean(oauthRow),
-    dbHasRefreshToken: Boolean(oauthValue?.refresh_token?.trim()),
-    dbSenderEmail: oauthValue?.sender_email?.trim() || null,
-    dbConnectedAt: oauthValue?.connected_at || null,
-    pendingStateExists,
-    pendingStateExpired,
-    redirectUri,
-    oauthClientIdPrefix: clientId ? clientId.slice(0, 24) : null,
-    hasOAuthClientId: hasClientId,
-    hasOAuthClientSecret: hasClientSecret,
-  };
-}
-
 export async function saveOAuthPendingState(
   state: string,
   redirectUri: string,

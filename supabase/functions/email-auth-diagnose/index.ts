@@ -1,7 +1,6 @@
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { diagnoseEmailAuth, emailAuthReadyToSend } from "../_shared/emailDiagnose.ts";
-import { getOAuthStorageDebug } from "../_shared/gmailOAuth.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -24,9 +23,8 @@ Deno.serve(async (req) => {
 
   const diagnostic = await diagnoseEmailAuth();
   const readyToSend = emailAuthReadyToSend(diagnostic);
-  const _debug = await getOAuthStorageDebug();
 
-  return new Response(JSON.stringify({ ok: true, readyToSend, diagnostic, _debug }), {
+  return new Response(JSON.stringify({ ok: true, readyToSend, diagnostic }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
