@@ -8,9 +8,13 @@ import {
   getGmailOAuthAccessToken,
   getStoredOAuthSettings,
   hasGmailOAuthRefreshToken,
+  hasOAuthClientConfigured,
 } from "./gmailOAuth.ts";
 
 export { GMAIL_FROM } from "./emailConstants.ts";
+
+const CONNECT_GMAIL_HINT =
+  "Open Settings → Notifications and click Connect Gmail sender (sign in as pgpcareerprep@mastersunion.org).";
 
 function base64UrlEncode(data: Uint8Array): string {
   let binary = "";
@@ -37,6 +41,20 @@ function buildRawMessage(opts: {
     opts.html,
   ];
   return base64UrlEncode(new TextEncoder().encode(lines.join("\r\n")));
+}
+
+function delegationSendError(delegatedUser: string, status: number, data: Record<string, unknown>): string {
+  const reason = (data?.error as { reason?: string } | undefined)?.reason;
+  const message = (data?.error as { message?: string } | undefined)?.message;
+  if (reason === "failedPrecondition" || message === "Precondition check failed.") {
+    return [
+      `Gmail delegation cannot send as ${delegatedUser} (domain-wide delegation is not fully authorized).`,
+      hasOAuthClientConfigured()
+        ? CONNECT_GMAIL_HINT
+        : "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, then connect Gmail — or set GMAIL_APP_PASSWORD.",
+    ].join(" ");
+  }
+  return `Gmail API send failed for ${delegatedUser} [${status}]: ${JSON.stringify(data)}`;
 }
 
 async function sendViaOAuthGmailApi(opts: {
@@ -90,9 +108,7 @@ async function sendViaDelegatedGmailApi(opts: {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      `Gmail API send failed for ${delegatedUser} [${res.status}]: ${JSON.stringify(data)}`,
-    );
+    throw new Error(delegationSendError(delegatedUser, res.status, data as Record<string, unknown>));
   }
   return { id: data.id, threadId: data.threadId, method: "gmail-api" };
 }
@@ -103,11 +119,15 @@ export async function sendGmail(opts: {
   html: string;
   text?: string;
 }): Promise<{ id: string; threadId: string; method?: string }> {
-  if (await hasGmailOAuthRefreshToken()) {
+  const errors: string[] = [];
+  const hasOAuthClient = hasOAuthClientConfigured();
+  const hasRefreshToken = await hasGmailOAuthRefreshToken();
+
+  if (hasRefreshToken) {
     try {
       return await sendViaOAuthGmailApi(opts);
     } catch (oauthErr) {
-      console.warn("Gmail OAuth send failed, trying fallbacks:", (oauthErr as Error)?.message);
+      errors.push(String((oauthErr as Error)?.message || oauthErr));
     }
   }
 
@@ -116,9 +136,30 @@ export async function sendGmail(opts: {
       const smtp = await sendViaSmtp(opts);
       return { id: smtp.messageId, threadId: "", method: "smtp" };
     } catch (smtpErr) {
-      console.warn("SMTP send failed, trying Gmail API delegation:", (smtpErr as Error)?.message);
+      errors.push(String((smtpErr as Error)?.message || smtpErr));
     }
   }
 
-  return await sendViaDelegatedGmailApi(opts);
+  if (hasOAuthClient && !hasRefreshToken) {
+    throw new Error(
+      `Gmail OAuth client is configured but not connected. ${CONNECT_GMAIL_HINT}`,
+    );
+  }
+
+  const hasSa = Boolean(Deno.env.get("GOOGLE_SA_EMAIL") && Deno.env.get("GOOGLE_SA_PRIVATE_KEY"));
+  if (hasSa) {
+    try {
+      return await sendViaDelegatedGmailApi(opts);
+    } catch (delegationErr) {
+      errors.push(String((delegationErr as Error)?.message || delegationErr));
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(errors.join(" | "));
+  }
+
+  throw new Error(
+    `No email transport configured. ${hasOAuthClient ? CONNECT_GMAIL_HINT : "Set GOOGLE_OAUTH_CLIENT_ID/SECRET or GMAIL_APP_PASSWORD in Supabase secrets."}`,
+  );
 }

@@ -37,12 +37,22 @@ export function getOAuthClientConfig(): { clientId: string | null; clientSecret:
   const clientId =
     Deno.env.get("GOOGLE_OAUTH_CLIENT_ID")?.trim() ||
     Deno.env.get("GMAIL_OAUTH_CLIENT_ID")?.trim() ||
+    Deno.env.get("GOOGLE_CLIENT_ID")?.trim() ||
     null;
   const clientSecret =
     Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET")?.trim() ||
     Deno.env.get("GMAIL_OAUTH_CLIENT_SECRET")?.trim() ||
+    Deno.env.get("GOOGLE_CLIENT_SECRET")?.trim() ||
     null;
   return { clientId, clientSecret };
+}
+
+export function getOAuthClientConfigStatus(): {
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+} {
+  const { clientId, clientSecret } = getOAuthClientConfig();
+  return { hasClientId: Boolean(clientId), hasClientSecret: Boolean(clientSecret) };
 }
 
 export function hasOAuthClientConfigured(): boolean {
@@ -144,6 +154,9 @@ export function buildGmailOAuthAuthorizeUrl(state: string, redirectUri: string):
   const { clientId } = getOAuthClientConfig();
   if (!clientId) throw new Error("GOOGLE_OAUTH_CLIENT_ID is not configured");
 
+  const senderHint =
+    Deno.env.get("GOOGLE_DELEGATED_USER")?.trim() || "pgpcareerprep@mastersunion.org";
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -153,6 +166,7 @@ export function buildGmailOAuthAuthorizeUrl(state: string, redirectUri: string):
     prompt: "consent",
     state,
     include_granted_scopes: "true",
+    login_hint: senderHint,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }

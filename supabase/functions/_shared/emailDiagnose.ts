@@ -4,6 +4,7 @@ import { hasSmtpCredentials } from "./smtp-send.ts";
 import { probeGoogleToken } from "./googleAuth.ts";
 import {
   getGmailOAuthRedirectUri,
+  getOAuthClientConfigStatus,
   getStoredOAuthSettings,
   hasGmailOAuthRefreshToken,
   hasOAuthClientConfigured,
@@ -18,6 +19,8 @@ export type EmailDiagnostic = {
   hasPrivateKey: boolean;
   hasSmtpPassword: boolean;
   hasOAuthClient: boolean;
+  hasOAuthClientId: boolean;
+  hasOAuthClientSecret: boolean;
   hasOAuthRefreshToken: boolean;
   oauthAuthorized: boolean;
   oauthSenderEmail: string | null;
@@ -46,6 +49,8 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
   const hasPrivateKey = Boolean(Deno.env.get("GOOGLE_SA_PRIVATE_KEY"));
   const hasSmtpPassword = hasSmtpCredentials();
   const hasOAuthClient = hasOAuthClientConfigured();
+  const { hasClientId: hasOAuthClientId, hasClientSecret: hasOAuthClientSecret } =
+    getOAuthClientConfigStatus();
   const hasOAuthRefreshToken = await hasGmailOAuthRefreshToken();
   const oauthRedirectUri = getGmailOAuthRedirectUri();
 
@@ -88,9 +93,15 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
   }
 
   if (!hasOAuthClient && !gmailDelegationAuthorized && !hasSmtpPassword) {
-    fixSteps.push(
-      "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET Supabase secrets (Web application OAuth client).",
-    );
+    if (!hasOAuthClientId && !hasOAuthClientSecret) {
+      fixSteps.push(
+        "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET Supabase secrets (Web application OAuth client).",
+      );
+    } else if (hasOAuthClientId && !hasOAuthClientSecret) {
+      fixSteps.push("GOOGLE_OAUTH_CLIENT_ID is set but GOOGLE_OAUTH_CLIENT_SECRET is missing in Supabase secrets.");
+    } else if (!hasOAuthClientId && hasOAuthClientSecret) {
+      fixSteps.push("GOOGLE_OAUTH_CLIENT_SECRET is set but GOOGLE_OAUTH_CLIENT_ID is missing in Supabase secrets.");
+    }
   }
 
   if (hasOAuthClient && !hasOAuthRefreshToken && !gmailDelegationAuthorized && !hasSmtpPassword) {
@@ -147,6 +158,8 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     hasPrivateKey,
     hasSmtpPassword,
     hasOAuthClient,
+    hasOAuthClientId,
+    hasOAuthClientSecret,
     hasOAuthRefreshToken,
     oauthAuthorized,
     oauthSenderEmail,

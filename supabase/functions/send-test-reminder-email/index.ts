@@ -1,7 +1,7 @@
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
-import { diagnoseEmailAuth } from "../_shared/emailDiagnose.ts";
+import { diagnoseEmailAuth, emailAuthReadyToSend } from "../_shared/emailDiagnose.ts";
 import { DEFAULT_APP_ORIGIN, getBrandName } from "../_shared/appConfig.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -24,6 +24,20 @@ Deno.serve(async (req) => {
     if (!to) {
       return new Response(JSON.stringify({ ok: false, error: "No recipient" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const diagnostic = await diagnoseEmailAuth();
+    if (!emailAuthReadyToSend(diagnostic)) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: diagnostic.hasOAuthClient && !diagnostic.hasOAuthRefreshToken
+          ? "Gmail OAuth is not connected. Click Connect Gmail sender on the Notifications settings page."
+          : "Email delivery is not configured.",
+        diagnostic,
+        fixHint: diagnostic.fixSteps[0] || null,
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

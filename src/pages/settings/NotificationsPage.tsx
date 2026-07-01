@@ -226,6 +226,8 @@ type EmailDiagnostic = {
   hasPrivateKey: boolean;
   hasSmtpPassword: boolean;
   hasOAuthClient: boolean;
+  hasOAuthClientId: boolean;
+  hasOAuthClientSecret: boolean;
   hasOAuthRefreshToken: boolean;
   oauthAuthorized: boolean;
   oauthSenderEmail: string | null;
@@ -570,6 +572,12 @@ export default function NotificationsPage() {
                     <p>Service account: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.serviceAccountEmail}</code></p>
                   )}
                   <p>Sender mailbox: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.delegatedUser}</code></p>
+                  {emailDiag.hasOAuthClientId && !emailDiag.hasOAuthClientSecret && (
+                    <p className="text-amber-800">OAuth client ID is set; client secret is missing in Supabase secrets.</p>
+                  )}
+                  {!emailDiag.hasOAuthClientId && emailDiag.hasOAuthClientSecret && (
+                    <p className="text-amber-800">OAuth client secret is set; client ID is missing in Supabase secrets.</p>
+                  )}
                   {emailDiag.oauthError && (
                     <p className="text-amber-800">Gmail OAuth: {emailDiag.oauthError}</p>
                   )}
@@ -581,12 +589,12 @@ export default function NotificationsPage() {
                       <li key={i}>{step}</li>
                     ))}
                   </ol>
-                  {emailDiag.hasOAuthClient && !emailDiag.oauthAuthorized && (
+                  {!emailDiag.oauthAuthorized && (
                     <div className="mt-3">
                       <button
                         type="button"
                         onClick={() => void startGmailOAuth()}
-                        disabled={oauthStarting || oauthConnecting}
+                        disabled={oauthStarting || oauthConnecting || !emailDiag.hasOAuthClient}
                         className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-n900 text-white text-[12px] font-medium hover:bg-n800 transition-colors disabled:opacity-40"
                       >
                         {(oauthStarting || oauthConnecting) ? (
@@ -596,6 +604,11 @@ export default function NotificationsPage() {
                         )}
                         {oauthConnecting ? "Connecting Gmail…" : "Connect Gmail sender"}
                       </button>
+                      {!emailDiag.hasOAuthClient && (
+                        <p className="mt-1.5 text-[11px] text-amber-800">
+                          Set both GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Supabase secrets first.
+                        </p>
+                      )}
                       <p className="mt-1.5 text-[11px] text-n600">
                         Redirect URI: <code className="bg-white/60 px-1 rounded">{emailDiag.oauthRedirectUri}</code>
                       </p>
