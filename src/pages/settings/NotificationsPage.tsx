@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/rolesContext";
 import { useUserNotifications } from "@/lib/hooks/useUserNotifications";
+import { getEdgeFunctionErrorMessage } from "@/lib/edgeFunctionError";
 import { useNavigate } from "react-router-dom";
 
 const ALL_DAYS = [
@@ -228,6 +229,8 @@ type EmailDiagnostic = {
   hasOAuthClient: boolean;
   hasOAuthClientId: boolean;
   hasOAuthClientSecret: boolean;
+  oauthClientIsWebType: boolean;
+  oauthClientMisconfiguration: string | null;
   hasOAuthRefreshToken: boolean;
   oauthAuthorized: boolean;
   oauthSenderEmail: string | null;
@@ -279,7 +282,8 @@ export default function NotificationsPage() {
         body: { code, state },
       });
       if (error) {
-        toast.error("Gmail connect failed: " + error.message);
+        const msg = await getEdgeFunctionErrorMessage(error, data);
+        toast.error("Gmail connect failed: " + msg);
         return;
       }
       if (!data?.ok) {
@@ -317,7 +321,8 @@ export default function NotificationsPage() {
     try {
       const { data, error } = await supabase.functions.invoke("gmail-oauth-start");
       if (error) {
-        toast.error("Could not start Gmail connect: " + error.message);
+        const msg = await getEdgeFunctionErrorMessage(error, data);
+        toast.error("Could not start Gmail connect: " + msg);
         return;
       }
       if (!data?.ok || !data?.url) {
@@ -641,6 +646,11 @@ export default function NotificationsPage() {
                     <p>Service account: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.serviceAccountEmail}</code></p>
                   )}
                   <p>Sender mailbox: <code className="text-[11px] bg-white/60 px-1 rounded">{emailDiag.delegatedUser}</code></p>
+                  {emailDiag.oauthClientMisconfiguration && (
+                    <p className="text-amber-900 font-medium bg-amber-100/80 border border-amber-200 rounded-lg px-3 py-2">
+                      {emailDiag.oauthClientMisconfiguration}
+                    </p>
+                  )}
                   {emailDiag.hasOAuthClientId && !emailDiag.hasOAuthClientSecret && (
                     <p className="text-amber-800">OAuth client ID is set; client secret is missing in Supabase secrets.</p>
                   )}

@@ -55,9 +55,26 @@ export function getOAuthClientConfigStatus(): {
   return { hasClientId: Boolean(clientId), hasClientSecret: Boolean(clientSecret) };
 }
 
+export function isWebOAuthClientId(clientId: string | null | undefined): boolean {
+  return Boolean(clientId?.includes(".apps.googleusercontent.com"));
+}
+
+export function getOAuthClientMisconfigurationError(): string | null {
+  const { clientId, clientSecret } = getOAuthClientConfig();
+  if (!clientId || !clientSecret) return null;
+  if (!isWebOAuthClientId(clientId)) {
+    return [
+      "GOOGLE_OAUTH_CLIENT_ID must be the PrepLane Web application OAuth client",
+      "(ends with .apps.googleusercontent.com), not the Compute Engine service-account client.",
+      "In Google Cloud Console → Credentials, use the client named \"PrepLane\" (type: Web application).",
+    ].join(" ");
+  }
+  return null;
+}
+
 export function hasOAuthClientConfigured(): boolean {
   const { clientId, clientSecret } = getOAuthClientConfig();
-  return Boolean(clientId && clientSecret);
+  return Boolean(clientId && clientSecret && isWebOAuthClientId(clientId));
 }
 
 export function getGmailOAuthRedirectUri(): string {

@@ -4,10 +4,13 @@ import { hasSmtpCredentials } from "./smtp-send.ts";
 import { probeGoogleToken } from "./googleAuth.ts";
 import {
   getGmailOAuthRedirectUri,
+  getOAuthClientConfig,
   getOAuthClientConfigStatus,
+  getOAuthClientMisconfigurationError,
   getStoredOAuthSettings,
   hasGmailOAuthRefreshToken,
   hasOAuthClientConfigured,
+  isWebOAuthClientId,
   probeGmailOAuth,
 } from "./gmailOAuth.ts";
 
@@ -21,6 +24,8 @@ export type EmailDiagnostic = {
   hasOAuthClient: boolean;
   hasOAuthClientId: boolean;
   hasOAuthClientSecret: boolean;
+  oauthClientIsWebType: boolean;
+  oauthClientMisconfiguration: string | null;
   hasOAuthRefreshToken: boolean;
   oauthAuthorized: boolean;
   oauthSenderEmail: string | null;
@@ -48,9 +53,12 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
   const clientId = Deno.env.get("GOOGLE_SA_CLIENT_ID") || null;
   const hasPrivateKey = Boolean(Deno.env.get("GOOGLE_SA_PRIVATE_KEY"));
   const hasSmtpPassword = hasSmtpCredentials();
+  const { clientId: oauthClientId } = getOAuthClientConfig();
   const hasOAuthClient = hasOAuthClientConfigured();
   const { hasClientId: hasOAuthClientId, hasClientSecret: hasOAuthClientSecret } =
     getOAuthClientConfigStatus();
+  const oauthClientIsWebType = isWebOAuthClientId(oauthClientId);
+  const oauthClientMisconfiguration = getOAuthClientMisconfigurationError();
   const hasOAuthRefreshToken = await hasGmailOAuthRefreshToken();
   const oauthRedirectUri = getGmailOAuthRedirectUri();
 
@@ -81,6 +89,13 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
       gmailDelegationAuthorized = true;
       gmailDelegationError = null;
     }
+  }
+
+  if (oauthClientMisconfiguration) {
+    fixSteps.unshift(oauthClientMisconfiguration);
+    fixSteps.unshift(
+      "Fix OAuth secrets: use the PrepLane Web application client from Google Cloud Console → Credentials (not the Compute Engine service-account client).",
+    );
   }
 
   if (!oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
@@ -160,6 +175,8 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     hasOAuthClient,
     hasOAuthClientId,
     hasOAuthClientSecret,
+    oauthClientIsWebType,
+    oauthClientMisconfiguration,
     hasOAuthRefreshToken,
     oauthAuthorized,
     oauthSenderEmail,

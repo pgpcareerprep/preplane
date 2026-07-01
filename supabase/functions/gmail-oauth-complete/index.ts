@@ -13,6 +13,13 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 Deno.serve(async (req) => {
   corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -24,18 +31,15 @@ Deno.serve(async (req) => {
   const code = String(body?.code || "").trim();
   const state = String(body?.state || "").trim();
   if (!code || !state) {
-    return new Response(JSON.stringify({ ok: false, error: "code and state are required" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ ok: false, error: "code and state are required" });
   }
 
   const pending = await consumeOAuthPendingState(state);
   if (!pending) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Invalid or expired OAuth state — start connect again." }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      ok: false,
+      error: "Invalid or expired OAuth state — start connect again.",
+    });
   }
 
   const redirectUri = pending.redirect_uri || getGmailOAuthRedirectUri();
@@ -52,19 +56,15 @@ Deno.serve(async (req) => {
       auth.user.id,
     );
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        senderEmail,
-        message: `Gmail sender connected as ${senderEmail}`,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      ok: true,
+      senderEmail,
+      message: `Gmail sender connected as ${senderEmail}`,
+    });
   } catch (err) {
-    const errMsg = String((err as Error)?.message || err);
-    return new Response(JSON.stringify({ ok: false, error: errMsg }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return jsonResponse({
+      ok: false,
+      error: String((err as Error)?.message || err),
     });
   }
 });
