@@ -4,6 +4,7 @@
  * are correctly normalized into canonical KPI buckets.
  */
 import { describe, it, expect } from "vitest";
+import { calculateLmpConversionRate, isOtherReasonsLmpStatus } from "@/lib/lmpProcessQueries";
 
 // Mirror of the normalization logic in useDashboardKpis.ts
 // so we can unit-test it without mocking Supabase.
@@ -95,5 +96,18 @@ describe("dashboard KPI status normalization", () => {
     const kpis = computeKpis(rows);
     expect(kpis.ongoing).toBe(1);
     expect(kpis.converted).toBe(1);
+  });
+});
+
+describe("process-wise conversion rate", () => {
+  it("uses converted divided by total processes minus other reasons", () => {
+    expect(calculateLmpConversionRate(9, 90, 8)).toBeCloseTo((9 / 82) * 100);
+  });
+
+  it("treats closed-style statuses as other reasons", () => {
+    expect(isOtherReasonsLmpStatus("other-reasons")).toBe(true);
+    expect(isOtherReasonsLmpStatus("closed")).toBe(true);
+    expect(isOtherReasonsLmpStatus("converted-na")).toBe(true);
+    expect(isOtherReasonsLmpStatus("not-converted")).toBe(false);
   });
 });
