@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   extEmptyResultMessage,
   extFetchedZeroMessage,
+  geminiApiBlockedMessage,
   geminiKeyRejectedMessage,
+  isGeminiApiBlocked,
   isGeminiKeyError,
 } from "@/lib/extErrorMessage";
 
@@ -32,6 +34,18 @@ describe("extErrorMessage", () => {
     const msg = geminiKeyRejectedMessage("Gemini search API 403: PERMISSION_DENIED");
     expect(msg).toContain("403");
     expect(msg).toContain("GEMINI_API_KEY");
+  });
+
+  it("blocked API copy points to Google Cloud key restrictions", () => {
+    const detail =
+      'Gemini search API 403: {"error":{"code":403,"message":"Requests to this API generativelanguage.googleapis.com method google.ai.generativelanguage.v1beta.GenerativeService.GenerateContent are blocked.","status":"PERMISSION_DENIED"}}';
+    expect(isGeminiApiBlocked(detail)).toBe(true);
+    expect(isGeminiKeyError(detail)).toBe(false);
+    const msg = extEmptyResultMessage({ onlyExt: true, reason: "gemini_error", detail });
+    expect(msg).toContain("Google Cloud Console");
+    expect(msg).toContain("Application restrictions");
+    expect(msg).not.toContain("rejected by Gemini");
+    expect(geminiApiBlockedMessage(detail)).toContain("Generative Language API");
   });
 
   it("surfaces gemini API detail without blaming the key on quota errors", () => {

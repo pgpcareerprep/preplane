@@ -13,7 +13,7 @@
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createLogger } from "../_shared/logger.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
-import { assertZeroSpendConfig, GEMINI_FREE_MODEL, MIN_CONFIDENCE } from "../_shared/providers/config.ts";
+import { assertZeroSpendConfig, GEMINI_API_URL, GEMINI_FREE_MODEL, MIN_CONFIDENCE } from "../_shared/providers/config.ts";
 import {
   buildLinkedInFromSnippet,
   buildPlatformFromSnippet,
@@ -193,6 +193,75 @@ async function pingGemini(apiKey: string): Promise<{ ok: boolean; status: number
   }
 }
 
+type GeminiProbe = { ok: boolean; status: number; body: string; blocked: boolean };
+
+async function probeGeminiGenerate(apiKey: string): Promise<GeminiProbe> {
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(12_000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "ping" }] }],
+          generationConfig: { maxOutputTokens: 8 },
+        }),
+      },
+    );
+    const body = (await resp.text()).slice(0, 300);
+    const blocked = body.toLowerCase().includes("are blocked") || body.toLowerCase().includes("permission_denied");
+    return { ok: resp.ok, status: resp.status, body, blocked };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message.slice(0, 300), blocked: false };
+  }
+}
+
+async function probeGeminiGrounding(apiKey: string): Promise<GeminiProbe> {
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(12_000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "List one mentor coach" }] }],
+          tools: [{ google_search: {} }],
+          generationConfig: { maxOutputTokens: 256 },
+        }),
+      },
+    );
+    const body = (await resp.text()).slice(0, 300);
+    const blocked = body.toLowerCase().includes("are blocked") || body.toLowerCase().includes("permission_denied");
+    return { ok: resp.ok, status: resp.status, body, blocked };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message.slice(0, 300), blocked: false };
+  }
+}
+
+async function probeGeminiOpenAiCompat(apiKey: string): Promise<GeminiProbe> {
+  try {
+    const resp = await fetch(GEMINI_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(12_000),
+      body: JSON.stringify({
+        model: GEMINI_FREE_MODEL,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+    });
+    const body = (await resp.text()).slice(0, 300);
+    const blocked = body.toLowerCase().includes("are blocked") || body.toLowerCase().includes("permission_denied");
+    return { ok: resp.ok, status: resp.status, body, blocked };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message.slice(0, 300), blocked: false };
+  }
+}
+
 async function pingJina(apiKey: string | null): Promise<{ ok: boolean; status: number; body: string }> {
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
@@ -232,6 +301,9 @@ Deno.serve(async (req) => {
       const geminiPing = geminiKey
         ? await pingGemini(geminiKey)
         : { ok: false, status: 0, body: "GEMINI_API_KEY not configured in env or vault" };
+      const geminiGeneratePing = geminiKey ? await probeGeminiGenerate(geminiKey) : null;
+      const geminiGroundingPing = geminiKey ? await probeGeminiGrounding(geminiKey) : null;
+      const geminiOpenAiCompatPing = geminiKey ? await probeGeminiOpenAiCompat(geminiKey) : null;
       const jinaPing = await pingJina(jinaKey);
       return new Response(JSON.stringify({
         diag: true,
@@ -240,6 +312,9 @@ Deno.serve(async (req) => {
         keyLast4: geminiKey ? geminiKey.slice(-4) : null,
         keyLength: geminiKey?.length ?? 0,
         geminiPing,
+        geminiGeneratePing,
+        geminiGroundingPing,
+        geminiOpenAiCompatPing,
         jinaKeyPresent: Boolean(jinaKey),
         jinaKeySource,
         jinaKeyLast4: jinaKey ? jinaKey.slice(-4) : null,

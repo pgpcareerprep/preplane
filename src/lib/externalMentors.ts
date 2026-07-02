@@ -236,7 +236,9 @@ function toExternalMentor(platform: ExternalPlatform, r: Record<string, unknown>
 
 import { supabase } from "@/integrations/supabase/client";
 import { linkedinHref } from "@/lib/linkedinUrl";
-import { isGeminiKeyError, geminiKeyRejectedMessage } from "@/lib/extErrorMessage";
+import { geminiApiBlockedMessage, isGeminiApiBlocked, isGeminiKeyError, geminiKeyRejectedMessage } from "@/lib/extErrorMessage";
+
+export type GeminiProbeDiag = { ok: boolean; status: number; body: string; blocked: boolean };
 
 export type ExternalMentorDiag = {
   diag: true;
@@ -245,6 +247,9 @@ export type ExternalMentorDiag = {
   keyLast4: string | null;
   keyLength: number;
   geminiPing: { ok: boolean; status: number; body: string };
+  geminiGeneratePing?: GeminiProbeDiag | null;
+  geminiGroundingPing?: GeminiProbeDiag | null;
+  geminiOpenAiCompatPing?: GeminiProbeDiag | null;
   jinaKeyPresent: boolean;
   jinaKeySource: string | null;
   jinaKeyLast4: string | null;
@@ -267,15 +272,38 @@ export async function fetchExternalMentorDiag(): Promise<ExternalMentorDiag> {
 
 export function formatExternalMentorDiagSummary(d: ExternalMentorDiag): string {
   const lines = [
-    `Gemini: ${d.keyPresent ? `present (${d.keySource}, …${d.keyLast4})` : "missing"} — ping ${d.geminiPing.ok ? "OK" : `HTTP ${d.geminiPing.status}`}`,
+    `Gemini key: ${d.keyPresent ? `present (${d.keySource}, …${d.keyLast4}, len ${d.keyLength})` : "missing"}`,
+    `  models list: ${d.geminiPing.ok ? "OK" : `HTTP ${d.geminiPing.status}`}`,
+  ];
+  if (d.geminiGeneratePing) {
+    lines.push(`  generateContent: ${d.geminiGeneratePing.ok ? "OK" : `HTTP ${d.geminiGeneratePing.status}${d.geminiGeneratePing.blocked ? " — BLOCKED" : ""}`}`);
+  }
+  if (d.geminiGroundingPing) {
+    lines.push(`  google_search grounding: ${d.geminiGroundingPing.ok ? "OK" : `HTTP ${d.geminiGroundingPing.status}${d.geminiGroundingPing.blocked ? " — BLOCKED" : ""}`}`);
+  }
+  if (d.geminiOpenAiCompatPing) {
+    lines.push(`  OpenAI-compat: ${d.geminiOpenAiCompatPing.ok ? "OK" : `HTTP ${d.geminiOpenAiCompatPing.status}${d.geminiOpenAiCompatPing.blocked ? " — BLOCKED" : ""}`}`);
+  }
+  lines.push(
     `Jina: ${d.jinaKeyPresent ? `present (${d.jinaKeySource}, …${d.jinaKeyLast4})` : "missing"} — ping ${d.jinaPing.ok ? "OK" : `HTTP ${d.jinaPing.status}`}`,
     `SearXNG URL: ${d.searxngUrlPresent ? "configured" : "not set"}`,
-  ];
-  if (!d.geminiPing.ok && d.geminiPing.body) {
-    lines.push(`Gemini detail: ${d.geminiPing.body.slice(0, 120)}`);
+  );
+  const blocked =
+    d.geminiGeneratePing?.blocked ||
+    d.geminiGroundingPing?.blocked ||
+    d.geminiOpenAiCompatPing?.blocked ||
+    isGeminiApiBlocked(d.geminiPing.body) ||
+    isGeminiApiBlocked(d.geminiGeneratePing?.body) ||
+    isGeminiApiBlocked(d.geminiGroundingPing?.body);
+  if (blocked) {
+    lines.push("→ Key is set but Google blocks API calls. Fix key restrictions in Google Cloud Console (see toast/help).");
+  } else if (d.keyPresent && !d.geminiGeneratePing?.ok) {
+    lines.push(`→ generateContent failed: ${(d.geminiGeneratePing?.body || d.geminiPing.body).slice(0, 100)}`);
   }
-  if (!d.jinaPing.ok && d.jinaPing.body) {
-    lines.push(`Jina detail: ${d.jinaPing.body.slice(0, 120)}`);
+  if (!d.jinaKeyPresent) {
+    lines.push("→ JINA_API_KEY missing — web search layer may return zero hits.");
+  } else if (!d.jinaPing.ok) {
+    lines.push(`→ Jina failed: ${d.jinaPing.body.slice(0, 100)}`);
   }
   return lines.join("\n");
 }
@@ -367,9 +395,11 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       // Translate known Gemini/provider API error codes to actionable messages.
       let friendlyErr = dataError;
       if (apiReason === "gemini_error" && dataDetail) {
-        friendlyErr = isGeminiKeyError(dataDetail)
-          ? geminiKeyRejectedMessage(dataDetail)
-          : `External search failed: ${dataDetail}`;
+        friendlyErr = isGeminiApiBlocked(dataDetail)
+          ? geminiApiBlockedMessage(dataDetail)
+          : isGeminiKeyError(dataDetail)
+            ? geminiKeyRejectedMessage(dataDetail)
+            : `External search failed: ${dataDetail}`;
       } else if (dataError === "no_free_provider_result" || dataError.includes("no free provider")) {
         friendlyErr = "External AI search quota exceeded or unavailable. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";
       } else if (dataError.includes("GEMINI_API_KEY") || dataError.includes("Neither is configured")) {
