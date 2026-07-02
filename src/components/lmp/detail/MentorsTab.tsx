@@ -47,6 +47,7 @@ import {
   type ScoringCandidate, type JdInfo,
 } from "@/lib/mentorPipeline";
 import { fetchMentorCompanyTiers } from "@/lib/mentorCompanyTiers";
+import { extEmptyResultMessage, extFetchedZeroMessage } from "@/lib/extErrorMessage";
 import { LMP_MENTOR_SUGGESTION_LIMIT } from "@/lib/config/thresholds";
 
 const SUB_TABS: { id: "suggested" | "shortlisted" | "assigned"; label: string; icon: typeof Sparkles }[] = [
@@ -397,6 +398,7 @@ function MentorsTabImpl({
 
     const rawCandidates: ScoringCandidate[] = [];
     let externalCandidates: ScoringCandidate[] = [];
+    let extFetchMeta: { reason?: "gemini_error" | "no_results"; detail?: string | null } = {};
 
     for (let i = 0; i < steps.length; i++) {
       if (cancelMatchingRef.current) return;
@@ -448,6 +450,7 @@ function MentorsTabImpl({
           const res = cfg.linkedin || cfg.topmate || cfg.adplist || cfg.superpeer
             ? await fetchExternalMentors(queries, cfg)
             : emptyResult;
+          extFetchMeta = { reason: res.reason, detail: res.detail ?? null };
           const counts: Partial<Record<ExternalPlatform, number>> = {};
           for (const p of enabledLabels) counts[p] = res.mentors.filter(m => m.platform === p).length;
           if (res.errors.length > 0 && res.mentors.length === 0) {
@@ -474,7 +477,11 @@ function MentorsTabImpl({
           const extSelected = context.sources.includes("EXT");
           toast.warning(
             onlyExt
-              ? "External-only search found no mentors. Include MU/ALU sources for reliable results, or verify GEMINI_API_KEY in Supabase."
+              ? extEmptyResultMessage({
+                onlyExt: true,
+                reason: extFetchMeta.reason,
+                detail: extFetchMeta.detail,
+              })
               : extSelected && rawCandidates.length === 0
                 ? "No mentors in MU/ALU sources — upload CSVs in Data Sources, or wait for data to finish loading and rerun."
                 : "No mentor data found in selected sources. Upload CSVs in Data Sources first.",
@@ -507,6 +514,8 @@ function MentorsTabImpl({
               extSelected: context.sources.includes("EXT"),
               extFetched: externalCandidates.length,
               extNovel: extNovelCount,
+              extReason: extFetchMeta.reason,
+              extDetail: extFetchMeta.detail,
             });
           }
           // Persist results to DB so they survive device/browser changes.
@@ -533,7 +542,13 @@ function MentorsTabImpl({
 
   function emitMatchToast(
     scored: Mentor[],
-    extMeta?: { extSelected: boolean; extFetched: number; extNovel: number },
+    extMeta?: {
+      extSelected: boolean;
+      extFetched: number;
+      extNovel: number;
+      extReason?: "gemini_error" | "no_results";
+      extDetail?: string | null;
+    },
   ) {
     const muResults = scored.filter(m => m.source === "MU").length;
     const aluResults = scored.filter(m => m.source === "ALU").length;
@@ -550,7 +565,10 @@ function MentorsTabImpl({
       );
       if (extMeta?.extSelected && extResults === 0) {
         if (extMeta.extFetched === 0) {
-          toast.warning("External discovery returned no mentors — verify GEMINI_API_KEY and External Discovery settings in Data Sources.");
+          toast.warning(extFetchedZeroMessage({
+            reason: extMeta.extReason,
+            detail: extMeta.extDetail,
+          }));
         } else if (extMeta.extNovel === 0) {
           toast.warning("External search found profiles, but all matched people already in your MU/ALU pool.");
         } else {

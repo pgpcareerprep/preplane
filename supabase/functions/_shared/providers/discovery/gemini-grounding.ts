@@ -213,7 +213,9 @@ Return up to ${limit} mentors as a JSON array with name, current_role, company, 
 
   if (!resp.ok) {
     const t = await resp.text();
-    throw new Error(`Gemini search API ${resp.status}: ${t.slice(0, 200)}`);
+    const errMsg = `Gemini search API ${resp.status}: ${t.slice(0, 300)}`;
+    console.warn("[discoverViaGeminiSearch]", errMsg);
+    throw new Error(errMsg);
   }
 
   const data = await resp.json() as Record<string, unknown>;

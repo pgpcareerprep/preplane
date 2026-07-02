@@ -18,7 +18,11 @@ export const jinaSearchProvider: SearchProvider = {
       signal: signal ?? AbortSignal.timeout(15000),
       headers: await jinaHeaders(),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const snippet = (await res.text()).slice(0, 200);
+      console.warn(`[jina-search] HTTP ${res.status}: ${snippet}`);
+      return [];
+    }
     const text = await res.text();
     // Jina may return markdown or JSON depending on tier; parse flexibly.
     try {

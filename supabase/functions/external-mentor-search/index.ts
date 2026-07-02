@@ -63,15 +63,37 @@ const ALL_PLATFORMS: Platform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"
 const ZERO_MENTOR_MSG =
   "No mentor profiles found for this role. Try broadening the role or adding skills/industry context.";
 
+const JINA_SEARCH_CONCURRENCY = 2;
+const JINA_SEARCH_DELAY_MS = 300;
+
 function zeroMentorResponse(
   error: string,
-  geminiError?: string,
-): { mentors: []; error: string; reason: "gemini_error" | "no_results" } {
+  upstreamError?: string | null,
+): { mentors: []; error: string; detail: string | null; reason: "gemini_error" | "no_results" } {
+  const detail = upstreamError?.trim() || null;
   return {
     mentors: [],
     error,
-    reason: geminiError ? "gemini_error" : "no_results",
+    detail,
+    reason: detail ? "gemini_error" : "no_results",
   };
+}
+
+async function batchCachedSearch(
+  queries: string[],
+  limit: number,
+  log: ReturnType<typeof createLogger>,
+): Promise<SearchHit[][]> {
+  const results: SearchHit[][] = [];
+  for (let i = 0; i < queries.length; i += JINA_SEARCH_CONCURRENCY) {
+    const chunk = queries.slice(i, i + JINA_SEARCH_CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map((q) => cachedSearch(q, limit, log)));
+    results.push(...chunkResults);
+    if (i + JINA_SEARCH_CONCURRENCY < queries.length) {
+      await new Promise((r) => setTimeout(r, JINA_SEARCH_DELAY_MS));
+    }
+  }
+  return results;
 }
 
 /**
@@ -88,7 +110,7 @@ async function generateMentorsFallback(
   seniority: string,
   limit: number,
   platforms: Platform[],
-): Promise<DiscoveredMentor[]> {
+): Promise<{ mentors: DiscoveredMentor[]; error?: string }> {
   const skillList = skills.slice(0, 5).join(", ");
   const prompt = `You are a mentor discovery assistant. Suggest ${Math.min(limit, 8)} real professionals who could mentor someone preparing for a ${role || "professional"} role${company ? ` at ${company}` : ""}${industry ? ` in ${industry}` : ""}.${skillList ? ` Key skills: ${skillList}.` : ""}${seniority ? ` Seniority: ${seniority}.` : ""}
 
@@ -112,18 +134,19 @@ Rules: Real, well-known professionals only. Platform must be one of: ${platforms
     );
     if (!resp.ok) {
       const errText = await resp.text();
-      console.warn("[generateMentorsFallback] Gemini error", resp.status, errText.slice(0, 200));
-      return [];
+      const errMsg = `Gemini generation ${resp.status}: ${errText.slice(0, 300)}`;
+      console.warn("[generateMentorsFallback]", errMsg);
+      return { mentors: [], error: errMsg };
     }
     const data = await resp.json() as Record<string, unknown>;
     const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
     const rawText = parts.map((p) => (typeof (p as any).text === "string" ? (p as any).text : "")).join("");
-    if (!rawText) return [];
+    if (!rawText) return { mentors: [] };
     // Strip markdown fences if present
     const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
     const parsed = JSON.parse(cleaned) as { mentors?: DiscoveredMentor[] };
     const list = Array.isArray(parsed.mentors) ? parsed.mentors : [];
-    return list
+    const mentors = list
       .filter((m) => m?.name && m.name.length > 2)
       .map((m) => ({
         ...m,
@@ -131,9 +154,11 @@ Rules: Real, well-known professionals only. Platform must be one of: ${platforms
         source_url: m.source_url ?? null,
         confidence: 40,
       }));
+    return { mentors };
   } catch (e) {
-    console.warn("[generateMentorsFallback] failed:", (e as Error).message);
-    return [];
+    const errMsg = (e as Error).message;
+    console.warn("[generateMentorsFallback] failed:", errMsg);
+    return { mentors: [], error: errMsg };
   }
 }
 
@@ -246,9 +271,7 @@ Deno.serve(async (req) => {
     // 2. Search (cache → free providers)
     const byPlatform: Record<Platform, SearchHit[]> = { LinkedIn: [], Topmate: [], ADPList: [], Superpeer: [] };
     const seenUrls = new Set<string>();
-    let searchResults = await Promise.all(
-      guaranteedQueries.slice(0, 10).map((q) => cachedSearch(q, 8, log)),
-    );
+    let searchResults = await batchCachedSearch(guaranteedQueries.slice(0, 10), 8, log);
 
     if (searchResults.flat().length === 0 && effectiveRole) {
       const broadQueries = activePlatforms.map((p) =>
@@ -257,7 +280,7 @@ Deno.serve(async (req) => {
           : p === "ADPList" ? `site:adplist.org ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`
           : `site:superpeer.com ${effectiveRole} mentor ${company || industry || skills.slice(0, 2).join(" ")}`,
       );
-      searchResults = await Promise.all(broadQueries.map((q) => cachedSearch(q, 8, log)));
+      searchResults = await batchCachedSearch(broadQueries, 8, log);
     }
 
     for (const hits of searchResults) {
@@ -271,6 +294,12 @@ Deno.serve(async (req) => {
     }
 
     const totalHits = Object.values(byPlatform).reduce((n, arr) => n + arr.length, 0);
+    if (totalHits === 0) {
+      log.warn("search_layer_empty", {
+        queryCount: guaranteedQueries.length,
+        platforms: activePlatforms,
+      });
+    }
 
     // When web search returns nothing, use Gemini grounding + its search queries.
     if (totalHits === 0) {
@@ -283,8 +312,10 @@ Deno.serve(async (req) => {
       }
       // Retry Jina/SearXNG using queries Gemini already ran on Google Search.
       if (geminiResult.webSearchQueries.length) {
-        const geminiSearchResults = await Promise.all(
-          geminiResult.webSearchQueries.slice(0, 8).map((q) => cachedSearch(q, 8, log)),
+        const geminiSearchResults = await batchCachedSearch(
+          geminiResult.webSearchQueries.slice(0, 8),
+          8,
+          log,
         );
         for (const hits of geminiSearchResults) {
           for (const h of hits) {
@@ -300,9 +331,9 @@ Deno.serve(async (req) => {
         if (retryHits === 0) {
           // Final fallback: direct Gemini generation when all search paths fail
           log.info("gemini_direct_generation_fallback", {});
-          const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
+          const { mentors: generated, error: genError } = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
           if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
-          return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error)), {
+          return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error ?? genError)), {
             status: 200, headers: { ...corsH, "Content-Type": "application/json" },
           });
         }
@@ -310,9 +341,9 @@ Deno.serve(async (req) => {
       } else {
         // Final fallback: direct Gemini generation when grounding returned no queries
         log.info("gemini_direct_generation_fallback", {});
-        const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
+        const { mentors: generated, error: genError } = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
         if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error)), {
+        return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error ?? genError)), {
           status: 200, headers: { ...corsH, "Content-Type": "application/json" },
         });
       }

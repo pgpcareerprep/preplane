@@ -8,6 +8,7 @@ export type FetchResult = {
   mentors: ExternalMentor[];
   errors: MatchingError[];
   reason?: "gemini_error" | "no_results";
+  detail?: string | null;
 };
 
 export type ExternalPlatform = "Topmate" | "ADPList" | "LinkedIn" | "Superpeer";
@@ -235,6 +236,7 @@ function toExternalMentor(platform: ExternalPlatform, r: Record<string, unknown>
 
 import { supabase } from "@/integrations/supabase/client";
 import { linkedinHref } from "@/lib/linkedinUrl";
+import { isGeminiKeyError } from "@/lib/extErrorMessage";
 
 type AIDiscoveredMentor = {
   name: string;
@@ -312,13 +314,21 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${error.message}`, recoverable: false }] };
     }
     const dataError = typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : null;
+    const dataDetail = typeof (data as { detail?: unknown })?.detail === "string" ? (data as { detail: string }).detail : null;
     const dataReasonRaw = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
     const apiReason =
       dataReasonRaw === "gemini_error" || dataReasonRaw === "no_results" ? dataReasonRaw : undefined;
+    if (dataDetail) {
+      console.warn("[external] mentor-search detail:", dataDetail);
+    }
     if (dataError) {
       // Translate known Gemini/provider API error codes to actionable messages.
       let friendlyErr = dataError;
-      if (dataError === "no_free_provider_result" || dataError.includes("no free provider")) {
+      if (apiReason === "gemini_error" && dataDetail) {
+        friendlyErr = isGeminiKeyError(dataDetail)
+          ? "External mentor search is not configured. Set GEMINI_API_KEY in Supabase Edge Function secrets."
+          : `External search failed: ${dataDetail}`;
+      } else if (dataError === "no_free_provider_result" || dataError.includes("no free provider")) {
         friendlyErr = "External AI search quota exceeded or unavailable. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";
       } else if (dataError.includes("GEMINI_API_KEY") || dataError.includes("Neither is configured")) {
         friendlyErr = "External mentor search is not configured. Set GEMINI_API_KEY (or FIRECRAWL_API_KEY) in Supabase Edge Function secrets.";
@@ -330,15 +340,17 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
         mentors: [],
         errors: [{ source: "EXT", message: friendlyErr, recoverable }],
         reason: apiReason,
+        detail: dataDetail,
       };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
     if (list.length === 0) {
-      const detail = "External discovery returned no mentors for this role.";
+      const detail = dataDetail || "External discovery returned no mentors for this role.";
       return {
         mentors: [],
         errors: [{ source: "EXT", message: detail, recoverable: true }],
         reason: apiReason,
+        detail: dataDetail,
       };
     }
     const mentors: ExternalMentor[] = list.map((m) => ({
