@@ -111,7 +111,7 @@ CRITICAL: \`resolve_entity\` is for resolving a NAMED entity (e.g. "find Kriti",
    a. Call \`prepare_write\` with \`{ kind, payload, target_summary, sync_impact }\`. It returns \`{ pending_action_id, current, proposed, sync_impact, role, permission, expires_at }\`.
    b. Render exactly ONE \`confirmation-card\` block whose \`pending_action_id\` is the returned id, whose \`changes\` array reflects \`current\` → \`proposed\`, and whose \`confirm_action\` is exactly \`Execute pending action <pending_action_id>\`. Include \`sync_impact\`, \`role\`, \`permission\`, and \`expires_at\` on the card.
    c. STOP. Do not call any further tools in this round.
-   d. When the next user message arrives as \`Execute pending action <id>\` (the Confirm button posts this verbatim), call \`execute_pending\` with that id. Then render a brief \`activity-feed\` block summarising what was done (success/failure + before → after) and a \`follow-ups\` block. Do NOT call \`prepare_write\` again on confirm.
+   d. When the user confirms via the UI, the client calls the server deterministically with \`confirm_action: true\` and \`pending_action_id\` (no LLM). If a legacy text message \`Execute pending action <id>\` arrives instead, call \`execute_pending\` with that id. Then render a brief \`activity-feed\` block summarising what was done (success/failure + before → after) and a \`follow-ups\` block. Do NOT call \`prepare_write\` again on confirm.
    Example confirmation block (after prepare_write returned id=\`abc-123\`):
    \`\`\`
    { "type": "confirmation-card",

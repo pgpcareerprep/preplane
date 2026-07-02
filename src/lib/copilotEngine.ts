@@ -187,3 +187,61 @@ function assembleFromSse(raw: string): string {
   }
   return out;
 }
+
+export type CopilotPendingContext = {
+  pending_action_id: string;
+  role?: string;
+  userName?: string;
+  userEmail?: string;
+  realRole?: string;
+  viewAsUserName?: string | null;
+  viewAsRole?: string | null;
+  threadId?: string | null;
+};
+
+/** Deterministic confirm/cancel — bypasses the LLM tool loop on the server. */
+export async function invokeCopilotPendingAction(
+  kind: "confirm" | "cancel",
+  ctx: CopilotPendingContext,
+): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (!accessToken) throw new Error("Your session has expired. Please sign in again.");
+
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify({
+      messages: [{
+        role: "user",
+        content: kind === "confirm"
+          ? `[Confirm pending action ${ctx.pending_action_id}]`
+          : `[Cancel pending action ${ctx.pending_action_id}]`,
+      }],
+      confirm_action: kind === "confirm",
+      cancel_action: kind === "cancel",
+      pending_action_id: ctx.pending_action_id,
+      role: ctx.viewAsRole ?? ctx.role,
+      userName: ctx.userName,
+      userEmail: ctx.userEmail,
+      realRole: ctx.realRole,
+      viewAsUserName: ctx.viewAsUserName ?? null,
+      viewAsRole: ctx.viewAsRole ?? null,
+      threadId: ctx.threadId ?? null,
+      cache: false,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: `Error ${resp.status}` }));
+    throw new Error(err.error || err.message || `Error ${resp.status}`);
+  }
+
+  const raw = await resp.text();
+  return assembleFromSse(raw);
+}

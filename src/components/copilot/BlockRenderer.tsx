@@ -31,10 +31,12 @@ import { CopilotCvGapCard } from "./CopilotCvGapCard";
 import { CopilotCaseStudyCard } from "./CopilotCaseStudyCard";
 import { CopilotPlanCard } from "./CopilotPlanCard";
 
-export function BlockRenderer({ block, onFollowUp, onAction, lmpId }: {
+export function BlockRenderer({ block, onFollowUp, onAction, onConfirmPending, onCancelPending, lmpId }: {
   block: CopilotBlock;
   onFollowUp?: (prompt: string) => void;
   onAction?: (cmd: string) => void;
+  onConfirmPending?: (pendingActionId: string) => void;
+  onCancelPending?: (pendingActionId: string) => void;
   lmpId?: string;
 }) {
   // Unified action handler: actions are sent as user messages to the copilot
@@ -79,7 +81,14 @@ export function BlockRenderer({ block, onFollowUp, onAction, lmpId }: {
     case "action-buttons":
       return <CopilotActionButtons block={block} onAction={handleAction} />;
     case "confirmation-card":
-      return <CopilotConfirmationCard block={block} onAction={handleAction} />;
+      return (
+        <CopilotConfirmationCard
+          block={block}
+          onAction={handleAction}
+          onConfirmPending={onConfirmPending}
+          onCancelPending={onCancelPending}
+        />
+      );
     case "info-card":
       return <CopilotInfoCard block={block} onAction={handleAction} />;
     case "pipeline-card":

@@ -20,6 +20,10 @@ import { buildProviderList, callToolModel } from "../copilot-ai/providers.ts";
 import { validateLogSubmissionArgs } from "../_shared/logSubmissionWrite.ts";
 import { stagePendingAction } from "../_shared/copilotPendingActions.ts";
 import { resolveViewAsEffectiveRole } from "../_shared/viewAsRole.ts";
+import {
+  buildVoiceNameNormalizationBlock,
+  buildVoicePocRosterBlock,
+} from "../_shared/voicePhoneticGlossary.ts";
 
 
 import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
@@ -92,11 +96,7 @@ synonyms unless context clearly says otherwise:
   one to one, 121, one-to-one mock -> 1:1 mock
   prep poke, prep poker -> prep POC
   out reach, out-reach -> outreach
-  kirti, kitty, critty, krithi, criti -> Kriti
-  weather, wither, whitter, with it, video, vidith, with-it -> Vidit
-  vidit jane, vidith jain -> Vidit Jain
-  sonali avast, sonally, sonali avasti, sonali avast hi, sonali avasthy -> Sonali Awasthi
-  mansi bargwa, mansi bhargav, monsi bhargwa -> Mansi Bhargwa
+Person-specific name mappings are listed in POC NAME NORMALISATION below (from poc_profiles.aliases).
 ALWAYS prefer matching against the CURRENT USER or POC ROSTER names below when an
 utterance contains a token that fuzzily resembles one of those names.
 Always interpret ambiguous voice input in the placement / LMP context first.
@@ -599,14 +599,20 @@ async function handleVoiceRequest(req: Request) {
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Load a small POC roster so the model can re-map STT mishears against real names.
+    // Load POC roster + aliases for STT name normalisation (no hardcoded people).
     let rosterBlock = "";
+    let nameNormBlock = "";
     try {
       const sbc = sb();
-      const { data: pocs } = await sbc.from("poc_profiles").select("name,role_type,primary_domain").neq("role_type", "outreach_poc").eq("status", "active").limit(40);
+      const { data: pocs } = await sbc
+        .from("poc_profiles")
+        .select("name,role_type,primary_domain,aliases")
+        .neq("role_type", "outreach_poc")
+        .eq("status", "active")
+        .limit(40);
       if (pocs && pocs.length > 0) {
-        rosterBlock = "\n\nPOC ROSTER (use these canonical names for mishears):\n" +
-          pocs.map((p: any) => `- ${p.name}${p.primary_domain ? ` (${p.primary_domain})` : ""}`).join("\n");
+        rosterBlock = buildVoicePocRosterBlock(pocs as { name: string | null; aliases: string[] | null; primary_domain: string | null; role_type?: string | null }[]);
+        nameNormBlock = buildVoiceNameNormalizationBlock(pocs as { name: string | null; aliases: string[] | null; primary_domain: string | null; role_type?: string | null }[]);
       }
     } catch { /* non-fatal */ }
 
@@ -616,7 +622,7 @@ async function handleVoiceRequest(req: Request) {
         : `- The user is acting as themselves. "me", "my", "I" resolve to ${realName}.`
     }${effectiveRole === "poc" ? `\n- Effective role is POC — scope LMP listings, search, and workload to ${effectiveName}'s assignments unless the user explicitly says "all" / "everyone" / "org-wide" / another named POC.` : ""}`;
 
-    const sysPrompt = SYSTEM_PROMPT + identityBlock + rosterBlock;
+    const sysPrompt = SYSTEM_PROMPT + identityBlock + nameNormBlock + rosterBlock;
 
     // Multi-round agent loop
     const convo: any[] = [{ role: "system", content: sysPrompt }, ...messages];
@@ -647,7 +653,7 @@ async function handleVoiceRequest(req: Request) {
       }
       userLog.warn("poc_workload_fast_path_failed", { error: result.error });
     }
-    const FORCE = /\b(how many|count|list|show|all|total|create|add|assign|update|change|set|delete|remove|status|conversion|workload|domain|ongoing|tell me|find|who|what|recommend|progress|performance|how is|how's|how are|update on|status of|doing|load|active|working on|kriti|kirti|my|me|mine|today)\b/i;
+    const FORCE = /\b(how many|count|list|show|all|total|create|add|assign|update|change|set|delete|remove|status|conversion|workload|domain|ongoing|tell me|find|who|what|recommend|progress|performance|how is|how's|how are|update on|status of|doing|load|active|working on|my|me|mine|today)\b/i;
     let forceFirst = FORCE.test(lastUser);
     userLog.event("turn_start", {
       utterance: lastUser.slice(0, 200),

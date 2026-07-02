@@ -4,7 +4,17 @@ import { AlertTriangle, ArrowRight, Check, X } from "lucide-react";
 import type { ConfirmationCardBlock } from "@/lib/copilotBlocks";
 import { cn } from "@/lib/utils";
 
-export function CopilotConfirmationCard({ block, onAction }: { block: ConfirmationCardBlock; onAction: (cmd: string) => void }) {
+export function CopilotConfirmationCard({
+  block,
+  onAction,
+  onConfirmPending,
+  onCancelPending,
+}: {
+  block: ConfirmationCardBlock;
+  onAction: (cmd: string) => void;
+  onConfirmPending?: (pendingActionId: string) => void;
+  onCancelPending?: (pendingActionId: string) => void;
+}) {
   const [state, setState] = useState<"pending" | "confirmed" | "cancelled">("pending");
 
   if (state === "confirmed") {
@@ -75,13 +85,25 @@ export function CopilotConfirmationCard({ block, onAction }: { block: Confirmati
 
       <div className="flex items-center justify-end gap-2 px-5 pb-4 pt-1">
         <button
-          onClick={() => setState("cancelled")}
+          onClick={() => {
+            setState("cancelled");
+            if (block.pending_action_id && onCancelPending) {
+              onCancelPending(block.pending_action_id);
+            }
+          }}
           className="h-9 px-4 rounded-xl text-[12.5px] font-medium text-n600 hover:bg-n100 transition-colors"
         >
           {block.cancel_label || "Cancel"}
         </button>
         <button
-          onClick={() => { setState("confirmed"); onAction(block.confirm_action); }}
+          onClick={() => {
+            setState("confirmed");
+            if (block.pending_action_id && onConfirmPending) {
+              onConfirmPending(block.pending_action_id);
+            } else {
+              onAction(block.confirm_action);
+            }
+          }}
           className="h-9 px-5 rounded-xl bg-orange-500 text-white text-[12.5px] font-semibold hover:bg-orange-600 shadow-sm shadow-orange-200 transition-all flex items-center gap-1.5"
         >
           <Check className="h-3.5 w-3.5" /> {block.confirm_label || "Confirm"}

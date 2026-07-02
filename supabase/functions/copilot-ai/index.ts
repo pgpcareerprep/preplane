@@ -19,6 +19,12 @@ import {
   formatPocWorkloadChatSse,
 } from "../_shared/fastPathHandlers.ts";
 import { resolveViewAsEffectiveRole } from "../_shared/viewAsRole.ts";
+import {
+  formatCancelPendingChatSse,
+  formatCancelPendingErrorSse,
+  formatExecutePendingChatSse,
+} from "../_shared/copilotDeterministicConfirm.ts";
+import { cancelPendingAction } from "../_shared/copilotPendingActions.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
@@ -29,6 +35,7 @@ import {
   requestState,
   aiProvider,
   resetRequestCache,
+  viewAsBlocksWrites,
 } from "./requestContext.ts";
 import { ensureVaultLoaded, getEnv } from "./secrets.ts";
 import { retrieveRAGContext } from "./rag.ts";
@@ -116,6 +123,8 @@ async function handleRequest(req: Request) {
   let body: {
     messages?: { role: string; content: string }[];
     confirm_action?: boolean;
+    cancel_action?: boolean;
+    pending_action_id?: string;
     mode?: string;
     scope?: string;
     role?: string;
@@ -155,6 +164,7 @@ async function handleRequest(req: Request) {
     scope_missing_count: 0,
     scope_broadened_count: 0,
   };
+  let usedWriteTool = false;
   const { reserveAiRequest } = await import("../_shared/ai-usage.ts");
   const budget = await reserveAiRequest(authedUser.id, aiProvider().toolModel);
   if (!budget.allowed) {
@@ -270,6 +280,58 @@ async function handleRequest(req: Request) {
   }
   requestState().context.effectiveRole = effectiveRole;
   requestState().context.effectiveName = effectiveName;
+
+  const pendingActionId = String((body as Record<string, unknown>).pending_action_id || "").trim();
+  const isConfirmAction = body.confirm_action === true;
+  const isCancelAction = body.cancel_action === true;
+  if (pendingActionId && (isConfirmAction || isCancelAction)) {
+    telemetry.intent = isCancelAction ? "deterministic_cancel" : "deterministic_confirm";
+    requestState().log.event("deterministic_pending", {
+      pending_action_id: pendingActionId,
+      action: isCancelAction ? "cancel" : "confirm",
+    });
+
+    if (isCancelAction) {
+      const cancelled = await cancelPendingAction(pendingActionId, authedUser.id);
+      const text = cancelled.ok
+        ? formatCancelPendingChatSse()
+        : formatCancelPendingErrorSse(cancelled.error || "Unknown error");
+      void logTurn({ status: cancelled.ok ? "ok" : "error", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      });
+    }
+
+    if (viewAsBlocksWrites()) {
+      const text = formatExecutePendingChatSse({
+        blocked: true,
+        error: "View-as mode is read-only. Switch back to your own perspective to make changes.",
+      });
+      void logTurn({ status: "error", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      });
+    }
+
+    let parsed: Record<string, unknown> = {};
+    try {
+      const raw = await executeTool("execute_pending", { pending_action_id: pendingActionId });
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch (e) {
+      parsed = { error: (e as Error).message };
+    }
+    usedWriteTool = true;
+    const text = formatExecutePendingChatSse(parsed);
+    void logTurn({
+      status: parsed.error || parsed.blocked ? "error" : "ok",
+      response_chars: text.length,
+      error_message: parsed.error ? String(parsed.error) : null,
+    });
+    return new Response(buildPlainSseResponse(text), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+    });
+  }
+
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     requestState().log.warn("missing_messages");
     return jsonError("Missing 'messages' array", 400);
@@ -299,7 +361,6 @@ async function handleRequest(req: Request) {
 
   // Track whether the tool loop invoked any write tool. Declared before fast
   // paths because logTurn records it for every response, including direct ones.
-  let usedWriteTool = false;
 
   if (intent === "greeting") {
     const text = getGreetingResponse(userName.split(/\s+/)[0] || "there");
@@ -511,6 +572,7 @@ async function handleRequest(req: Request) {
   const cacheable =
     body.cache !== false &&
     !body.confirm_action &&
+    !body.cancel_action &&
     !ACTION_MODES.has(requestedMode);
   let cKey: string | null = null;
   if (cacheable) {

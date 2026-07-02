@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/rolesContext";
 import { useCopilotPermission } from "@/lib/hooks/usePermissions";
 import { logAuditEvent } from "@/lib/auditLog";
-import { QUICK_PROMPTS, type CopilotMode } from "@/lib/copilotEngine";
+import { QUICK_PROMPTS, type CopilotMode, invokeCopilotPendingAction } from "@/lib/copilotEngine";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuSeparator,
@@ -615,6 +615,81 @@ function CopilotPageInner() {
     send(cmd);
   }, [threads, activeId, send]);
 
+  const runDeterministicPending = useCallback(async (kind: "confirm" | "cancel", pendingActionId: string) => {
+    if (pending) return;
+    const ts = Date.now();
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: kind === "confirm" ? "✓ Confirmed" : "✗ Cancelled",
+      ts,
+    };
+    setThreads(prev => prev.map(t =>
+      t.id === activeId ? { ...t, messages: [...t.messages, userMsg] } : t
+    ));
+    void persistMessage(activeId, userMsg);
+    setPending(true);
+    const assistantId = crypto.randomUUID();
+    setThreads(prev => prev.map(t =>
+      t.id === activeId
+        ? { ...t, messages: [...t.messages, { id: assistantId, role: "assistant" as const, content: "", ts: ts + 1, streaming: true }] }
+        : t
+    ));
+    try {
+      const content = await invokeCopilotPendingAction(kind, {
+        pending_action_id: pendingActionId,
+        role: viewAsRole,
+        userName: user.name,
+        userEmail: user.email,
+        realRole,
+        viewAsUserName: viewAsUser?.name ?? null,
+        viewAsRole,
+        threadId: activeId && !activeId.startsWith("local-") ? activeId : null,
+      });
+      setThreads(prev => prev.map(t =>
+        t.id === activeId
+          ? { ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content, streaming: false } : m) }
+          : t
+      ));
+      void persistMessage(activeId, { id: assistantId, role: "assistant", content, ts: ts + 1 });
+      if (kind === "confirm") {
+        logAuditEvent({
+          entity_type: "system",
+          action: "copilot:confirm_pending",
+          actor_name: user.name,
+          source: "copilot",
+          metadata: { pending_action_id: pendingActionId },
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(message);
+      setThreads(prev => prev.map(t =>
+        t.id === activeId
+          ? {
+              ...t,
+              messages: t.messages.map(m => m.id === assistantId
+                ? ({ ...m, content: `⚠️ ${message}`, streaming: false, error: true } as any)
+                : m),
+            }
+          : t
+      ));
+    } finally {
+      setPending(false);
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["copilot-quota"] });
+      }, 3000);
+    }
+  }, [pending, activeId, viewAsRole, user.name, user.email, realRole, viewAsUser?.name, setThreads, persistMessage, queryClient]);
+
+  const handleConfirmPending = useCallback((pendingActionId: string) => {
+    void runDeterministicPending("confirm", pendingActionId);
+  }, [runDeterministicPending]);
+
+  const handleCancelPending = useCallback((pendingActionId: string) => {
+    void runDeterministicPending("cancel", pendingActionId);
+  }, [runDeterministicPending]);
+
   const newChat = () => {
     setDraft("");
     setMentions([]);
@@ -804,7 +879,7 @@ function CopilotPageInner() {
                   return (
                     <div key={m.id} className="space-y-2">
                       {showPartial && (
-                        <AssistantMarkdown content={m.content} ts={m.ts} streaming={false} onFollowUp={send} onAction={handleCopilotAction} exportTitle={active?.title} />
+                        <AssistantMarkdown content={m.content} ts={m.ts} streaming={false} onFollowUp={send} onAction={handleCopilotAction} onConfirmPending={handleConfirmPending} onCancelPending={handleCancelPending} exportTitle={active?.title} />
                       )}
                       <CopilotErrorBubble
                         message={errorMessage || m.content?.replace(/^⚠️\s*/, "") || "Something went wrong."}
@@ -813,7 +888,7 @@ function CopilotPageInner() {
                     </div>
                   );
                 }
-                return <AssistantMarkdown key={m.id} content={m.content} ts={m.ts} streaming={(m as any).streaming} onFollowUp={send} onAction={handleCopilotAction} exportTitle={active?.title} />;
+                return <AssistantMarkdown key={m.id} content={m.content} ts={m.ts} streaming={(m as any).streaming} onFollowUp={send} onAction={handleCopilotAction} onConfirmPending={handleConfirmPending} onCancelPending={handleCancelPending} exportTitle={active?.title} />;
               })}
               {pending && messages[messages.length - 1]?.role !== "assistant" && <TypingDots />}
             </div>
@@ -1235,7 +1310,16 @@ function splitSections(md: string): { intro: string; sections: { heading: string
 
 const PROSE_BASE = "prose prose-sm max-w-none text-[13.5px] text-n800 leading-[1.65] prose-headings:text-n900 prose-headings:text-[14px] prose-headings:font-semibold prose-strong:text-n900 prose-a:text-orange-600 prose-code:bg-n100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-pre:bg-n50 prose-pre:border prose-pre:border-n200 prose-table:text-[12.5px] prose-th:bg-n50 prose-th:px-2.5 prose-th:py-1.5 prose-td:px-2.5 prose-td:py-1.5 prose-td:border-t prose-td:border-n100";
 
-function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, exportTitle }: { content: string; ts: number; streaming?: boolean; onFollowUp?: (text: string) => void; onAction?: (cmd: string) => void; exportTitle?: string }) {
+function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, onConfirmPending, onCancelPending, exportTitle }: {
+  content: string;
+  ts: number;
+  streaming?: boolean;
+  onFollowUp?: (text: string) => void;
+  onAction?: (cmd: string) => void;
+  onConfirmPending?: (pendingActionId: string) => void;
+  onCancelPending?: (pendingActionId: string) => void;
+  exportTitle?: string;
+}) {
   const text = content || (streaming ? "Searching data…" : "");
   const { blocks, plainText, fenceDetected } = useMemo(() => parseBlocks(text), [text]);
   const hasBlocks = blocks.length > 0;
@@ -1268,7 +1352,13 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, expor
             <Suspense fallback={null}>
               {blocks.map((block, idx) => (
                 <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: idx * 0.06 }}>
-                  <BlockRenderer block={block} onFollowUp={onFollowUp} onAction={onAction} />
+                  <BlockRenderer
+                    block={block}
+                    onFollowUp={onFollowUp}
+                    onAction={onAction}
+                    onConfirmPending={onConfirmPending}
+                    onCancelPending={onCancelPending}
+                  />
                 </motion.div>
               ))}
             </Suspense>
