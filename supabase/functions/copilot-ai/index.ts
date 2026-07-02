@@ -11,7 +11,14 @@ import {
   getTaskTier,
 } from "./modelConfig.ts";
 import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocConversionMetricsQuery, isPocProgressReportQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import {
+  fetchMentorCoverageFastPath,
+  fetchPocWorkloadFastPath,
+  formatMentorCoverageChatSse,
+  formatPocWorkloadChatSse,
+} from "../_shared/fastPathHandlers.ts";
+import { resolveViewAsEffectiveRole } from "../_shared/viewAsRole.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
@@ -242,6 +249,27 @@ async function handleRequest(req: Request) {
   const _realName = (requestState().context.actorName || "").trim().toLowerCase();
   requestState().context.viewAsName = _viewAsName;
   requestState().context.isImpersonating = !!_viewAsName && _viewAsName.toLowerCase() !== _realName;
+  let effectiveName = requestState().context.actorName;
+  let effectiveRole = authedUser.role;
+  if (requestState().context.isImpersonating && _viewAsName) {
+    const claimedViewAsRole = (
+      (body as Record<string, unknown>).viewAsRole as string | undefined
+      || requestedRole
+    ).trim();
+    const resolved = await resolveViewAsEffectiveRole(_viewAsName, claimedViewAsRole, authedUser.role);
+    effectiveRole = resolved.effectiveRole;
+    effectiveName = _viewAsName;
+    if (resolved.downgraded) {
+      requestState().log.warn("view_as_role_downgraded", {
+        claimed: claimedViewAsRole,
+        resolved: resolved.resolvedRole,
+        effective: effectiveRole,
+        real_role: authedUser.role,
+      });
+    }
+  }
+  requestState().context.effectiveRole = effectiveRole;
+  requestState().context.effectiveName = effectiveName;
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     requestState().log.warn("missing_messages");
     return jsonError("Missing 'messages' array", 400);
@@ -326,142 +354,48 @@ async function handleRequest(req: Request) {
   }
 
   if (isMentorCoverageQuery(lastUserMessage)) {
-    const fastSb = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    const { data, error } = await fastSb
-      .from("lmp_processes")
-      .select("id,company,role,domain_raw,status,prep_poc,mentor_aligned,lmp_code")
-      .ilike("status", "%ongoing%")
-      .or("mentor_aligned.is.null,mentor_aligned.eq.false")
-      .order("company")
-      .limit(200);
-    if (!error) {
-      const rows = (data || []).map((r) => [
-        r.company || "—", r.role || "—", r.domain_raw || "—", r.prep_poc || "Unassigned", r.status || "Ongoing",
-      ]);
-      const count = rows.length;
-      const text = [
-        `${count} ongoing LMP process${count === 1 ? "" : "es"} ${count === 1 ? "does" : "do"} not have a mentor aligned yet.`,
-        "",
-        ":::blocks",
-        JSON.stringify([
-          { type: "executive-summary", content: `${count} ongoing processes need mentor alignment.` },
-          { type: "kpi-row", items: [{ label: "Missing mentor", value: count }] },
-          { type: "table", title: "Ongoing processes without mentors", headers: ["Company", "Role", "Domain", "Prep POC", "Status"], rows },
-        ]),
-        ":::",
-      ].join("\n");
+    const scope = {
+      effectiveRole: requestState().context.effectiveRole ?? authedUser.role,
+      effectiveName: requestState().context.effectiveName,
+    };
+    const result = await fetchMentorCoverageFastPath(scope);
+    if (result.ok) {
+      const text = formatMentorCoverageChatSse(result);
       telemetry.intent = "mentor_coverage_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
       });
     }
-    requestState().log.warn("mentor_coverage_fast_path_failed", { error: error.message });
+    requestState().log.warn("mentor_coverage_fast_path_failed", { error: result.error });
   }
 
   if (isPocWorkloadQuery(lastUserMessage)) {
-    const fastSb = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    const [{ data: profiles, error: profilesError }, { data: lmps, error: lmpsError }] = await Promise.all([
-      fastSb.from("poc_profiles").select("name,role_type,primary_domain,active_load,max_threshold,conversion_rate,status").order("name"),
-      fastSb.from("lmp_processes").select("status,prep_poc,support_poc,outreach_poc").limit(3000),
-    ]);
-    if (profilesError || lmpsError) {
-      requestState().log.warn("poc_workload_fast_path_failed", { profiles_error: profilesError?.message, lmps_error: lmpsError?.message });
+    const scope = {
+      effectiveRole: requestState().context.effectiveRole ?? authedUser.role,
+      effectiveName: requestState().context.effectiveName,
+    };
+    const result = await fetchPocWorkloadFastPath(scope);
+    if (!result.ok) {
+      requestState().log.warn("poc_workload_fast_path_failed", { error: result.error });
       const errText = [
         "I couldn't load the live POC progress data right now.",
         "",
         ":::blocks",
-        JSON.stringify([{ type: "alert-cards", alerts: [{ severity: "error", title: "Data fetch failed", message: profilesError?.message || lmpsError?.message || "Unknown database error" }] }]),
+        JSON.stringify([{ type: "alert-cards", alerts: [{ severity: "error", title: "Data fetch failed", message: result.error }] }]),
         ":::",
       ].join("\n");
       telemetry.intent = "poc_workload_fast_path_error";
-      void logTurn({ status: "error", error_message: profilesError?.message || lmpsError?.message, response_chars: errText.length });
+      void logTurn({ status: "error", error_message: result.error, response_chars: errText.length });
       return new Response(buildPlainSseResponse(errText), {
         headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
       });
     }
-    const operationalProfiles = (profiles || []).filter((p) =>
-      (p.status ?? "active") === "active" && p.role_type !== "outreach_poc",
-    );
-    if (operationalProfiles.length) {
-      const rows = operationalProfiles.map((p) => {
-        const assigned = (lmps || []).filter((l) =>
-          [l.prep_poc, l.support_poc, l.outreach_poc].some((name) => name && name.toLowerCase() === p.name?.toLowerCase())
-        );
-        const statusCounts: Record<string, number> = {};
-        for (const l of assigned) {
-          const status = l.status || "Unknown";
-          statusCounts[status] = (statusCounts[status] || 0) + 1;
-        }
-        const activeLoad = Number(p.active_load ?? statusCounts.Ongoing ?? 0);
-        const threshold = Number(p.max_threshold ?? 10);
-        const capacity = threshold > 0 ? Math.round((activeLoad / threshold) * 100) : 0;
-        const converted = assigned.filter((l) => /converted|offer/i.test(l.status || "")).length;
-        const conversion = Number.isFinite(Number(p.conversion_rate))
-          ? Number(p.conversion_rate)
-          : (assigned.length ? Math.round((converted / assigned.length) * 1000) / 10 : 0);
-        return {
-          capacity,
-          row: [
-            p.name || "—",
-            activeLoad,
-            threshold,
-            `${capacity}%${capacity > 80 ? " ⚠" : ""}`,
-            `${conversion}%`,
-            Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`).join(", ") || "No assigned processes",
-          ],
-        };
-      }).sort((a, b) => b.capacity - a.capacity);
-      const overCapacity = rows.filter((r) => r.capacity > 80).length;
-      const conversionFocus = isPocConversionMetricsQuery(lastUserMessage);
-      const reportTitle = isPocProgressReportQuery(lastUserMessage)
-        ? "Prep POC progress report"
-        : conversionFocus
-          ? "POC conversion & performance"
-          : "POC workload";
-      const summaryLine = conversionFocus
-        ? `${rows.length} POCs reviewed with conversion rate and capacity. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`
-        : `${rows.length} POCs reviewed. ${overCapacity} ${overCapacity === 1 ? "is" : "are"} above 80% capacity.`;
-      const text = [
-        summaryLine,
-        "",
-        ":::blocks",
-        JSON.stringify([
-          { type: "executive-summary", content: conversionFocus
-            ? `${rows.length} prep POCs with live conversion rate and workload metrics. ${overCapacity} above 80% capacity.`
-            : `${rows.length} prep POCs reviewed using live profiles and LMP assignments. ${overCapacity} are above 80% capacity.` },
-          { type: "kpi-row", items: [{ label: "POCs", value: rows.length }, { label: "Above 80% capacity", value: overCapacity }] },
-          { type: "table", title: reportTitle, headers: ["POC", "Active load", "Max threshold", "Capacity", "Conversion rate", "Processes by status"], rows: rows.map((r) => r.row) },
-        ]),
-        ":::",
-      ].join("\n");
-      telemetry.intent = isPocProgressReportQuery(lastUserMessage)
-        ? "poc_progress_report_fast_path"
-        : conversionFocus
-          ? "poc_conversion_metrics_fast_path"
-          : "poc_workload_fast_path";
-      void logTurn({ status: "ok", response_chars: text.length });
-      return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
-      });
-    }
-    const emptyText = [
-      "No active prep POC profiles were found to build a progress report.",
-      "",
-      ":::blocks",
-      JSON.stringify([{ type: "executive-summary", content: "No active prep POC profiles are configured in the system yet." }]),
-      ":::",
-    ].join("\n");
-    telemetry.intent = "poc_workload_fast_path_empty";
-    void logTurn({ status: "ok", response_chars: emptyText.length });
-    return new Response(buildPlainSseResponse(emptyText), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+    const { text, intent } = formatPocWorkloadChatSse(result, lastUserMessage);
+    telemetry.intent = intent;
+    void logTurn({ status: "ok", response_chars: text.length });
+    return new Response(buildPlainSseResponse(text), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
     });
   }
 

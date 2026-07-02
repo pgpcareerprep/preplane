@@ -450,7 +450,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 interface VoiceMessage { role: "user" | "assistant"; content: string; blocks?: any[]; }
-interface PendingAction { entity: string; target_name: string; field: string; value: string; }
+interface VoicePendingRef { pending_action_id: string; }
 
 interface VoiceConversationOverlayProps {
   open: boolean;
@@ -537,7 +537,7 @@ export function VoiceConversationOverlay({
   const messagesRef = useRef<VoiceMessage[]>([]);
   const handlingRef = useRef(false);
   const autoListenRef = useRef(true);
-  const pendingActionRef = useRef<PendingAction | null>(null);
+  const pendingActionRef = useRef<VoicePendingRef | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Keep ref in sync with state so async callbacks see the latest value
@@ -589,7 +589,11 @@ export function VoiceConversationOverlay({
             method: "POST",
             signal: ctrl.signal,
             headers: await authHeaders(),
-            body: JSON.stringify({ messages: [], confirm: pending, ...identityPayload }),
+            body: JSON.stringify({
+              messages: [],
+              confirm: { pending_action_id: pending.pending_action_id },
+              ...identityPayload,
+            }),
           });
           let data: any = {};
           try { data = await resp.json(); } catch { /* non-json */ }
@@ -689,7 +693,9 @@ export function VoiceConversationOverlay({
         spoken = stripForVoice(data.spoken || "Sorry, I didn't catch that.");
       }
 
-      if (data.pendingAction) pendingActionRef.current = data.pendingAction;
+      if (data.pendingAction?.pending_action_id) {
+        pendingActionRef.current = { pending_action_id: data.pendingAction.pending_action_id };
+      }
       messagesRef.current.push({ role: "assistant", content: spoken });
       setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken, blocks: data.blocks || [] }]);
       // Persist assistant turn to the shared thread

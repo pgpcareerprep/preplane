@@ -409,7 +409,7 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "prepare_write",
-      description: "MANDATORY second step (after `check_permission` allowed=true) before EVERY write. Stages the pending change, snapshots current values from the live sheet, validates RBAC again server-side, and returns a `pending_action_id` (TTL 10 minutes). You MUST then render a `confirmation-card` block that includes the returned `pending_action_id`, `current`, `proposed`, and `sync_impact`. Do NOT call the underlying write tool directly — only `execute_pending` (after the user confirms) is allowed to mutate state.",
+      description: "MANDATORY second step (after `check_permission` allowed=true) before EVERY write. Stages the pending change server-side, snapshots current values, validates RBAC, and returns a `pending_action_id` (TTL 10 minutes). You MUST render a `confirmation-card` block with the returned `pending_action_id`, `current`, `proposed`, and `sync_impact`. Do NOT call the underlying write tool directly — only `execute_pending` with that id (after user confirms) may mutate state.",
       parameters: {
         type: "object",
         properties: {
@@ -420,7 +420,7 @@ export const TOOL_SCHEMAS = [
           },
           payload: {
             type: "object",
-            description: "Exact arguments that would be passed to the underlying write tool. Will be replayed verbatim by execute_pending.",
+            description: "Arguments for the underlying write tool. Stored server-side; not round-tripped by the client.",
             additionalProperties: true,
           },
           target_summary: { type: "string", description: "Short label for the target (e.g. 'Google · PM Intern')." },
@@ -435,17 +435,13 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "execute_pending",
-      description: "Execute a previously prepared write action AFTER the user clicks Confirm on the confirmation-card. Stateless: replays the underlying write tool with the same kind+payload returned by prepare_write, re-validates RBAC, and writes an activity-log row. Call this when the most recent user message is `Execute pending action <id>`. Pass back the same `kind` and `payload` you received from prepare_write. After success, render a brief `activity-feed` block.",
+      description: "Execute a previously prepared write action AFTER the user confirms. Loads the staged row server-side by `pending_action_id` only (kind/payload are NOT accepted from the client — they are read from the server-staged row). Re-validates RBAC, marks the row executed atomically, and writes an activity-log row.",
       parameters: {
         type: "object",
         properties: {
-          pending_action_id: { type: "string", description: "UUID returned by prepare_write (used only for activity-log correlation)." },
-          kind: { type: "string", description: "Same `kind` returned by prepare_write." },
-          payload: { type: "object", description: "Same `payload` returned by prepare_write — replayed verbatim." },
-          current_snapshot: { type: "object", description: "Optional: `current` snapshot from prepare_write for the activity log." },
-          proposed_snapshot: { type: "object", description: "Optional: `proposed` snapshot from prepare_write for the activity log." },
+          pending_action_id: { type: "string", description: "UUID returned by prepare_write." },
         },
-        required: ["pending_action_id", "kind", "payload"],
+        required: ["pending_action_id"],
         additionalProperties: false,
       },
     },

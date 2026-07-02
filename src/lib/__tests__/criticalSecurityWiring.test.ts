@@ -46,6 +46,7 @@ describe("critical security wiring", () => {
     expect(voice).toContain("new AsyncLocalStorage<VoiceRequestState>()");
     expect(voice).not.toContain("CURRENT_VIEW_AS");
     expect(voice).not.toContain("CURRENT_VOICE_USER_ID");
+    expect(voice).not.toContain("voiceCopilotBridge");
     expect(voice).toContain("COPILOT_TOOL_REGISTRY");
     expect(voice).toContain("runSharedCopilotTool");
   });

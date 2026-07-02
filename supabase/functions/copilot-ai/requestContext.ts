@@ -29,6 +29,9 @@ export type RequestContext = {
   pocId: string | null;
   isImpersonating: boolean;
   viewAsName: string | null;
+  /** Read-scoping identity (view-as / POC). Writes still use `role` (real JWT). */
+  effectiveRole: string | null;
+  effectiveName: string | null;
   intent: string;
   activeProviderName: string | null;
   authToken: string | null;
@@ -59,7 +62,8 @@ export function createRequestState(req: Request): CopilotRequestState {
     cache: {},
     context: {
       role: "poc", userId: null, actorName: null, plan: null, pocId: null,
-      isImpersonating: false, viewAsName: null, intent: "unknown", activeProviderName: null,
+      isImpersonating: false, viewAsName: null, effectiveRole: null, effectiveName: null,
+      intent: "unknown", activeProviderName: null,
       authToken: null,
     },
     log: createLogger("copilot-ai", req),

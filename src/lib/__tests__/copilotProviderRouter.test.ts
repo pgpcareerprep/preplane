@@ -99,10 +99,13 @@ describe("copilot-ai provider router", () => {
 });
 
 describe("voice-copilot provider router", () => {
-  it("already uses a PROVIDERS array for cross-provider fallback", () => {
+  it("delegates tool-model calls to shared callToolModel via voiceCallModel", () => {
     const src = read(VOICE_COPILOT);
-    expect(src).toContain("const PROVIDERS:");
-    expect(src).toContain("for (const provider of PROVIDERS)");
+    expect(src).toContain("voiceCallModel");
+    expect(src).toContain("await callToolModel(");
+    expect(src).toContain("buildProviderList(");
+    expect(src).not.toContain("const PROVIDERS:");
+    expect(src).not.toContain("for (const provider of PROVIDERS)");
   });
 
   it("voice-copilot returns 503 (not 200) when all providers fail", () => {

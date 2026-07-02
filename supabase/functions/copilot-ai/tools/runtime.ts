@@ -2,6 +2,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { checkPermission } from "../../_shared/rbac.ts";
 import { POC_WRITABLE_LMP_COLUMNS } from "../../_shared/permissionContract.ts";
 import {
+  claimPendingActionForExecution,
+  stagePendingAction,
+} from "../../_shared/copilotPendingActions.ts";
+import {
   requestState,
   aiProvider,
   privilegedCopilotRole,
@@ -204,6 +208,32 @@ function matchesPocFilter(cellValue: string, filter: string): boolean {
   const fFirst = f.split(/\s+/)[0];
   if (vFirst && fFirst && (vFirst === fFirst || vFirst.startsWith(fFirst) || fFirst.startsWith(vFirst))) return true;
   return false;
+}
+
+/** POC read scope: effectiveRole (view-as) or JWT role when acting as self. */
+function pocReadScopeName(): string | null {
+  const ctx = requestState().context;
+  const readRole = ctx.effectiveRole ?? ctx.role;
+  const readName = ctx.effectiveName ?? ctx.viewAsName ?? ctx.actorName;
+  if (readRole === "poc" && readName) return readName;
+  return null;
+}
+
+function recordMatchesOperationalPocScope(record: Record<string, string>, pocName: string): boolean {
+  return (
+    matchesPocFilter(record["Prep POC"] || "", pocName) ||
+    matchesPocFilter(record["Support POC"] || "", pocName) ||
+    matchesPocFilter(record["Secondary POC"] || "", pocName)
+  );
+}
+
+function applyPocReadScope(
+  records: Record<string, string>[],
+  args: Record<string, unknown>,
+): Record<string, string>[] {
+  const scopePoc = pocReadScopeName();
+  if (!scopePoc || args.poc || args.scope_org_wide === true) return records;
+  return records.filter((r) => recordMatchesOperationalPocScope(r, scopePoc));
 }
 
 // ── DB mirror helpers ──
@@ -446,6 +476,21 @@ export async function executeTool(
           return JSON.stringify({ count: count ?? data?.length ?? 0, pocs: data ?? [] });
         }
 
+        if (entityType === "lmp") {
+          const { records } = await getLmpRecords();
+          let filtered = applyPocReadScope(records, args as Record<string, unknown>);
+          if (args.status) {
+            filtered = filtered.filter((r) => matchesFilter(r["Status"] || "", String(args.status)));
+          }
+          if (args.domain) {
+            filtered = filtered.filter((r) => matchesFilter(r["Domain"] || "", String(args.domain)));
+          }
+          return JSON.stringify({
+            count: filtered.length,
+            sample: filtered.slice(0, 5).map((r) => `${r["Company"]} ${r["Role"]}`),
+          });
+        }
+
         const { searchEntities: _se } = await import("../../_shared/entitySearch.ts");
         let regData = await _se({ query: "", types: [entityType], limit: limitVal, perTypeLimit: limitVal });
         if (args.domain) {
@@ -646,17 +691,27 @@ export async function executeTool(
           console.warn("prepare_write snapshot warn:", snapErr);
         }
 
-        // STATELESS confirmation flow (copilot_pending_actions table dropped in Phase 5).
-        // We mint a UUID, echo back kind+payload, and the AI passes them back into
-        // execute_pending. No DB hop required.
-        const pendingId = crypto.randomUUID();
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-        return JSON.stringify({
-          pending_action_id: pendingId,
-          expires_at: expiresAt,
+        // Server-staged confirmation: persist row; client/model only round-trips the id.
+        if (!requestState().context.userId) {
+          return JSON.stringify({ error: "Not authenticated" });
+        }
+        const staged = await stagePendingAction({
+          userId: requestState().context.userId,
+          actorName: requestState().context.actorName,
+          role: requestState().context.role,
           kind,
           payload,
+          currentSnapshot,
+          proposedSnapshot,
+          source: "chat",
+        });
+        if ("error" in staged) {
+          return JSON.stringify({ error: staged.error });
+        }
+
+        return JSON.stringify({
+          pending_action_id: staged.id,
+          expires_at: staged.expiresAt,
           target_summary: targetSummary,
           current: currentSnapshot,
           proposed: proposedSnapshot,
@@ -674,11 +729,20 @@ export async function executeTool(
           });
         }
         const id = String(args.pending_action_id || "").trim();
-        const kind = String(args.kind || "").trim();
-        const payload = (args.payload as Record<string, unknown>) || {};
-        if (!id || !kind) return JSON.stringify({ error: "Missing pending_action_id or kind (stateless flow requires both)" });
-        const currentSnapshot = (args.current_snapshot as Record<string, unknown>) || {};
-        const proposedSnapshot = (args.proposed_snapshot as Record<string, unknown>) || {};
+        if (!id) return JSON.stringify({ error: "Missing pending_action_id" });
+
+        const userId = requestState().context.userId;
+        if (!userId) return JSON.stringify({ error: "Not authenticated" });
+
+        const claimed = await claimPendingActionForExecution(id, userId);
+        if ("error" in claimed) {
+          return JSON.stringify({ error: claimed.error, code: claimed.code });
+        }
+
+        const kind = claimed.kind;
+        const payload = claimed.payload;
+        const currentSnapshot = claimed.currentSnapshot;
+        const proposedSnapshot = claimed.proposedSnapshot;
 
         // Re-validate RBAC at execute time.
         const PERM_MAP: Record<string,string> = {
@@ -858,7 +922,7 @@ export async function executeTool(
 
       case "search_lmp_records": {
         const { records } = await getLmpRecords();
-        let filtered = records;
+        let filtered = applyPocReadScope(records, args as Record<string, unknown>);
         if (args.company) filtered = filtered.filter(r => matchesFilter(r["Company"] || "", args.company as string));
         if (args.role) filtered = filtered.filter(r => matchesFilter(r["Role"] || "", args.role as string));
         if (args.domain) filtered = filtered.filter(r => matchesFilter(r["Domain"] || "", args.domain as string));
@@ -1166,7 +1230,7 @@ export async function executeTool(
       case "get_analytics": {
         const { records } = await getLmpRecords();
         const metric = args.metric as string;
-        let filtered = records;
+        let filtered = applyPocReadScope(records, args as Record<string, unknown>);
         if (args.domain) filtered = filtered.filter(r => matchesFilter(r["Domain"] || "", args.domain as string));
         if (args.poc) filtered = filtered.filter(r =>
           matchesFilter(r["Prep POC"] || "", args.poc as string) ||
