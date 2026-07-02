@@ -11,6 +11,7 @@ type GroundingChunk = {
 export type GeminiDiscoveryResult = {
   mentors: DiscoveredMentor[];
   webSearchQueries: string[];
+  error?: string;
 };
 
 const PROFILE_URL_RES: { platform: Platform; re: RegExp }[] = [

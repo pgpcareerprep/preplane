@@ -100,6 +100,8 @@ export async function runMentorMatch(
 
   const extRole = jdInfo.jdRole || jdInfo.jdSkills[0] || "";
 
+  const extMeta = { errorAlreadyShown: false, reason: undefined as "gemini_error" | "no_results" | undefined };
+
   const extPromise: Promise<ScoringCandidate[]> = (shouldRunExt && extRole)
     ? (async () => {
         ctx.onStep?.("EXT");
@@ -121,6 +123,7 @@ export async function runMentorMatch(
             seniority_level: jdInfo.jdSeniority,
           });
           const res = await fetchExternalMentors(queries, cfg);
+          extMeta.reason = res.reason;
           const mentors = res.mentors;
           const counts = ["LinkedIn", "Topmate", "ADPList", "Superpeer"]
             .map((p) => `${p} ${mentors.filter((m) => m.platform === p).length}`)
@@ -128,13 +131,20 @@ export async function runMentorMatch(
           if (res.errors.length) {
             // Surface only the first non-recoverable error message (already user-friendly from externalMentors.ts).
             const fatal = res.errors.find((e) => !e.recoverable);
-            if (fatal) ctx.onError?.(fatal.message);
-            else if (mentors.length === 0 && res.errors[0]) ctx.onError?.(res.errors[0].message);
+            if (fatal) {
+              extMeta.errorAlreadyShown = true;
+              ctx.onError?.(fatal.message);
+            } else if (mentors.length === 0 && res.errors[0]) {
+              extMeta.errorAlreadyShown = true;
+              ctx.onError?.(res.errors[0].message);
+            }
           } else if (mentors.length === 0) {
+            extMeta.errorAlreadyShown = true;
             ctx.onError?.(`External search found 0 mentors (${counts}).`);
           }
           return mentors.map(normaliseExternal);
         } catch (e) {
+          extMeta.errorAlreadyShown = true;
           ctx.onError?.(e instanceof Error ? e.message : String(e));
           return [];
         }
@@ -178,9 +188,13 @@ export async function runMentorMatch(
   raw.push(...extCandidates);
 
   // Surface "EXT requested but returned 0" so the UI can show a banner.
-  if (wantEXT && shouldRunExt && rawExtCount === 0) {
+  if (wantEXT && shouldRunExt && rawExtCount === 0 && !extMeta.errorAlreadyShown) {
     if (onlyExt) {
-      ctx.onError?.("External-only search found no mentors. Include MU/ALU sources for reliable results, or verify GEMINI_API_KEY in Supabase.");
+      if (extMeta.reason === "gemini_error") {
+        ctx.onError?.("External-only search found no mentors. Include MU/ALU sources for reliable results, or verify GEMINI_API_KEY in Supabase.");
+      } else {
+        ctx.onError?.("No mentors matched this role. Try broadening the role or adding skills/industry context.");
+      }
     } else {
       ctx.onError?.("External search returned no additional results. Showing MU/ALU results only.");
     }

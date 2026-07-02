@@ -60,6 +60,20 @@ const REGION_LABEL: Record<string, string> = {
 
 const ALL_PLATFORMS: Platform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"];
 
+const ZERO_MENTOR_MSG =
+  "No mentor profiles found for this role. Try broadening the role or adding skills/industry context.";
+
+function zeroMentorResponse(
+  error: string,
+  geminiError?: string,
+): { mentors: []; error: string; reason: "gemini_error" | "no_results" } {
+  return {
+    mentors: [],
+    error,
+    reason: geminiError ? "gemini_error" : "no_results",
+  };
+}
+
 /**
  * Last-resort fallback: call Gemini native endpoint (no grounding, no tools) to generate
  * plausible mentor suggestions when all search paths fail. Uses ?key= auth which is the
@@ -201,8 +215,9 @@ Deno.serve(async (req) => {
     const geminiDiscoveryPromise = discoverViaGeminiSearch(
       GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms, userId,
     ).catch((e) => {
-      log.warn("gemini_discovery_parallel_failed", { err_msg: (e as Error).message });
-      return { mentors: [] as DiscoveredMentor[], webSearchQueries: [] as string[] };
+      const err_msg = (e as Error).message;
+      log.warn("gemini_discovery_parallel_failed", { err_msg });
+      return { mentors: [] as DiscoveredMentor[], webSearchQueries: [] as string[], error: err_msg };
     });
 
     // 1. Query expansion (JD-aware)
@@ -287,7 +302,7 @@ Deno.serve(async (req) => {
           log.info("gemini_direct_generation_fallback", {});
           const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
           if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
-          return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
+          return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error)), {
             status: 200, headers: { ...corsH, "Content-Type": "application/json" },
           });
         }
@@ -297,7 +312,7 @@ Deno.serve(async (req) => {
         log.info("gemini_direct_generation_fallback", {});
         const generated = await generateMentorsFallback(GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, limit, activePlatforms);
         if (generated.length) return new Response(JSON.stringify({ mentors: generated }), { status: 200, headers: { ...corsH, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify({ mentors: [], error: "No mentor profiles found for this role. Try broadening the role or adding skills/industry context." }), {
+        return new Response(JSON.stringify(zeroMentorResponse(ZERO_MENTOR_MSG, geminiResult.error)), {
           status: 200, headers: { ...corsH, "Content-Type": "application/json" },
         });
       }

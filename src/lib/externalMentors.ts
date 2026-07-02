@@ -4,7 +4,11 @@
 import type { ExternalDiscoveryConfig } from "./externalDiscoveryConfig";
 import type { MatchingError } from "./mentorMatching";
 
-export type FetchResult = { mentors: ExternalMentor[]; errors: MatchingError[] };
+export type FetchResult = {
+  mentors: ExternalMentor[];
+  errors: MatchingError[];
+  reason?: "gemini_error" | "no_results";
+};
 
 export type ExternalPlatform = "Topmate" | "ADPList" | "LinkedIn" | "Superpeer";
 
@@ -308,7 +312,9 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       return { mentors: [], errors: [{ source: "EXT", message: `${platform}: ${error.message}`, recoverable: false }] };
     }
     const dataError = typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : null;
-    const dataReason = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
+    const dataReasonRaw = typeof (data as { reason?: unknown })?.reason === "string" ? (data as { reason: string }).reason : null;
+    const apiReason =
+      dataReasonRaw === "gemini_error" || dataReasonRaw === "no_results" ? dataReasonRaw : undefined;
     if (dataError) {
       // Translate known Gemini/provider API error codes to actionable messages.
       let friendlyErr = dataError;
@@ -320,12 +326,20 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
         friendlyErr = "Gemini search returned no results for this role. Try broadening the role or adding more context.";
       }
       const recoverable = dataError === "no_free_provider_result" || dataError.startsWith("No web results") || dataError.includes("no results");
-      return { mentors: [], errors: [{ source: "EXT", message: friendlyErr, recoverable }] };
+      return {
+        mentors: [],
+        errors: [{ source: "EXT", message: friendlyErr, recoverable }],
+        reason: apiReason,
+      };
     }
     const list: AIDiscoveredMentor[] = Array.isArray(data?.mentors) ? data.mentors : [];
     if (list.length === 0) {
-      const detail = dataReason || "External discovery returned no mentors for this role.";
-      return { mentors: [], errors: [{ source: "EXT", message: detail, recoverable: true }] };
+      const detail = "External discovery returned no mentors for this role.";
+      return {
+        mentors: [],
+        errors: [{ source: "EXT", message: detail, recoverable: true }],
+        reason: apiReason,
+      };
     }
     const mentors: ExternalMentor[] = list.map((m) => ({
       mentor_id: uuid(),

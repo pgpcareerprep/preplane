@@ -98,13 +98,15 @@ export async function diagnoseEmailAuth(): Promise<EmailDiagnostic> {
     );
   }
 
-  if (!oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
+  if (!hasOAuthClient && !oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
     fixSteps.push(
       "Recommended: set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, add redirect URI in Google Cloud Console, then use Connect Gmail on this page.",
     );
     fixSteps.push(`OAuth redirect URI to authorize: ${oauthRedirectUri}`);
     fixSteps.push("OAuth scope: https://www.googleapis.com/auth/gmail.send");
     fixSteps.push(`Sign in with the sender mailbox (e.g. ${delegatedUser}) when connecting.`);
+  } else if (hasOAuthClient && !oauthAuthorized && !gmailDelegationAuthorized && !hasSmtpPassword) {
+    fixSteps.push("OAuth client is configured. Click Connect Gmail below to finish authorizing.");
   }
 
   if (!hasOAuthClient && !gmailDelegationAuthorized && !hasSmtpPassword) {
