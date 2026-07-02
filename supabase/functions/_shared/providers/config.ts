@@ -8,7 +8,7 @@ export const CACHE_TTL_DAYS = 14;
 export const MIN_CONFIDENCE = 55;
 
 /** Gemini free-tier model for extraction, validation, and re-ranking. */
-export const GEMINI_FREE_MODEL = "gemini-2.0-flash";
+export const GEMINI_FREE_MODEL = "gemini-2.5-flash";
 
 export const GEMINI_API_URL =
   "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";

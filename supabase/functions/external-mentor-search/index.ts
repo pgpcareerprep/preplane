@@ -13,7 +13,7 @@
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createLogger } from "../_shared/logger.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
-import { assertZeroSpendConfig, MIN_CONFIDENCE } from "../_shared/providers/config.ts";
+import { assertZeroSpendConfig, GEMINI_FREE_MODEL, MIN_CONFIDENCE } from "../_shared/providers/config.ts";
 import {
   buildLinkedInFromSnippet,
   buildPlatformFromSnippet,
@@ -99,7 +99,7 @@ Rules: Real, well-known professionals only. Platform must be one of: ${platforms
 
   try {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

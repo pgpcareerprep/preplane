@@ -1,4 +1,5 @@
 import type { DiscoveredMentor, Platform, SearchHit } from "../types.ts";
+import { GEMINI_FREE_MODEL } from "../config.ts";
 import { callGeminiJson } from "../extract/gemini.ts";
 import { cleanLinkedin, platformFromUrl } from "../mentorSanitize.ts";
 
@@ -198,7 +199,7 @@ Find profiles on ${platformList}. Prefer Topmate and ADPList booking pages and L
 Return up to ${limit} mentors as a JSON array with name, current_role, company, platform, source_url, linkedin, booking_url.`;
 
   const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

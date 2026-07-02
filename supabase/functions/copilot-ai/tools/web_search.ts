@@ -1,10 +1,10 @@
 import { estimateTokens, logAiUsage } from "../../_shared/ai-usage.ts";
+import { GEMINI_FREE_MODEL } from "../../_shared/providers/config.ts";
 import { readCache, sha256Hex, writeCache } from "../cache.ts";
 import { getEnv } from "../secrets.ts";
 import { requestState } from "../requestContext.ts";
 
 const WEB_SEARCH_TTL_SEC = 900; // 15 minutes
-const WEB_SEARCH_MODEL = "gemini-2.0-flash";
 const WEB_SEARCH_TIMEOUT_MS = 8_000;
 const WEB_SEARCH_HOURLY_LIMIT = 20;
 const HOUR_MS = 60 * 60 * 1000;
@@ -99,7 +99,7 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
   const t0 = Date.now();
   try {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${WEB_SEARCH_MODEL}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,7 +125,7 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
       await logAiUsage({
         userId,
         feature: "copilot_web_search",
-        model: WEB_SEARCH_MODEL,
+        model: GEMINI_FREE_MODEL,
         promptTokens: estimateTokens(query),
         latencyMs: Date.now() - t0,
         status: resp.status === 429 ? "rate_limited" : "error",
@@ -153,7 +153,7 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
     await logAiUsage({
       userId,
       feature: "copilot_web_search",
-      model: WEB_SEARCH_MODEL,
+      model: GEMINI_FREE_MODEL,
       promptTokens: estimateTokens(query),
       responseTokens: estimateTokens(result.answer),
       latencyMs: Date.now() - t0,
@@ -168,7 +168,7 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
     await logAiUsage({
       userId,
       feature: "copilot_web_search",
-      model: WEB_SEARCH_MODEL,
+      model: GEMINI_FREE_MODEL,
       promptTokens: estimateTokens(query),
       latencyMs: Date.now() - t0,
       status: "error",
