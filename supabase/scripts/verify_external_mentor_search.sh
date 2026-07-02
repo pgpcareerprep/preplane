@@ -6,16 +6,14 @@ PROJECT_REF="${SUPABASE_PROJECT_REF:-sgqwnjajvgjcwqergnsr}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 echo "=== Supabase secrets (digests only) ==="
-if command -v timeout >/dev/null 2>&1; then
-  timeout 20 npx supabase secrets list --project-ref "$PROJECT_REF" 2>/dev/null || {
-    echo "Could not list secrets (timeout or auth). Run: npx supabase login"
-    echo "Then: npx supabase secrets list --project-ref $PROJECT_REF"
-  }
-else
-  npx supabase secrets list --project-ref "$PROJECT_REF" 2>/dev/null || {
+if [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
+  npx supabase secrets list --project-ref "$PROJECT_REF" || {
     echo "Could not list secrets. Run: npx supabase login"
     echo "Then: npx supabase secrets list --project-ref $PROJECT_REF"
   }
+else
+  echo "Skipped (no SUPABASE_ACCESS_TOKEN). Run: npx supabase login"
+  echo "Then: npx supabase secrets list --project-ref $PROJECT_REF"
 fi
 
 echo ""
@@ -39,7 +37,7 @@ if [[ -n "${JINA_API_KEY:-}" ]]; then
     -H "Accept: application/json" \
     "https://s.jina.ai/mentor%20coach"
   if [[ "${SET_JINA_IN_SUPABASE:-}" == "1" ]]; then
-    echo "Setting JINA_API_KEY in Supabase (from env)…"
+    echo "Setting JINA_API_KEY in Supabase (from env)..."
     npx supabase secrets set "JINA_API_KEY=${JINA_API_KEY}" --project-ref "$PROJECT_REF"
   fi
 else
