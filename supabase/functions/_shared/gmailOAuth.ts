@@ -258,13 +258,23 @@ export async function exchangeAuthorizationCode(
   }
   if (!accessToken) throw new Error("OAuth code exchange returned no access_token");
 
-  const profileRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const profile = await profileRes.json().catch(() => ({}));
-  const senderEmail = String(profile.emailAddress || "").trim();
+  let senderEmail = "";
+  try {
+    const profileRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (profileRes.ok) {
+      const profile = await profileRes.json().catch(() => ({}));
+      senderEmail = String(profile.emailAddress || "").trim();
+    }
+  } catch {
+    // profile read not permitted under gmail.send scope — fall through to hint
+  }
   if (!senderEmail) {
-    throw new Error("Could not resolve sender email from Gmail profile");
+    senderEmail =
+      Deno.env.get("GMAIL_OAUTH_SENDER_EMAIL")?.trim() ||
+      Deno.env.get("GOOGLE_DELEGATED_USER")?.trim() ||
+      "pgpcareerprep@mastersunion.org";
   }
 
   return { refreshToken, accessToken, senderEmail };
