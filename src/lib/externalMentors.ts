@@ -236,7 +236,7 @@ function toExternalMentor(platform: ExternalPlatform, r: Record<string, unknown>
 
 import { supabase } from "@/integrations/supabase/client";
 import { linkedinHref } from "@/lib/linkedinUrl";
-import { isGeminiKeyError } from "@/lib/extErrorMessage";
+import { isGeminiKeyError, geminiKeyRejectedMessage } from "@/lib/extErrorMessage";
 
 type AIDiscoveredMentor = {
   name: string;
@@ -326,7 +326,7 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       let friendlyErr = dataError;
       if (apiReason === "gemini_error" && dataDetail) {
         friendlyErr = isGeminiKeyError(dataDetail)
-          ? "External mentor search is not configured. Set GEMINI_API_KEY in Supabase Edge Function secrets."
+          ? geminiKeyRejectedMessage(dataDetail)
           : `External search failed: ${dataDetail}`;
       } else if (dataError === "no_free_provider_result" || dataError.includes("no free provider")) {
         friendlyErr = "External AI search quota exceeded or unavailable. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";

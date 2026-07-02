@@ -14,15 +14,14 @@ const NEUTRAL_ONLY_EXT =
 const NEUTRAL_MIXED =
   "External search returned no additional results. Showing MU/ALU results only.";
 
-const GEMINI_KEY_HINT =
-  "External-only search found no mentors. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";
-
 export function isGeminiKeyError(detail?: string | null): boolean {
   if (!detail) return false;
   const d = detail.toLowerCase();
   return (
     d.includes("api key") ||
     d.includes("api_key") ||
+    d.includes("api_key_invalid") ||
+    d.includes("permission_denied") ||
     d.includes("invalid key") ||
     d.includes("permission denied") ||
     d.includes("not configured") ||
@@ -36,12 +35,21 @@ function truncateDetail(detail: string, max = 180): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
+/** Actionable copy when Gemini rejects the configured API key (includes upstream detail). */
+export function geminiKeyRejectedMessage(detail?: string | null, maxDetail = 160): string {
+  const d = detail?.trim();
+  if (!d) {
+    return "External-only search found no mentors. Verify GEMINI_API_KEY in Supabase Edge Function secrets.";
+  }
+  return `External mentor search key was rejected by Gemini (${truncateDetail(d, maxDetail)}). Fix GEMINI_API_KEY in Supabase Edge Function secrets.`;
+}
+
 /** Toast when EXT-only (or mixed) run ends with zero external mentors. */
 export function extEmptyResultMessage(ctx: ExtEmptyContext): string {
   if (!ctx.onlyExt) return NEUTRAL_MIXED;
 
   if (ctx.reason === "gemini_error") {
-    if (isGeminiKeyError(ctx.detail)) return GEMINI_KEY_HINT;
+    if (isGeminiKeyError(ctx.detail)) return geminiKeyRejectedMessage(ctx.detail);
     const detail = ctx.detail?.trim();
     if (detail) {
       return `External search failed (Gemini API): ${truncateDetail(detail)}`;
@@ -60,7 +68,7 @@ export function extEmptyResultMessage(ctx: ExtEmptyContext): string {
 export function extFetchedZeroMessage(ctx: Pick<ExtEmptyContext, "reason" | "detail">): string {
   if (ctx.reason === "gemini_error") {
     if (isGeminiKeyError(ctx.detail)) {
-      return "External discovery failed — verify GEMINI_API_KEY in Supabase Edge Function secrets.";
+      return geminiKeyRejectedMessage(ctx.detail);
     }
     const detail = ctx.detail?.trim();
     if (detail) {

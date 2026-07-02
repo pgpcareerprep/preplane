@@ -20,7 +20,11 @@ export const jinaSearchProvider: SearchProvider = {
     });
     if (!res.ok) {
       const snippet = (await res.text()).slice(0, 200);
-      console.warn(`[jina-search] HTTP ${res.status}: ${snippet}`);
+      if (res.status === 401 || res.status === 402) {
+        console.warn(`[jina-search] jina_auth_missing HTTP ${res.status}: ${snippet}`);
+      } else {
+        console.warn(`[jina-search] HTTP ${res.status}: ${snippet}`);
+      }
       return [];
     }
     const text = await res.text();

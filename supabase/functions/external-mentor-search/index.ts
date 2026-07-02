@@ -34,7 +34,7 @@ import {
   cleanLinkedin,
 } from "../_shared/providers/mentorSanitize.ts";
 import { cachedScrape, cachedSearch } from "../_shared/providers/pipeline.ts";
-import { loadSecret } from "../_shared/providers/secrets.ts";
+import { loadSecretWithSource } from "../_shared/providers/secrets.ts";
 import type { DiscoveredMentor, Platform, SearchHit } from "../_shared/providers/types.ts";
 
 type Body = {
@@ -47,6 +47,7 @@ type Body = {
   limit?: number;
   platforms?: Platform[];
   region?: string;
+  diag?: boolean;
 };
 
 const REGION_LABEL: Record<string, string> = {
@@ -179,6 +180,19 @@ function crossFieldConsistent(snippet: SearchHit | undefined, name: string, role
   return true;
 }
 
+async function pingGemini(apiKey: string): Promise<{ ok: boolean; status: number; body: string }> {
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const body = (await resp.text()).slice(0, 300);
+    return { ok: resp.ok, status: resp.status, body };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message.slice(0, 300) };
+  }
+}
+
 Deno.serve(async (req) => {
   const corsH = buildCorsHeaders(req);
   const log = createLogger("external-mentor-search", req);
@@ -193,10 +207,30 @@ Deno.serve(async (req) => {
     const auth = await requireAuth(req, corsH);
     if ("error" in auth) return auth.error;
 
-    const GEMINI_API_KEY = (await loadSecret("GEMINI_API_KEY")) ?? Deno.env.get("GEMINI_API_KEY")?.trim() ?? null;
-
     let body: Body = {};
     try { body = await req.json(); } catch { body = {}; }
+
+    if (body.diag === true) {
+      const { value: geminiKey, source: keySource } = await loadSecretWithSource("GEMINI_API_KEY");
+      const keyPresent = Boolean(geminiKey);
+      const keyLast4 = geminiKey ? geminiKey.slice(-4) : null;
+      const geminiPing = geminiKey
+        ? await pingGemini(geminiKey)
+        : { ok: false, status: 0, body: "GEMINI_API_KEY not configured in env or vault" };
+      return new Response(JSON.stringify({
+        diag: true,
+        keyPresent,
+        keySource,
+        keyLast4,
+        keyLength: geminiKey?.length ?? 0,
+        geminiPing,
+      }), {
+        status: 200,
+        headers: { ...corsH, "Content-Type": "application/json" },
+      });
+    }
+
+    const { value: GEMINI_API_KEY } = await loadSecretWithSource("GEMINI_API_KEY");
 
     const role = (body.role || "").trim();
     const company = (body.company || "").trim();
