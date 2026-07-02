@@ -193,6 +193,21 @@ async function pingGemini(apiKey: string): Promise<{ ok: boolean; status: number
   }
 }
 
+async function pingJina(apiKey: string | null): Promise<{ ok: boolean; status: number; body: string }> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    const resp = await fetch(
+      `https://s.jina.ai/${encodeURIComponent("mentor coach")}`,
+      { signal: AbortSignal.timeout(10_000), headers },
+    );
+    const body = (await resp.text()).slice(0, 300);
+    return { ok: resp.ok, status: resp.status, body };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message.slice(0, 300) };
+  }
+}
+
 Deno.serve(async (req) => {
   const corsH = buildCorsHeaders(req);
   const log = createLogger("external-mentor-search", req);
@@ -211,19 +226,26 @@ Deno.serve(async (req) => {
     try { body = await req.json(); } catch { body = {}; }
 
     if (body.diag === true) {
-      const { value: geminiKey, source: keySource } = await loadSecretWithSource("GEMINI_API_KEY");
-      const keyPresent = Boolean(geminiKey);
-      const keyLast4 = geminiKey ? geminiKey.slice(-4) : null;
+      const { value: geminiKey, source: geminiKeySource } = await loadSecretWithSource("GEMINI_API_KEY");
+      const { value: jinaKey, source: jinaKeySource } = await loadSecretWithSource("JINA_API_KEY");
+      const searxngUrl = (Deno.env.get("SEARXNG_URL") || "").trim();
       const geminiPing = geminiKey
         ? await pingGemini(geminiKey)
         : { ok: false, status: 0, body: "GEMINI_API_KEY not configured in env or vault" };
+      const jinaPing = await pingJina(jinaKey);
       return new Response(JSON.stringify({
         diag: true,
-        keyPresent,
-        keySource,
-        keyLast4,
+        keyPresent: Boolean(geminiKey),
+        keySource: geminiKeySource,
+        keyLast4: geminiKey ? geminiKey.slice(-4) : null,
         keyLength: geminiKey?.length ?? 0,
         geminiPing,
+        jinaKeyPresent: Boolean(jinaKey),
+        jinaKeySource,
+        jinaKeyLast4: jinaKey ? jinaKey.slice(-4) : null,
+        jinaKeyLength: jinaKey?.length ?? 0,
+        jinaPing,
+        searxngUrlPresent: Boolean(searxngUrl),
       }), {
         status: 200,
         headers: { ...corsH, "Content-Type": "application/json" },

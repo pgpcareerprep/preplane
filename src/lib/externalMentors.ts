@@ -238,6 +238,48 @@ import { supabase } from "@/integrations/supabase/client";
 import { linkedinHref } from "@/lib/linkedinUrl";
 import { isGeminiKeyError, geminiKeyRejectedMessage } from "@/lib/extErrorMessage";
 
+export type ExternalMentorDiag = {
+  diag: true;
+  keyPresent: boolean;
+  keySource: string | null;
+  keyLast4: string | null;
+  keyLength: number;
+  geminiPing: { ok: boolean; status: number; body: string };
+  jinaKeyPresent: boolean;
+  jinaKeySource: string | null;
+  jinaKeyLast4: string | null;
+  jinaKeyLength: number;
+  jinaPing: { ok: boolean; status: number; body: string };
+  searxngUrlPresent: boolean;
+};
+
+/** Live config check — what the deployed edge function sees for Gemini/Jina. */
+export async function fetchExternalMentorDiag(): Promise<ExternalMentorDiag> {
+  const { data, error } = await supabase.functions.invoke("external-mentor-search", {
+    body: { diag: true },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== "object" || !(data as ExternalMentorDiag).diag) {
+    throw new Error("Unexpected diagnostic response from external-mentor-search");
+  }
+  return data as ExternalMentorDiag;
+}
+
+export function formatExternalMentorDiagSummary(d: ExternalMentorDiag): string {
+  const lines = [
+    `Gemini: ${d.keyPresent ? `present (${d.keySource}, …${d.keyLast4})` : "missing"} — ping ${d.geminiPing.ok ? "OK" : `HTTP ${d.geminiPing.status}`}`,
+    `Jina: ${d.jinaKeyPresent ? `present (${d.jinaKeySource}, …${d.jinaKeyLast4})` : "missing"} — ping ${d.jinaPing.ok ? "OK" : `HTTP ${d.jinaPing.status}`}`,
+    `SearXNG URL: ${d.searxngUrlPresent ? "configured" : "not set"}`,
+  ];
+  if (!d.geminiPing.ok && d.geminiPing.body) {
+    lines.push(`Gemini detail: ${d.geminiPing.body.slice(0, 120)}`);
+  }
+  if (!d.jinaPing.ok && d.jinaPing.body) {
+    lines.push(`Jina detail: ${d.jinaPing.body.slice(0, 120)}`);
+  }
+  return lines.join("\n");
+}
+
 type AIDiscoveredMentor = {
   name: string;
   current_role: string;
