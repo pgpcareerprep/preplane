@@ -3,6 +3,10 @@ import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, Check, X } from "lucide-react";
 import type { ConfirmationCardBlock } from "@/lib/copilotBlocks";
 import { cn } from "@/lib/utils";
+import {
+  sanitizeConfirmationCardBlock,
+  scrubLabelText,
+} from "@/lib/copilot/confirmationLabels";
 
 export function CopilotConfirmationCard({
   block,
@@ -15,7 +19,18 @@ export function CopilotConfirmationCard({
   onConfirmPending?: (pendingActionId: string) => void;
   onCancelPending?: (pendingActionId: string) => void;
 }) {
+  const safe = sanitizeConfirmationCardBlock(block);
   const [state, setState] = useState<"pending" | "confirmed" | "cancelled">("pending");
+
+  if (!safe) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-[12.5px] text-amber-900">
+        I couldn&apos;t build a safe confirmation for that request — please name the LMP (company and role) and try again.
+      </div>
+    );
+  }
+
+  block = safe;
 
   if (state === "confirmed") {
     return (
@@ -54,8 +69,8 @@ export function CopilotConfirmationCard({
           <AlertTriangle className="h-4.5 w-4.5 text-amber-600" />
         </span>
         <div className="flex-1 min-w-0">
-          <h4 className="text-[14px] font-semibold text-n900">{block.title}</h4>
-          <p className="text-[12.5px] text-n600 mt-0.5 leading-relaxed">{block.description}</p>
+          <h4 className="text-[14px] font-semibold text-n900">{scrubLabelText(block.title) || "Confirm change"}</h4>
+          <p className="text-[12.5px] text-n600 mt-0.5 leading-relaxed">{scrubLabelText(block.description)}</p>
         </div>
       </div>
 
@@ -70,7 +85,7 @@ export function CopilotConfirmationCard({
                   <ArrowRight className="h-3 w-3 text-n300 shrink-0" />
                 </>
               )}
-              <span className="text-n900 font-semibold">{c.to}</span>
+              <span className="text-n900 font-semibold">{scrubLabelText(c.to) ?? "—"}</span>
             </div>
           ))}
         </div>

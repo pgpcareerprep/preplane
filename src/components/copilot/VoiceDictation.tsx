@@ -433,6 +433,7 @@ export function VoiceInterimBubble({ interim, listening }: { interim: string; li
 // ─── Conversational Voice Overlay (full-screen mic + TTS) ─────────────────
 
 import { speak as speakTts, stopSpeaking as stopTts } from "@/lib/voice/speakTts";
+import { sanitizePendingActionSummary } from "@/lib/copilot/confirmationLabels";
 import { X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -509,7 +510,7 @@ function renderVoiceBlocks(blocks: any[]) {
         );
         if (b.type === "pending_action") return (
           <div key={i} className="bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 text-orange-800">
-            {b.summary}
+            {sanitizePendingActionSummary(b.summary)}
           </div>
         );
         return null;
