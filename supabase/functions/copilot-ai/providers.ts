@@ -15,6 +15,36 @@ import type { ProviderConfig } from "./types.ts";
 
 export type { ProviderConfig };
 
+const CIRCUIT_SKIP_MSG = "circuit open (recent failures — retries in ≤5 min)";
+
+/** Sanitize upstream error text before logging or returning to clients. */
+export function sanitizeFailMsg(raw: string): string {
+  return raw
+    .replace(/([?&]key=)[^&\s"']+/gi, "$1***")
+    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer ***")
+    .slice(0, 200);
+}
+
+function recordProvFailure(
+  failures: Map<string, string>,
+  provName: string,
+  msg: string,
+): string {
+  const clean = sanitizeFailMsg(msg);
+  if (!failures.has(provName)) failures.set(provName, clean);
+  return clean;
+}
+
+function throwProviderExhaustion(
+  failures: Map<string, string>,
+  lastFailMsg: string,
+): never {
+  const parts = [...failures].map(([p, m]) => `${p}: ${m}`).join(" | ");
+  const summary = parts || lastFailMsg;
+  console.error(`[ai-gateway] exhausted all providers: ${summary}`);
+  throw new Error(`AI gateway unavailable. Provider errors — ${summary}`);
+}
+
 // Ordered list of ALL available providers for this request.
 // callSynthesis and callToolModel walk this list in order with cross-provider fallback.
 
@@ -59,10 +89,12 @@ export async function callSynthesis(
   const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured. Set GEMINI_API_KEY, OPENROUTER_API_KEY, or GROK_API_KEY in Edge Function secrets.");
 
+  const failures = new Map<string, string>();
   let lastFailMsg = "all providers unavailable";
 
   for (const prov of providers) {
     if (isCircuitOpen(prov.name)) {
+      if (!failures.has(prov.name)) failures.set(prov.name, CIRCUIT_SKIP_MSG);
       console.warn(`[synthesis] ${prov.name} circuit open — skipping to next provider`);
       continue;
     }
@@ -79,8 +111,9 @@ export async function callSynthesis(
           });
         } catch (e) {
           const n = (e as { name?: string })?.name ?? "";
-          lastFailMsg = `${prov.name}/${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
-          console.warn(`[synthesis] ${lastFailMsg}`);
+          const msg = `${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
+          lastFailMsg = recordProvFailure(failures, prov.name, msg);
+          console.warn(`[synthesis] ${prov.name}/${lastFailMsg}`);
           recordFailure(prov.name);
           break; // network/timeout → try next model in same provider
         }
@@ -91,8 +124,9 @@ export async function callSynthesis(
         }
 
         const errBody = await resp.text().catch(() => "");
-        lastFailMsg = `${prov.name}/${model} HTTP ${resp.status}: ${errBody.slice(0, 300)}`;
-        console.warn(`[synthesis] ${lastFailMsg}`);
+        const msg = `${model} HTTP ${resp.status}: ${errBody.slice(0, 300)}`;
+        lastFailMsg = recordProvFailure(failures, prov.name, msg);
+        console.warn(`[synthesis] ${prov.name}/${lastFailMsg}`);
 
         if (RETRYABLE_HTTP.has(resp.status)) {
           recordFailure(prov.name);
@@ -109,8 +143,7 @@ export async function callSynthesis(
     }
   }
 
-  console.error(`[synthesis] exhausted all providers: ${lastFailMsg}`);
-  throw new Error(`AI gateway unavailable after trying ${providers.map(p => p.name).join(" → ")}. Last error: ${lastFailMsg}`);
+  throwProviderExhaustion(failures, lastFailMsg);
 }
 
 /**
@@ -124,10 +157,12 @@ export async function callToolModel(
   const providers = requestState().ai.providers;
   if (!providers.length) throw new Error("No AI provider configured.");
 
+  const failures = new Map<string, string>();
   let lastFailMsg = "all providers unavailable";
 
   for (const prov of providers) {
     if (isCircuitOpen(prov.name)) {
+      if (!failures.has(prov.name)) failures.set(prov.name, CIRCUIT_SKIP_MSG);
       console.warn(`[tool-model] ${prov.name} circuit open — skipping`);
       continue;
     }
@@ -145,8 +180,9 @@ export async function callToolModel(
         });
       } catch (e) {
         const n = (e as { name?: string })?.name ?? "";
-        lastFailMsg = `${prov.name}/${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
-        console.warn(`[tool-model] ${lastFailMsg}`);
+        const msg = `${model}: ${n === "TimeoutError" || n === "AbortError" ? "timeout" : (e as Error).message}`;
+        lastFailMsg = recordProvFailure(failures, prov.name, msg);
+        console.warn(`[tool-model] ${prov.name}/${lastFailMsg}`);
         recordFailure(prov.name);
         break;
       }
@@ -163,8 +199,9 @@ export async function callToolModel(
 
       const status = resp.status;
       const errBody = await resp.text().catch(() => "");
-      lastFailMsg = `${prov.name}/${model} HTTP ${status}: ${errBody.slice(0, 300)}`;
-      console.warn(`[tool-model] ${lastFailMsg}`);
+      const msg = `${model} HTTP ${status}: ${errBody.slice(0, 300)}`;
+      lastFailMsg = recordProvFailure(failures, prov.name, msg);
+      console.warn(`[tool-model] ${prov.name}/${lastFailMsg}`);
 
       if (RETRYABLE_HTTP.has(status)) {
         recordFailure(prov.name);
@@ -182,7 +219,5 @@ export async function callToolModel(
     }
   }
 
-  const providerNames = providers.map(p => p.name).join(" → ");
-  console.error(`[tool-model] exhausted all providers (${providerNames}): ${lastFailMsg}`);
-  throw new Error(`AI gateway unavailable after trying ${providerNames}. Last error: ${lastFailMsg}`);
+  throwProviderExhaustion(failures, lastFailMsg);
 }
