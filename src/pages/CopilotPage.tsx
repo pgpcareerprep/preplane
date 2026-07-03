@@ -910,7 +910,9 @@ function CopilotPageInner() {
                         onRetry={retryText ? () => send(retryText) : undefined}
                       />
                       {(m as any).errorDetail && (
-                        <p className="text-[11px] text-n500 pl-1">{(m as any).errorDetail}</p>
+                        <p className="text-[11px] text-n500 pl-1 break-words whitespace-pre-wrap">
+                          {String((m as any).errorDetail).slice(0, 400)}
+                        </p>
                       )}
                     </div>
                   );

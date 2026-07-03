@@ -27,7 +27,8 @@ import {
 import { cancelPendingAction } from "../_shared/copilotPendingActions.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
-import { buildProviderList, callSynthesis, callToolModel } from "./providers.ts";
+import { buildProviderList, callSynthesis, callToolModel, sanitizeFailMsg, type ProviderConfig } from "./providers.ts";
+import { getHealthSnapshot } from "../_shared/circuitBreaker.ts";
 import {
   requestStateStorage,
   createRequestState,
@@ -54,7 +55,55 @@ import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
 import { buildSystemPrompt } from "./systemPrompt.ts";
 
 function sanitizeProviderDetail(msg: string): string {
-  return msg.replace(/key=[^&\s]+/gi, "key=[redacted]").slice(0, 300);
+  return sanitizeFailMsg(msg).slice(0, 400);
+}
+
+async function probeCopilotProvider(prov: ProviderConfig) {
+  const keyPresent = Boolean(prov.key);
+  const keyLast4 = prov.key ? prov.key.slice(-4) : null;
+  if (!keyPresent) {
+    return {
+      name: prov.name,
+      model: prov.toolModel,
+      keyPresent: false,
+      keyLast4: null,
+      status: 0,
+      ok: false,
+      blocked: false,
+      error: "key not configured",
+    };
+  }
+  let status = 0;
+  let ok = false;
+  let blocked = false;
+  let error: string | null = null;
+  try {
+    const resp = await fetch(prov.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${prov.key}`,
+        "Content-Type": "application/json",
+        ...prov.extraHeaders,
+      },
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({
+        model: prov.toolModel,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 8,
+      }),
+    });
+    status = resp.status;
+    ok = resp.ok;
+    const bodyText = await resp.text().catch(() => "");
+    const lower = bodyText.toLowerCase();
+    blocked = lower.includes("are blocked") || lower.includes("permission_denied");
+    if (!ok) {
+      error = sanitizeFailMsg(bodyText || `HTTP ${status}`);
+    }
+  } catch (e) {
+    error = sanitizeFailMsg((e as Error).message);
+  }
+  return { name: prov.name, model: prov.toolModel, keyPresent, keyLast4, status, ok, blocked, error };
 }
 
 async function handleRequest(req: Request) {
@@ -126,11 +175,29 @@ async function handleRequest(req: Request) {
     lmpId?: string;
     snapshot?: string;
     cache?: boolean;
+    diag?: boolean;
   };
   try {
     body = await req.json();
   } catch {
     return jsonError("Invalid JSON body", 400, corsHeaders);
+  }
+
+  if (body.diag === true) {
+    if (authedUser.role !== "admin") {
+      return new Response(JSON.stringify({ error: "diag is admin-only" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const providerResults = await Promise.all(ai.providers.map((p) => probeCopilotProvider(p)));
+    return new Response(JSON.stringify({
+      diag: true,
+      providers: providerResults,
+      circuit: getHealthSnapshot(),
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   const messages = body.messages;
@@ -975,10 +1042,20 @@ async function handleRequest(req: Request) {
         synthModel = model;
         telemetry.model = model;
       } catch (e) {
+        const errMsg = sanitizeProviderDetail((e as Error).message);
+        if (errMsg.includes("AI gateway unavailable")) {
+          void logTurn({ status: "ai_gateway_error", error_message: errMsg });
+          return new Response(JSON.stringify({
+            error: true,
+            code: "ALL_AI_PROVIDERS_UNAVAILABLE",
+            message: "AI services are temporarily unavailable. Please retry in a moment.",
+            detail: errMsg,
+          }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "X-Copilot-Fallback": "synthesis-exhausted" } });
+        }
         const content = msg.content?.trim() ||
           "The AI provider timed out while formatting the answer. I completed the data lookup; please retry once to render the result.";
         const sseBody = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
-        void logTurn({ status: "synthesis_fallback", response_chars: content.length, error_message: (e as Error).message });
+        void logTurn({ status: "synthesis_fallback", response_chars: content.length, error_message: errMsg });
         return new Response(sseBody, {
           headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Fallback": "synthesis-timeout" },
         });
