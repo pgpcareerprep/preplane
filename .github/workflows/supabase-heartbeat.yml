@@ -1,0 +1,21 @@
+name: Supabase Heartbeat
+on:
+  schedule:
+    - cron: "17 4 */3 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lightweight read against PostgREST
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -s -o /tmp/body -w "%{http_code}" \
+            "${SUPABASE_URL}/auth/v1/health" \
+            -H "apikey: ${SUPABASE_ANON_KEY}")
+          echo "HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ]; then cat /tmp/body; exit 1; fi
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
