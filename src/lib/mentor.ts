@@ -55,6 +55,16 @@ export type Mentor = {
   sessions_taken?: number | null;
   /** Marked when dedup detects a name+role collision without company match. */
   possibleDuplicate?: boolean;
+  location?: string | null;
+  country?: string | null;
+  region_verified?: boolean;
+  region_evidence?: string | null;
+  source_evidence?: string | null;
+  source_url?: string | null;
+  topmate_url?: string | null;
+  adplist_url?: string | null;
+  confidence?: number;
+  snippet_verified?: boolean;
 };
 
 export const SOURCE_META: Record<MentorSource, { label: string; chip: string; dot: string }> = {

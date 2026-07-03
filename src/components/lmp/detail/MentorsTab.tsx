@@ -458,7 +458,9 @@ function MentorsTabImpl({
           } else if (res.errors.length > 0) {
             setMatchingErrors(res.errors);
           }
-          externalCandidates = res.mentors.map(normaliseExternal);
+          externalCandidates = res.mentors.map((m) =>
+            normaliseExternal(m, { region: cfg.region, role: jdRole }),
+          );
           setExternalStatus({ phase: "done", platforms: enabledLabels, counts });
           window.setTimeout(() => setExternalStatus({ phase: "idle", platforms: [], counts: {} }), 4000);
         } catch (err) {

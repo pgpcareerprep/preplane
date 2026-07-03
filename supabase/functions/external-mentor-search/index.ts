@@ -35,6 +35,11 @@ import {
 } from "../_shared/providers/mentorSanitize.ts";
 import { cachedScrape, cachedSearch } from "../_shared/providers/pipeline.ts";
 import { loadSecretWithSource } from "../_shared/providers/secrets.ts";
+import {
+  evidenceCorpus,
+  passesMentorEligibility,
+  verifyRegionFromEvidence,
+} from "../_shared/providers/mentorFilters.ts";
 import type { DiscoveredMentor, Platform, SearchHit } from "../_shared/providers/types.ts";
 
 type Body = {
@@ -98,69 +103,47 @@ async function batchCachedSearch(
 }
 
 /**
- * Last-resort fallback: call Gemini native endpoint (no grounding, no tools) to generate
- * plausible mentor suggestions when all search paths fail. Uses ?key= auth which is the
- * most reliable path for Gemini API keys regardless of OpenAI-compat availability.
+ * Direct Gemini generation is disabled for production — mentors must have source evidence.
  */
 async function generateMentorsFallback(
-  apiKey: string,
-  role: string,
-  company: string,
-  industry: string,
-  skills: string[],
-  seniority: string,
-  limit: number,
-  platforms: Platform[],
+  _apiKey: string,
+  _role: string,
+  _company: string,
+  _industry: string,
+  _skills: string[],
+  _seniority: string,
+  _limit: number,
+  _platforms: Platform[],
 ): Promise<{ mentors: DiscoveredMentor[]; error?: string }> {
-  const skillList = skills.slice(0, 5).join(", ");
-  const prompt = `You are a mentor discovery assistant. Suggest ${Math.min(limit, 8)} real professionals who could mentor someone preparing for a ${role || "professional"} role${company ? ` at ${company}` : ""}${industry ? ` in ${industry}` : ""}.${skillList ? ` Key skills: ${skillList}.` : ""}${seniority ? ` Seniority: ${seniority}.` : ""}
+  return { mentors: [], error: "Direct Gemini fallback disabled — source evidence required" };
+}
 
-Return ONLY a JSON object in this exact format (no markdown, no explanation):
-{"mentors":[{"name":"Full Name","current_role":"Job Title","company":"Company Name","industry":"Industry","skills":["skill1","skill2"],"seniority_level":"Senior","platform":"Topmate","source_url":null,"linkedin":null,"booking_url":null}]}
+function enrichPlatformUrls(m: DiscoveredMentor): DiscoveredMentor {
+  const booking = m.booking_url || (m.platform !== "LinkedIn" ? m.source_url : null);
+  return {
+    ...m,
+    topmate_url: m.platform === "Topmate" ? booking : m.topmate_url ?? null,
+    adplist_url: m.platform === "ADPList" ? booking : m.adplist_url ?? null,
+  };
+}
 
-Rules: Real, well-known professionals only. Platform must be one of: ${platforms.join(", ")}. No invented URLs, emails, or phones.`;
-
-  try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(30000),
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 4096, responseMimeType: "application/json" },
-        }),
-      },
-    );
-    if (!resp.ok) {
-      const errText = await resp.text();
-      const errMsg = `Gemini generation ${resp.status}: ${errText.slice(0, 300)}`;
-      console.warn("[generateMentorsFallback]", errMsg);
-      return { mentors: [], error: errMsg };
-    }
-    const data = await resp.json() as Record<string, unknown>;
-    const parts: unknown[] = (data?.candidates as any)?.[0]?.content?.parts ?? [];
-    const rawText = parts.map((p) => (typeof (p as any).text === "string" ? (p as any).text : "")).join("");
-    if (!rawText) return { mentors: [] };
-    // Strip markdown fences if present
-    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-    const parsed = JSON.parse(cleaned) as { mentors?: DiscoveredMentor[] };
-    const list = Array.isArray(parsed.mentors) ? parsed.mentors : [];
-    const mentors = list
-      .filter((m) => m?.name && m.name.length > 2)
-      .map((m) => ({
-        ...m,
-        platform: (platforms.includes(m.platform as Platform) ? m.platform : platforms[0]) as Platform,
-        source_url: m.source_url ?? null,
-        confidence: 40,
-      }));
-    return { mentors };
-  } catch (e) {
-    const errMsg = (e as Error).message;
-    console.warn("[generateMentorsFallback] failed:", errMsg);
-    return { mentors: [], error: errMsg };
-  }
+function finalizeMentor(
+  m: DiscoveredMentor,
+  region: string,
+  role: string,
+  extraCorpus = "",
+): DiscoveredMentor | null {
+  const corpus = evidenceCorpus(m, extraCorpus);
+  const regionInfo = verifyRegionFromEvidence(region, corpus);
+  const enriched = enrichPlatformUrls({
+    ...m,
+    location: m.location ?? regionInfo.location,
+    country: m.country ?? regionInfo.country,
+    region_verified: m.region_verified ?? regionInfo.region_verified,
+    region_evidence: m.region_evidence ?? regionInfo.region_evidence,
+  });
+  if (!passesMentorEligibility(enriched, { region, role, minConfidence: MIN_CONFIDENCE })) return null;
+  return enriched;
 }
 
 function nameInText(name: string, text: string): boolean {
@@ -343,8 +326,13 @@ Deno.serve(async (req) => {
     const limit = Math.min(Math.max(body.limit || 12, 3), 20);
     const requestedPlatforms = Array.isArray(body.platforms)
       ? body.platforms.filter((p): p is Platform => ALL_PLATFORMS.includes(p as Platform))
-      : ALL_PLATFORMS;
-    const activePlatforms = requestedPlatforms.length ? requestedPlatforms : ALL_PLATFORMS;
+      : [];
+    if (!requestedPlatforms.length) {
+      return new Response(JSON.stringify({ mentors: [], error: "No platforms enabled for external search" }), {
+        status: 200, headers: { ...corsH, "Content-Type": "application/json" },
+      });
+    }
+    const activePlatforms = requestedPlatforms;
     const region = typeof body.region === "string" ? body.region.toLowerCase() : "global";
     const regionLabel = region !== "global" ? (REGION_LABEL[region] || "") : "";
 
@@ -374,7 +362,7 @@ Deno.serve(async (req) => {
     // Run Gemini Google Search grounding in parallel with web search — Jina/SearXNG
     // often return empty from edge runtimes, but Gemini + grounding is reliable when keyed.
     const geminiDiscoveryPromise = discoverViaGeminiSearch(
-      GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms, userId,
+      GEMINI_API_KEY, role, company, industry, skills, seniority, jdText, limit, activePlatforms, region, userId,
     ).catch((e) => {
       const err_msg = (e as Error).message;
       log.warn("gemini_discovery_parallel_failed", { err_msg });
@@ -383,7 +371,7 @@ Deno.serve(async (req) => {
 
     // 1. Query expansion (JD-aware)
     const queries = await expandQueries(
-      GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText, regionLabel, userId,
+      GEMINI_API_KEY, effectiveRole, company, industry, skills, seniority, jdText, regionLabel, activePlatforms, userId,
     );
 
     const platformDomain: Record<Platform, string> = {
@@ -501,7 +489,9 @@ Deno.serve(async (req) => {
       const skillHit = skills.some((s) => fuzzyContains(hay, s));
       if (!roleHit && !companyHit && !industryHit && !skillHit) continue;
       if (!nameInText(m.name, hay)) continue;
-      mentors.push(m);
+      const finalized = finalizeMentor(m, region, effectiveRole, hay);
+      if (!finalized) continue;
+      mentors.push(finalized);
       rankInputs.push({ mentorIdx: mentors.length - 1, snippet: hay, scraped: hay });
     }
 
@@ -597,7 +587,10 @@ Deno.serve(async (req) => {
       const pricing = sanitizePricing(j.pricing, md);
       const years = sanitizeYears(j.years_experience, md);
 
-      mentors.push({
+      const loc = String(j.location || "").trim();
+      const ctry = String(j.country || "").trim();
+
+      const candidate: DiscoveredMentor = {
         name,
         current_role: currentRole || (hit?.title ?? ""),
         company: comp,
@@ -612,7 +605,12 @@ Deno.serve(async (req) => {
         linkedin,
         booking_url: booking,
         source_url: url,
-      });
+        location: loc || null,
+        country: ctry || null,
+      };
+      const finalized = finalizeMentor(candidate, region, effectiveRole, md.slice(0, 3000));
+      if (!finalized) continue;
+      mentors.push(finalized);
       rankInputs.push({
         mentorIdx: mentors.length - 1,
         snippet: hit ? `${hit.title} ${hit.description}` : "",
@@ -659,13 +657,15 @@ Deno.serve(async (req) => {
       return score(b) - score(a);
     });
 
-    // Filter below MIN_CONFIDENCE (keep LinkedIn snippets without confidence)
-    const filtered = mentors.filter((m) => (m.confidence ?? 60) >= MIN_CONFIDENCE || m.platform === "LinkedIn");
+    // Filter below MIN_CONFIDENCE and apply region/role eligibility
+    const filtered = mentors
+      .map((m) => finalizeMentor(m, region, effectiveRole))
+      .filter((m): m is DiscoveredMentor => !!m);
 
     // 6. Dedupe with fuzzy name match
     const seen = new Set<string>();
     const deduped: DiscoveredMentor[] = [];
-    for (const m of filtered.length ? filtered : mentors) {
+    for (const m of filtered.length ? filtered : mentors.map((x) => finalizeMentor(x, region, effectiveRole)).filter((x): x is DiscoveredMentor => !!x)) {
       const k = dedupeKey(m);
       if (seen.has(k)) continue;
       const dup = deduped.find((d) => namesMatch(d.name, m.name) && normToken(d.company) === normToken(m.company));
@@ -682,12 +682,14 @@ Deno.serve(async (req) => {
     if (geminiExtra.mentors.length) {
       const existingKeys = new Set(deduped.map((m) => dedupeKey(m)));
       for (const m of geminiExtra.mentors) {
-        const k = dedupeKey(m);
+        const finalized = finalizeMentor(m, region, effectiveRole);
+        if (!finalized) continue;
+        const k = dedupeKey(finalized);
         if (existingKeys.has(k)) continue;
-        const dup = deduped.find((d) => namesMatch(d.name, m.name) && normToken(d.company) === normToken(m.company));
+        const dup = deduped.find((d) => namesMatch(d.name, finalized.name) && normToken(d.company) === normToken(finalized.company));
         if (dup) continue;
         existingKeys.add(k);
-        deduped.push(m);
+        deduped.push(finalized);
         if (deduped.length >= limit) break;
       }
     }

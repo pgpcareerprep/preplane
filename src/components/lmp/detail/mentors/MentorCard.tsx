@@ -3,8 +3,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Mail, Phone, MessageCircle, Linkedin, Star, Eye, Check,
   ChevronDown, IndianRupee, History, Building2, GraduationCap, UserCircle2,
-  Copy,
+  Copy, MapPin, ExternalLink, ShieldCheck, ShieldAlert,
 } from "lucide-react";
+import { EXTERNAL_REGION_OPTIONS } from "@/lib/externalDiscoveryConfig";
 import { cn } from "@/lib/utils";
 import { type Mentor, type MentorSource, SOURCE_META, SCORE_DIM_COLORS, SCORE_DIM_MAX } from "@/lib/mentor";
 import { linkedinHref } from "@/lib/linkedinUrl";
@@ -46,9 +47,19 @@ export function MentorCard({
   const [expanded, setExpanded] = useState(false);
 
   const phoneDigits = (mentor.phone || "").replace(/[^\d]/g, "");
-  const mailHref = `mailto:${mentor.email}?subject=${encodeURIComponent(`Mentorship request — ${mentor.name}`)}`;
+  const mailHref = mentor.email ? `mailto:${mentor.email}?subject=${encodeURIComponent(`Mentorship request — ${mentor.name}`)}` : "#";
   const waHref = phoneDigits ? `https://wa.me/${phoneDigits}` : "#";
   const liHref = linkedinHref(mentor.linkedin);
+  const bookingUrl =
+    mentor.external_links?.booking ||
+    mentor.topmate_url ||
+    mentor.adplist_url ||
+    (mentor.platform === "Topmate" || mentor.platform === "ADPList" ? mentor.source_url : null) ||
+    null;
+  const regionLabel = EXTERNAL_REGION_OPTIONS.find((o) => o.country === mentor.country)?.label
+    ?? (mentor.location ? mentor.location : mentor.country);
+  const regionVerified = mentor.region_verified === true;
+  const showRegionBadge = mentor.source === "EXT" && (regionLabel || mentor.region_verified != null);
 
   return (
     <motion.article
@@ -96,6 +107,27 @@ export function MentorCard({
             )}
           </div>
           <div className="text-[12px] text-n500 truncate">{mentor.role} @ {mentor.company}</div>
+          {showRegionBadge && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {regionLabel && (
+                <span className="inline-flex items-center gap-0.5 rounded-full border border-n200 bg-n50 text-n600 px-1.5 py-[1px] text-[10px] font-medium capitalize">
+                  <MapPin className="h-2.5 w-2.5" />
+                  {regionLabel}
+                </span>
+              )}
+              {regionVerified ? (
+                <span className="inline-flex items-center gap-0.5 rounded-full border border-sage-200 bg-sage-50 text-sage-700 px-1.5 py-[1px] text-[10px] font-medium">
+                  <ShieldCheck className="h-2.5 w-2.5" />
+                  {mentor.country === "IN" ? "India verified" : "Region verified"}
+                </span>
+              ) : mentor.region_verified === false ? (
+                <span className="inline-flex items-center gap-0.5 rounded-full border border-yellow-200 bg-yellow-50 text-yellow-800 px-1.5 py-[1px] text-[10px] font-medium">
+                  <ShieldAlert className="h-2.5 w-2.5" />
+                  Region unverified
+                </span>
+              ) : null}
+            </div>
+          )}
           <div className="mt-0.5 flex items-center gap-2 text-[11px] text-n500">
             {mentor.rating != null && (
               <>
@@ -141,19 +173,32 @@ export function MentorCard({
           {mentor.source === "EXT" && mentor.platform ? (
             (() => {
               const platformUrl =
-                mentor.external_links?.booking ||
+                bookingUrl ||
                 (mentor.platform === "LinkedIn" ? (mentor.external_links?.linkedin || liHref || null) : null) ||
-                (mentor as any).source_url ||
+                mentor.source_url ||
                 null;
+              const isBookingPlatform = mentor.platform === "Topmate" || mentor.platform === "ADPList";
               return platformUrl ? (
                 <a
                   href={platformUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`Open profile on ${mentor.platform}`}
-                  className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 px-2 text-[10px] font-medium"
+                  title={isBookingPlatform ? `Book on ${mentor.platform}` : `Open profile on ${mentor.platform}`}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 text-[10px] font-medium",
+                    isBookingPlatform
+                      ? "border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                      : "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100",
+                  )}
                 >
-                  {mentor.platform} ↗
+                  {isBookingPlatform ? (
+                    <>
+                      <ExternalLink className="h-2.5 w-2.5" />
+                      Book on {mentor.platform}
+                    </>
+                  ) : (
+                    <>{mentor.platform} ↗</>
+                  )}
                 </a>
               ) : (
                 <span className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 text-[10px] font-medium">
@@ -296,6 +341,42 @@ export function MentorCard({
                 </ul>
               ) : <Empty />}
             </Section>
+
+            {/* Source evidence (external mentors) */}
+            {mentor.source === "EXT" && (mentor.source_evidence || mentor.region_evidence) && (
+              <Section title="Source evidence" Icon={ExternalLink} wide>
+                {mentor.source_evidence && (
+                  <p className="text-[12px] text-n700 leading-relaxed">{mentor.source_evidence}</p>
+                )}
+                {mentor.region_evidence && (
+                  <p className="text-[11px] text-n500 mt-1">
+                    Region signal: <span className="text-n700 font-medium">{mentor.region_evidence}</span>
+                  </p>
+                )}
+                {mentor.source_url && (
+                  <a
+                    href={mentor.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-2 text-[11px] text-sky-600 hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    View source profile
+                  </a>
+                )}
+                {bookingUrl && (mentor.platform === "Topmate" || mentor.platform === "ADPList") && (
+                  <a
+                    href={bookingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-3 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[12px] font-medium px-3 py-1.5"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Book on {mentor.platform}
+                  </a>
+                )}
+              </Section>
+            )}
 
             {/* Ratings rollup */}
             <Section title="Ratings" Icon={GraduationCap} wide>

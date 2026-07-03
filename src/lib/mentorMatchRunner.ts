@@ -148,7 +148,9 @@ export async function runMentorMatch(
             extMeta.errorAlreadyShown = true;
             ctx.onError?.(`External search found 0 mentors (${counts}).`);
           }
-          return mentors.map(normaliseExternal);
+          return mentors.map((m) =>
+            normaliseExternal(m, { region: cfg.region, role: extRole }),
+          );
         } catch (e) {
           extMeta.errorAlreadyShown = true;
           ctx.onError?.(e instanceof Error ? e.message : String(e));

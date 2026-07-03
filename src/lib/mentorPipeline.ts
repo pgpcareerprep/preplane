@@ -12,6 +12,8 @@
 
 import { type Mentor, type MentorSource } from "@/lib/mentor";
 import { TOTAL_LIMIT } from "@/lib/config/thresholds";
+import { computeWebRelevance } from "@/lib/externalMentorFilters";
+import type { ExternalRegion } from "@/lib/externalDiscoveryConfig";
 import { type ALUMentor } from "@/lib/alumniStore";
 import { type ExternalMentor, type ExternalPlatform } from "@/lib/externalMentors";
 import { type ScoringWeights } from "@/lib/scoringWeights";
@@ -44,6 +46,17 @@ export type ScoringCandidate = {
   extraTags?: { emoji: string; label: string }[];
   /** True when the backend already accepted an external web result as relevant. */
   web_relevance?: boolean;
+  location?: string | null;
+  country?: string | null;
+  region_verified?: boolean;
+  region_evidence?: string | null;
+  source_evidence?: string | null;
+  confidence?: number;
+  matched_fields?: string[];
+  source_url?: string | null;
+  topmate_url?: string | null;
+  adplist_url?: string | null;
+  snippet_verified?: boolean;
 };
 
 export type JdInfo = {
@@ -124,7 +137,34 @@ export function normaliseALU(a: ALUMentor): ScoringCandidate {
   };
 }
 
-export function normaliseExternal(e: ExternalMentor): ScoringCandidate {
+export function normaliseExternal(
+  e: ExternalMentor,
+  opts?: { region?: ExternalRegion; role?: string; minConfidence?: number },
+): ScoringCandidate {
+  const region = opts?.region ?? "global";
+  const role = opts?.role ?? e.current_role;
+  const minConf = opts?.minConfidence ?? 55;
+  const web_relevance = computeWebRelevance(
+    {
+      name: e.name,
+      current_role: e.current_role,
+      company: e.company,
+      industry: e.industry,
+      skills: e.skills,
+      platform: e.platform,
+      source_url: e.source_url,
+      evidence: e.evidence,
+      matched_fields: e.matched_fields,
+      confidence: e.confidence,
+      email: e.email,
+      phone: e.phone,
+      location: e.location,
+      country: e.country,
+      region_verified: e.region_verified,
+      region_evidence: e.region_evidence,
+    },
+    { region, role, minConfidence: minConf },
+  );
   return {
     id: e.mentor_id,
     name: e.name,
@@ -135,7 +175,7 @@ export function normaliseExternal(e: ExternalMentor): ScoringCandidate {
     seniority_level: e.seniority_level || inferSeniorityFromRole(e.current_role),
     industry: e.industry,
     last_active_days: e.last_active_days,
-    linkedin: e.external_links.linkedin || undefined,
+    linkedin: e.external_links.linkedin || e.linkedin_url || undefined,
     email: e.email || undefined,
     phone: e.phone || undefined,
     remunerationInr: e.remuneration_inr,
@@ -144,7 +184,18 @@ export function normaliseExternal(e: ExternalMentor): ScoringCandidate {
     external_links: e.external_links,
     sessions_taken: e.sessions_taken,
     rating: e.rating,
-    web_relevance: true,
+    web_relevance,
+    location: e.location,
+    country: e.country,
+    region_verified: e.region_verified,
+    region_evidence: e.region_evidence,
+    source_evidence: e.evidence,
+    confidence: e.confidence,
+    matched_fields: e.matched_fields,
+    source_url: e.source_url,
+    topmate_url: e.topmate_url,
+    adplist_url: e.adplist_url,
+    snippet_verified: e.snippet_verified,
   };
 }
 
@@ -347,8 +398,8 @@ export function runPipeline(
     const designationHit = designationTokens.some(kw => c.role.toLowerCase().includes(kw));
     const industryHit = industryTokens.some(t => (c.industry || "").toLowerCase().includes(t));
     const skillHit = matched.length > 0;
-    // Always surface edge-validated external mentors — upstream already filters by confidence.
-    if (c.source === "EXT" && (c.web_relevance || (c.extraTags?.length ?? 0) > 0)) {
+    // Surface edge-validated external mentors when web_relevance is true.
+    if (c.source === "EXT" && c.web_relevance) {
       eligible.push({ c, matched, missing });
       continue;
     }
@@ -491,6 +542,16 @@ export function runPipeline(
       external_links: c.external_links,
       sessions_taken: c.sessions_taken ?? null,
       possibleDuplicate: c.possibleDuplicate,
+      location: c.location,
+      country: c.country,
+      region_verified: c.region_verified,
+      region_evidence: c.region_evidence,
+      source_evidence: c.source_evidence,
+      confidence: c.confidence,
+      source_url: c.source_url,
+      topmate_url: c.topmate_url,
+      adplist_url: c.adplist_url,
+      snippet_verified: c.snippet_verified,
     };
     return m;
   }).filter((m): m is Mentor => m !== null);

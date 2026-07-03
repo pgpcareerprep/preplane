@@ -76,12 +76,18 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
       .catch(() => { /* retain defaults */ });
   }, []);
 
+  const [saving, setSaving] = useState(false);
+
   const onSave = async () => {
+    setSaving(true);
     try {
       await setExternalDiscoveryConfig(cfg);
       toast.success("External discovery settings saved");
     } catch (error) {
       toast.error(`Failed to save: ${(error as Error).message}`);
+      throw error;
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -186,9 +192,13 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
   const [open, setOpen] = useState(false);
   const enabledPlatforms = ROWS.filter((r) => cfg[r.key]);
 
-  const handleSaveAndClose = () => {
-    onSave();
-    setOpen(false);
+  const handleSaveAndClose = async () => {
+    try {
+      await onSave();
+      setOpen(false);
+    } catch {
+      /* toast shown in onSave */
+    }
   };
 
   return (
@@ -469,11 +479,12 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
               {testing ? "Testing…" : "Test Connection"}
             </button>
             <button
-              onClick={handleSaveAndClose}
-              className="inline-flex items-center gap-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-3.5 py-2 shadow-sm transition-colors"
+              onClick={() => void handleSaveAndClose()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-md bg-orange-500 hover:bg-orange-600 text-white text-[13px] font-medium px-3.5 py-2 shadow-sm transition-colors disabled:opacity-50"
             >
               <Save className="h-4 w-4" strokeWidth={1.5} />
-              Save Settings
+              {saving ? "Saving…" : "Save Settings"}
             </button>
           </DialogFooter>
         </DialogContent>

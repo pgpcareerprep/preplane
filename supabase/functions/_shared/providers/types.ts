@@ -36,6 +36,13 @@ export type DiscoveredMentor = {
   linkedin: string | null;
   booking_url: string | null;
   source_url: string;
+  topmate_url?: string | null;
+  adplist_url?: string | null;
+  location?: string | null;
+  country?: string | null;
+  region_verified?: boolean;
+  region_evidence?: string | null;
+  snippet_verified?: boolean;
   confidence?: number;
   matched_fields?: string[];
   evidence?: string;

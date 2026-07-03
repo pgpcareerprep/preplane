@@ -36,6 +36,14 @@ export type ExternalMentor = {
   years_experience?: number | null;
   pricing?: ExternalPricing | null;
   source_url?: string;
+  topmate_url?: string | null;
+  adplist_url?: string | null;
+  linkedin_url?: string | null;
+  location?: string | null;
+  country?: string | null;
+  region_verified?: boolean;
+  region_evidence?: string | null;
+  snippet_verified?: boolean;
   /** Evidence-grounded relevance from external-mentor-search (optional). */
   confidence?: number;
   matched_fields?: string[];
@@ -329,6 +337,14 @@ type AIDiscoveredMentor = {
   years_experience?: number | null;
   pricing?: ExternalPricing | null;
   source_url?: string;
+  topmate_url?: string | null;
+  adplist_url?: string | null;
+  linkedin_url?: string | null;
+  location?: string | null;
+  country?: string | null;
+  region_verified?: boolean;
+  region_evidence?: string | null;
+  snippet_verified?: boolean;
   confidence?: number;
   matched_fields?: string[];
   evidence?: string;
@@ -342,9 +358,9 @@ type AISearchInput = {
   seniority?: string;
   jdText?: string;
   limit?: number;
+  platforms?: ExternalPlatform[];
+  region?: string;
 };
-
-const ALL_LIVE_PLATFORMS: ExternalPlatform[] = ["LinkedIn", "Topmate", "ADPList", "Superpeer"];
 
 let aiSearchInput: AISearchInput | null = null;
 
@@ -431,10 +447,14 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
         detail: dataDetail,
       };
     }
-    const mentors: ExternalMentor[] = list.map((m) => ({
+    const mentors: ExternalMentor[] = list.map((m) => {
+      const resolvedPlatform = (m.platform || platform) as ExternalPlatform;
+      const booking = m.booking_url || null;
+      const linkedin = m.linkedin ? linkedinHref(m.linkedin) : null;
+      return {
       mentor_id: uuid(),
       source: "external",
-      platform: (m.platform || platform) as ExternalPlatform,
+      platform: resolvedPlatform,
       name: m.name,
       current_role: m.current_role || "",
       company: m.company || "",
@@ -449,19 +469,27 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
       phone: m.phone ?? null,
       years_experience: typeof m.years_experience === "number" ? m.years_experience : null,
       pricing: m.pricing ?? null,
-      // Carry pricing through legacy field too so existing UI rows still render.
       remuneration_inr:
         m.pricing && (m.pricing.currency || "INR").toUpperCase() === "INR" ? m.pricing.amount : undefined,
       source_url: m.source_url,
+      topmate_url: m.topmate_url ?? (resolvedPlatform === "Topmate" ? booking : null),
+      adplist_url: m.adplist_url ?? (resolvedPlatform === "ADPList" ? booking : null),
+      linkedin_url: m.linkedin_url ?? linkedin,
+      location: m.location ?? null,
+      country: m.country ?? null,
+      region_verified: m.region_verified,
+      region_evidence: m.region_evidence ?? null,
+      snippet_verified: m.snippet_verified,
       confidence: typeof m.confidence === "number" ? m.confidence : undefined,
       matched_fields: Array.isArray(m.matched_fields) ? m.matched_fields : undefined,
       evidence: typeof m.evidence === "string" ? m.evidence : undefined,
       external_links: {
-        platform: ((m.platform || platform) as string).toLowerCase(),
-        booking: m.booking_url || null,
-        linkedin: m.linkedin ? linkedinHref(m.linkedin) : null,
+        platform: resolvedPlatform.toLowerCase(),
+        booking,
+        linkedin,
       },
-    }));
+    };
+    });
     // Never cache empty results — a failed run should not block retries for hours.
     if (mentors.length > 0) setCache(cacheKey, mentors);
     return { mentors, errors: [] };
@@ -472,29 +500,43 @@ async function aiDiscover(platform: ExternalPlatform, ttlHours: number, platform
 }
 
 export async function fetchTopmate(_queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
-  return aiDiscover("Topmate", config.ttl.topmate);
+  if (!config.topmate) return { mentors: [], errors: [] };
+  return aiDiscover("Topmate", config.ttl.topmate, ["Topmate"], config.region);
 }
 
 export async function fetchADPList(_queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
-  return aiDiscover("ADPList", config.ttl.adplist);
+  if (!config.adplist) return { mentors: [], errors: [] };
+  return aiDiscover("ADPList", config.ttl.adplist, ["ADPList"], config.region);
 }
 
-export async function fetchSuperpeer(_queries: string[], _config: ExternalDiscoveryConfig): Promise<FetchResult> {
-  return aiDiscover("Superpeer", 6);
+export async function fetchSuperpeer(_queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
+  if (!config.superpeer) return { mentors: [], errors: [] };
+  return aiDiscover("Superpeer", 6, ["Superpeer"], config.region);
 }
 
-export async function fetchExternalMentors(_queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
-  const configuredPlatforms: ExternalPlatform[] = [
+export function enabledExternalPlatforms(
+  config: Pick<ExternalDiscoveryConfig, "linkedin" | "topmate" | "adplist" | "superpeer">,
+): ExternalPlatform[] {
+  return [
     config.linkedin ? "LinkedIn" : null,
     config.topmate ? "Topmate" : null,
     config.adplist ? "ADPList" : null,
     config.superpeer ? "Superpeer" : null,
   ].filter((p): p is ExternalPlatform => !!p);
-  const activePlatforms = Array.from(new Set([...configuredPlatforms, ...ALL_LIVE_PLATFORMS]));
+}
+
+export async function fetchExternalMentors(_queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
+  const activePlatforms = enabledExternalPlatforms(config);
+  if (!activePlatforms.length) {
+    return {
+      mentors: [],
+      errors: [{ source: "EXT", message: "No external platforms enabled in settings", recoverable: false }],
+    };
+  }
   const ttlHours = Math.min(
     ...activePlatforms.map((p) => p === "LinkedIn" ? config.ttl.linkedin : p === "ADPList" ? config.ttl.adplist : config.ttl.topmate),
   );
-  return aiDiscover("LinkedIn", ttlHours || 6, activePlatforms, config.region);
+  return aiDiscover(activePlatforms[0], ttlHours || 6, activePlatforms, config.region);
 }
 
 // ─── LinkedIn cache (admin-uploaded dataset) ───────────────────────────────
@@ -552,10 +594,10 @@ function loadLinkedinCache(ttlHours: number): ExternalMentor[] {
 }
 
 export async function fetchLinkedIn(queries: string[], config: ExternalDiscoveryConfig): Promise<FetchResult> {
+  if (!config.linkedin) return { mentors: [], errors: [] };
   const cache = loadLinkedinCache(config.ttl.linkedin);
   if (cache.length === 0) {
-    // Fallback to AI-backed live discovery when no admin-uploaded dataset exists
-    return aiDiscover("LinkedIn", config.ttl.linkedin, undefined, config.region);
+    return aiDiscover("LinkedIn", config.ttl.linkedin, ["LinkedIn"], config.region);
   }
   if (queries.length === 0) return { mentors: cache.slice(0, 50), errors: [] };
 

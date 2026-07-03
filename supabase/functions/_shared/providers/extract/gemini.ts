@@ -1,5 +1,7 @@
 import { estimateTokens, logAiUsage } from "../../ai-usage.ts";
 import { GEMINI_API_URL, GEMINI_FREE_MODEL } from "../config.ts";
+import { REGION_HARD_FILTER_PROMPT } from "../mentorFilters.ts";
+import type { Platform } from "../types.ts";
 
 export const EXTRACTION_SCHEMA_PROMPT =
   "Extract the profile owner's professional info as it literally appears on the page. " +
@@ -28,6 +30,8 @@ export const EXTRACTION_JSON_SCHEMA = {
     },
     linkedin: { type: "string" },
     booking_url: { type: "string" },
+    location: { type: "string" },
+    country: { type: "string" },
   },
 };
 
@@ -171,7 +175,8 @@ export async function rerankMentors(
     "Return ONLY JSON: {\"results\":[{\"index\":number,\"confidence\":0-100,\"matched_fields\":string[],\"evidence\":string}]}. " +
     "confidence reflects how well the text supports fit for the target role/company/skills. " +
     "matched_fields may include role, company, industry, skills. " +
-    "evidence must quote or paraphrase ONLY facts present in the text. NEVER add new facts.";
+    "evidence must quote or paraphrase ONLY facts present in the text. NEVER add new facts. " +
+    REGION_HARD_FILTER_PROMPT;
   const user = JSON.stringify({
     target: ctx,
     mentors: mentors.map((m, i) => ({ index: i, ...m })),
@@ -205,32 +210,45 @@ export async function expandQueries(
   seniority: string,
   jdText: string,
   regionLabel: string,
+  platforms: Platform[],
   userId?: string | null,
 ): Promise<string[]> {
-  const fallback: string[] = [];
+  const active = platforms.length ? platforms : [];
   const regionSuffix = regionLabel ? ` "${regionLabel}"` : "";
-  if (role) {
+  const fallback: string[] = [];
+  if (role && active.includes("LinkedIn")) {
     if (company) fallback.push(`site:linkedin.com/in "${role}" "${company}"${regionSuffix}`);
     if (industry) fallback.push(`site:linkedin.com/in "${role}" "${industry}"${regionSuffix}`);
     fallback.push(`site:linkedin.com/in "${role}"${seniority ? ` "${seniority}"` : ""}${regionSuffix}`);
-    if (company) fallback.push(`"ex-${company}" "${role}" site:linkedin.com/in`);
+  }
+  if (role && active.includes("Topmate")) {
     fallback.push(`site:topmate.io "${role}"${industry ? ` "${industry}"` : ""}${regionSuffix}`);
+    if (skills.length) fallback.push(`site:topmate.io "${role}" "${skills[0]}" mentor${regionSuffix}`);
+  }
+  if (role && active.includes("ADPList")) {
     fallback.push(`site:adplist.org mentor "${role}"${regionSuffix}`);
+    if (skills.length) fallback.push(`site:adplist.org "${role}" "${skills[0]}"${regionSuffix}`);
+  }
+  if (role && active.includes("Superpeer")) {
     if (industry) fallback.push(`site:superpeer.com "${role}" "${industry}"${regionSuffix}`);
-    if (skills.length) {
-      fallback.push(`site:topmate.io "${role}" "${skills[0]}" mentor${regionSuffix}`);
-      fallback.push(`site:adplist.org "${role}" "${skills[0]}"${regionSuffix}`);
-    }
   }
 
   if (!apiKey) return fallback;
 
+  const platformQuerySpec = active.map((p) => {
+    if (p === "LinkedIn") return "2 site:linkedin.com/in";
+    if (p === "Topmate") return "2 site:topmate.io";
+    if (p === "ADPList") return "2 site:adplist.org";
+    return "2 site:superpeer.com";
+  }).join(", ");
+
   const sys =
     "You produce Google search queries that surface real professional profiles for interview prep mentors. " +
-    "Return ONLY a JSON object: {\"queries\": string[]}. Exactly 8 queries: 2 site:linkedin.com/in, " +
-    "2 site:topmate.io, 2 site:adplist.org, 2 site:superpeer.com. " +
+    "Return ONLY a JSON object: {\"queries\": string[]}. " +
+    `Generate queries ONLY for these enabled platforms: ${active.join(", ") || "none"} (${platformQuerySpec}). ` +
     "Weight the job description excerpt when present. Include role verbatim in quotes. " +
-    "Include company, industry, top skills, seniority, and region when provided. Never invent companies.";
+    "Include company, industry, top skills, seniority, and region when provided. Never invent companies. " +
+    REGION_HARD_FILTER_PROMPT;
   const user = JSON.stringify({
     role, company, industry, skills: skills.slice(0, 8), seniority, region: regionLabel,
     jd_excerpt: jdText.slice(0, 2500),
@@ -241,7 +259,17 @@ export async function expandQueries(
     const j = JSON.parse(raw);
     const arr = Array.isArray(j?.queries) ? j.queries : [];
     const cleaned = arr
-      .filter((q: unknown): q is string => typeof q === "string" && q.includes("site:"))
+      .filter((q: unknown): q is string => {
+        if (typeof q !== "string" || !q.includes("site:")) return false;
+        if (!active.length) return false;
+        return active.some((p) => {
+          if (p === "LinkedIn") return q.includes("linkedin.com");
+          if (p === "Topmate") return q.includes("topmate.io");
+          if (p === "ADPList") return q.includes("adplist.org");
+          if (p === "Superpeer") return q.includes("superpeer.com");
+          return false;
+        });
+      })
       .slice(0, 8);
     const merged = Array.from(new Set([...cleaned, ...fallback]));
     return merged.length ? merged : fallback;

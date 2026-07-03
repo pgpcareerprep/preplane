@@ -2,6 +2,7 @@ import type { DiscoveredMentor, Platform, SearchHit } from "../types.ts";
 import { GEMINI_FREE_MODEL } from "../config.ts";
 import { callGeminiJson } from "../extract/gemini.ts";
 import { cleanLinkedin, platformFromUrl } from "../mentorSanitize.ts";
+import { REGION_HARD_FILTER_PROMPT, verifyRegionFromEvidence, evidenceCorpus, passesMentorEligibility } from "../mentorFilters.ts";
 
 type GroundingChunk = {
   web?: { uri?: string; title?: string };
@@ -125,7 +126,8 @@ async function extractMentorsStructured(
     `{"mentors":[{"name":"","current_role":"","company":"","industry":"","skills":[],"seniority_level":"Mid",` +
     `"platform":"LinkedIn|Topmate|ADPList|Superpeer","linkedin":null,"booking_url":null,"source_url":""}]}. ` +
     "Include ONLY people explicitly mentioned with a profile URL on Topmate, ADPList, LinkedIn, or Superpeer. " +
-    "Every mentor MUST have a real source_url. Do not invent names.";
+    "Every mentor MUST have a real source_url. Do not invent names. " +
+    REGION_HARD_FILTER_PROMPT;
   const user = JSON.stringify({
     role,
     platforms,
@@ -179,6 +181,7 @@ export async function discoverViaGeminiSearch(
   jdText: string,
   limit: number,
   platforms: Platform[],
+  region: string,
   userId?: string | null,
 ): Promise<GeminiDiscoveryResult> {
   const skillList = skills.slice(0, 5).join(", ");
@@ -192,11 +195,14 @@ export async function discoverViaGeminiSearch(
   ].filter(Boolean).join("\n");
 
   const platformList = platforms.join(", ");
+  const regionLabel = region && region !== "global" ? region : "";
   const prompt = `Search the web and list real ${role || "professional"} mentors/coaches for interview prep.
 ${context}
+${regionLabel ? `Hard filter — only include mentors with source evidence for region: ${regionLabel}.` : ""}
 
 Find profiles on ${platformList}. Prefer Topmate and ADPList booking pages and LinkedIn /in/ profiles.
-Return up to ${limit} mentors as a JSON array with name, current_role, company, platform, source_url, linkedin, booking_url.`;
+${REGION_HARD_FILTER_PROMPT}
+Return up to ${limit} mentors as a JSON array with name, current_role, company, platform, source_url, linkedin, booking_url, location, country.`;
 
   const resp = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${apiKey}`,
@@ -250,8 +256,21 @@ Return up to ${limit} mentors as a JSON array with name, current_role, company, 
   const fromJson = parseMentorsFromText(rawText, limit, platforms);
   const fromStructured = await extractMentorsStructured(apiKey, corpus, role, platforms, limit, userId);
 
-  const mentors = mergeDiscovered([fromStructured, fromJson, fromUrls, fromChunks], platforms, limit);
-  return { mentors, webSearchQueries };
+  const merged = mergeDiscovered([fromStructured, fromJson, fromUrls, fromChunks], platforms, limit);
+  const filtered = merged
+    .map((m) => {
+      const corpus = evidenceCorpus(m);
+      const regionInfo = verifyRegionFromEvidence(region, corpus);
+      return {
+        ...m,
+        location: regionInfo.location,
+        country: regionInfo.country,
+        region_verified: regionInfo.region_verified,
+        region_evidence: regionInfo.region_evidence,
+      };
+    })
+    .filter((m) => passesMentorEligibility(m, { region, role, minConfidence: 40 }));
+  return { mentors: filtered, webSearchQueries };
 }
 
 export function buildLinkedInFromSnippet(hit: SearchHit): DiscoveredMentor | null {
@@ -295,6 +314,7 @@ export function buildLinkedInFromSnippet(hit: SearchHit): DiscoveredMentor | nul
     linkedin: cleanLinkedin(hit.url),
     booking_url: null,
     source_url: hit.url,
+    snippet_verified: true,
   };
 }
 
@@ -333,6 +353,7 @@ export function buildPlatformFromSnippet(hit: SearchHit, platform: Platform): Di
     linkedin: null,
     booking_url: hit.url,
     source_url: hit.url,
+    snippet_verified: true,
   };
 }
 
