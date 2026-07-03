@@ -4,8 +4,12 @@
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
+import { loadSecret } from "../_shared/providers/secrets.ts";
 
-const DEFAULT_GEMINI_VOICE = "Kore";
+const DEFAULT_GEMINI_VOICE = "Aoede";
+const TTS_MODELS = ["gemini-2.5-pro-preview-tts", "gemini-2.5-flash-preview-tts"] as const;
+const TTS_STYLE_PREFIX =
+  "Say the following in a warm, natural, conversational tone, like a friendly colleague speaking casually — natural pacing, brief pauses at commas, no robotic cadence: ";
 
 // Build a valid WAV file from raw PCM bytes (24 kHz, 16-bit, mono, little-endian).
 function pcmToWav(pcmBytes: Uint8Array): Uint8Array {
@@ -54,13 +58,16 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const truncated = text.slice(0, 1500);
+    const truncated = text.slice(0, 2000);
+    const requestedVoice = (body?.voiceId ?? "").toString().trim();
+    const voiceName = /^[A-Za-z]{2,24}$/.test(requestedVoice) ? requestedVoice : DEFAULT_GEMINI_VOICE;
+    const prompt = `${TTS_STYLE_PREFIX}${truncated}`;
 
     // ── Try: Gemini TTS ──────────────────────────────────────────────
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    const geminiKey = await loadSecret("GEMINI_API_KEY");
     if (geminiKey) {
       const t0 = Date.now();
-      for (const model of ["gemini-2.5-flash-preview-tts"]) {
+      for (const model of TTS_MODELS) {
         try {
           const resp = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
@@ -68,10 +75,10 @@ Deno.serve(async (req) => {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                contents: [{ parts: [{ text: truncated }] }],
+                contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                   responseModalities: ["AUDIO"],
-                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: DEFAULT_GEMINI_VOICE } } },
+                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
                 },
               }),
             },
@@ -88,9 +95,9 @@ Deno.serve(async (req) => {
               const wav = pcmToWav(pcm);
               logAiUsage({
                 userId: auth.user.id, feature: "tts", model,
-                promptTokens: estimateTokens(truncated),
+                promptTokens: estimateTokens(prompt),
                 latencyMs: Date.now() - t0, status: "ok",
-                metadata: { provider: "gemini", voice: DEFAULT_GEMINI_VOICE, chars: truncated.length },
+                metadata: { provider: "gemini", voice: voiceName, chars: truncated.length },
               });
               return new Response(wav, {
                 status: 200,
@@ -100,8 +107,8 @@ Deno.serve(async (req) => {
           }
           const errText = await resp.text().catch(() => "");
           console.warn(`[voice-speak] Gemini ${model} ${resp.status}: ${errText.slice(0, 200)}`);
-          // If 404 (model not found), try next model; otherwise stop trying Gemini
-          if (resp.status !== 404) break;
+          if (resp.status === 404 || resp.status === 429) continue;
+          break;
         } catch (err) {
           console.warn(`[voice-speak] Gemini ${model} error: ${(err as Error).message}`);
           break;
