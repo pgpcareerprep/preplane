@@ -47,8 +47,8 @@ function speakBrowser(text: string, opts?: { onStart?: () => void; onEnd?: () =>
 }
 
 /**
- * Speaks text using the voice-speak edge function (Groq PlayAI → Gemini TTS →
- * browser fallback). New calls cancel previous playback.
+ * Speaks text using the voice-speak edge function (Gemini TTS) → browser speechSynthesis fallback.
+ * New calls cancel previous playback.
  */
 export async function speak(
   text: string,
