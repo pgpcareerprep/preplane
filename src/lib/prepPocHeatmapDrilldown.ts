@@ -581,13 +581,13 @@ export function filterDomainWiseMetricRecords(
   if (!source) return emptyResult();
 
   const isCurrent = (b: StatusBucket) =>
-    b === "notStarted" || b === "prepOngoing" || b === "prepDone";
+    b === "notStarted" || b === "prepOngoing" || b === "prepDone" || b === "onHold";
   const isClosed = (b: StatusBucket) =>
-    b === "converted" || b === "notConverted" || b === "onHold" || b === "otherReasons";
+    b === "converted" || b === "notConverted" || b === "otherReasons";
 
   if (metricKey === "lmpConversion") {
     const denominatorLmps = filterDomainLmps(source, domainId, data.domainRows, (r) =>
-      r.statusBucket !== "otherReasons",
+      r.statusBucket === "converted" || r.statusBucket === "notConverted",
     );
     const convertedLmps = denominatorLmps.filter((r) => r.statusBucket === "converted");
     return {

@@ -313,16 +313,16 @@ describe("Case 13: Prep Done is current, not closed", () => {
 
 // ── 14. Prep Ongoing → On Hold ───────────────────────────────────────────────
 
-describe("Case 14: On hold is closed in LMP Load display", () => {
+describe("Case 14: On hold counts as current in LMP Load display", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "hold")];
   const result = buildHeatmapData(pocs, links, []);
   const row = result.rows[0];
 
-  it("onHoldCount=1, closedLmpCount=1, currentLmpCount=0", () => {
+  it("onHoldCount=1, closedLmpCount=0, currentLmpCount=1", () => {
     expect(row.onHoldCount).toBe(1);
-    expect(row.closedLmpCount).toBe(1);
-    expect(row.currentLmpCount).toBe(0);
+    expect(row.closedLmpCount).toBe(0);
+    expect(row.currentLmpCount).toBe(1);
   });
 });
 
@@ -391,15 +391,15 @@ describe("Case 18: Other reasons (dormant, closed, other-reasons)", () => {
 
 // ── 19. Zero eligible conversion denominator ─────────────────────────────────
 
-describe("Case 19: Active pipeline in conversion denominator", () => {
+describe("Case 19: No conversion rate when no converted/not-converted outcomes", () => {
   const pocs = [poc("p1", "Alice")];
   const links = [link("p1", "lmp1", "prep", "not-started")];
   const result = buildHeatmapData(pocs, links, []);
   const row = result.rows[0];
 
-  it("lmpConversionPercentage=0% when denominator exists but no conversions", () => {
-    expect(row.eligibleClosedCount).toBe(1);
-    expect(row.lmpConversionPercentage).toBe(0);
+  it("lmpConversionPercentage is null when denominator is zero", () => {
+    expect(row.eligibleClosedCount).toBe(0);
+    expect(row.lmpConversionPercentage).toBeNull();
   });
 });
 
@@ -493,15 +493,15 @@ describe("Reconciliation: Total = Current + Closed per row", () => {
     expect(row.totalLmpLoad).toBe(row.currentLmpCount + row.closedLmpCount);
   });
 
-  it("Current = notStarted + prepOngoing + prepDone", () => {
+  it("Current = notStarted + prepOngoing + prepDone + onHold", () => {
     expect(row.currentLmpCount).toBe(
-      row.notStartedCount + row.prepOngoingCount + row.prepDoneCount,
+      row.notStartedCount + row.prepOngoingCount + row.prepDoneCount + row.onHoldCount,
     );
   });
 
-  it("Closed = converted + notConverted + onHold + otherReasons", () => {
+  it("Closed = converted + notConverted + otherReasons", () => {
     expect(row.closedLmpCount).toBe(
-      row.convertedCount + row.notConvertedCount + row.onHoldCount + row.otherReasonsCount,
+      row.convertedCount + row.notConvertedCount + row.otherReasonsCount,
     );
   });
 });
@@ -532,16 +532,18 @@ describe("Drill-down filters reconcile with visible heatmap cells", () => {
     expect(drill.lmps).toHaveLength(row.totalLmpLoad);
   });
 
-  it("Current returns not started, prep ongoing, and prep done LMPs", () => {
+  it("Current returns not started, prep ongoing, prep done, and on hold LMPs", () => {
     const drill = filterHeatmapMetricRecords(result.source, "p1", "current");
     expect(drill.lmps).toHaveLength(row.currentLmpCount);
-    expect(drill.lmps.map((r) => r.statusBucket).sort()).toEqual(["notStarted", "prepDone", "prepOngoing"].sort());
+    expect(drill.lmps.map((r) => r.statusBucket).sort()).toEqual(
+      ["notStarted", "onHold", "prepDone", "prepOngoing"].sort(),
+    );
   });
 
-  it("Closed follows the canonical On hold treatment", () => {
+  it("Closed excludes on hold LMPs", () => {
     const drill = filterHeatmapMetricRecords(result.source, "p1", "closed");
     expect(drill.lmps).toHaveLength(row.closedLmpCount);
-    expect(drill.lmps.some((r) => r.statusLabel === "On hold")).toBe(true);
+    expect(drill.lmps.some((r) => r.statusLabel === "On hold")).toBe(false);
   });
 
   it("Primary and Support use assignment role without inflating total", () => {
@@ -564,7 +566,10 @@ describe("Drill-down filters reconcile with visible heatmap cells", () => {
     const drill = filterHeatmapMetricRecords(result.source, "p1", "lmpConversion");
     expect(drill.convertedLmps).toHaveLength(row.convertedCount);
     expect(drill.denominatorLmps).toHaveLength(row.eligibleClosedCount);
-    expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(true);
+    expect(drill.denominatorLmps.some((r) => r.statusBucket === "onHold")).toBe(false);
+    expect(drill.denominatorLmps.every((r) =>
+      r.statusBucket === "converted" || r.statusBucket === "notConverted",
+    )).toBe(true);
   });
 });
 
@@ -638,7 +643,7 @@ describe("query contract — no candidate_count from lmp_processes", () => {
     expect(result.summary.uniqueLmpCount).toBe(2); // lmp1 + lmp2 globally
     expect(result.summary.uniqueStudentsPlaced).toBe(1); // s1 once
     expect(result.summary.convertedLmpCount).toBe(1);
-    expect(result.summary.eligibleClosedLmpCount).toBe(2); // total scoped minus other reasons
+    expect(result.summary.eligibleClosedLmpCount).toBe(2); // converted + not converted globally
   });
 
   it("activePocCount counts only POCs with LMP load > 0", () => {

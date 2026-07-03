@@ -99,8 +99,8 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     subheaderBg: "var(--lx-surface)",
     cols: [
       { dataKey: "totalLmps", colType: "heat", label: "Total", subLabel: "(Till Today)", minWidth: 68, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Distinct LMPs mapped to this domain in the current scope." },
-      { dataKey: "currentLmps", colType: "heat", label: "Current", subLabel: "(Ongoing)", minWidth: 68, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done." },
-      { dataKey: "closedLmps", colType: "heat", label: "Closed", minWidth: 60, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Closed LMPs in this domain." },
+      { dataKey: "currentLmps", colType: "heat", label: "Current", subLabel: "(Ongoing)", minWidth: 68, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "LMPs currently in Not Started, Prep Ongoing, Prep Done, or On Hold." },
+      { dataKey: "closedLmps", colType: "heat", label: "Closed", minWidth: 60, palette: P_NEUTRAL, totalAccent: A_NEUTRAL, tooltip: "Terminal LMP outcomes (Converted, Not Converted, Other Reasons). On Hold counts as Current." },
     ],
   },
   {
@@ -140,7 +140,7 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     cols: [
       { dataKey: "studentsPlaced", colType: "heat", label: "Students Placed", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct students with a valid final placement outcome in this domain." },
       { dataKey: "placementRatePct", colType: "rate", label: "Placement Rate", minWidth: 96, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Students Placed divided by total student opted for this domain." },
-      { dataKey: "lmpConversion", colType: "conversion", label: "LMP Conversion", minWidth: 108, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Converted LMPs divided by total LMPs minus Other Reasons." },
+      { dataKey: "lmpConversion", colType: "conversion", label: "LMP Conversion", minWidth: 108, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Converted ÷ (Converted + Not Converted) for LMPs in this domain." },
     ],
   },
 ];

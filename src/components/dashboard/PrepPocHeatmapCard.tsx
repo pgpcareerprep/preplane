@@ -187,13 +187,13 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "currentLmpCount", metricKey: "current", colType: "heat",
         label: "Current", subLabel: "(Ongoing)", minWidth: 68,
         palette: P_NEUTRAL, totalAccent: A_NEUTRAL,
-        tooltip: "LMPs currently in Not Started, Prep Ongoing or Prep Done.",
+        tooltip: "LMPs currently in Not Started, Prep Ongoing, Prep Done, or On Hold.",
       },
       {
         dataKey: "closedLmpCount", metricKey: "closed", colType: "heat",
         label: "Closed", minWidth: 60,
         palette: P_NEUTRAL, totalAccent: A_NEUTRAL,
-        tooltip: "LMPs with no remaining current Prep work (Converted + Not Converted + On Hold + Other Reasons).",
+        tooltip: "LMPs with a terminal outcome (Converted, Not Converted, or Other Reasons). On Hold counts as Current.",
       },
     ],
   },
@@ -227,7 +227,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "onHoldCount", metricKey: "onHold", colType: "heat",
         label: "On Hold", minWidth: 72,
         palette: P_ON_HOLD, totalAccent: A_ORANGE,
-        tooltip: "LMPs currently mapped to On Hold status. Included in the LMP conversion denominator.",
+        tooltip: "LMPs currently mapped to On Hold status. Included in Current (Ongoing) load.",
       },
     ],
   },
@@ -315,7 +315,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
         label: "LMP Conversion", minWidth: 108,
         palette: P_SAGE, totalAccent: A_SAGE,
-        tooltip: "Converted ÷ (Total LMPs − Other Reasons). Format: converted/eligible – %.",
+        tooltip: "Converted ÷ (Converted + Not Converted). Format: converted/eligible – %.",
       },
       {
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
@@ -1496,7 +1496,7 @@ function HeatmapDrilldownModal({
             {originalCount.toLocaleString()} records contributing to this metric
             {searchTerm.trim() && ` · ${modalRows.length.toLocaleString()} matching search`}
             {selection?.metricKey === "lmpConversion" && result && (
-              <span> · {result.convertedLmps?.length ?? 0}/{result.denominatorLmps?.length ?? 0} converted · On Hold excluded</span>
+              <span> · {result.convertedLmps?.length ?? 0}/{result.denominatorLmps?.length ?? 0} converted · denominator = Converted + Not Converted</span>
             )}
           </DialogDescription>
           <div className="mt-3 flex flex-wrap gap-2">

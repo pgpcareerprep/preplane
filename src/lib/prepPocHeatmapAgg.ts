@@ -11,10 +11,11 @@ import {
  * No React dependencies — fully unit-testable.
  *
  * Status treatment for "On hold":
- *   - For LMP LOAD display (Current vs Closed column): On hold counts as Closed.
- *     This matches the reference visual where Closed = Conv + NC + OH + OR.
- *   - For LMP Conversion denominator: Total LMPs minus Other Reasons.
- *     Active pipeline and on-hold LMPs remain in the denominator.
+ *   - For LMP LOAD display (Current vs Closed): On hold counts as Current (ongoing).
+ *     Current = Not Started + Prep Ongoing + Prep Done + On Hold.
+ *     Closed = Converted + Not Converted + Other Reasons (+ unmapped status).
+ *   - For LMP Conversion: Converted ÷ (Converted + Not Converted) only.
+ *     Active pipeline, on-hold, and other-reasons LMPs are excluded from the denominator.
  *
  * Domain load applies to PREP-role LMPs only (primary assignments).
  * LMPs with no domain set are classified as in-domain to avoid false cross-domain noise.
@@ -442,15 +443,16 @@ export function buildHeatmapData(
     const otherReasonsCount = byCounts.otherReasons.size;
     const unknownCount = byCounts.unknown.size;
 
-    // Current = Not Started + Prep Ongoing + Prep Done
-    const currentLmpCount = notStartedCount + prepOngoingCount + prepDoneCount;
+    // Current = Not Started + Prep Ongoing + Prep Done + On Hold
+    const currentLmpCount =
+      notStartedCount + prepOngoingCount + prepDoneCount + onHoldCount;
 
-    // Closed = terminal + on hold + unmapped status (keeps Total = Current + Closed)
+    // Closed = terminal outcomes + unmapped status (keeps Total = Current + Closed)
     const closedLmpCount =
-      convertedCount + notConvertedCount + onHoldCount + otherReasonsCount + unknownCount;
+      convertedCount + notConvertedCount + otherReasonsCount + unknownCount;
 
-    // Conversion denominator = total LMPs minus other-reasons outcomes
-    const eligibleClosedCount = totalIds.size - otherReasonsCount;
+    // Conversion denominator = Converted + Not Converted only
+    const eligibleClosedCount = convertedCount + notConvertedCount;
     const lmpConversionPercentage =
       eligibleClosedCount > 0 ? (convertedCount / eligibleClosedCount) * 100 : null;
 
@@ -499,15 +501,15 @@ export function buildHeatmapData(
     }
   }
 
-  // Global conversion — from the scoped LMP set
+  // Global conversion — converted ÷ (converted + not converted) in scoped LMP set
   let globalConvertedCount = 0;
-  let globalOtherReasonsCount = 0;
+  let globalNotConvertedCount = 0;
   for (const id of scopedLmpIds) {
     const bucket = lmpStatusMap.get(id) ?? "unknown";
     if (bucket === "converted") globalConvertedCount++;
-    if (bucket === "otherReasons") globalOtherReasonsCount++;
+    if (bucket === "notConverted") globalNotConvertedCount++;
   }
-  const globalEligibleCount = scopedLmpIds.size - globalOtherReasonsCount;
+  const globalEligibleCount = globalConvertedCount + globalNotConvertedCount;
 
   const activePocCount = rows.filter((r) => r.totalLmpLoad > 0).length;
 
@@ -584,7 +586,9 @@ export function filterHeatmapMetricRecords(
   }
 
   if (metricKey === "lmpConversion") {
-    const denominatorLmps = pocLmps.filter((record) => record.statusBucket !== "otherReasons");
+    const denominatorLmps = pocLmps.filter((record) =>
+      record.statusBucket === "converted" || record.statusBucket === "notConverted",
+    );
     const convertedLmps = denominatorLmps.filter((record) => record.statusBucket === "converted");
     return {
       recordType: "conversion",
@@ -603,13 +607,13 @@ export function filterHeatmapMetricRecords(
         return pocLmps.filter((record) =>
           record.statusBucket === "notStarted" ||
           record.statusBucket === "prepOngoing" ||
-          record.statusBucket === "prepDone",
+          record.statusBucket === "prepDone" ||
+          record.statusBucket === "onHold",
         );
       case "closed":
         return pocLmps.filter((record) =>
           record.statusBucket === "converted" ||
           record.statusBucket === "notConverted" ||
-          record.statusBucket === "onHold" ||
           record.statusBucket === "otherReasons" ||
           record.statusBucket === "unknown",
         );

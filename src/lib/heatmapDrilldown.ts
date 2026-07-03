@@ -94,7 +94,7 @@ export type DrilldownContext = {
   onHoldIds: Set<string>;
   otherReasonsIds: Set<string>;
   currentIds: Set<string>;       // notStarted ∪ prepOngoing ∪ prepDone
-  closedIds: Set<string>;        // converted ∪ notConverted ∪ onHold ∪ otherReasons
+  closedIds: Set<string>;        // converted ∪ notConverted ∪ otherReasons
   inDomainIds: Set<string>;
   crossDomainIds: Set<string>;
   // For Students Placed: lmpId → Set<studentId> (converted LMPs only)
@@ -196,10 +196,7 @@ export function drillFilter(ctx: DrilldownContext, metric: HeatmapMetricKey): Dr
     }
 
     case "lmpConversion": {
-      const eligibleIds = new Set<string>();
-      for (const id of ctx.totalIds) {
-        if (!ctx.otherReasonsIds.has(id)) eligibleIds.add(id);
-      }
+      const eligibleIds = new Set<string>([...ctx.convertedIds, ...ctx.notConvertedIds]);
       return {
         kind: "conversion",
         convertedIds: new Set(ctx.convertedIds),
@@ -281,8 +278,8 @@ export function buildDrillContext(
   }
 
   // Current and closed sets
-  const currentIds = new Set<string>([...notStartedIds, ...prepOngoingIds, ...prepDoneIds]);
-  const closedIds = new Set<string>([...convertedIds, ...notConvertedIds, ...onHoldIds, ...otherReasonsIds]);
+  const currentIds = new Set<string>([...notStartedIds, ...prepOngoingIds, ...prepDoneIds, ...onHoldIds]);
+  const closedIds = new Set<string>([...convertedIds, ...notConvertedIds, ...otherReasonsIds]);
 
   // Domain load — applies to prep-role LMPs only
   // Build lmpDomainMap from links
