@@ -1,4 +1,5 @@
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getBrandName } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
 import { diagnoseEmailAuth, emailAuthReadyToSend } from "../_shared/emailDiagnose.ts";

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { resolveOperationalPocEmails } from "../_shared/resolvePocEmails.ts";
