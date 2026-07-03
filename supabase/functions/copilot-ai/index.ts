@@ -25,7 +25,7 @@ import {
   formatExecutePendingChatSse,
 } from "../_shared/copilotDeterministicConfirm.ts";
 import { cancelPendingAction } from "../_shared/copilotPendingActions.ts";
-import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
+import { buildConversionReport, formatConversionReportSse, tallyLmpConversionBuckets, formatLmpProcessConversionRate } from "../_shared/conversionReport.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { buildProviderList, callSynthesis, callToolModel, sanitizeFailMsg, type ProviderConfig } from "./providers.ts";
 import { getHealthSnapshot } from "../_shared/circuitBreaker.ts";
@@ -670,13 +670,13 @@ async function handleRequest(req: Request) {
     const { data, error } = await fastSb.from("lmp_processes").select("status,domain_raw").limit(3000);
     if (!error) {
       const all = data || [];
-      const convertedRows = all.filter((r) => /^converted$/i.test(r.status || ""));
-      const converted = convertedRows.length;
+      const buckets = tallyLmpConversionBuckets(all.map((r) => r.status));
+      const converted = buckets.converted;
       const offers = all.filter((r) => /offer received/i.test(r.status || "")).length;
       const ongoing = all.filter((r) => /ongoing/i.test(r.status || "")).length;
-      const rate = all.length ? Math.round((converted / all.length) * 1000) / 10 : 0;
+      const rate = buckets.lmpProcessConversionPct ?? 0;
       const byDomain = new Map<string, number>();
-      for (const row of convertedRows) {
+      for (const row of all.filter((r) => /^converted$/i.test(r.status || "") || /offer received/i.test(r.status || ""))) {
         const domain = row.domain_raw || "Unspecified";
         byDomain.set(domain, (byDomain.get(domain) || 0) + 1);
       }
@@ -692,7 +692,7 @@ async function handleRequest(req: Request) {
             { label: "Converted", value: converted, color: "green" },
             { label: "Offer received", value: offers, color: "blue" },
             { label: "Ongoing", value: ongoing, color: "orange" },
-            { label: "Conversion rate", value: `${rate}%` },
+            { label: "Conversion rate", value: formatLmpProcessConversionRate(buckets) },
           ] },
           ...(byDomain.size ? [{ type: "bar-chart", title: "Converted by domain", data: [...byDomain].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value) }] : []),
           { type: "follow-ups", suggestions: ["Show converted processes", "Break down conversion by POC", "Show conversion by domain"] },
@@ -769,8 +769,8 @@ async function handleRequest(req: Request) {
           .map(([name, count]) => `${name}(${count})`).join(", ");
         const typeDist: Record<string, number> = {};
         records.forEach((r) => { const t = r["Type"] || "Unknown"; typeDist[t] = (typeDist[t] || 0) + 1; });
-        const converted = statusDist["Converted"] || 0;
-        const convRate = total > 0 ? ((converted / total) * 100).toFixed(1) + "%" : "N/A";
+        const buckets = tallyLmpConversionBuckets(records.map((r) => r["Status"]));
+        const convDisplay = formatLmpProcessConversionRate(buckets);
         const recent = records.slice(-10).reverse().map((r) =>
           `${r["Company"]} - ${r["Role"]} [${r["Status"]}] (${r["Domain"]}, ${r["Type"]}, POC: ${r["Prep POC"] || "?"})`
         );
@@ -780,7 +780,7 @@ async function handleRequest(req: Request) {
         sheetSummary += `\nStatus: ${Object.entries(statusDist).map(([k, v]) => `${k}=${v}`).join(", ")}`;
         sheetSummary += `\nDomains: ${Object.entries(domainDist).map(([k, v]) => `${k}=${v}`).join(", ")}`;
         sheetSummary += `\nTypes: ${Object.entries(typeDist).map(([k, v]) => `${k}=${v}`).join(", ")}`;
-        sheetSummary += `\nConversion rate: ${convRate} (${converted}/${total})`;
+        sheetSummary += `\nConversion rate: ${convDisplay}`;
         sheetSummary += `\nPOC workload (top 10): ${topPocs}`;
         sheetSummary += `\nRecent records:\n${recent.map(r => `  - ${r}`).join("\n")}`;
       }

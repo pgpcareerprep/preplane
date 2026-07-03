@@ -10,7 +10,7 @@ import { useLmpFilters } from "./filters/useLmpFilters";
 import { useViewer } from "@/lib/viewerContext";
 import { motion } from "framer-motion";
 import {
-  calculateOutcomeConversionRate, lmpStatusCounts, type Process,
+  calculatePocPerformanceConversionRate, lmpStatusCounts, type Process,
 } from "@/lib/lmpProcessQueries";
 import { canonicalLmpStatus, type CanonicalLmpStatus, type LmpStatus } from "@/types/lmp";
 import { STATUS_META } from "@/lib/lmpTypes";
@@ -163,11 +163,10 @@ export function PocLmpDashboard({
   const convertedCount = filteredRecords.filter((r) => r.status === "converted" || r.status === "offer-received").length;
   const notConvertedCount = filteredRecords.filter((r) => r.status === "not-converted").length;
   const eligibleCount = convertedCount + notConvertedCount;
-  const conversionRate = calculateOutcomeConversionRate(
+  const conversionRate = calculatePocPerformanceConversionRate(
     convertedCount,
-    totalLmpCount,
-    lsc["other-reasons"],
-  );
+    notConvertedCount,
+  ) ?? 0;
 
   const recordsById = useMemo(
     () => new Map(filteredRecords.map((r) => [r.id, r])),

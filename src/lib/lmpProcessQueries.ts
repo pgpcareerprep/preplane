@@ -110,43 +110,61 @@ export function isConvertedLmpStatus(status: string | null | undefined): boolean
 }
 
 /**
- * LMP conversion rate: Converted ÷ (Total LMPs − Other Reasons).
+ * LMP process conversion: Converted ÷ (Total LMPs − closed).
+ * `closed` = other-reasons bucket (dormant, closed, other-reasons, converted-na).
  * Returns null when the denominator is zero.
  */
 export function calculateLmpConversionRate(
   convertedCount: number,
   totalCount: number,
-  otherReasonsCount: number,
+  closedCount: number,
 ): number | null {
-  const denominator = totalCount - otherReasonsCount;
+  const denominator = totalCount - closedCount;
+  if (denominator <= 0) return null;
+  return (convertedCount / denominator) * 100;
+}
+
+/** POC performance conversion: Converted ÷ (Converted + Not Converted). */
+export function calculatePocPerformanceConversionRate(
+  convertedCount: number,
+  notConvertedCount: number,
+): number | null {
+  const denominator = convertedCount + notConvertedCount;
   if (denominator <= 0) return null;
   return (convertedCount / denominator) * 100;
 }
 
 /**
- * Outcome-based LMP conversion rate.
- * @deprecated Prefer calculateLmpConversionRate — kept as a convenience wrapper.
+ * Outcome-based LMP process conversion rate (returns 0 when denominator is zero).
+ * @deprecated Prefer calculateLmpConversionRate or calculatePocPerformanceConversionRate.
  */
 export function calculateOutcomeConversionRate(
   convertedCount: number,
   totalCount: number,
-  otherReasonsCount: number,
+  closedCount: number,
 ): number {
-  return calculateLmpConversionRate(convertedCount, totalCount, otherReasonsCount) ?? 0;
+  return calculateLmpConversionRate(convertedCount, totalCount, closedCount) ?? 0;
+}
+
+export function isNotConvertedLmpStatus(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s === "not-converted" || s === "not converted";
 }
 
 export function tallyLmpConversionFromStatuses(
   statuses: Iterable<string | null | undefined>,
-): { converted: number; total: number; otherReasons: number } {
+): { converted: number; notConverted: number; total: number; closed: number } {
   let converted = 0;
-  let otherReasons = 0;
+  let notConverted = 0;
+  let closed = 0;
   let total = 0;
   for (const status of statuses) {
     total += 1;
     if (isConvertedLmpStatus(status)) converted += 1;
-    if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+    else if (isNotConvertedLmpStatus(status)) notConverted += 1;
+    else if (isOtherReasonsLmpStatus(status)) closed += 1;
   }
-  return { converted, total, otherReasons };
+  return { converted, notConverted, total, closed };
 }
 
 export function sumLmpStatusCounts(lsc: LmpStatusCounts): number {

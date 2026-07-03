@@ -2,8 +2,10 @@ import {
   type Domain,
   type Process,
   isConverted,
-  calculateOutcomeConversionRate,
+  calculateLmpConversionRate,
+  calculatePocPerformanceConversionRate,
   isConvertedLmpStatus,
+  isNotConvertedLmpStatus,
   isOtherReasonsLmpStatus,
 } from "@/lib/lmpProcessQueries";
 import type { LmpRecord } from "@/lib/lmpTypes";
@@ -55,13 +57,13 @@ export function domainAllocation(
     const pct = (arr: Process[]) => {
       if (statusMap) {
         let converted = 0;
-        let otherReasons = 0;
+        let closed = 0;
         for (const p of arr) {
           const status = statusMap.get(p.processId);
           if (isConvertedLmpStatus(status)) converted += 1;
-          if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+          if (isOtherReasonsLmpStatus(status)) closed += 1;
         }
-        return calculateOutcomeConversionRate(converted, arr.length, otherReasons);
+        return calculateLmpConversionRate(converted, arr.length, closed) ?? 0;
       }
       return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
     };
@@ -103,13 +105,13 @@ export function pocPurityMatrix(
     const conv = (arr: Process[]) => {
       if (statusMap) {
         let converted = 0;
-        let otherReasons = 0;
+        let notConverted = 0;
         for (const p of arr) {
           const status = statusMap.get(p.processId);
           if (isConvertedLmpStatus(status)) converted += 1;
-          if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+          if (isNotConvertedLmpStatus(status)) notConverted += 1;
         }
-        return +calculateOutcomeConversionRate(converted, arr.length, otherReasons).toFixed(0);
+        return +(calculatePocPerformanceConversionRate(converted, notConverted) ?? 0).toFixed(0);
       }
       return arr.length ? +((arr.filter(isConverted).length / arr.length) * 100).toFixed(0) : 0;
     };
@@ -135,13 +137,13 @@ export function allocationKpis(rows: Process[], map: PocPrimaryDomainMap, record
   const conv = (arr: Process[]) => {
     if (statusMap) {
       let converted = 0;
-      let otherReasons = 0;
+      let closed = 0;
       for (const p of arr) {
         const status = statusMap.get(p.processId);
         if (isConvertedLmpStatus(status)) converted += 1;
-        if (isOtherReasonsLmpStatus(status)) otherReasons += 1;
+        if (isOtherReasonsLmpStatus(status)) closed += 1;
       }
-      return calculateOutcomeConversionRate(converted, arr.length, otherReasons);
+      return calculateLmpConversionRate(converted, arr.length, closed) ?? 0;
     }
     return arr.length ? (arr.filter(isConverted).length / arr.length) * 100 : 0;
   };

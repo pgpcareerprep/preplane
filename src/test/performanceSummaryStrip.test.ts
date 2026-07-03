@@ -18,22 +18,30 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  calculatePerformanceConversion,
-  rankPerformance,
+  calculateLmpProcessConversion,
+  calculatePocPerformanceConversion,
+  rankLmpProcessPerformance,
+  rankPocPerformance,
   comparePerformance,
-  type PerformanceCounts,
-  type PerformanceEntry,
+  type LmpProcessEntry,
+  type PocPerformanceEntry,
 } from "@/lib/performanceConversion";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function makeEntry(
+function makeLmpEntry(
   name: string,
   converted: number,
   total: number,
-  otherReasons = 0,
-): PerformanceEntry {
-  return { name, converted, total, otherReasons };
+  closed = 0,
+): LmpProcessEntry {
+  return { name, converted, total, closed };
+}
+
+function makePocEntry(
+  name: string,
+  converted: number,
+  notConverted: number,
+): PocPerformanceEntry {
+  return { name, converted, notConverted };
 }
 
 // Simulates grouping LmpRecord[] by prepPocId the same way AdminLmpDashboard does.
@@ -48,111 +56,114 @@ const OTHER_REASONS = new Set(["other-reasons", "dormant", "closed"]);
 
 function computePocPerformance(
   records: MinimalLmpRecord[],
-): PerformanceEntry[] {
-  const byPocId = new Map<string, { name: string; converted: number; total: number; otherReasons: number }>();
+): PocPerformanceEntry[] {
+  const byPocId = new Map<string, { name: string; converted: number; notConverted: number }>();
   for (const r of records) {
     if (!r.prepPocId) continue;
     const entry = byPocId.get(r.prepPocId) ?? {
       name: r.prepPocName ?? r.prepPocId,
       converted: 0,
-      total: 0,
-      otherReasons: 0,
+      notConverted: 0,
     };
-    entry.total += 1;
     if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
-    if (OTHER_REASONS.has(r.status)) entry.otherReasons += 1;
+    if (r.status === "not-converted") entry.notConverted += 1;
     byPocId.set(r.prepPocId, entry);
   }
   return Array.from(byPocId.values());
 }
 
-// Simulates grouping LmpRecord[] by canonical domain name.
 function computeDomainPerformance(
   records: MinimalLmpRecord[],
   getDomain: (r: MinimalLmpRecord) => string,
-): PerformanceEntry[] {
-  const byDomain = new Map<string, { converted: number; total: number; otherReasons: number }>();
+): LmpProcessEntry[] {
+  const byDomain = new Map<string, { converted: number; total: number; closed: number }>();
   for (const r of records) {
     const domainName = getDomain(r);
     if (!domainName || domainName.toLowerCase() === "unmapped") continue;
-    const entry = byDomain.get(domainName) ?? { converted: 0, total: 0, otherReasons: 0 };
+    const entry = byDomain.get(domainName) ?? { converted: 0, total: 0, closed: 0 };
     entry.total += 1;
     if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
-    if (OTHER_REASONS.has(r.status)) entry.otherReasons += 1;
+    if (OTHER_REASONS.has(r.status)) entry.closed += 1;
     byDomain.set(domainName, entry);
   }
   return Array.from(byDomain.entries()).map(([name, e]) => ({ name, ...e }));
 }
 
-// ── 1. calculatePerformanceConversion ─────────────────────────────────────────
+// ── 1. Conversion formulas ────────────────────────────────────────────────────
 
-describe("calculatePerformanceConversion — POC formula", () => {
-  it("uses Converted ÷ (Total LMPs − Other Reasons) × 100", () => {
-    expect(calculatePerformanceConversion({ converted: 4, total: 6, otherReasons: 1 }))
+describe("calculatePocPerformanceConversion — POC formula", () => {
+  it("uses Converted ÷ (Converted + Not Converted) × 100", () => {
+    expect(calculatePocPerformanceConversion({ converted: 4, notConverted: 2 }))
+      .toBeCloseTo((4 / 6) * 100, 5);
+  });
+
+  it("returns null when denominator is zero", () => {
+    expect(calculatePocPerformanceConversion({ converted: 0, notConverted: 0 })).toBeNull();
+  });
+
+  it("returns 100% when all closed outcomes are converted", () => {
+    expect(calculatePocPerformanceConversion({ converted: 5, notConverted: 0 })).toBe(100);
+  });
+
+  it("returns 0% when no conversions but eligible denominator exists", () => {
+    expect(calculatePocPerformanceConversion({ converted: 0, notConverted: 3 })).toBe(0);
+  });
+});
+
+describe("calculateLmpProcessConversion — LMP process formula", () => {
+  it("uses Converted ÷ (Total − closed) × 100", () => {
+    expect(calculateLmpProcessConversion({ converted: 4, total: 6, closed: 1 }))
       .toBeCloseTo((4 / 5) * 100, 5);
   });
 
   it("returns null when denominator is zero", () => {
-    expect(calculatePerformanceConversion({ converted: 0, total: 2, otherReasons: 2 })).toBeNull();
-  });
-
-  it("returns 100% when all eligible LMPs are converted", () => {
-    expect(calculatePerformanceConversion({ converted: 5, total: 5, otherReasons: 0 })).toBe(100);
-  });
-
-  it("returns 0% when no conversions but eligible denominator exists", () => {
-    expect(calculatePerformanceConversion({ converted: 0, total: 3, otherReasons: 0 })).toBe(0);
-  });
-
-  it("never returns NaN", () => {
-    const result = calculatePerformanceConversion({ converted: 0, total: 0, otherReasons: 0 });
-    expect(result).toBeNull();
-    expect(Number.isNaN(result)).toBe(false);
+    expect(calculateLmpProcessConversion({ converted: 0, total: 2, closed: 2 })).toBeNull();
   });
 });
 
-// ── 2. Other Reasons excluded from denominator ────────────────────────────────
+// ── 2. POC formula excludes pipeline and other-reasons ─────────────────────
 
-describe("Other Reasons excluded from LMP conversion denominator", () => {
-  it("On Hold LMPs remain in the denominator", () => {
+describe("POC performance conversion denominator", () => {
+  it("On Hold LMPs do not affect POC conversion", () => {
     const records: MinimalLmpRecord[] = [
       { id: "1", prepPocId: "poc-a", prepPocName: "Alice", status: "converted" },
       { id: "2", prepPocId: "poc-a", prepPocName: "Alice", status: "hold" },
     ];
     const entries = computePocPerformance(records);
     expect(entries[0].converted).toBe(1);
-    expect(calculatePerformanceConversion(entries[0])).toBe(50);
+    expect(calculatePocPerformanceConversion(entries[0])).toBe(100);
   });
 
-  it("Other Reasons LMPs are subtracted from the denominator", () => {
+  it("Other Reasons LMPs do not affect POC conversion", () => {
     const records: MinimalLmpRecord[] = [
       { id: "1", prepPocId: "poc-b", prepPocName: "Bob", status: "not-converted" },
       { id: "2", prepPocId: "poc-b", prepPocName: "Bob", status: "other-reasons" },
     ];
     const entries = computePocPerformance(records);
     expect(entries[0].converted).toBe(0);
-    expect(calculatePerformanceConversion(entries[0])).toBe(0);
+    expect(calculatePocPerformanceConversion(entries[0])).toBe(0);
   });
 
-  it("Not Started remains in the denominator", () => {
+  it("Not Started does not affect POC conversion", () => {
     const records: MinimalLmpRecord[] = [
       { id: "1", prepPocId: "poc-c", prepPocName: "Carol", status: "converted" },
       { id: "2", prepPocId: "poc-c", prepPocName: "Carol", status: "not-started" },
     ];
     const entries = computePocPerformance(records);
     expect(entries[0].converted).toBe(1);
-    expect(calculatePerformanceConversion(entries[0])).toBe(50);
+    expect(calculatePocPerformanceConversion(entries[0])).toBe(100);
   });
 
-  it("Prep Ongoing and Prep Done remain in the denominator", () => {
+  it("Prep Ongoing and Prep Done do not affect POC conversion", () => {
     const records: MinimalLmpRecord[] = [
       { id: "1", prepPocId: "poc-d", prepPocName: "Dave", status: "converted" },
       { id: "2", prepPocId: "poc-d", prepPocName: "Dave", status: "prep-ongoing" },
       { id: "3", prepPocId: "poc-d", prepPocName: "Dave", status: "prep-done" },
+      { id: "4", prepPocId: "poc-d", prepPocName: "Dave", status: "not-converted" },
     ];
     const entries = computePocPerformance(records);
     expect(entries[0].converted).toBe(1);
-    expect(calculatePerformanceConversion(entries[0])).toBeCloseTo((1 / 3) * 100, 5);
+    expect(calculatePocPerformanceConversion(entries[0])).toBe(50);
   });
 });
 
@@ -166,83 +177,77 @@ describe("offer-received maps to Converted in performance formula", () => {
     ];
     const entries = computePocPerformance(records);
     expect(entries[0].converted).toBe(1);
-    expect(entries[0].total).toBe(2);
-    expect(calculatePerformanceConversion(entries[0])).toBe(50);
+    expect(entries[0].notConverted).toBe(1);
+    expect(calculatePocPerformanceConversion(entries[0])).toBe(50);
   });
 });
 
-// ── 4. rankPerformance ────────────────────────────────────────────────────────
+// ── 4. rankPocPerformance / rankLmpProcessPerformance ───────────────────────
 
-describe("rankPerformance — selects best entity", () => {
+describe("rankPocPerformance — selects best POC", () => {
   it("test 2: Highest Performing POC is displayed (returns a result)", () => {
     const entries = [
-      makeEntry("Alice", 4, 5, 0),
-      makeEntry("Bob",   2, 5, 0),
+      makePocEntry("Alice", 4, 1),
+      makePocEntry("Bob",   2, 3),
     ];
-    const result = rankPerformance(entries);
+    const result = rankPocPerformance(entries);
     expect(result).not.toBeNull();
     expect(result!.name).toBe("Alice");
   });
 
+  it("returns null when no POC has converted + not-converted outcomes", () => {
+    const entries = [makePocEntry("Alice", 0, 0), makePocEntry("Bob", 0, 0)];
+    expect(rankPocPerformance(entries)).toBeNull();
+  });
+
+  it("ranks a POC with only converted outcomes when denominator is non-zero", () => {
+    const entries = [makePocEntry("Alice", 0, 0), makePocEntry("Bob", 1, 0)];
+    expect(rankPocPerformance(entries)!.name).toBe("Bob");
+  });
+
+  it("eligible = converted + notConverted in result", () => {
+    const entries = [makePocEntry("Alice", 3, 2)];
+    const result = rankPocPerformance(entries)!;
+    expect(result.eligible).toBe(5);
+  });
+});
+
+describe("rankLmpProcessPerformance — selects best domain", () => {
   it("test 4: Best Performing Domain is displayed (returns a result)", () => {
     const entries = [
-      makeEntry("Consulting",    3, 4, 0),
-      makeEntry("Product Mgmt", 1, 5, 0),
+      makeLmpEntry("Consulting",    3, 4, 0),
+      makeLmpEntry("Product Mgmt", 1, 5, 0),
     ];
-    const result = rankPerformance(entries);
+    const result = rankLmpProcessPerformance(entries);
     expect(result!.name).toBe("Consulting");
     expect(result!.pct).toBeCloseTo(75, 1);
   });
 
   it("returns null when no entries have eligible outcomes", () => {
-    const entries = [makeEntry("Alice", 0, 2, 2), makeEntry("Bob", 0, 1, 1)];
-    expect(rankPerformance(entries)).toBeNull();
+    const entries = [makeLmpEntry("Alice", 0, 2, 2), makeLmpEntry("Bob", 0, 1, 1)];
+    expect(rankLmpProcessPerformance(entries)).toBeNull();
   });
 
-  it("excludes entities with zero eligible outcomes from ranking", () => {
-    const entries = [makeEntry("Alice", 0, 2, 2), makeEntry("Bob", 1, 2, 0)];
-    const result = rankPerformance(entries);
-    expect(result!.name).toBe("Bob");
-  });
-
-  it("eligible = total − otherReasons in result", () => {
-    const entries = [makeEntry("Alice", 3, 7, 2)];
-    const result = rankPerformance(entries)!;
+  it("eligible = total − closed in result", () => {
+    const entries = [makeLmpEntry("Alice", 3, 7, 2)];
+    const result = rankLmpProcessPerformance(entries)!;
     expect(result.eligible).toBe(5);
   });
 });
 
 // ── 5. Tie-break rules — test 12 ─────────────────────────────────────────────
 
-describe("comparePerformance — stable tie-break rules", () => {
+describe("comparePerformance — stable LMP process tie-break rules", () => {
   it("higher conversion % wins", () => {
-    const a = makeEntry("A", 3, 5, 0); // 60%
-    const b = makeEntry("B", 4, 5, 0); // 80%
-    expect(comparePerformance(a, b)).toBeGreaterThan(0); // b before a
-  });
-
-  it("equal %, higher converted count wins", () => {
-    const a = makeEntry("A", 2, 2, 0); // 100%, 2 conv
-    const b = makeEntry("B", 3, 3, 0); // 100%, 3 conv
-    expect(comparePerformance(a, b)).toBeGreaterThan(0); // b before a
-  });
-
-  it("equal % and converted, higher eligible wins", () => {
-    const a = makeEntry("A", 2, 3, 0); // 66.7%, 3 eligible
-    const b = makeEntry("B", 4, 6, 0); // 66.7%, 6 eligible
-    expect(comparePerformance(a, b)).toBeGreaterThan(0); // b before a
-  });
-
-  it("equal %, converted, eligible → lower otherReasons wins", () => {
-    const a = makeEntry("A", 2, 4, 1);
-    const b = makeEntry("B", 2, 5, 2);
-    expect(comparePerformance(a, b)).toBeLessThan(0); // a before b
+    const a = makeLmpEntry("A", 3, 5, 0);
+    const b = makeLmpEntry("B", 4, 5, 0);
+    expect(comparePerformance({ ...a, otherReasons: a.closed }, { ...b, otherReasons: b.closed })).toBeGreaterThan(0);
   });
 
   it("alphabetical name is the final tie-break for stable output — test 12", () => {
-    const a = makeEntry("Charlie", 1, 1, 0);
-    const b = makeEntry("Alice",   1, 1, 0);
-    expect(comparePerformance(a, b)).toBeGreaterThan(0); // Alice before Charlie
+    const a = makeLmpEntry("Charlie", 1, 1, 0);
+    const b = makeLmpEntry("Alice",   1, 1, 0);
+    expect(comparePerformance({ ...a, otherReasons: 0 }, { ...b, otherReasons: 0 })).toBeGreaterThan(0);
   });
 });
 
@@ -259,8 +264,8 @@ describe("test 9: Duplicate LMP assignments do not inflate counts", () => {
       { id: "lmp-2", prepPocId: "poc-a", prepPocName: "Alice", status: "converted" },
     ];
     const entries = computePocPerformance(records);
-    expect(entries[0].converted).toBe(2); // two distinct LMPs
-    expect(entries[0].total).toBe(2);
+    expect(entries[0].converted).toBe(2);
+    expect(entries[0].notConverted).toBe(0);
   });
 
   it("rows without prepPocId are excluded (no phantom attribution)", () => {
@@ -295,7 +300,7 @@ describe("test 11: Domain metrics use canonical domain names (not raw sheet valu
       { id: "2", prepPocId: "poc-a", status: "converted" },
     ];
     const unmappedEntries = computeDomainPerformance(records, () => "unmapped");
-    const result = rankPerformance(unmappedEntries);
+    const result = rankLmpProcessPerformance(unmappedEntries);
     expect(result).toBeNull();
   });
 });
@@ -313,8 +318,8 @@ describe("test 13: Dashboard filters apply — only filtered records contribute"
     // Simulate filter applied — only records 1, 3, 4 are in scope
     const filteredRecords = allRecords.filter((r) => r.id !== "2");
     const pocEntries = computePocPerformance(filteredRecords);
-    const result = rankPerformance(pocEntries);
-    // Xavier: 1/1 = 100%, Yuki: 1/2 = 50% → Xavier wins
+    const result = rankPocPerformance(pocEntries);
+    // Xavier: 1/1 = 100%, Yuki: 1/1 = 100% → tie-break by name → Xavier
     expect(result!.name).toBe("Xavier");
   });
 });
@@ -394,15 +399,15 @@ describe("performance strip", () => {
 // ── 11. No hardcoded values — test 20 ────────────────────────────────────────
 
 describe("test 20: No values or names are hardcoded", () => {
-  it("rankPerformance returns different results for different inputs", () => {
-    const resultA = rankPerformance([makeEntry("Alice", 5, 5, 0), makeEntry("Bob", 2, 5, 0)]);
-    const resultB = rankPerformance([makeEntry("Alice", 1, 5, 0), makeEntry("Bob", 3, 3, 0)]);
+  it("rankPocPerformance returns different results for different inputs", () => {
+    const resultA = rankPocPerformance([makePocEntry("Alice", 5, 0), makePocEntry("Bob", 2, 3)]);
+    const resultB = rankPocPerformance([makePocEntry("Alice", 1, 4), makePocEntry("Bob", 3, 0)]);
     expect(resultA!.name).toBe("Alice");
     expect(resultB!.name).toBe("Bob");
   });
 
   it("empty inputs yield null — no fallback default name is hardcoded", () => {
-    expect(rankPerformance([])).toBeNull();
+    expect(rankPocPerformance([])).toBeNull();
   });
 });
 

@@ -22,6 +22,10 @@ import {
   validateChatWriteKind,
 } from "../../_shared/lmpWriteValidation.ts";
 import { getServiceClient } from "../../_shared/entitySearch.ts";
+import {
+  formatLmpProcessConversionRate,
+  tallyLmpConversionBuckets,
+} from "../../_shared/conversionReport.ts";
 
 function getCallerSupabase() {
   const token = requestState().context.authToken;
@@ -1357,11 +1361,18 @@ export async function executeTool(
             });
           }
           case "conversion_rate": {
-            const total = filtered.length;
-            const converted = filtered.filter(r => (r["Status"] || "").toLowerCase() === "converted").length;
-            const notConverted = filtered.filter(r => (r["Status"] || "").toLowerCase() === "not converted").length;
-            const ongoing = filtered.filter(r => (r["Status"] || "").toLowerCase() === "ongoing").length;
-            return JSON.stringify({ total, converted, not_converted: notConverted, ongoing, conversion_rate: total > 0 ? `${((converted / total) * 100).toFixed(1)}%` : "N/A" });
+            const buckets = tallyLmpConversionBuckets(filtered.map((r) => r["Status"]));
+            const ongoing = filtered.filter((r) => /ongoing|prep/i.test(r["Status"] || "")).length;
+            return JSON.stringify({
+              total: buckets.total,
+              converted: buckets.converted,
+              not_converted: buckets.notConverted,
+              closed: buckets.closed,
+              eligible_denominator: buckets.lmpProcessDenominator,
+              ongoing,
+              conversion_rate: formatLmpProcessConversionRate(buckets),
+              formula: "Converted ÷ (Total − closed)",
+            });
           }
           case "type_distribution": {
             const dist: Record<string, number> = {};
@@ -1380,18 +1391,23 @@ export async function executeTool(
           }
           case "overview":
           case "pipeline_summary": {
-            const total = filtered.length;
+            const buckets = tallyLmpConversionBuckets(filtered.map((r) => r["Status"]));
             const statusDist: Record<string, number> = {};
             const domainDist: Record<string, number> = {};
-            filtered.forEach(r => {
+            filtered.forEach((r) => {
               const s = r["Status"] || "Unknown";
               statusDist[s] = (statusDist[s] || 0) + 1;
               const d = r["Domain"] || "Unknown";
               domainDist[d] = (domainDist[d] || 0) + 1;
             });
-            const converted = statusDist["Converted"] || 0;
             return JSON.stringify({
-              total, converted, conversion_rate: total > 0 ? `${((converted / total) * 100).toFixed(1)}%` : "N/A",
+              total: buckets.total,
+              converted: buckets.converted,
+              not_converted: buckets.notConverted,
+              closed: buckets.closed,
+              eligible_denominator: buckets.lmpProcessDenominator,
+              conversion_rate: formatLmpProcessConversionRate(buckets),
+              formula: "Converted ÷ (Total − closed)",
               status_distribution: statusDist,
               domain_distribution: domainDist,
             });

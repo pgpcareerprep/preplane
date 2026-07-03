@@ -14,8 +14,8 @@ import {
  *   - For LMP LOAD display (Current vs Closed): On hold counts as Current (ongoing).
  *     Current = Not Started + Prep Ongoing + Prep Done + On Hold.
  *     Closed = Converted + Not Converted + Other Reasons (+ unmapped status).
- *   - For LMP Conversion: Converted ÷ (Converted + Not Converted) only.
- *     Active pipeline, on-hold, and other-reasons LMPs are excluded from the denominator.
+ *   - For POC-row LMP Conversion: Converted ÷ (Converted + Not Converted).
+ *   - For global summary LMP Conversion: Converted ÷ (Total − Other Reasons).
  *
  * Domain load applies to PREP-role LMPs only (primary assignments).
  * LMPs with no domain set are classified as in-domain to avoid false cross-domain noise.
@@ -501,15 +501,15 @@ export function buildHeatmapData(
     }
   }
 
-  // Global conversion — converted ÷ (converted + not converted) in scoped LMP set
+  // Global conversion — LMP process formula: converted ÷ (total − closed) in scoped LMP set
   let globalConvertedCount = 0;
-  let globalNotConvertedCount = 0;
+  let globalClosedCount = 0;
   for (const id of scopedLmpIds) {
     const bucket = lmpStatusMap.get(id) ?? "unknown";
     if (bucket === "converted") globalConvertedCount++;
-    if (bucket === "notConverted") globalNotConvertedCount++;
+    if (bucket === "otherReasons") globalClosedCount++;
   }
-  const globalEligibleCount = globalConvertedCount + globalNotConvertedCount;
+  const globalEligibleCount = scopedLmpIds.size - globalClosedCount;
 
   const activePocCount = rows.filter((r) => r.totalLmpLoad > 0).length;
 

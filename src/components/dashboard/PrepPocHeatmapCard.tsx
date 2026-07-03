@@ -315,7 +315,7 @@ const SECTION_CONFIG: SectionDef[] = [
         dataKey: "eligibleClosedCount", metricKey: "lmpConversion", colType: "conversion",
         label: "LMP Conversion", minWidth: 108,
         palette: P_SAGE, totalAccent: A_SAGE,
-        tooltip: "Converted ÷ (Converted + Not Converted). Format: converted/eligible – %.",
+        tooltip: "POC performance conversion: Converted ÷ (Converted + Not Converted). Format: converted/eligible – %.",
       },
       {
         dataKey: "studentsPlaced", metricKey: "studentsPlaced", colType: "heat",
@@ -935,7 +935,7 @@ export function PrepPocHeatmapCard({
             <KpiCard icon={TrendingUp} label="Converted LMP %"
               value={data.summary.convertedLmpPercentage !== null ? `${data.summary.convertedLmpPercentage.toFixed(0)}%` : "—"}
               accentCss="var(--lx-info)"
-              tooltip="Globally distinct converted LMPs ÷ (total scoped LMPs − Other Reasons)." />
+              tooltip="LMP process conversion: globally distinct converted LMPs ÷ (total scoped LMPs − Other Reasons)." />
           </div>
         )}
         {!isLoading && data && activeView === "student" && (

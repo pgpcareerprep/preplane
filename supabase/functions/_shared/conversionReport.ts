@@ -19,7 +19,7 @@ export function mapStatusToBucket(raw: string | null | undefined): StatusBucket 
   if (s === "prep-done") return "prepDone";
   if (s === "hold") return "onHold";
   if (s === "converted" || s === "offer-received") return "converted";
-  if (s === "not-converted") return "notConverted";
+  if (s === "not-converted" || s === "not converted") return "notConverted";
   if (s === "other-reasons" || s === "dormant" || s === "closed" || s === "converted-na") return "otherReasons";
   return "unknown";
 }
@@ -52,6 +52,72 @@ function pct(n: number, d: number): number | null {
 
 function fmtPct(v: number | null): string {
   return v === null ? "—" : `${v}%`;
+}
+
+/** LMP process conversion: Converted ÷ (Total − closed). `closed` = other-reasons bucket. */
+export function calculateLmpProcessConversionPct(
+  converted: number,
+  total: number,
+  closedCount: number,
+): number | null {
+  return pct(converted, total - closedCount);
+}
+
+/** POC performance conversion: Converted ÷ (Converted + Not Converted). */
+export function calculatePocPerformanceConversionPct(
+  converted: number,
+  notConverted: number,
+): number | null {
+  return pct(converted, converted + notConverted);
+}
+
+export type LmpConversionBuckets = {
+  converted: number;
+  notConverted: number;
+  closed: number;
+  total: number;
+  lmpProcessDenominator: number;
+  pocPerformanceDenominator: number;
+  lmpProcessConversionPct: number | null;
+  pocPerformanceConversionPct: number | null;
+};
+
+export function tallyLmpConversionBuckets(
+  statuses: Iterable<string | null | undefined>,
+): LmpConversionBuckets {
+  let converted = 0;
+  let notConverted = 0;
+  let closed = 0;
+  let total = 0;
+  for (const raw of statuses) {
+    total += 1;
+    const bucket = mapStatusToBucket(raw);
+    if (bucket === "converted") converted += 1;
+    else if (bucket === "notConverted") notConverted += 1;
+    else if (bucket === "otherReasons") closed += 1;
+  }
+  const lmpProcessDenominator = total - closed;
+  const pocPerformanceDenominator = converted + notConverted;
+  return {
+    converted,
+    notConverted,
+    closed,
+    total,
+    lmpProcessDenominator,
+    pocPerformanceDenominator,
+    lmpProcessConversionPct: calculateLmpProcessConversionPct(converted, total, closed),
+    pocPerformanceConversionPct: calculatePocPerformanceConversionPct(converted, notConverted),
+  };
+}
+
+export function formatLmpProcessConversionRate(buckets: LmpConversionBuckets): string {
+  if (buckets.lmpProcessDenominator <= 0 || buckets.lmpProcessConversionPct === null) return "—";
+  return `${buckets.converted}/${buckets.lmpProcessDenominator} - ${buckets.lmpProcessConversionPct}%`;
+}
+
+export function formatPocPerformanceConversionRate(buckets: LmpConversionBuckets): string {
+  if (buckets.pocPerformanceDenominator <= 0 || buckets.pocPerformanceConversionPct === null) return "—";
+  return `${buckets.converted}/${buckets.pocPerformanceDenominator} - ${buckets.pocPerformanceConversionPct}%`;
 }
 
 export type ConversionReportPocRow = {
@@ -188,16 +254,16 @@ export function buildConversionReport(
 
   const globalPlacedStudents = new Set<string>();
   let globalConverted = 0;
-  let globalOtherReasons = 0;
+  let globalClosed = 0;
   for (const id of scopedLmpIds) {
     const bucket = lmpStatusMap.get(id) ?? "unknown";
     if (bucket === "converted") {
       globalConverted++;
       for (const sid of lmpStudentsMap.get(id) ?? []) globalPlacedStudents.add(sid);
     }
-    if (bucket === "otherReasons") globalOtherReasons++;
+    if (bucket === "otherReasons") globalClosed++;
   }
-  const globalEligible = scopedLmpIds.size - globalOtherReasons;
+  const globalLmpDenominator = scopedLmpIds.size - globalClosed;
 
   const pocRows: ConversionReportPocRow[] = [];
   for (const poc of activePocs) {
@@ -206,7 +272,8 @@ export function buildConversionReport(
     if (!totalIds.size) continue;
 
     let converted = 0;
-    let otherReasons = 0;
+    let notConverted = 0;
+    let closed = 0;
     const placedStudents = new Set<string>();
     for (const id of totalIds) {
       const bucket = lmpStatusMap.get(id) ?? "unknown";
@@ -214,14 +281,15 @@ export function buildConversionReport(
         converted++;
         for (const sid of lmpStudentsMap.get(id) ?? []) placedStudents.add(sid);
       }
-      if (bucket === "otherReasons") otherReasons++;
+      if (bucket === "notConverted") notConverted++;
+      if (bucket === "otherReasons") closed++;
     }
-    const eligibleClosed = totalIds.size - otherReasons;
+    const pocDenominator = converted + notConverted;
     pocRows.push({
       pocName: poc.name,
-      eligibleClosed,
+      eligibleClosed: pocDenominator,
       converted,
-      lmpConversionPct: pct(converted, eligibleClosed),
+      lmpConversionPct: calculatePocPerformanceConversionPct(converted, notConverted),
       studentsPlaced: placedStudents.size,
     });
   }
@@ -274,13 +342,15 @@ export function buildConversionReport(
   for (const domainKeyVal of allDomains) {
     const ids = domainLmps.get(domainKeyVal) ?? new Set<string>();
     let convertedLmps = 0;
-    let otherReasons = 0;
+    let notConvertedLmps = 0;
+    let closedLmps = 0;
     for (const id of ids) {
       const bucket = lmpStatusMap.get(id) ?? "unknown";
       if (bucket === "converted") convertedLmps++;
-      if (bucket === "otherReasons") otherReasons++;
+      if (bucket === "notConverted") notConvertedLmps++;
+      if (bucket === "otherReasons") closedLmps++;
     }
-    const eligibleClosed = ids.size - otherReasons;
+    const eligibleClosed = ids.size - closedLmps;
     const studentsOpted = (domainOptedStudents.get(domainKeyVal) ?? new Set()).size;
     const studentsPlaced = (domainPlacedStudents.get(domainKeyVal) ?? new Set()).size;
     if (!ids.size && !studentsOpted && !studentsPlaced) continue;
@@ -289,7 +359,7 @@ export function buildConversionReport(
       totalLmps: ids.size,
       eligibleClosed,
       convertedLmps,
-      lmpConversionPct: pct(convertedLmps, eligibleClosed),
+      lmpConversionPct: calculateLmpProcessConversionPct(convertedLmps, ids.size, closedLmps),
       studentsOpted,
       studentsPlaced,
       studentPlacementConversionPct: pct(studentsPlaced, studentsOpted),
@@ -303,9 +373,9 @@ export function buildConversionReport(
   return {
     summary: {
       totalLmps: scopedLmpIds.size,
-      eligibleClosedLmps: globalEligible,
+      eligibleClosedLmps: globalLmpDenominator,
       convertedLmps: globalConverted,
-      lmpConversionPct: pct(globalConverted, globalEligible),
+      lmpConversionPct: calculateLmpProcessConversionPct(globalConverted, scopedLmpIds.size, globalClosed),
       studentsOpted,
       studentsPlaced: globalPlacedStudents.size,
       studentPlacementConversionPct: pct(globalPlacedStudents.size, studentsOpted),

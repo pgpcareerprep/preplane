@@ -401,7 +401,7 @@ export function buildDomainWiseData(
     const otherReasonsCount = row.byBucket.otherReasons.size;
     const currentLmps = notStartedCount + prepOngoingCount + prepDoneCount + onHoldCount;
     const closedLmps = convertedCount + notConvertedCount + otherReasonsCount + row.byBucket.unknown.size;
-    const eligibleClosedCount = convertedCount + notConvertedCount;
+    const eligibleClosedCount = row.lmpIds.size - otherReasonsCount;
     const lmpConversionPercentage =
       eligibleClosedCount > 0 ? (convertedCount / eligibleClosedCount) * 100 : null;
     const placementRatePct =
@@ -431,13 +431,13 @@ export function buildDomainWiseData(
   rows.sort((a, b) => b.totalLmps - a.totalLmps || a.domainName.localeCompare(b.domainName));
 
   let globalConverted = 0;
-  let globalNotConverted = 0;
+  let globalClosed = 0;
   for (const lmpId of globalLmps) {
     const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
     if (bucket === "converted") globalConverted++;
-    if (bucket === "notConverted") globalNotConverted++;
+    if (bucket === "otherReasons") globalClosed++;
   }
-  const globalEligible = globalConverted + globalNotConverted;
+  const globalEligible = globalLmps.size - globalClosed;
 
   return {
     summary: {

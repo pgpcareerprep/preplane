@@ -108,11 +108,11 @@ describe("Domain-wise heatmap", () => {
     expect(rows[0]?.placementRatePct).toBeNull();
   });
 
-  it("handles LMP conversion only when converted or not-converted outcomes exist", () => {
+  it("returns 0% LMP conversion when only pipeline LMPs exist", () => {
     const pocs = [poc("p1", "Alice")];
     const links = [link("p1", "lmp1", "prep", "not-started", "Finance")];
     const { summary } = buildDomainWiseData(pocs, links, []);
-    expect(summary.lmpConversionPct).toBeNull();
+    expect(summary.lmpConversionPct).toBe(0);
   });
 
   it("uses On hold LMP count for domain prep status column", () => {

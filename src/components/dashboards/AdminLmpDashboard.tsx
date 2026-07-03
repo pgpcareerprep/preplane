@@ -19,7 +19,7 @@ import {
 // (cross-domain classification has moved to live `usePocPrimaryDomainMap`;
 //  this dashboard does not consume it directly anymore.)
 import { resolveDomainName } from "@/lib/domainAlias";
-import { rankPerformance } from "@/lib/performanceConversion";
+import { rankLmpProcessPerformance, rankPocPerformance } from "@/lib/performanceConversion";
 import {
   isOptedOutStatus, getStudentIdentityKey, getCandidateIdentityKey,
   isCandidatePipelineConverted, getCanonicalStudentIdentity, placedStudentNameKey,
@@ -623,46 +623,38 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   );
 
   // ── Performance metrics ──────────────────────────────────────────────────────
-  // Formula (POC, POD, domain): Converted ÷ (Total LMPs − Other Reasons) × 100.
-  // offer-received counts as Converted (canonical lmpStatusCounts mapping).
-  // All computations respect active filters via filteredRecords.
+  // POC: Converted ÷ (Converted + Not Converted). Domain: Converted ÷ (Total − closed).
 
   const bestPoc = useMemo(() => {
-    // Group by prepPocId (UUID) to deduplicate assignments; display name from prepPoc.name.
-    const byPocId = new Map<string, { name: string; converted: number; total: number; otherReasons: number }>();
+    const byPocId = new Map<string, { name: string; converted: number; notConverted: number }>();
     for (const r of filteredRecords) {
       if (!r.prepPocId) continue;
       const entry = byPocId.get(r.prepPocId) ?? {
         name: r.prepPoc?.name ?? r.prepPocId,
         converted: 0,
-        total: 0,
-        otherReasons: 0,
+        notConverted: 0,
       };
-      entry.total += 1;
       if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
-      if (r.status === "other-reasons" || r.status === "dormant" || r.status === "closed" || r.status === "converted-na") {
-        entry.otherReasons += 1;
-      }
+      if (r.status === "not-converted") entry.notConverted += 1;
       byPocId.set(r.prepPocId, entry);
     }
-    return rankPerformance(Array.from(byPocId.values()));
+    return rankPocPerformance(Array.from(byPocId.values()));
   }, [filteredRecords]);
 
   const bestDomain = useMemo(() => {
-    // Group by canonical domain name (resolved via aliases → primary name).
-    const byDomain = new Map<string, { converted: number; total: number; otherReasons: number }>();
+    const byDomain = new Map<string, { converted: number; total: number; closed: number }>();
     for (const r of filteredRecords) {
       const domainName = resolveDomainName(r.domain, canonicalDomains) ?? r.domain ?? "";
       if (!domainName || domainName.toLowerCase() === "unmapped") continue;
-      const entry = byDomain.get(domainName) ?? { converted: 0, total: 0, otherReasons: 0 };
+      const entry = byDomain.get(domainName) ?? { converted: 0, total: 0, closed: 0 };
       entry.total += 1;
       if (r.status === "converted" || r.status === "offer-received") entry.converted += 1;
       if (r.status === "other-reasons" || r.status === "dormant" || r.status === "closed" || r.status === "converted-na") {
-        entry.otherReasons += 1;
+        entry.closed += 1;
       }
       byDomain.set(domainName, entry);
     }
-    return rankPerformance(
+    return rankLmpProcessPerformance(
       Array.from(byDomain.entries()).map(([name, e]) => ({ name, ...e })),
     );
   }, [filteredRecords, canonicalDomains]);

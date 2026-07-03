@@ -643,7 +643,7 @@ describe("query contract — no candidate_count from lmp_processes", () => {
     expect(result.summary.uniqueLmpCount).toBe(2); // lmp1 + lmp2 globally
     expect(result.summary.uniqueStudentsPlaced).toBe(1); // s1 once
     expect(result.summary.convertedLmpCount).toBe(1);
-    expect(result.summary.eligibleClosedLmpCount).toBe(2); // converted + not converted globally
+    expect(result.summary.eligibleClosedLmpCount).toBe(2); // total scoped LMPs − closed globally
   });
 
   it("activePocCount counts only POCs with LMP load > 0", () => {
