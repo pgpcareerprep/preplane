@@ -678,16 +678,31 @@ export function VoiceConversationOverlay({
       });
     }
     setThinking(true);
+    const fetchPayload = {
+      messages: messagesRef.current.slice(-8),
+      ...identityPayload,
+    };
+    const fetchHeaders = await authHeaders();
+    let attempt = 0;
+    const voiceFetch = () => fetch(VOICE_COPILOT_URL, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: fetchHeaders,
+      body: JSON.stringify(fetchPayload),
+    });
     try {
-      const resp = await fetch(VOICE_COPILOT_URL, {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: await authHeaders(),
-        body: JSON.stringify({
-          messages: messagesRef.current.slice(-8),
-          ...identityPayload,
-        }),
-      });
+      let resp: Response;
+      while (true) {
+        try {
+          resp = await voiceFetch();
+          break;
+        } catch (fetchErr) {
+          if ((fetchErr as { name?: string })?.name === "AbortError") throw fetchErr;
+          if (attempt >= 1) throw fetchErr;
+          attempt += 1;
+          await new Promise((r) => setTimeout(r, 800));
+        }
+      }
 
       let data: any = {};
       try { data = await resp.json(); } catch { /* non-json body */ }

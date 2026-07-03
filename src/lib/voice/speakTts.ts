@@ -4,8 +4,10 @@ const SPEAK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/voice-speak
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
+let queueToken = 0;
 
 export function stopSpeaking() {
+  queueToken += 1;
   try {
     if (currentAudio) {
       currentAudio.pause();
@@ -35,8 +37,6 @@ function speakBrowser(text: string, opts?: { onStart?: () => void; onEnd?: () =>
       opts?.onEnd?.();
       resolve();
     };
-    // Chrome has a known bug where onend never fires. Failsafe: resolve after
-    // an estimated duration + 1 s so the mic always starts eventually.
     const estimatedMs = Math.max(3000, (text.length / 15) * 1000 + 1000);
     const fallbackTimer = window.setTimeout(finish, estimatedMs);
     u.onstart = () => opts?.onStart?.();
@@ -44,6 +44,91 @@ function speakBrowser(text: string, opts?: { onStart?: () => void; onEnd?: () =>
     u.onerror = () => { window.clearTimeout(fallbackTimer); finish(); };
     try { window.speechSynthesis.speak(u); } catch { window.clearTimeout(fallbackTimer); finish(); }
   });
+}
+
+function splitForTts(text: string, maxLen = 220): string[] {
+  if (text.length <= maxLen) return [text];
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const chunks: string[] = [];
+  let buf = "";
+  for (const sentence of sentences) {
+    const piece = sentence.trim();
+    if (!piece) continue;
+    const candidate = buf ? `${buf} ${piece}` : piece;
+    if (candidate.length <= maxLen) {
+      buf = candidate;
+      continue;
+    }
+    if (buf) chunks.push(buf);
+    if (piece.length <= maxLen) {
+      buf = piece;
+    } else {
+      for (let i = 0; i < piece.length; i += maxLen) {
+        chunks.push(piece.slice(i, i + maxLen));
+      }
+      buf = "";
+    }
+  }
+  if (buf) chunks.push(buf);
+  return chunks.length > 0 ? chunks : [text.slice(0, maxLen)];
+}
+
+async function speakChunk(
+  text: string,
+  opts?: { voiceId?: string; onStart?: () => void; onEnd?: () => void },
+): Promise<"audio" | "browser"> {
+  let resp: Response;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    resp = await fetch(SPEAK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({ text, voiceId: opts?.voiceId }),
+    });
+  } catch {
+    await speakBrowser(text, opts);
+    return "browser";
+  }
+  if (!resp.ok) {
+    try { await resp.text(); } catch { /* noop */ }
+    await speakBrowser(text, opts);
+    return "browser";
+  }
+
+  const contentType = resp.headers.get("Content-Type") || "";
+  if (!contentType.includes("audio")) {
+    try { await resp.text(); } catch { /* noop */ }
+    await speakBrowser(text, opts);
+    return "browser";
+  }
+
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  currentUrl = url;
+
+  await new Promise<void>((resolve) => {
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.onplay = () => opts?.onStart?.();
+    audio.onended = () => {
+      opts?.onEnd?.();
+      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
+      if (currentAudio === audio) currentAudio = null;
+      resolve();
+    };
+    audio.onerror = () => {
+      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
+      if (currentAudio === audio) currentAudio = null;
+      speakBrowser(text, opts).then(() => resolve());
+    };
+    audio.play().catch(() => speakBrowser(text, opts).then(() => resolve()));
+  });
+  return "audio";
 }
 
 /**
@@ -57,54 +142,27 @@ export async function speak(
   const clean = (text || "").replace(/\s+/g, " ").trim();
   if (!clean) return;
   stopSpeaking();
+  const myToken = queueToken;
+  const chunks = splitForTts(clean);
+  let useBrowser = false;
+  let started = false;
 
-  let resp: Response;
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    resp = await fetch(SPEAK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      },
-      body: JSON.stringify({ text: clean, voiceId: opts?.voiceId }),
-    });
-  } catch {
-    return speakBrowser(clean, opts);
-  }
-  if (!resp.ok) {
-    try { await resp.text(); } catch { /* noop */ }
-    return speakBrowser(clean, opts);
-  }
-
-  const contentType = resp.headers.get("Content-Type") || "";
-  if (!contentType.includes("audio")) {
-    // Server signalled fallback
-    try { await resp.text(); } catch { /* noop */ }
-    return speakBrowser(clean, opts);
-  }
-
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  currentUrl = url;
-
-  return new Promise<void>((resolve) => {
-    const audio = new Audio(url);
-    currentAudio = audio;
-    audio.onplay = () => opts?.onStart?.();
-    audio.onended = () => {
-      opts?.onEnd?.();
-      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
-      if (currentAudio === audio) currentAudio = null;
-      resolve();
+  for (let i = 0; i < chunks.length; i++) {
+    if (myToken !== queueToken) return;
+    const chunk = chunks[i];
+    const isLast = i === chunks.length - 1;
+    const chunkOpts = {
+      voiceId: opts?.voiceId,
+      onStart: !started ? opts?.onStart : undefined,
+      onEnd: isLast ? opts?.onEnd : undefined,
     };
-    audio.onerror = () => {
-      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
-      if (currentAudio === audio) currentAudio = null;
-      speakBrowser(clean, opts).then(resolve);
-    };
-    audio.play().catch(() => speakBrowser(clean, opts).then(resolve));
-  });
+    if (useBrowser) {
+      await speakBrowser(chunk, chunkOpts);
+      started = true;
+      continue;
+    }
+    const mode = await speakChunk(chunk, chunkOpts);
+    started = true;
+    if (mode === "browser") useBrowser = true;
+  }
 }

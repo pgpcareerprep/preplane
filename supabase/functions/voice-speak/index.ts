@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const truncated = text.slice(0, 2000);
+    const truncated = text.slice(0, 600);
     const requestedVoice = (body?.voiceId ?? "").toString().trim();
     const voiceName = /^[A-Za-z]{2,24}$/.test(requestedVoice) ? requestedVoice : DEFAULT_GEMINI_VOICE;
     const prompt = `${TTS_STYLE_PREFIX}${truncated}`;
