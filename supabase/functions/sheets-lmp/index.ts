@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createSheetsClient } from "../_shared/sheets.ts";
 import { SHEET_TO_DB, DB_TO_SHEET, normalizeStatusForSheet, normalizeNextProgressTypeForSheet } from "../_shared/fieldMap.ts";
 import { applyNextProgressTypeSheetValidation, findNextProgressTypeColumnIndex } from "../_shared/nextProgressTypeSheet.ts";
@@ -18,13 +18,7 @@ import {
   validateLmpTrackerHeaders,
 } from "../_shared/lmpSheetIdentity.ts";
 import { hasValidInternalSecret, requireAuth } from "../_shared/requireAuth.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-sheet-sweeper, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
 
 const METADATA_CACHE_MS = 10 * 60 * 1000;
 const LIST_CACHE_MS = 2 * 60 * 1000;
@@ -87,7 +81,19 @@ function todayKolkataISODate(): string {
 }
 
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
+  function jsonOk(data: unknown) {
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  function jsonError(message: string, status: number) {
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -1317,7 +1323,7 @@ Deno.serve(async (req: Request) => {
             console.error("[sheets-lmp] pipeline verification failed after insert", details);
             return new Response(JSON.stringify({ ok: false, error: "SHEET_PIPELINE_VERIFICATION_FAILED", ...details }), {
               status: 409,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              headers: { ...cors, "Content-Type": "application/json" },
             });
           }
           logSyncEvent({
@@ -1380,7 +1386,7 @@ Deno.serve(async (req: Request) => {
           console.error("[sheets-lmp] pipeline verification failed after update", details);
           return new Response(JSON.stringify({ ok: false, error: "SHEET_PIPELINE_VERIFICATION_FAILED", ...details }), {
             status: 409,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            headers: { ...cors, "Content-Type": "application/json" },
           });
         }
 
@@ -1727,18 +1733,4 @@ Deno.serve(async (req: Request) => {
 
 function generateId(): string {
   return `LMP-${Date.now().toString(36).toUpperCase()}`;
-}
-
-function jsonOk(data: unknown) {
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-function jsonError(message: string, status: number) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 }

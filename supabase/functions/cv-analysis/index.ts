@@ -7,14 +7,8 @@
 
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -22,10 +16,10 @@ const MODEL_GEMINI = "gemini-2.5-flash";
 const MODEL_OR = "qwen/qwen3-coder:free";
 const MAX_CONTENT_BYTES = 80_000;
 
-function jsonError(msg: string, status = 400) {
+function jsonError(msg: string, status = 400, cors: Record<string, string>) {
   return new Response(JSON.stringify({ error: msg }), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -199,9 +193,9 @@ Return ONLY the JSON object. No markdown, no explanation.`;
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return jsonError("POST only", 405);
+  if (req.method !== "POST") return jsonError("POST only", 405, corsHeaders);
 
   await loadVault();
 
@@ -209,20 +203,20 @@ Deno.serve(async (req: Request) => {
   if ("error" in auth) return auth.error;
 
   if (!getEnv("GEMINI_API_KEY") && !getEnv("OPENROUTER_API_KEY")) {
-    return jsonError("AI provider not configured", 500);
+    return jsonError("AI provider not configured", 500, corsHeaders);
   }
 
   const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
   if (contentLength > MAX_CONTENT_BYTES) {
-    return jsonError(`Payload too large (max ${MAX_CONTENT_BYTES} bytes)`, 413);
+    return jsonError(`Payload too large (max ${MAX_CONTENT_BYTES} bytes)`, 413, corsHeaders);
   }
   const ctype = (req.headers.get("content-type") || "").toLowerCase();
   if (!ctype.includes("application/json")) {
-    return jsonError("Content-Type must be application/json. Convert PDF/DOCX to text client-side.", 415);
+    return jsonError("Content-Type must be application/json. Convert PDF/DOCX to text client-side.", 415, corsHeaders);
   }
 
   let body: any;
-  try { body = await req.json(); } catch { return jsonError("Invalid JSON body"); }
+  try { body = await req.json(); } catch { return jsonError("Invalid JSON body", 400, corsHeaders); }
 
   const cvText: string = (body.cvText || "").toString().trim();
   const jdText: string = (body.jdText || "").toString().trim();
@@ -230,8 +224,8 @@ Deno.serve(async (req: Request) => {
   const jdStructured: any = body.jdStructured ?? null;
   const mode: "parse" | "ats" | "both" = body.mode ?? (jdText || jdStructured ? "both" : "parse");
 
-  if (!cvText) return jsonError("cvText is required");
-  if (cvText.length < 100) return jsonError("cvText is too short to be a valid CV");
+  if (!cvText) return jsonError("cvText is required", 400, corsHeaders);
+  if (cvText.length < 100) return jsonError("cvText is too short to be a valid CV", 400, corsHeaders);
 
   const t0 = Date.now();
 
@@ -246,7 +240,7 @@ Deno.serve(async (req: Request) => {
     try {
       parsedCv = JSON.parse(cvRaw);
     } catch {
-      return jsonError("CV parsing returned invalid JSON — please retry");
+      return jsonError("CV parsing returned invalid JSON — please retry", 400, corsHeaders);
     }
 
     if (mode === "parse") {
@@ -256,7 +250,7 @@ Deno.serve(async (req: Request) => {
         latencyMs: Date.now() - t0, status: "ok",
       });
       return new Response(JSON.stringify({ ok: true, mode: "parse", cv: parsedCv }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
@@ -274,7 +268,7 @@ Deno.serve(async (req: Request) => {
     try {
       atsResult = JSON.parse(atsRaw);
     } catch {
-      return jsonError("ATS scoring returned invalid JSON — please retry");
+      return jsonError("ATS scoring returned invalid JSON — please retry", 400, corsHeaders);
     }
 
     logAiUsage({
@@ -290,7 +284,7 @@ Deno.serve(async (req: Request) => {
       ats: atsResult,
       metadata: { analysedAt: new Date().toISOString(), latencyMs: Date.now() - t0 },
     }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
 
   } catch (e) {
@@ -301,7 +295,7 @@ Deno.serve(async (req: Request) => {
     });
     return new Response(
       JSON.stringify({ error: (e as Error).message }),
-      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 502, headers: { ...cors, "Content-Type": "application/json" } },
     );
   }
 });

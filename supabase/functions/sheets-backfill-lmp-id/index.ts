@@ -8,19 +8,14 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAdminOrInternal } from "../_shared/requireAuth.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 const HEADER_ROW = 15;
 const TAB = "LMP Tracker";
 
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = await requireAdminOrInternal(req, corsHeaders);
   if ("error" in auth) return auth.error;
@@ -43,18 +38,18 @@ Deno.serve(async (req: Request) => {
     );
     if (!getRes.ok) {
       const t = await getRes.text();
-      return json({ error: `batchGet failed [${getRes.status}]: ${t.slice(0, 300)}` }, 500);
+      return json({ error: `batchGet failed [${getRes.status}]: ${t.slice(0, 300)}` }, 500, corsHeaders);
     }
     const getJson = await getRes.json();
     const rows: string[][] = (getJson.valueRanges?.[0]?.values ?? []);
-    if (rows.length < 2) return json({ error: "Sheet appears empty" }, 400);
+    if (rows.length < 2) return json({ error: "Sheet appears empty" }, 400, corsHeaders);
 
     const headers = rows[0];
     const lmpIdCol = headers.indexOf("LMP ID");
     const companyCol = headers.indexOf("Company");
     const roleCol = headers.indexOf("Role");
     if (lmpIdCol === -1 || companyCol === -1 || roleCol === -1) {
-      return json({ error: "Sheet missing required columns (LMP ID / Company / Role)" }, 400);
+      return json({ error: "Sheet missing required columns (LMP ID / Company / Role)" }, 400, corsHeaders);
     }
 
     // 2. Pull all DB processes; build a Company+Role → [{id, lmp_code}] map.
@@ -130,7 +125,7 @@ Deno.serve(async (req: Request) => {
       });
       if (!upRes.ok) {
         const t = await upRes.text();
-        return json({ error: `batchUpdate failed [${upRes.status}]: ${t.slice(0, 300)}`, updated }, 500);
+        return json({ error: `batchUpdate failed [${upRes.status}]: ${t.slice(0, 300)}`, updated }, 500, corsHeaders);
       }
       updated += slice.length;
     }
@@ -143,7 +138,7 @@ Deno.serve(async (req: Request) => {
       missing_in_db: missingInDb,
     });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500, corsHeaders);
   }
 });
 
@@ -158,9 +153,9 @@ function colToLetter(zeroBasedIdx: number): string {
   return s;
 }
 
-function json(data: unknown, status = 200) {
+function json(data: unknown, status = 200, cors: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }

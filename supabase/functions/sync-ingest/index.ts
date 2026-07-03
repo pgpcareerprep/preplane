@@ -4,22 +4,15 @@
 // authenticated compatibility endpoint remains temporarily so old admin UI
 // calls receive an explicit, safe response instead of a missing-function error.
 
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
-import { pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireRole } from "../_shared/requireAuth.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405);
+    return json({ error: "Method not allowed" }, 405, corsHeaders);
   }
 
   const auth = await requireRole(req, corsHeaders, ["admin", "allocator"]);
@@ -29,12 +22,12 @@ Deno.serve(async (req: Request) => {
     ok: true,
     skipped: "sheet_to_db_retired",
     message: "Supabase is authoritative. Database changes are mirrored to Sheets through the outbox worker.",
-  });
+  }, 200, corsHeaders);
 });
 
-function json(body: unknown, status = 200): Response {
+function json(body: unknown, status = 200, cors: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }

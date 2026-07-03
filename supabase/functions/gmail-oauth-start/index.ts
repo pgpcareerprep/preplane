@@ -1,6 +1,5 @@
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireRole } from "../_shared/requireAuth.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import {
   buildGmailOAuthAuthorizeUrl,
   getGmailOAuthRedirectUri,
@@ -9,20 +8,16 @@ import {
   saveOAuthPendingState,
 } from "../_shared/gmailOAuth.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
+function jsonResponse(body: Record<string, unknown>, status = 200, cors: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = await requireRole(req, corsHeaders, ["admin"]);
@@ -31,7 +26,7 @@ Deno.serve(async (req) => {
   try {
     const misconfig = getOAuthClientMisconfigurationError();
     if (misconfig) {
-      return jsonResponse({ ok: false, error: misconfig });
+      return jsonResponse({ ok: false, error: misconfig }, 200, corsHeaders);
     }
 
     if (!hasOAuthClientConfigured()) {
@@ -39,7 +34,7 @@ Deno.serve(async (req) => {
         ok: false,
         error:
           "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Supabase secrets (Web OAuth client with Gmail send scope).",
-      });
+      }, 200, corsHeaders);
     }
 
     const state = crypto.randomUUID();
@@ -47,11 +42,11 @@ Deno.serve(async (req) => {
     await saveOAuthPendingState(state, redirectUri, auth.user.id);
     const url = buildGmailOAuthAuthorizeUrl(state, redirectUri);
 
-    return jsonResponse({ ok: true, url, redirectUri });
+    return jsonResponse({ ok: true, url, redirectUri }, 200, corsHeaders);
   } catch (err) {
     return jsonResponse({
       ok: false,
       error: String((err as Error)?.message || err),
-    });
+    }, 200, corsHeaders);
   }
 });

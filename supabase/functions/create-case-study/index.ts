@@ -3,24 +3,18 @@
 
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_GEMINI = "gemini-2.5-flash";
 const MODEL_OR = "qwen/qwen3-coder:free";
 
-function jsonError(msg: string, status = 400) {
+function jsonError(msg: string, status = 400, cors: Record<string, string>) {
   return new Response(JSON.stringify({ error: msg }), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -100,9 +94,9 @@ async function callAI(userContent: string): Promise<string> {
 }
 
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return jsonError("POST only", 405);
+  if (req.method !== "POST") return jsonError("POST only", 405, corsHeaders);
 
   await loadVault();
 
@@ -110,19 +104,19 @@ Deno.serve(async (req: Request) => {
   if ("error" in auth) return auth.error;
 
   if (!getEnv("GEMINI_API_KEY") && !getEnv("OPENROUTER_API_KEY")) {
-    return jsonError("AI provider not configured", 500);
+    return jsonError("AI provider not configured", 500, corsHeaders);
   }
 
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return jsonError("Invalid JSON body"); }
+  try { body = await req.json(); } catch { return jsonError("Invalid JSON body", 400, corsHeaders); }
 
   const company = String(body.company || "").trim();
   const role = String(body.role || "").trim();
   const domain = String(body.domain || "").trim();
   const jdText = String(body.jd_text || "").trim();
 
-  if (!company) return jsonError("company is required");
-  if (!role) return jsonError("role is required");
+  if (!company) return jsonError("company is required", 400, corsHeaders);
+  if (!role) return jsonError("role is required", 400, corsHeaders);
 
   const userPrompt = [
     `Company: ${company}`,
@@ -139,7 +133,7 @@ Deno.serve(async (req: Request) => {
     try {
       brief = JSON.parse(raw);
     } catch {
-      return jsonError("Case study generation returned invalid JSON — please retry");
+      return jsonError("Case study generation returned invalid JSON — please retry", 400, corsHeaders);
     }
 
     logAiUsage({
@@ -159,7 +153,7 @@ Deno.serve(async (req: Request) => {
       domain: domain || undefined,
       brief,
     }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (e) {
     logAiUsage({
@@ -173,7 +167,7 @@ Deno.serve(async (req: Request) => {
     });
     return new Response(
       JSON.stringify({ error: (e as Error).message }),
-      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 502, headers: { ...cors, "Content-Type": "application/json" } },
     );
   }
 });

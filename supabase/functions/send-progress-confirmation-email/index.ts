@@ -1,14 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { sendGmail } from "../_shared/gmail-send.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { resolveOperationalPocEmails } from "../_shared/resolvePocEmails.ts";
-import { DEFAULT_APP_ORIGIN, getBrandName, getLmpAppUrl } from "../_shared/appConfig.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 async function resolveEmailForName(supabase: any, name?: string | null): Promise<string | null> {
   const n = (name || "").trim();
@@ -26,7 +21,7 @@ async function resolveEmailForName(supabase: any, name?: string | null): Promise
 }
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;

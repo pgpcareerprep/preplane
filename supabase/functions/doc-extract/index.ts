@@ -4,22 +4,16 @@
 // The extracted text can then be passed to parse-jd or cv-analysis.
 
 import { requireAuth } from "../_shared/requireAuth.ts";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 // 10 MB max file
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-function jsonError(msg: string, status = 400) {
+function jsonError(msg: string, status = 400, cors: Record<string, string>) {
   return new Response(JSON.stringify({ error: msg }), {
-    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status, headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -257,9 +251,9 @@ function extractText(base64Data: string): string {
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return jsonError("POST only", 405);
+  if (req.method !== "POST") return jsonError("POST only", 405, corsHeaders);
 
   await loadVault();
 
@@ -267,21 +261,21 @@ Deno.serve(async (req: Request) => {
   if ("error" in auth) return auth.error;
 
   const ctype = (req.headers.get("content-type") || "").toLowerCase();
-  if (!ctype.includes("application/json")) return jsonError("Content-Type must be application/json", 415);
+  if (!ctype.includes("application/json")) return jsonError("Content-Type must be application/json", 415, corsHeaders);
 
   let body: any;
-  try { body = await req.json(); } catch { return jsonError("Invalid JSON body"); }
+  try { body = await req.json(); } catch { return jsonError("Invalid JSON body", 400, corsHeaders); }
 
   const fileBase64: string = (body.fileBase64 || "").trim();
   const mimeType: string   = (body.mimeType  || "").trim().toLowerCase();
   const fileName: string   = (body.fileName  || "file").trim();
 
-  if (!fileBase64) return jsonError("fileBase64 is required");
-  if (!mimeType)   return jsonError("mimeType is required");
+  if (!fileBase64) return jsonError("fileBase64 is required", 400, corsHeaders);
+  if (!mimeType)   return jsonError("mimeType is required", 400, corsHeaders);
 
   // Estimate byte size from base64 length
   const approxBytes = Math.ceil(fileBase64.length * 0.75);
-  if (approxBytes > MAX_FILE_BYTES) return jsonError(`File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)`, 413);
+  if (approxBytes > MAX_FILE_BYTES) return jsonError(`File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)`, 413, corsHeaders);
 
   try {
     let extractedText = "";
@@ -308,7 +302,7 @@ Deno.serve(async (req: Request) => {
     } else if (mimeType.includes("image/")) {
       // Use Gemini multimodal for images (useful for scanned documents)
       const key = getEnv("GEMINI_API_KEY");
-      if (!key) return jsonError("GEMINI_API_KEY not configured for image extraction", 500);
+      if (!key) return jsonError("GEMINI_API_KEY not configured for image extraction", 500, corsHeaders);
       const imgMime = mimeType.startsWith("image/") ? mimeType : "image/jpeg";
       const resp = await fetch(`${GEMINI_URL}?key=${key}`, {
         method: "POST",
@@ -322,7 +316,7 @@ Deno.serve(async (req: Request) => {
           generationConfig: { temperature: 0, maxOutputTokens: 4096 },
         }),
       });
-      if (!resp.ok) return jsonError(`Image OCR failed (${resp.status})`, 502);
+      if (!resp.ok) return jsonError(`Image OCR failed (${resp.status})`, 502, corsHeaders);
       const data = await resp.json();
       extractedText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
@@ -331,7 +325,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!extractedText || extractedText.trim().length < 20) {
-      return jsonError("Extracted text is too short — the document may be empty or unreadable");
+      return jsonError("Extracted text is too short — the document may be empty or unreadable", 400, corsHeaders);
     }
 
     return new Response(JSON.stringify({
@@ -341,13 +335,13 @@ Deno.serve(async (req: Request) => {
       charCount: extractedText.length,
       wordCount: extractedText.split(/\s+/).filter(Boolean).length,
       text: extractedText,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }), { headers: { ...cors, "Content-Type": "application/json" } });
 
   } catch (e) {
     console.error("[doc-extract] error:", (e as Error).message);
     return new Response(
       JSON.stringify({ error: (e as Error).message }),
-      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 502, headers: { ...cors, "Content-Type": "application/json" } },
     );
   }
 });

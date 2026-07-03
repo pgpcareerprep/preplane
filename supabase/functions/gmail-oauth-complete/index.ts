@@ -1,6 +1,5 @@
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireRole } from "../_shared/requireAuth.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import {
   consumeOAuthPendingState,
   exchangeAuthorizationCode,
@@ -8,20 +7,16 @@ import {
   saveOAuthSettings,
 } from "../_shared/gmailOAuth.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
+function jsonResponse(body: Record<string, unknown>, status = 200, cors: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = await requireRole(req, corsHeaders, ["admin"]);
@@ -31,7 +26,7 @@ Deno.serve(async (req) => {
   const code = String(body?.code || "").trim();
   const state = String(body?.state || "").trim();
   if (!code || !state) {
-    return jsonResponse({ ok: false, error: "code and state are required" });
+    return jsonResponse({ ok: false, error: "code and state are required" }, 200, corsHeaders);
   }
 
   const pending = await consumeOAuthPendingState(state);
@@ -39,7 +34,7 @@ Deno.serve(async (req) => {
     return jsonResponse({
       ok: false,
       error: "Invalid or expired OAuth state — start connect again.",
-    });
+    }, 200, corsHeaders);
   }
 
   const redirectUri = pending.redirect_uri || getGmailOAuthRedirectUri();
@@ -60,11 +55,11 @@ Deno.serve(async (req) => {
       ok: true,
       senderEmail,
       message: `Gmail sender connected as ${senderEmail}`,
-    });
+    }, 200, corsHeaders);
   } catch (err) {
     return jsonResponse({
       ok: false,
       error: String((err as Error)?.message || err),
-    });
+    }, 200, corsHeaders);
   }
 });

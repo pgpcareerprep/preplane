@@ -4,13 +4,7 @@ import { requireAuth } from "../_shared/requireAuth.ts";
 import { logAiUsage, estimateTokens } from "../_shared/ai-usage.ts";
 
 
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
-import { DEFAULT_APP_ORIGIN, getAiGatewayUrl } from "../_shared/appConfig.ts";
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const AI_GATEWAY_URL = getAiGatewayUrl();
 const MODEL = "gemini-2.5-flash";
@@ -33,10 +27,10 @@ type ParsedJD = {
   confidence: number;
 };
 
-function jsonError(msg: string, status = 400) {
+function jsonError(msg: string, status = 400, cors: Record<string, string>) {
   return new Response(JSON.stringify({ error: msg }), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -68,33 +62,33 @@ async function fetchUrlText(url: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return jsonError("POST only", 405);
+  if (req.method !== "POST") return jsonError("POST only", 405, corsHeaders);
 
   // Auth: any approved user (admin/allocator/poc) can parse a JD.
   const auth = await requireAuth(req, corsHeaders);
   if ("error" in auth) return auth.error;
 
   const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-  if (!GEMINI_API_KEY) return jsonError("GEMINI_API_KEY not configured", 500);
+  if (!GEMINI_API_KEY) return jsonError("GEMINI_API_KEY not configured", 500, corsHeaders);
 
   // Reject oversized payloads up front.
   const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
   if (contentLength > MAX_URL_FETCH_BYTES) {
-    return jsonError(`Payload too large (max ${MAX_URL_FETCH_BYTES} bytes)`, 413);
+    return jsonError(`Payload too large (max ${MAX_URL_FETCH_BYTES} bytes)`, 413, corsHeaders);
   }
   // Only JSON is accepted; binary PDF/DOCX uploads must be parsed client-side first.
   const ctype = (req.headers.get("content-type") || "").toLowerCase();
   if (!ctype.includes("application/json")) {
-    return jsonError("Content-Type must be application/json. Convert PDF/DOCX to text on the client first.", 415);
+    return jsonError("Content-Type must be application/json. Convert PDF/DOCX to text on the client first.", 415, corsHeaders);
   }
 
   let body: any;
   try {
     body = await req.json();
   } catch {
-    return jsonError("Invalid JSON body");
+    return jsonError("Invalid JSON body", 400, corsHeaders);
   }
 
   const role: string = (body.role || "").toString().trim();
@@ -104,7 +98,7 @@ Deno.serve(async (req) => {
   const url: string = (body.url || "").toString().trim();
 
   if (text.length > MAX_TEXT_BYTES) {
-    return jsonError(`text field too large (max ${MAX_TEXT_BYTES} chars)`, 413);
+    return jsonError(`text field too large (max ${MAX_TEXT_BYTES} chars)`, 413, corsHeaders);
   }
 
   if (!text && url) {
@@ -127,7 +121,7 @@ Deno.serve(async (req) => {
       confidence: 20,
     };
     return new Response(JSON.stringify({ parsed: fallback, lowContent: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   }
 
@@ -193,7 +187,7 @@ Deno.serve(async (req) => {
       latencyMs: Date.now() - aiStart, status: "error",
       errorMessage: `gateway fetch failed: ${e}`,
     });
-    return jsonError(`AI gateway fetch failed: ${e}`, 502);
+    return jsonError(`AI gateway fetch failed: ${e}`, 502, corsHeaders);
   }
 
   if (!aiResp.ok) {
@@ -207,8 +201,8 @@ Deno.serve(async (req) => {
       latencyMs: Date.now() - aiStart, status,
       errorMessage: errBody.slice(0, 300),
     });
-    if (aiResp.status === 429) return jsonError("Rate limit exceeded. Try again shortly.", 429);
-    if (aiResp.status === 402) return jsonError("AI credits exhausted. Add credits in Workspace Settings.", 402);
+    if (aiResp.status === 429) return jsonError("Rate limit exceeded. Try again shortly.", 429, corsHeaders);
+    if (aiResp.status === 402) return jsonError("AI credits exhausted. Add credits in Workspace Settings.", 402, corsHeaders);
     return jsonError(`AI gateway error: ${errBody.slice(0, 300)}`, 502);
   }
 
@@ -237,7 +231,7 @@ Deno.serve(async (req) => {
   });
 
   if (!parsed) {
-    return jsonError("AI returned no structured result", 502);
+    return jsonError("AI returned no structured result", 502, corsHeaders);
   }
 
 
@@ -251,6 +245,6 @@ Deno.serve(async (req) => {
   parsed.confidence = Math.max(0, Math.min(100, Number(parsed.confidence) || 70));
 
   return new Response(JSON.stringify({ parsed }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 });

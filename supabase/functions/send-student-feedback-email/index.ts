@@ -1,20 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { sendGmail, GMAIL_FROM } from "../_shared/gmail-send.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return json({ ok: false, error: "Unauthorized" }, 401);
+      return json({ ok: false, error: "Unauthorized" }, 401, corsHeaders);
     }
     const userClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -22,12 +17,12 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } },
     );
     const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ ok: false, error: "Unauthorized" }, 401);
+    if (userErr || !userData?.user) return json({ ok: false, error: "Unauthorized" }, 401, corsHeaders);
 
     const body = await req.json().catch(() => ({}));
     const sessionId = body?.sessionId as string | undefined;
     const origin = pickAllowedOrigin(req);
-    if (!sessionId) return json({ ok: false, error: "Missing sessionId" }, 400);
+    if (!sessionId) return json({ ok: false, error: "Missing sessionId" }, 400, corsHeaders);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -38,7 +33,7 @@ Deno.serve(async (req) => {
       { p_session_id: sessionId },
     );
     if (tokenError || typeof issuedToken !== "string") {
-      return json({ ok: false, error: tokenError?.message || "Could not issue feedback token" }, 400);
+      return json({ ok: false, error: tokenError?.message || "Could not issue feedback token" }, 400, corsHeaders);
     }
 
     const { data: session, error: sErr } = await admin
@@ -47,16 +42,16 @@ Deno.serve(async (req) => {
       .eq("id", sessionId)
       .maybeSingle();
     if (sErr) throw sErr;
-    if (!session) return json({ ok: false, error: "Session not found" }, 404);
+    if (!session) return json({ ok: false, error: "Session not found" }, 404, corsHeaders);
     if (session.student_feedback && Object.keys(session.student_feedback as object).length > 0) {
-      return json({ ok: false, error: "Feedback already submitted" }, 400);
+      return json({ ok: false, error: "Feedback already submitted" }, 400, corsHeaders);
     }
 
     const ids = Array.from(new Set([
       ...(Array.isArray(session.candidate_ids) ? session.candidate_ids : []),
       ...(session.student_id ? [session.student_id] : []),
     ].filter(Boolean)));
-    if (ids.length === 0) return json({ ok: false, error: "No candidate on session" }, 400);
+    if (ids.length === 0) return json({ ok: false, error: "No candidate on session" }, 400, corsHeaders);
 
     const { data: students, error: stErr } = await admin
       .from("students")
@@ -66,7 +61,7 @@ Deno.serve(async (req) => {
 
     const recipients = (students ?? []).filter((s) => s.email && /.+@.+\..+/.test(s.email));
     if (recipients.length === 0) {
-      return json({ ok: false, error: "No candidate has an email on file" }, 400);
+      return json({ ok: false, error: "No candidate has an email on file" }, 400, corsHeaders);
     }
 
     const mentorName = (session as any)?.mentors?.name ?? "your mentor";
@@ -120,18 +115,18 @@ Deno.serve(async (req) => {
     }
 
     const sent = results.filter((r) => r.ok).length;
-    return json({ ok: sent > 0, sent, total: recipients.length, results });
+    return json({ ok: sent > 0, sent, total: recipients.length, results }, 200, corsHeaders);
 
   } catch (err) {
     console.error("send-student-feedback-email error:", err);
-    return json({ ok: false, error: String((err as Error)?.message || err) }, 500);
+    return json({ ok: false, error: String((err as Error)?.message || err) }, 500, corsHeaders);
   }
 });
 
-function json(body: unknown, status = 200) {
+function json(body: unknown, status = 200, cors: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 

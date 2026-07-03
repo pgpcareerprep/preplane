@@ -3,17 +3,11 @@
 // session_student_feedbacks (one row per student per session).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-import { pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { enforceFeedbackRateLimit, rejectOversizedRequest, resolveFeedbackSession } from "../_shared/feedback-security.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 Deno.serve(async (req) => {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const oversized = rejectOversizedRequest(req);
@@ -27,13 +21,13 @@ Deno.serve(async (req) => {
     const token = (body.token || "").trim();
     const studentId = (body.studentId || "").trim();
     if (!token || token.length < 16 || token.length > 512 || !studentId || !body.feedback || typeof body.feedback !== "object" || Array.isArray(body.feedback)) {
-      return json({ ok: false, error: "missing_fields" }, 400);
+      return json({ ok: false, error: "missing_fields" }, 400, corsHeaders);
     }
     if (body.rating != null && (!Number.isFinite(body.rating) || body.rating < 1 || body.rating > 5)) {
-      return json({ ok: false, error: "invalid_rating" }, 400);
+      return json({ ok: false, error: "invalid_rating" }, 400, corsHeaders);
     }
     if (JSON.stringify(body.feedback).length > 20_000) {
-      return json({ ok: false, error: "feedback_too_large" }, 413);
+      return json({ ok: false, error: "feedback_too_large" }, 413, corsHeaders);
     }
 
     const admin = createClient(
@@ -41,10 +35,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
     if (!await enforceFeedbackRateLimit(admin, req, token, "submit")) {
-      return json({ ok: false, error: "rate_limited" }, 429);
+      return json({ ok: false, error: "rate_limited" }, 429, corsHeaders);
     }
     const resolved = await resolveFeedbackSession(admin, token);
-    if (!resolved) return json({ ok: false, error: "not_found" }, 404);
+    if (!resolved) return json({ ok: false, error: "not_found" }, 404, corsHeaders);
 
     const { data: session, error: sErr } = await admin
       .from("sessions")
@@ -52,14 +46,14 @@ Deno.serve(async (req) => {
       .eq("id", resolved.id)
       .maybeSingle();
     if (sErr) throw sErr;
-    if (!session?.id) return json({ ok: false, error: "not_found" }, 404);
+    if (!session?.id) return json({ ok: false, error: "not_found" }, 404, corsHeaders);
 
     const candidateIds = new Set<string>([
       ...(Array.isArray(session.candidate_ids) ? session.candidate_ids : []),
       ...(session.student_id ? [session.student_id] : []),
     ].filter(Boolean) as string[]);
     if (!candidateIds.has(studentId)) {
-      return json({ ok: false, error: "invalid_candidate" }, 400);
+      return json({ ok: false, error: "invalid_candidate" }, 400, corsHeaders);
     }
 
     // Already submitted?
@@ -69,7 +63,7 @@ Deno.serve(async (req) => {
       .eq("session_id", session.id)
       .eq("student_id", studentId)
       .maybeSingle();
-    if (existing?.id) return json({ ok: false, error: "already_submitted" }, 409);
+    if (existing?.id) return json({ ok: false, error: "already_submitted" }, 409, corsHeaders);
 
     // Derive a rating (1-5) from feedback values if not explicitly passed.
     let rating: number | null = typeof body.rating === "number" ? body.rating : null;
@@ -110,16 +104,16 @@ Deno.serve(async (req) => {
       })
       .eq("id", session.id);
 
-    return json({ ok: true });
+    return json({ ok: true }, corsHeaders);
   } catch (e) {
     console.error("submit-student-feedback error:", e);
-    return json({ ok: false, error: (e as Error).message }, 500);
+    return json({ ok: false, error: (e as Error).message }, 500, corsHeaders);
   }
 });
 
-function json(body: unknown, status = 200) {
+function json(body: unknown, status = 200, cors: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
