@@ -99,25 +99,20 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
   const [hint, setHint] = useState<string | null>(null);
 
   // Debounced fetch from live entity search via edge function.
-  // Uses a request-id token to discard out-of-order responses (rapid typing).
   useEffect(() => {
     const trimmed = (query ?? "").trim();
-    if (trimmed.length === 0) {
-      setResults([]);
-      setError(null);
-      setLoading(false);
-      setHint(null);
-      return;
-    }
-    if (trimmed.length < 2) {
+    const isRecentBrowse = trimmed.length === 0;
+
+    if (!isRecentBrowse && trimmed.length < 2) {
       setHint("Type at least 2 characters");
       setError(null);
       setLoading(false);
+      setResults([]);
       return;
     }
     setHint(null);
 
-    const cacheKey = trimmed.toLowerCase();
+    const cacheKey = isRecentBrowse ? "__recent__" : trimmed.toLowerCase();
     const cached = cacheGet(cacheKey);
     const myReq = ++reqId.current;
     if (cached) {
@@ -129,17 +124,24 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
 
     setLoading(true);
     setError(null);
+    const debounceMs = isRecentBrowse ? 0 : 280;
     const t = setTimeout(async () => {
       try {
-        const { data, error: invokeError } = await supabase.functions.invoke("entity-search", {
+        const invokePromise = supabase.functions.invoke("entity-search", {
           body: { query: trimmed, limit: 16 },
         });
-        if (myReq !== reqId.current) return; // stale response, drop
+        const raced = await Promise.race([
+          invokePromise,
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error("Search timed out")), 12_000);
+          }),
+        ]);
+        const { data, error: invokeError } = raced;
+        if (myReq !== reqId.current) return;
         if (invokeError) {
           const msg = invokeError.message || String(invokeError);
           console.warn("[mention-search] invoke failed", { query: trimmed, error: invokeError });
           setError(msg);
-          setLoading(false);
           return;
         }
         const json = (data ?? { results: [] }) as { results?: RawResult[] };
@@ -157,15 +159,15 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
         });
         cacheSet(cacheKey, mapped);
         setResults(mapped);
-        setLoading(false);
       } catch (err) {
         if (myReq !== reqId.current) return;
         const msg = err instanceof Error ? err.message : String(err);
         console.warn("[mention-search] fetch failed", { query: trimmed, error: msg });
         setError(msg);
-        setLoading(false);
+      } finally {
+        if (myReq === reqId.current) setLoading(false);
       }
-    }, 250);
+    }, debounceMs);
     return () => { clearTimeout(t); };
   }, [query, retryTick]);
 
@@ -245,7 +247,7 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
           {!loading && !error && !hint && flat.length === 0 && (
             <div className="px-3 py-4 text-[11.5px] text-n500 text-center">
               {query.length === 0
-                ? "Type to search LMPs, students, POCs, mentors, alumni, domains…"
+                ? "No recent entities — type to search LMPs, students, POCs…"
                 : `No matches for "${query}"`}
             </div>
           )}
