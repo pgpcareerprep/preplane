@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDownUp, Sparkles, RefreshCw, Star, Users2, Search, SlidersHorizontal, Loader2, CheckCircle2, AlertTriangle, Check, UserPlus, Stethoscope } from "lucide-react";
+import { ArrowDownUp, Sparkles, RefreshCw, Star, Users2, Search, SlidersHorizontal, Loader2, CheckCircle2, AlertTriangle, Check, UserPlus } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
@@ -36,12 +36,9 @@ import { resolveMentorDbId } from "@/lib/mentorResolver";
 import { getExternalDiscoveryConfig, fetchExternalDiscoveryConfig } from "@/lib/externalDiscoveryConfig";
 import {
   fetchExternalMentors,
-  fetchExternalMentorDiag,
-  formatExternalMentorDiagSummary,
   generateExternalQueries, setExternalSearchContext,
   type ExternalMentor, type ExternalPlatform,
 } from "@/lib/externalMentors";
-import { useRole } from "@/lib/rolesContext";
 import type { MatchingError } from "@/lib/mentorMatching";
 import { getScoringWeights } from "@/lib/scoringWeights";
 import {
@@ -115,9 +112,6 @@ function MentorsTabImpl({
   operationalReadOnly = false,
 }: MentorsTabProps) {
   const pocReadOnly = operationalReadOnly || readOnly;
-  const { role: appRole } = useRole();
-  const canDiagExternal = appRole === "admin" || appRole === "allocator";
-  const [extDiagLoading, setExtDiagLoading] = useState(false);
   const [state, setState] = useMentorsTabState(reqId);
   const { phase, subTab, suggested, shortlisted, assignments, filters, sort, activeSources, reviewMode } = state;
   const queryClient = useQueryClient();
@@ -159,22 +153,6 @@ function MentorsTabImpl({
     setExternalStatus(EMPTY_EXTERNAL_STATUS);
     setState({ phase: suggested.length > 0 ? "results" : "empty" });
     toast.info("Mentor matching cancelled");
-  };
-
-  const runExtDiag = async () => {
-    setExtDiagLoading(true);
-    try {
-      const d = await fetchExternalMentorDiag();
-      const jinaOk = !d.jinaKeyPresent || d.jinaPing.ok;
-      const ok = d.geminiPing.ok && jinaOk;
-      const summary = formatExternalMentorDiagSummary(d);
-      if (ok) toast.success(summary, { duration: 12_000 });
-      else toast.warning(summary, { duration: 14_000 });
-    } catch (e) {
-      toast.error(`External search diagnose failed: ${(e as Error).message}`);
-    } finally {
-      setExtDiagLoading(false);
-    }
   };
 
   // One-shot hydration from lmp_mentors. Only seeds local state when the user
@@ -1033,11 +1011,7 @@ function MentorsTabImpl({
         ) : (
           <div className="space-y-4">
             {reviewMode && <ReviewModeBanner />}
-            <ExternalStatusBanner
-              status={externalStatus}
-              onDiag={canDiagExternal ? runExtDiag : undefined}
-              diagLoading={extDiagLoading}
-            />
+            <ExternalStatusBanner status={externalStatus} />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-[13px] text-n500">
                 <span className="font-medium text-n800 tabular-nums">
@@ -1271,31 +1245,8 @@ function MentorsTabImpl({
   );
 }
 
-function ExternalStatusBanner({
-  status,
-  onDiag,
-  diagLoading = false,
-}: {
-  status: ExternalStatus;
-  onDiag?: () => void;
-  diagLoading?: boolean;
-}) {
-  if (status.phase === "idle" && !onDiag) return null;
-  if (status.phase === "idle" && onDiag) {
-    return (
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={onDiag}
-          disabled={diagLoading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-n200 bg-card px-2.5 py-1.5 text-[11px] font-medium text-n600 hover:bg-n50 disabled:opacity-50"
-        >
-          {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stethoscope className="h-3 w-3" />}
-          Diagnose external search
-        </button>
-      </div>
-    );
-  }
+function ExternalStatusBanner({ status }: { status: ExternalStatus }) {
+  if (status.phase === "idle") return null;
   if (status.phase === "loading") {
     return (
       <motion.div
@@ -1317,17 +1268,6 @@ function ExternalStatusBanner({
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           External sources unavailable — showing internal results only
         </div>
-        {onDiag && (
-          <button
-            type="button"
-            onClick={onDiag}
-            disabled={diagLoading}
-            className="inline-flex items-center gap-1 rounded border border-yellow-300 bg-white px-2 py-1 text-[11px] font-medium text-yellow-900 hover:bg-yellow-100 disabled:opacity-50"
-          >
-            {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stethoscope className="h-3 w-3" />}
-            Diagnose
-          </button>
-        )}
       </motion.div>
     );
   }

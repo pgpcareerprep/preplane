@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, AlertTriangle, Upload, Trash2, FlaskConical, Save, FileText, Settings } from "lucide-react";
+import { Globe, AlertTriangle, Upload, Trash2, FlaskConical, Save, FileText, Settings, Stethoscope, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -27,7 +27,10 @@ import {
   clearLinkedinCache,
   getLinkedinCacheMeta,
   type LinkedinCacheMeta,
+  fetchExternalMentorDiag,
+  formatExternalMentorDiagSummary,
 } from "@/lib/externalMentors";
+import { useRole } from "@/lib/rolesContext";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 function formatExpires(meta: LinkedinCacheMeta | null, ttlH: number): string {
@@ -48,12 +51,17 @@ export function ExternalDiscoveryCard({ index = 3, readOnly = false }: { index?:
 }
 
 function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: number; readOnly?: boolean }) {
+  const { role: appRole } = useRole();
+  const canDiag = !readOnly && (appRole === "admin" || appRole === "allocator");
   const [cfg, setCfg] = useState<ExternalDiscoveryConfig>(() => {
     const { anyEnabled: _ignored, ...rest } = getExternalDiscoveryConfig();
     return rest;
   });
   const [liMeta, setLiMeta] = useState<LinkedinCacheMeta | null>(() => getLinkedinCacheMeta());
   const [testing, setTesting] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagSummary, setDiagSummary] = useState<string | null>(null);
+  const [diagOk, setDiagOk] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const update = <K extends keyof ExternalDiscoveryConfig>(k: K, v: ExternalDiscoveryConfig[K]) =>
@@ -74,6 +82,26 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
       toast.success("External discovery settings saved");
     } catch (error) {
       toast.error(`Failed to save: ${(error as Error).message}`);
+    }
+  };
+
+  const runProviderDiag = async () => {
+    setDiagLoading(true);
+    try {
+      const d = await fetchExternalMentorDiag();
+      const jinaOk = !d.jinaKeyPresent || d.jinaPing.ok;
+      const geminiOk =
+        d.geminiGeneratePing?.ok === true &&
+        !d.geminiGeneratePing?.blocked &&
+        !d.geminiGroundingPing?.blocked;
+      const ok = geminiOk && jinaOk;
+      setDiagOk(ok);
+      setDiagSummary(formatExternalMentorDiagSummary(d));
+    } catch (e) {
+      setDiagOk(false);
+      setDiagSummary(`Diagnose failed: ${(e as Error).message}`);
+    } finally {
+      setDiagLoading(false);
     }
   };
 
@@ -213,6 +241,48 @@ function ExternalDiscoveryCardInner({ index = 3, readOnly = false }: { index?: n
             : "No LinkedIn cache"}
         </span>
       </div>
+
+      {canDiag && (
+        <div className="mt-5 rounded-md border border-n200 bg-n50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-[13px] font-medium text-n900">Search providers (Gemini + Jina)</div>
+              <p className="text-[11.5px] text-n500 mt-0.5">
+                Checks Edge Function secrets the live mentor search pipeline uses.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void runProviderDiag()}
+              disabled={diagLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-n300 bg-card px-3 py-1.5 text-[12px] font-medium text-n700 hover:bg-n100 disabled:opacity-50"
+            >
+              {diagLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5" />}
+              {diagLoading ? "Checking…" : "Diagnose providers"}
+            </button>
+          </div>
+          {diagSummary && (
+            <div
+              className={cn(
+                "rounded-md border px-3 py-2.5 text-[11.5px] whitespace-pre-wrap leading-relaxed",
+                diagOk
+                  ? "border-sage-200 bg-sage-50 text-sage-900"
+                  : "border-yellow-200 bg-yellow-50 text-yellow-900",
+              )}
+            >
+              <div className="flex items-center gap-1.5 font-medium mb-1.5">
+                {diagOk ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-sage-600" />
+                ) : (
+                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-700" />
+                )}
+                {diagOk ? "Providers healthy" : "Action required"}
+              </div>
+              {diagSummary}
+            </div>
+          )}
+        </div>
+      )}
 
       {!readOnly && (
         <div className="mt-6 pt-4 border-t border-n100 flex items-center justify-end">

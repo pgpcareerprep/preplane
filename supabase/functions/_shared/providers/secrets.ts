@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
 export type SecretSource = "env" | "vault" | null;
 
 /** Strip whitespace and wrapping quotes from pasted secret values. */
@@ -27,6 +29,28 @@ async function readVaultSecretRpc(name: string): Promise<string | null> {
   }
 }
 
+/** Direct vault schema read — fallback when read_vault_secret RPC is unavailable. */
+async function readVaultSecretDirect(name: string): Promise<string | null> {
+  const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!sbUrl || !sbKey) return null;
+  try {
+    const vaultSb = createClient(sbUrl, sbKey, {
+      db: { schema: "vault" },
+      auth: { persistSession: false },
+    });
+    const { data, error } = await vaultSb
+      .from("decrypted_secrets")
+      .select("decrypted_secret")
+      .eq("name", name)
+      .maybeSingle();
+    if (error || !data?.decrypted_secret) return null;
+    return String(data.decrypted_secret);
+  } catch {
+    return null;
+  }
+}
+
 /** Load a secret from env (preferred), then Vault via service-role RPC. */
 export async function loadSecretWithSource(
   name: string,
@@ -36,9 +60,14 @@ export async function loadSecretWithSource(
     const val = normalizeSecretValue(rawEnv);
     if (val) return { value: val, source: "env" };
   }
-  const vaultRaw = await readVaultSecretRpc(name);
-  if (vaultRaw) {
-    const val = normalizeSecretValue(vaultRaw);
+  const vaultRpc = await readVaultSecretRpc(name);
+  if (vaultRpc) {
+    const val = normalizeSecretValue(vaultRpc);
+    if (val) return { value: val, source: "vault" };
+  }
+  const vaultDirect = await readVaultSecretDirect(name);
+  if (vaultDirect) {
+    const val = normalizeSecretValue(vaultDirect);
     if (val) return { value: val, source: "vault" };
   }
   return { value: null, source: null };

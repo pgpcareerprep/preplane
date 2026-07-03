@@ -263,9 +263,14 @@ async function probeGeminiOpenAiCompat(apiKey: string): Promise<GeminiProbe> {
 }
 
 async function pingJina(apiKey: string | null): Promise<{ ok: boolean; status: number; body: string }> {
+  if (!apiKey) {
+    return { ok: false, status: 0, body: "JINA_API_KEY not configured in Edge Function secrets or Vault" };
+  }
   try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
     const resp = await fetch(
       `https://s.jina.ai/${encodeURIComponent("mentor coach")}`,
       { signal: AbortSignal.timeout(10_000), headers },

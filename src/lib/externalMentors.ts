@@ -296,14 +296,20 @@ export function formatExternalMentorDiagSummary(d: ExternalMentorDiag): string {
     isGeminiApiBlocked(d.geminiGeneratePing?.body) ||
     isGeminiApiBlocked(d.geminiGroundingPing?.body);
   if (blocked) {
-    lines.push("→ Key is set but Google blocks API calls. Fix key restrictions in Google Cloud Console (see toast/help).");
+    lines.push(
+      "→ Gemini key is restricted. Mint a fresh key in Google AI Studio (aistudio.google.com/apikey), " +
+      "set GEMINI_API_KEY in Supabase → Edge Functions → Secrets, then redeploy copilot-ai and external-mentor-search.",
+    );
   } else if (d.keyPresent && !d.geminiGeneratePing?.ok) {
     lines.push(`→ generateContent failed: ${(d.geminiGeneratePing?.body || d.geminiPing.body).slice(0, 100)}`);
   }
   if (!d.jinaKeyPresent) {
-    lines.push("→ JINA_API_KEY missing — web search layer may return zero hits.");
+    lines.push(
+      "→ JINA_API_KEY not visible to edge functions. Set it in Supabase → Edge Functions → Secrets " +
+      "(exact name JINA_API_KEY) or Vault with the same name.",
+    );
   } else if (!d.jinaPing.ok) {
-    lines.push(`→ Jina failed: ${d.jinaPing.body.slice(0, 100)}`);
+    lines.push(`→ Jina key is set but ping failed (check key validity): ${d.jinaPing.body.slice(0, 100)}`);
   }
   return lines.join("\n");
 }
