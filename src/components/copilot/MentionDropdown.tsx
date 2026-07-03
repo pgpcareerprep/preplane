@@ -60,7 +60,26 @@ type RawResult = {
   metadata?: Record<string, unknown>;
 };
 
+const MENTION_CACHE_MAX = 50;
+const mentionCache = new Map<string, MentionEntity[]>();
 
+function cacheGet(key: string): MentionEntity[] | undefined {
+  const hit = mentionCache.get(key);
+  if (!hit) return undefined;
+  mentionCache.delete(key);
+  mentionCache.set(key, hit);
+  return hit;
+}
+
+function cacheSet(key: string, value: MentionEntity[]) {
+  if (mentionCache.has(key)) mentionCache.delete(key);
+  mentionCache.set(key, value);
+  while (mentionCache.size > MENTION_CACHE_MAX) {
+    const oldest = mentionCache.keys().next().value;
+    if (oldest === undefined) break;
+    mentionCache.delete(oldest);
+  }
+}
 
 interface MentionDropdownProps {
   query: string;
@@ -77,6 +96,7 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [hint, setHint] = useState<string | null>(null);
 
   // Debounced fetch from live entity search via edge function.
   // Uses a request-id token to discard out-of-order responses (rapid typing).
@@ -86,9 +106,27 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
       setResults([]);
       setError(null);
       setLoading(false);
+      setHint(null);
       return;
     }
+    if (trimmed.length < 2) {
+      setHint("Type at least 2 characters");
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    setHint(null);
+
+    const cacheKey = trimmed.toLowerCase();
+    const cached = cacheGet(cacheKey);
     const myReq = ++reqId.current;
+    if (cached) {
+      setResults(cached);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     const t = setTimeout(async () => {
@@ -117,6 +155,7 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
             domain: r.domain ?? null,
           };
         });
+        cacheSet(cacheKey, mapped);
         setResults(mapped);
         setLoading(false);
       } catch (err) {
@@ -126,7 +165,7 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
         setError(msg);
         setLoading(false);
       }
-    }, 140);
+    }, 250);
     return () => { clearTimeout(t); };
   }, [query, retryTick]);
 
@@ -200,7 +239,10 @@ export function MentionDropdown({ query, position, onSelect, onClose }: MentionD
               </button>
             </div>
           )}
-          {!loading && !error && flat.length === 0 && (
+          {hint && (
+            <div className="px-3 py-4 text-[11.5px] text-n500 text-center">{hint}</div>
+          )}
+          {!loading && !error && !hint && flat.length === 0 && (
             <div className="px-3 py-4 text-[11.5px] text-n500 text-center">
               {query.length === 0
                 ? "Type to search LMPs, students, POCs, mentors, alumni, domains…"
