@@ -432,6 +432,20 @@ async function runTool(name: string, args: any): Promise<{ result: any; pendingR
       poc_type: args.poc_type || "primary",
     });
   }
+  if (name === "update_lmp_field") {
+    const fields = (args.fields && typeof args.fields === "object")
+      ? args.fields as Record<string, unknown>
+      : undefined;
+    const fieldKey = args.field ?? (fields ? Object.keys(fields)[0] : undefined);
+    const fieldVal = args.value ?? (fieldKey != null && fields ? fields[String(fieldKey)] : undefined);
+    return runTool("prepare_write", {
+      action: "update_lmp_field",
+      company: args.company,
+      role: args.role,
+      field: fieldKey,
+      value: fieldVal,
+    });
+  }
   if (name === "log_submission") {
     const validated = validateLogSubmissionArgs(args);
     if (!validated.ok) {
