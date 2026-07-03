@@ -5,7 +5,9 @@ import {
   isCopilotMultiReportPdfRequest,
   isCopilotPdfExportRequest,
   resolveCopilotReportSections,
+  segmentMarkdown,
 } from "@/lib/copilot/copilotPdfExport";
+import { stripHistoricalAttachments } from "@/pages/CopilotPage";
 
 describe("blockToLines (PDF export)", () => {
   it("renders case-study-card fields", () => {
@@ -115,5 +117,54 @@ describe("PDF details fence leak guard", () => {
     expect(stripped).not.toContain(":::blocks");
     expect(stripped).toContain("Some intro");
     expect(stripped).toContain("Tail text");
+  });
+});
+
+describe("segmentMarkdown (PDF export)", () => {
+  it("detects headings", () => {
+    const segments = segmentMarkdown("# Title\n\n## Section\n\n### Sub");
+    expect(segments.filter((s) => s.kind === "h1")).toHaveLength(1);
+    expect(segments.filter((s) => s.kind === "h2")).toHaveLength(1);
+    expect(segments.filter((s) => s.kind === "h3")).toHaveLength(1);
+  });
+
+  it("parses a pipe table", () => {
+    const md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |";
+    const table = segmentMarkdown(md).find((s) => s.kind === "table");
+    expect(table?.kind).toBe("table");
+    if (table?.kind === "table") {
+      expect(table.headers).toEqual(["A", "B"]);
+      expect(table.rows).toEqual([["1", "2"], ["3", "4"]]);
+    }
+  });
+
+  it("groups bullet lines", () => {
+    const bullets = segmentMarkdown("- one\n- two");
+    expect(bullets).toHaveLength(1);
+    expect(bullets[0].kind).toBe("bullet");
+    if (bullets[0].kind === "bullet") {
+      expect(bullets[0].items).toEqual(["one", "two"]);
+    }
+  });
+
+  it("passes plain paragraph through", () => {
+    const segments = segmentMarkdown("Hello **world**");
+    expect(segments).toHaveLength(1);
+    expect(segments[0].kind).toBe("para");
+    if (segments[0].kind === "para") {
+      expect(segments[0].text).toBe("Hello world");
+    }
+  });
+});
+
+describe("stripHistoricalAttachments", () => {
+  it("removes attachment block at end of message", () => {
+    const input = "Question here\n\n[Attached files:\n--- cv.pdf ---\nsecret content]";
+    expect(stripHistoricalAttachments(input)).toBe("Question here\n\n[Attachment omitted from history]");
+  });
+
+  it("leaves normal text untouched", () => {
+    const input = "Follow up on the Stripe case study";
+    expect(stripHistoricalAttachments(input)).toBe(input);
   });
 });

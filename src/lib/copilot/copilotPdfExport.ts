@@ -182,6 +182,101 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
+export type MarkdownSegment =
+  | { kind: "h1" | "h2" | "h3"; text: string }
+  | { kind: "bullet" | "numbered"; items: string[] }
+  | { kind: "table"; headers: string[]; rows: string[][] }
+  | { kind: "para"; text: string };
+
+function parseTableRow(row: string): string[] {
+  return row.split("|").slice(1, -1).map((cell) => cell.trim());
+}
+
+function isTableSeparator(line: string): boolean {
+  return /^\s*\|[\s\-:|]+\|\s*$/.test(line);
+}
+
+/** Lightweight markdown segmenter for PDF body rendering. */
+export function segmentMarkdown(text: string): MarkdownSegment[] {
+  const lines = text.split("\n");
+  const segments: MarkdownSegment[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      segments.push({ kind: "h3", text: line.slice(4).trim() });
+      i++;
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      segments.push({ kind: "h2", text: line.slice(3).trim() });
+      i++;
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      segments.push({ kind: "h1", text: line.slice(2).trim() });
+      i++;
+      continue;
+    }
+
+    if (line.trim().startsWith("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const headers = parseTableRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        rows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      segments.push({ kind: "table", headers, rows });
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*+]\s+/, "").trim());
+        i++;
+      }
+      segments.push({ kind: "bullet", items });
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, "").trim());
+        i++;
+      }
+      segments.push({ kind: "numbered", items });
+      continue;
+    }
+
+    const paraLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !lines[i].startsWith("#") &&
+      !lines[i].trim().startsWith("|") &&
+      !/^\s*[-*+]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i])
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    if (paraLines.length) {
+      segments.push({ kind: "para", text: stripMarkdown(paraLines.join("\n")) });
+    }
+  }
+
+  return segments;
+}
+
 /** Convert a copilot block to exportable prose lines (for tests and non-tabular blocks). */
 export function blockToLines(block: CopilotBlock): string[] {
   switch (block.type) {
@@ -253,6 +348,60 @@ function writeParagraph(doc: JsPdfDoc, text: string, x: number, y: number, maxWi
   return y;
 }
 
+function renderMarkdownSegmentsToDoc(
+  doc: JsPdfDoc,
+  text: string,
+  y: number,
+  margin: number,
+  maxWidth: number,
+  autoTable: AutoTableFn,
+): number {
+  for (const seg of segmentMarkdown(text)) {
+    if (seg.kind === "h1" || seg.kind === "h2" || seg.kind === "h3") {
+      y = ensureSpace(doc, y, 22, margin);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(seg.kind === "h1" ? 14 : seg.kind === "h2" ? 12 : 11);
+      y = writeParagraph(doc, seg.text, margin, y, maxWidth, seg.kind === "h1" ? 18 : 16, margin);
+      doc.setFont("helvetica", "normal");
+      y += 6;
+      continue;
+    }
+
+    if (seg.kind === "bullet" || seg.kind === "numbered") {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      seg.items.forEach((item, idx) => {
+        const prefix = seg.kind === "bullet" ? "• " : `${idx + 1}. `;
+        y = writeParagraph(doc, stripMarkdown(`${prefix}${item}`), margin + 14, y, maxWidth - 14, 14, margin);
+      });
+      y += 4;
+      continue;
+    }
+
+    if (seg.kind === "table" && seg.headers.length) {
+      y = ensureSpace(doc, y, 40, margin);
+      autoTable(doc, {
+        startY: y,
+        head: [seg.headers.map(String)],
+        body: seg.rows.map((row) => row.map((cell) => String(cell ?? ""))),
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [255, 122, 26] },
+      });
+      y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+      continue;
+    }
+
+    if (seg.kind === "para" && seg.text) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      y = writeParagraph(doc, seg.text, margin, y, maxWidth, 14, margin);
+      y += 4;
+    }
+  }
+  return y;
+}
+
 function renderBlocksToDoc(
   doc: JsPdfDoc,
   blocks: CopilotBlock[],
@@ -302,6 +451,20 @@ function renderBlocksToDoc(
         startY: y,
         head: [["Name", "Score", "Source"]],
         body: block.shortlist.map((m) => [m.name, String(m.score), m.source]),
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [255, 122, 26] },
+      });
+      y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+      continue;
+    }
+
+    if (block.type === "kpi-row" && block.items?.length) {
+      y = ensureSpace(doc, y, 40, margin);
+      autoTable(doc, {
+        startY: y,
+        head: [["Label", "Value"]],
+        body: block.items.map((i) => [i.label, `${i.value}${i.delta ? ` (${i.delta})` : ""}`]),
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 4 },
         headStyles: { fillColor: [255, 122, 26] },
@@ -370,7 +533,7 @@ function renderPlainTextDetails(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
   }
-  return writeParagraph(doc, stripped, margin, y, maxWidth, 14, margin);
+  return renderMarkdownSegmentsToDoc(doc, stripped, y, margin, maxWidth, autoTable);
 }
 
 async function loadPdfLibs() {
@@ -382,6 +545,9 @@ async function loadPdfLibs() {
 }
 
 function writeDocumentHeader(doc: JsPdfDoc, title: string, margin: number): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  doc.setFillColor(255, 122, 26);
+  doc.rect(0, 0, pageWidth, 4, "F");
   let y = margin;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
@@ -390,9 +556,25 @@ function writeDocumentHeader(doc: JsPdfDoc, title: string, margin: number): numb
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text(`Generated ${new Date().toLocaleString()} · Preplane LMP Copilot`, margin, y);
+  doc.text(`Generated ${new Date().toLocaleString()} · PrepLane LMP Copilot`, margin, y);
   doc.setTextColor(0);
   return y + 24;
+}
+
+function finalizeDocument(doc: JsPdfDoc, margin: number): void {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let page = 1; page <= pageCount; page++) {
+    doc.setPage(page);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    const footer = `Page ${page} of ${pageCount} — PrepLane`;
+    const textWidth = doc.getTextWidth(footer);
+    doc.text(footer, (pageWidth - textWidth) / 2, pageHeight - margin / 2);
+    doc.setTextColor(0);
+  }
 }
 
 /** Build and download a PDF from a copilot assistant message (blocks + markdown). */
@@ -411,6 +593,7 @@ export async function downloadCopilotMessagePdf(content: string, title = "LMP Co
     throw new Error("Nothing to export in this message.");
   }
 
+  finalizeDocument(doc, margin);
   const filename = `${sanitiseFilename(title)}-${new Date().toISOString().slice(0, 10)}.pdf`;
   doc.save(filename);
 }
@@ -435,7 +618,7 @@ export async function downloadCopilotReportPdf(
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
     const { blocks, plainText } = parseBlocks(section.content || "");
-    const body = stripMarkdown(plainText || section.content || "");
+    const body = (plainText || section.content || "").trim();
     if (!blocks.length && !body) continue;
 
     hasContent = true;
@@ -456,6 +639,7 @@ export async function downloadCopilotReportPdf(
     throw new Error("Nothing to export in this report.");
   }
 
+  finalizeDocument(doc, margin);
   const filename = `${sanitiseFilename(reportTitle)}-report-${new Date().toISOString().slice(0, 10)}.pdf`;
   doc.save(filename);
 }
