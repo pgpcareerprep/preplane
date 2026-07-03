@@ -684,6 +684,9 @@ function CopilotPageInner() {
           source: "copilot",
           metadata: { pending_action_id: pendingActionId },
         });
+        void queryClient.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+        void queryClient.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
+        void queryClient.invalidateQueries({ queryKey: ["db-lmp-process"] });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
