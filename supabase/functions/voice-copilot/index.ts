@@ -30,14 +30,14 @@ import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const MAX_ROUNDS = 4;
 
-// Vault secrets cache (per cold start) — delegates to shared module.
-import { ensureVaultLoaded, getSecret } from "../_shared/providers/secrets.ts";
+// Vault secrets cache (per cold start) — delegates to copilot-ai secrets module.
+import { ensureVaultLoaded, getEnv } from "../copilot-ai/secrets.ts";
 
 async function loadVoiceVault(): Promise<void> {
   await ensureVaultLoaded();
 }
 function voiceEnv(name: string): string | undefined {
-  return getSecret(name);
+  return getEnv(name);
 }
 
 type VoiceRequestState = {
