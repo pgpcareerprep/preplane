@@ -26,17 +26,7 @@ import {
 } from "../_shared/voicePhoneticGlossary.ts";
 
 
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
-// Inline CORS headers — the npm:@supabase/supabase-js@2/cors subpath
-// does not exist in the published package and throws at runtime.
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const MAX_ROUNDS = 4;
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 // Vault secrets cache (per cold start) — delegates to shared module.
 import { ensureVaultLoaded, getSecret } from "../_shared/providers/secrets.ts";
@@ -491,7 +481,7 @@ import { requireAuth } from "../_shared/requireAuth.ts";
 import { createLogger } from "../_shared/logger.ts";
 
 async function handleVoiceRequest(req: Request) {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   // Load vault secrets once per cold start so all providers can use them
   await loadVoiceVault();
