@@ -97,17 +97,25 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle, {
       setLoading(true);
       const t = setTimeout(async () => {
         try {
-          const { data, error } = await supabase.functions.invoke("entity-search", {
+          const invokePromise = supabase.functions.invoke("entity-search", {
             body: { query: trimmed, limit: 24, ...(scope ? { entity_types: [scope] } : {}) },
           });
+          const raced = await Promise.race([
+            invokePromise,
+            new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error("Search timed out")), 12_000);
+            }),
+          ]);
+          const { data, error } = raced;
           if (myReq !== reqId.current) return;
-          if (error) { setResults([]); setLoading(false); return; }
+          if (error) { setResults([]); return; }
           const json = (data ?? { results: [] }) as { results?: RawResult[] };
           setResults(json.results ?? []);
-          setLoading(false);
         } catch {
           if (myReq !== reqId.current) return;
-          setResults([]); setLoading(false);
+          setResults([]);
+        } finally {
+          if (myReq === reqId.current) setLoading(false);
         }
       }, 160);
       return () => clearTimeout(t);

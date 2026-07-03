@@ -149,6 +149,28 @@ function CopilotPageInner() {
     setInterimVoice("");
   }, [lmpScopeId]);
 
+  // Seed active context from ?lmp= deep link so scoped copilot resolves pronouns.
+  useEffect(() => {
+    if (!lmpScopeId) return;
+    let cancelled = false;
+    void supabase
+      .from("lmp_processes")
+      .select("id, company, role")
+      .eq("id", lmpScopeId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setActiveContext((prev) => (prev?.pinned ? prev : {
+          entity_type: "lmp",
+          entity_id: data.id,
+          display_name: `${data.company} – ${data.role}`,
+          source: "manual",
+          pinned: true,
+        }));
+      });
+    return () => { cancelled = true; };
+  }, [lmpScopeId]);
+
   const active = threads.find((t) => t.id === activeId) ?? threads[0];
   const messages = useMemo(() => active?.messages ?? [], [active?.messages]);
   const hasChat = messages.length > 0;
@@ -827,7 +849,18 @@ function CopilotPageInner() {
   };
 
   const removeMention = (idx: number) => {
-    setMentions(prev => prev.filter((_, i) => i !== idx));
+    setMentions((prev) => {
+      const removed = prev[idx];
+      if (removed) {
+        const removedKey = `${removed.type}:${removed.entityId || removed.name}`;
+        setActiveContext((ctx) => {
+          if (!ctx || ctx.pinned) return ctx;
+          const ctxKey = `${ctx.entity_type}:${ctx.entity_id}`;
+          return ctxKey === removedKey ? null : ctx;
+        });
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
