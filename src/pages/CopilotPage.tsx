@@ -45,6 +45,16 @@ import {
 
 const COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
 
+/** Strip inlined attachment payloads from prior turns to cap context size. */
+export function stripHistoricalAttachments(content: string): string {
+  return content.replace(/\n\n\[Attached files:[\s\S]*?\]$/, "\n\n[Attachment omitted from history]");
+}
+
+function capHistoryMessage(content: string, max = 8000): string {
+  if (content.length <= max) return content;
+  return `${content.slice(0, max)}… [truncated]`;
+}
+
 const MODES: { id: CopilotMode; label: string; hint: string }[] = [
   { id: "auto",      label: "Auto",      hint: "Pick the best mode for me" },
   { id: "ask",       label: "Ask",       hint: "Question · status check" },
@@ -353,10 +363,19 @@ function CopilotPageInner() {
 
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
 
-    // Full thread history — no artificial turn cap so follow-ups stay in context.
-    const history = [...currentMessages, { role: "user" as const, content: enrichedContent }]
+    // Cap thread history to limit model context explosion on long threads.
+    const historyMessages = [...currentMessages, { role: "user" as const, content: enrichedContent }]
       .filter(m => m.role === "user" || m.role === "assistant")
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .slice(-24);
+    const history = historyMessages.map((m, i) => {
+      const isCurrent = i === historyMessages.length - 1;
+      let content = m.content;
+      if (!isCurrent) {
+        content = stripHistoricalAttachments(content);
+        content = capHistoryMessage(content);
+      }
+      return { role: m.role as "user" | "assistant", content };
+    });
 
     setThreads(prev => prev.map(t =>
       t.id === activeId
