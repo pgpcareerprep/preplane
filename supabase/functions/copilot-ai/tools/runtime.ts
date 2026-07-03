@@ -3,6 +3,7 @@ import { checkPermission } from "../../_shared/rbac.ts";
 import { POC_WRITABLE_LMP_COLUMNS } from "../../_shared/permissionContract.ts";
 import {
   claimPendingActionForExecution,
+  finalizePendingActionExecution,
   stagePendingAction,
 } from "../../_shared/copilotPendingActions.ts";
 import {
@@ -20,6 +21,18 @@ import {
   trimStr,
   validateChatWriteKind,
 } from "../../_shared/lmpWriteValidation.ts";
+import { getServiceClient } from "../../_shared/entitySearch.ts";
+
+function getCallerSupabase() {
+  const token = requestState().context.authToken;
+  if (token) {
+    return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return getServiceClient();
+}
 
 async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok: true } | { ok: false; reason: string }> {
   const actorRole = requestState().context.role;
@@ -497,7 +510,7 @@ export async function executeTool(
         }
 
         const { searchEntities: _se } = await import("../../_shared/entitySearch.ts");
-        let regData = await _se({ query: "", types: [entityType], limit: limitVal, perTypeLimit: limitVal });
+        let regData = await _se(getCallerSupabase(), { query: "", types: [entityType], limit: limitVal, perTypeLimit: limitVal });
         if (args.domain) {
           const dq = String(args.domain).toLowerCase();
           regData = regData.filter((r) => (r.domain || "").toLowerCase().includes(dq));
@@ -756,6 +769,9 @@ export async function executeTool(
           return JSON.stringify({ error: claimed.error, code: claimed.code });
         }
 
+        const releaseClaim = () => finalizePendingActionExecution(id, userId, false);
+        const completeClaim = () => finalizePendingActionExecution(id, userId, true);
+
         const kind = claimed.kind;
         const payload = claimed.payload;
         const currentSnapshot = claimed.currentSnapshot;
@@ -769,7 +785,8 @@ export async function executeTool(
         };
         const permResult = checkPermission(requestState().context.role, PERM_MAP[kind] || "edit_lmp");
         if (!permResult.allowed) {
-          return JSON.stringify({ blocked: true, ...permResult });
+          await releaseClaim();
+          return JSON.stringify({ blocked: true, ...permResult, code: "permission_denied" });
         }
         // BUG-P4: re-check field-level RBAC at execute time.
         if (requestState().context.role === "poc" && kind === "update_lmp_field") {
@@ -790,10 +807,12 @@ export async function executeTool(
             return !POC_ALLOWED_FIELDS.has(norm) && !POC_ALLOWED_FIELDS.has(norm.toLowerCase().replace(/\s+/g, "_"));
           });
           if (offenders.length) {
+            await releaseClaim();
             return JSON.stringify({
               blocked: true,
               allowed: false,
               reason: `POC role cannot edit: ${offenders.join(", ")}.`,
+              code: "permission_denied",
             });
           }
         }
@@ -804,7 +823,8 @@ export async function executeTool(
               kind === "assign_poc" || kind === "delete_lmp_record") {
             const own = await assertPocOwnsLmp(payload);
             if (!own.ok) {
-              return JSON.stringify({ blocked: true, allowed: false, reason: own.reason });
+              await releaseClaim();
+              return JSON.stringify({ blocked: true, allowed: false, reason: own.reason, code: "permission_denied" });
             }
           }
           if (kind === "bulk_update") {
@@ -812,17 +832,31 @@ export async function executeTool(
             for (const u of updates) {
               const own = await assertPocOwnsLmp(u);
               if (!own.ok) {
-                return JSON.stringify({ blocked: true, allowed: false, reason: `Bulk update blocked: ${own.reason}` });
+                await releaseClaim();
+                return JSON.stringify({ blocked: true, allowed: false, reason: `Bulk update blocked: ${own.reason}`, code: "permission_denied" });
               }
             }
           }
         }
 
-        // Replay the underlying write tool.
-        const writeResult = await executeTool(kind, payload, { confirmed: true });
         let parsed: Record<string, unknown> = {};
-        try { parsed = JSON.parse(writeResult); } catch { /* ignore */ }
-        const succeeded = !parsed.error && !parsed.blocked && parsed.success !== false;
+        let succeeded = false;
+        try {
+          const writeResult = await executeTool(kind, payload, { confirmed: true });
+          try { parsed = JSON.parse(writeResult); } catch { /* ignore */ }
+          succeeded = !parsed.error && !parsed.blocked && parsed.success !== false;
+        } catch (e) {
+          await releaseClaim();
+          const msg = (e as Error).message || "Write failed";
+          return JSON.stringify({
+            error: msg.startsWith("Tool execution failed") ? msg : `Write failed: ${msg}`,
+            code: "execute_failed",
+            executed: false,
+          });
+        }
+
+        if (succeeded) await completeClaim();
+        else await releaseClaim();
 
         // Activity log row (best-effort).
         try {
@@ -860,7 +894,7 @@ export async function executeTool(
         const limit = Math.max(1, Math.min(20, (args.limit as number) || 6));
 
         const { searchEntities: _se2 } = await import("../../_shared/entitySearch.ts");
-        const candidates = await _se2({ query, limit: 50, perTypeLimit: 30 });
+        const candidates = await _se2(getCallerSupabase(), { query, limit: 50, perTypeLimit: 12 });
 
         const q = query.toLowerCase();
         const scored = candidates.map((row) => {

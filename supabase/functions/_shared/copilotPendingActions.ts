@@ -92,24 +92,54 @@ export async function loadStagedPendingAction(
   };
 }
 
-/** Atomically claim a staged row before running the write (idempotent execute). */
+/** Atomically claim a staged row for execution (staged → pending lock). */
 export async function claimPendingActionForExecution(
   id: string,
   userId: string,
 ): Promise<LoadedPendingAction | { error: string; code: string }> {
-  const loaded = await loadStagedPendingAction(id, userId);
-  if ("error" in loaded) return loaded;
+  await markExpiredPendingActions();
   const { data, error } = await serviceClient()
     .from("copilot_pending_actions")
-    .update({ status: "executed", executed_at: new Date().toISOString() })
+    .update({ status: "pending" })
     .eq("id", id)
     .eq("user_id", userId)
-    .in("status", ["staged", "pending"])
+    .eq("status", "staged")
     .gt("expires_at", new Date().toISOString())
-    .select("id")
+    .select("*")
     .maybeSingle();
-  if (error || !data) return { error: "Action already executed or expired", code: "already_executed" };
-  return loaded;
+  if (error || !data) {
+    const peek = await loadStagedPendingAction(id, userId);
+    if (!("error" in peek) && peek) {
+      return { error: "Action already executed or expired", code: "already_executed" };
+    }
+    return peek;
+  }
+  return {
+    id: data.id as string,
+    userId: data.user_id as string,
+    kind: data.action_kind as string,
+    payload: (data.payload as Record<string, unknown>) ?? {},
+    currentSnapshot: (data.current_snapshot as Record<string, unknown>) ?? {},
+    proposedSnapshot: (data.proposed_snapshot as Record<string, unknown>) ?? {},
+    role: data.role as string,
+  };
+}
+
+/** Mark in-flight pending action complete or release back to staged for retry. */
+export async function finalizePendingActionExecution(
+  id: string,
+  userId: string,
+  success: boolean,
+): Promise<void> {
+  await serviceClient()
+    .from("copilot_pending_actions")
+    .update({
+      status: success ? "executed" : "staged",
+      executed_at: success ? new Date().toISOString() : null,
+    })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .eq("status", "pending");
 }
 
 export async function cancelPendingAction(
