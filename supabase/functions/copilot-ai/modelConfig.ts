@@ -23,7 +23,6 @@ export const OPENROUTER_SYNTHESIS_MODELS = [
   "qwen/qwen3-coder:free",
   "qwen/qwen3-next-80b-a3b-instruct:free",
   "meta-llama/llama-3.3-70b-instruct:free",
-  "openrouter/free",
 ] as const;
 
 // ─── Grok (final fallback) ────────────────────────────────────────────────

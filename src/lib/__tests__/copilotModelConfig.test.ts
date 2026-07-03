@@ -21,8 +21,9 @@ describe("Copilot model routing", () => {
     expect(configured.filter((id) => RETIRED_OPENROUTER_IDS.has(id))).toEqual([]);
   });
 
-  it("keeps OpenRouter's maintained free router as the final fallback", () => {
-    expect(OPENROUTER_SYNTHESIS_MODELS.at(-1)).toBe("openrouter/free");
+  it("ends OpenRouter synthesis fallbacks on a concrete free model slug", () => {
+    expect(OPENROUTER_SYNTHESIS_MODELS.at(-1)).toBe("meta-llama/llama-3.3-70b-instruct:free");
+    expect(OPENROUTER_SYNTHESIS_MODELS).not.toContain("openrouter/free");
   });
 
   it("uses current stable Gemini models for direct-provider fallback", () => {
