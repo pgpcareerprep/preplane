@@ -49,14 +49,20 @@ export function useCopilotThreads(lmpId?: string | null) {
   // Tracks threads currently being fetched to prevent concurrent duplicate requests.
   const fetchingRef = useRef<Set<string>>(new Set());
 
+  const makeLocalPlaceholder = useCallback(
+    () => ({ id: `local-${Date.now()}`, title: NEW_THREAD_TITLE, group: "Today" as const, messages: [] }),
+    [],
+  );
+
   // BUG-FIX #7: clear the UI buffer the moment the LMP scope changes so the
   // previous LMP's transcript can't bleed into the new conversation while the
   // hydrate effect below is still fetching. DB threads are untouched.
   useEffect(() => {
-    setThreads([{ id: "local-new", title: NEW_THREAD_TITLE, group: "Today", messages: [] }]);
-    setActiveId("local-new");
+    const placeholder = makeLocalPlaceholder();
+    setThreads([placeholder]);
+    setActiveId(placeholder.id);
     setHydrated(false);
-  }, [scopedLmpId]);
+  }, [scopedLmpId, makeLocalPlaceholder]);
 
   // Initial load — only fetches thread metadata, NOT messages (lazy).
   // Filters to non-expired threads only (expires_at > now()).
@@ -84,14 +90,47 @@ export function useCopilotThreads(lmpId?: string | null) {
       const { data: tRows, error: tErr } = await q;
 
       if (cancelled) return;
-      if (tErr || !tRows || tRows.length === 0) {
-        // Create an initial thread.
-        await ensureThread(uid).then((id) => {
-          if (cancelled) return;
-          setThreads([{ id, title: NEW_THREAD_TITLE, group: "Today", messages: [] }]);
-          setActiveId(id);
+
+      // Purge never-used "New chat" spam rows (title unchanged, last_message_at == created_at).
+      if (uid && tRows && tRows.length > 0) {
+        const spamIds = tRows
+          .filter((t) => t.title === NEW_THREAD_TITLE && t.last_message_at === t.created_at)
+          .map((t) => t.id);
+        if (spamIds.length > 0) {
+          const kept = tRows.filter((t) => !spamIds.includes(t.id));
+          void supabase
+            .from("copilot_threads")
+            .delete()
+            .eq("user_id", uid)
+            .eq("title", NEW_THREAD_TITLE)
+            .in("id", spamIds);
+          if (kept.length === 0) {
+            const placeholder = makeLocalPlaceholder();
+            setThreads([placeholder]);
+            setActiveId(placeholder.id);
+            setHydrated(true);
+            return;
+          }
+          const built: ChatThread[] = kept.map((t) => ({
+            id: t.id,
+            title: t.title || NEW_THREAD_TITLE,
+            group: bucketGroup(new Date(t.last_message_at).getTime()),
+            messages: [],
+            lastMessageAt: new Date(t.last_message_at).getTime(),
+          }));
+          const placeholder = makeLocalPlaceholder();
+          setThreads([placeholder, ...built]);
+          setActiveId(placeholder.id);
           setHydrated(true);
-        });
+          return;
+        }
+      }
+
+      if (tErr || !tRows || tRows.length === 0) {
+        const placeholder = makeLocalPlaceholder();
+        setThreads([placeholder]);
+        setActiveId(placeholder.id);
+        setHydrated(true);
         return;
       }
 
@@ -105,14 +144,9 @@ export function useCopilotThreads(lmpId?: string | null) {
         lastMessageAt: new Date(t.last_message_at).getTime(),
       }));
 
-      // Always enter Copilot on a fresh conversation. Existing threads remain
-      // available in history, but returning from another page never opens a
-      // stale transcript or an unloaded blank historical thread.
-      const freshId = await ensureThread(uid).catch(() => `local-${Date.now()}`);
-      if (cancelled) return;
-      const fresh = { id: freshId, title: NEW_THREAD_TITLE, group: "Today" as const, messages: [] };
-      setThreads([fresh, ...built.filter((t) => t.id !== freshId)]);
-      setActiveId(freshId);
+      const placeholder = makeLocalPlaceholder();
+      setThreads([placeholder, ...built]);
+      setActiveId(placeholder.id);
       setHydrated(true);
     })().catch((e) => {
       console.warn("[copilot-threads] hydrate failed:", e);
@@ -137,18 +171,27 @@ export function useCopilotThreads(lmpId?: string | null) {
     return data.id;
   }, [scopedLmpId]);
 
-  const newChat = useCallback(async () => {
+  const newChat = useCallback(() => {
+    const active = threads.find((t) => t.id === activeId);
+    if (active?.id.startsWith("local-") && active.messages.length === 0) {
+      return active.id;
+    }
+    const placeholder = makeLocalPlaceholder();
+    setThreads((prev) => [placeholder, ...prev]);
+    setActiveId(placeholder.id);
+    return placeholder.id;
+  }, [threads, activeId, makeLocalPlaceholder]);
+
+  const ensureServerThread = useCallback(async (threadId: string): Promise<string> => {
+    if (!threadId.startsWith("local-")) return threadId;
     try {
-      const id = await ensureThread(userIdRef.current);
-      setThreads((prev) => [{ id, title: NEW_THREAD_TITLE, group: "Today", messages: [] }, ...prev]);
-      setActiveId(id);
-      return id;
+      const realId = await ensureThread(userIdRef.current);
+      setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, id: realId } : t)));
+      setActiveId(realId);
+      return realId;
     } catch (e) {
-      console.warn("[copilot-threads] newChat failed:", e);
-      const id = `local-${Date.now()}`;
-      setThreads((prev) => [{ id, title: NEW_THREAD_TITLE, group: "Today", messages: [] }, ...prev]);
-      setActiveId(id);
-      return id;
+      console.warn("[copilot-threads] ensureServerThread failed:", e);
+      return threadId;
     }
   }, [ensureThread]);
 
@@ -250,6 +293,6 @@ export function useCopilotThreads(lmpId?: string | null) {
   return {
     threads, setThreads, activeId, setActiveId, hydrated,
     newChat, deleteThread, persistMessage, renameThreadIfNew, renameThread,
-    fetchMessagesForThread,
+    fetchMessagesForThread, ensureServerThread,
   };
 }

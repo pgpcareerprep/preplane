@@ -96,7 +96,7 @@ function CopilotPageInner() {
   const {
     threads, setThreads, activeId, setActiveId, hydrated,
     newChat: createThread, deleteThread, persistMessage, renameThreadIfNew,
-    fetchMessagesForThread, renameThread,
+    fetchMessagesForThread, renameThread, ensureServerThread,
   } = useCopilotThreads(lmpScopeId);
 
   // Track which threads have already been fetched to prevent the infinite
@@ -363,6 +363,8 @@ function CopilotPageInner() {
 
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: userText, ts, mentions: msgMentions, attachments: msgAttachments };
 
+    const serverThreadId = await ensureServerThread(activeId);
+
     // Cap thread history to limit model context explosion on long threads.
     const historyMessages = [...currentMessages, { role: "user" as const, content: enrichedContent }]
       .filter(m => m.role === "user" || m.role === "assistant")
@@ -378,7 +380,7 @@ function CopilotPageInner() {
     });
 
     setThreads(prev => prev.map(t =>
-      t.id === activeId
+      t.id === serverThreadId
         ? {
             ...t,
             title: t.messages.length === 0 ? userText.slice(0, 60) : t.title,
@@ -387,9 +389,9 @@ function CopilotPageInner() {
         : t
     ));
     // Persist user message + auto-rename thread on first message.
-    void persistMessage(activeId, userMsg);
-    if ((threads.find(t => t.id === activeId)?.messages.length ?? 0) === 0) {
-      void renameThreadIfNew(activeId, userText);
+    void persistMessage(serverThreadId, userMsg);
+    if ((threads.find(t => t.id === serverThreadId)?.messages.length ?? 0) === 0) {
+      void renameThreadIfNew(serverThreadId, userText);
     }
     setDraft("");
     setMentions([]);
@@ -400,24 +402,24 @@ function CopilotPageInner() {
     // (instead of leaving an empty bubble forever).
     const assistantId = crypto.randomUUID();
     setThreads(prev => prev.map(t =>
-      t.id === activeId
+      t.id === serverThreadId
         ? { ...t, messages: [...t.messages, { id: assistantId, role: "assistant" as const, content: "", ts: ts + 1, streaming: true }] }
         : t
     ));
 
     const replaceAssistantWith = (content: string) => {
       setThreads(prev => prev.map(t =>
-        t.id === activeId
+        t.id === serverThreadId
           ? { ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content, streaming: false } : m) }
           : t
       ));
     };
 
-    const replaceAssistantWithError = (message: string) => {
+    const replaceAssistantWithError = (message: string, detail?: string) => {
       setThreads(prev => prev.map(t =>
-        t.id === activeId
+        t.id === serverThreadId
           ? { ...t, messages: t.messages.map(m => m.id === assistantId
-              ? ({ ...m, content: message, errorMessage: message, streaming: false, error: true, retryText: userText } as any)
+              ? ({ ...m, content: message, errorMessage: message, errorDetail: detail, streaming: false, error: true, retryText: userText } as any)
               : m) }
           : t
       ));
@@ -452,7 +454,7 @@ function CopilotPageInner() {
           mode,
           scope,
           lmpId: lmpScopeId || undefined,
-          threadId: activeId && !activeId.startsWith("local-") ? activeId : null,
+          threadId: serverThreadId,
           mentions: msgMentions.map(m => ({ type: m.type, name: m.name, entity_id: m.entityId, email: m.email })),
           activeContext: activeContext ? {
             entity_type: activeContext.entity_type,
@@ -479,6 +481,9 @@ function CopilotPageInner() {
         let msg: string;
         if (resp.status === 503 || code === "ALL_AI_PROVIDERS_UNAVAILABLE") {
           msg = "AI services are temporarily unavailable. Please retry in a moment.";
+          replaceAssistantWithError(msg, typeof err.detail === "string" ? err.detail : undefined);
+          toast.error(msg);
+          return;
         } else if (resp.status === 429 || code === "AI_DAILY_BUDGET_EXHAUSTED") {
           msg = "Your daily AI budget is used up. It resets at midnight UTC.";
         } else if (resp.status === 401 || resp.status === 403) {
@@ -525,7 +530,7 @@ function CopilotPageInner() {
               assistantContent += delta;
               const snapshot = assistantContent;
               setThreads(prev => prev.map(t =>
-                t.id === activeId
+                t.id === serverThreadId
                   ? { ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: snapshot } : m) }
                   : t
               ));
@@ -543,7 +548,7 @@ function CopilotPageInner() {
       } else if (isIncompleteBlocksFence(assistantContent)) {
         const cutOffMsg = "The response was cut off before it finished. Partial results are shown above — tap Retry to try again.";
         setThreads(prev => prev.map(t =>
-          t.id === activeId
+          t.id === serverThreadId
             ? { ...t, messages: t.messages.map(m => m.id === assistantId
                 ? ({ ...m, content: assistantContent, errorMessage: cutOffMsg, streaming: false, error: true, retryText: userText } as any)
                 : m) }
@@ -551,7 +556,7 @@ function CopilotPageInner() {
         ));
       } else {
         setThreads(prev => prev.map(t =>
-          t.id === activeId
+          t.id === serverThreadId
             ? { ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, streaming: false } : m) }
             : t
         ));
@@ -567,7 +572,7 @@ function CopilotPageInner() {
       // otherwise show the rich error bubble with Retry.
       if (assistantContent.trim()) {
         setThreads(prev => prev.map(t =>
-          t.id === activeId
+          t.id === serverThreadId
             ? { ...t, messages: t.messages.map(m => m.id === assistantId
                 ? ({ ...m, content: assistantContent, errorMessage: friendly, streaming: false, error: true, retryText: userText } as any)
                 : m) }
@@ -586,7 +591,7 @@ function CopilotPageInner() {
       }, 3000);
       // Persist the final assistant message (no streaming spam to DB).
       if (assistantContent.trim()) {
-        void persistMessage(activeId, {
+        void persistMessage(serverThreadId, {
           id: assistantId,
           role: "assistant",
           content: assistantContent,
@@ -594,7 +599,7 @@ function CopilotPageInner() {
         });
       }
     }
-  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, lmpScopeId, setThreads, persistMessage, renameThreadIfNew, queryClient]);
+  }, [activeId, threads, mode, scope, mentions, attachments, activeContext, copilotPerms, user.id, user.name, user.email, realRole, viewAsRole, viewAsUser, lmpScopeId, setThreads, persistMessage, renameThreadIfNew, ensureServerThread, queryClient]);
 
   const send = (text: string) => {
     const trimmed = text.trim();
@@ -904,6 +909,9 @@ function CopilotPageInner() {
                         message={errorMessage || m.content?.replace(/^⚠️\s*/, "") || "Something went wrong."}
                         onRetry={retryText ? () => send(retryText) : undefined}
                       />
+                      {(m as any).errorDetail && (
+                        <p className="text-[11px] text-n500 pl-1">{(m as any).errorDetail}</p>
+                      )}
                     </div>
                   );
                 }
@@ -1034,7 +1042,9 @@ function CopilotPageInner() {
         viewAsUserName={viewAsUser?.name || null}
         viewAsRole={viewAsRole}
         threadId={activeId}
-        onPersistMessage={persistMessage}
+        onPersistMessage={(threadId, msg) => {
+          void ensureServerThread(threadId).then((sid) => persistMessage(sid, msg));
+        }}
       />
     </div>
   );
