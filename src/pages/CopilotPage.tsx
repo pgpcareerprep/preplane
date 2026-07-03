@@ -42,6 +42,7 @@ import {
   isCopilotPdfExportRequest,
   resolveCopilotReportSections,
 } from "@/lib/copilot/copilotPdfExport";
+import { CopilotMessageActions } from "@/components/copilot/CopilotMessageActions";
 
 const COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
 
@@ -1443,20 +1444,7 @@ function AssistantMarkdown({ content, ts, streaming, onFollowUp, onAction, onCon
         )}
 
         {!streaming && text.trim() && !/PDF downloaded|Nothing to export/i.test(text) && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void downloadCopilotMessagePdf(content, exportTitle ?? "copilot-report")
-                  .then(() => toast.success("PDF downloaded"))
-                  .catch((e: Error) => toast.error("PDF export failed", { description: e.message }));
-              }}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-n200 bg-card text-[12px] font-medium text-n700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Download PDF
-            </button>
-          </div>
+          <CopilotMessageActions content={content} exportTitle={exportTitle} />
         )}
       </div>
     </motion.div>
