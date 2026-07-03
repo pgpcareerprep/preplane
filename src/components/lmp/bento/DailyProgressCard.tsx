@@ -5,9 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/lib/rolesContext";
 import { format, isAfter, isBefore, isToday as isDateToday, parseISO } from "date-fns";
 import {
-  addProgress,
   hasUpdateToday,
-  markNoUpdate,
   useProgress,
 } from "@/lib/lmpExecutionEngine";
 import { cn } from "@/lib/utils";
@@ -255,41 +253,63 @@ export function DailyProgressCard({
     return null;
   }, [nextDate, dbHistory, lastProgressUpdatedAt, text]);
 
+  const progressBusy = addProgressEntry.isPending || updateLastProgress.isPending || saveNextDate.isPending;
+
   const submit = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || progressBusy) return;
+    const savedText = text.trim();
 
-    // Sheet mirror via parent (writes to lmp_processes.daily_progress + sheet)
-    onSaveProgress?.(text.trim());
-
-    // Single DB insert into lmp_daily_logs (was double-inserting via addProgress + this hook)
-    addProgressEntry.mutate({
-      lmpId,
-      progressText: text.trim(),
-      progressType: "progress_update",
-      createdBy: currentAuthorLabel,
-      nextProgressDateSnapshot: nextDate || null,
-      reminderTypeSnapshot: nextKind || null,
-    });
-
-    updateLastProgress.mutate(lmpId);
-
-    if (nextDate) {
-      saveNextDate.mutate({ lmpId, nextDate, reminderType: nextKind || "", pocEmail: pocEmail || undefined });
-    }
-
-    setText("");
+    addProgressEntry.mutate(
+      {
+        lmpId,
+        progressText: savedText,
+        progressType: "progress_update",
+        createdBy: currentAuthorLabel,
+        nextProgressDateSnapshot: nextDate || null,
+        reminderTypeSnapshot: nextKind || null,
+      },
+      {
+        onSuccess: () => {
+          onSaveProgress?.(savedText);
+          updateLastProgress.mutate(lmpId);
+          if (nextDate) {
+            saveNextDate.mutate({
+              lmpId,
+              nextDate,
+              reminderType: nextKind || "",
+              pocEmail: pocEmail || undefined,
+            });
+          }
+          setText("");
+          toast.success("Progress saved");
+        },
+        onError: (err) => {
+          toast.error(progressMutationMessage(err, "Failed to save progress"));
+        },
+      },
+    );
   };
 
   const handleMarkNoUpdate = () => {
-    // Single DB insert (no local-store duplicate)
-    addProgressEntry.mutate({
-      lmpId,
-      progressText: "No update marked for today",
-      progressType: "no_update",
-      createdBy: currentAuthorLabel,
-      nextProgressDateSnapshot: nextDate || null,
-      reminderTypeSnapshot: nextKind || null,
-    });
+    if (progressBusy) return;
+    addProgressEntry.mutate(
+      {
+        lmpId,
+        progressText: "No update marked for today",
+        progressType: "no_update",
+        createdBy: currentAuthorLabel,
+        nextProgressDateSnapshot: nextDate || null,
+        reminderTypeSnapshot: nextKind || null,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Marked as no update today");
+        },
+        onError: (err) => {
+          toast.error(progressMutationMessage(err, "Failed to mark no update"));
+        },
+      },
+    );
   };
 
   const clearNudge = () => {
@@ -442,10 +462,10 @@ export function DailyProgressCard({
           <button
             type="button"
             onClick={submit}
-            disabled={!text.trim()}
+            disabled={!text.trim() || progressBusy}
             className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md bg-n900 text-white text-[11.5px] font-medium hover:bg-n800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Send className="h-3.5 w-3.5" /> Save
+            <Send className="h-3.5 w-3.5" /> {progressBusy ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

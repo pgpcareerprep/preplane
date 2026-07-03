@@ -157,15 +157,19 @@ const { update: updateMutation } = useLmpMutation();
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
   const handleChecklistToggle = useCallback((sheetKey: string, newValue: boolean) => {
     setPendingChecklist((p) => ({ ...p, [sheetKey]: newValue }));
-    updateMutation.mutate(
+      updateMutation.mutate(
       { id: rec.id, patch: { [sheetKey]: newValue } },
       {
+        onSuccess: () => {
+          toast.success(newValue ? "Checklist item marked done" : "Checklist item reopened");
+        },
         onError: () => {
           setPendingChecklist((p) => {
             if (!(sheetKey in p)) return p;
             const { [sheetKey]: _, ...rest } = p;
             return rest;
           });
+          toast.error("Failed to update checklist — please try again");
         },
       },
     );

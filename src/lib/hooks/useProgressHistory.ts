@@ -152,6 +152,7 @@ export function useAddProgressEntry() {
       qc.invalidateQueries({ queryKey: ["exec_timeline", vars.lmpId] });
       qc.invalidateQueries({ queryKey: ["lmp_timeline_recent"] });
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
+      qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       qc.invalidateQueries({ queryKey: ["db-lmp-process", vars.lmpId] });
       qc.invalidateQueries({ queryKey: ["sheets", "LMP Tracker"] });
     },
@@ -220,6 +221,7 @@ export function useSaveNextProgressDate() {
           poc_email: params.pocEmail || null,
           next_progress_date: nextDate,
           reminder_version: newVersion,
+          reminder_type: typeToSave,
           status: "pending",
         });
 

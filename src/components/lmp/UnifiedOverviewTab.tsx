@@ -144,16 +144,19 @@ export function UnifiedOverviewTab({
       updateMutation.mutate(
         { id: lmp.id, patch: { [sheetKey]: newValue } },
         {
+          onSuccess: () => {
+            toast.success(newValue ? "Checklist item marked done" : "Checklist item reopened");
+          },
           onError: () => {
             setPendingChecklist((p) => {
               if (!(sheetKey in p)) return p;
               const { [sheetKey]: _, ...rest } = p;
               return rest;
             });
+            toast.error("Failed to update checklist — please try again");
           },
         },
       );
-      toast.success(newValue ? "Checklist item marked done" : "Checklist item reopened");
     },
     [lmp.id, operationalReadOnlyMode, updateMutation],
   );
