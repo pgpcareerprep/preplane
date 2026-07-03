@@ -28,6 +28,8 @@ import {
 
 import { buildCorsHeaders } from "../_shared/cors.ts";
 
+const MAX_ROUNDS = 4;
+
 // Vault secrets cache (per cold start) — delegates to shared module.
 import { ensureVaultLoaded, getSecret } from "../_shared/providers/secrets.ts";
 
