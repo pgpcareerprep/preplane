@@ -61,10 +61,14 @@ export async function executeCreateCaseStudy(args: Record<string, unknown>): Pro
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      return JSON.stringify({ error: `create-case-study failed (${res.status}): ${errText.slice(0, 200)}` });
+      console.error("create_case_study edge call failed", { status: res.status, body: errText.slice(0, 300) });
+      return JSON.stringify({ error: "Failed to generate case study. Please try again." });
     }
     const result = await res.json();
-    const brief = result.brief as CaseStudyBrief;
+    const brief = result?.brief as CaseStudyBrief | undefined;
+    if (!result?.ok || !brief?.situation || !brief?.prompt) {
+      return JSON.stringify({ error: "Failed to generate case study. Please try again." });
+    }
     return JSON.stringify({
       ok: true,
       company,

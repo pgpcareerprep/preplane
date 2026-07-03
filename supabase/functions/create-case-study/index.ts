@@ -153,9 +153,16 @@ Deno.serve(async (req: Request) => {
       domain: domain || undefined,
       brief,
     }), {
-      headers: { ...cors, "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
+    const err = e as Error;
+    console.error("create-case-study failed", {
+      message: err.message,
+      company,
+      role,
+      domain: domain || undefined,
+    });
     logAiUsage({
       userId: auth.user.id,
       feature: "create-case-study",
@@ -163,11 +170,11 @@ Deno.serve(async (req: Request) => {
       promptTokens: estimateTokens(userPrompt),
       latencyMs: Date.now() - t0,
       status: "error",
-      errorMessage: (e as Error).message.slice(0, 200),
+      errorMessage: err.message.slice(0, 200),
     });
     return new Response(
-      JSON.stringify({ error: (e as Error).message }),
-      { status: 502, headers: { ...cors, "Content-Type": "application/json" } },
+      JSON.stringify({ error: "Failed to generate case study. Please try again." }),
+      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
