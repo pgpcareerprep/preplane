@@ -142,16 +142,17 @@ const FETCHERS: Record<string, (s: SupabaseClient, q: string, l: number) => Prom
   domain: fetchDomains,
 };
 
-export async function searchEntities(opts: {
+export async function searchEntities(
+  supa: SupabaseClient,
+  opts: {
   query: string;
   types?: string[];
   limit?: number;
   perTypeLimit?: number;
 }): Promise<EntityRow[]> {
-  const supa = getServiceClient();
   const query = (opts.query ?? "").trim();
   const limit = Math.max(1, Math.min(50, opts.limit ?? 16));
-  const perType = Math.max(8, Math.min(80, opts.perTypeLimit ?? 30));
+  const perType = Math.max(5, Math.min(12, opts.perTypeLimit ?? 8));
   const types = (opts.types && opts.types.length > 0) ? opts.types : Object.keys(FETCHERS);
 
   const results = await Promise.all(

@@ -1,5 +1,6 @@
 // Entity search for @mention autocomplete in Copilot.
 // Live UNION across source tables (entity_registry was dropped in Phase 5).
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { searchEntities } from "../_shared/entitySearch.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
@@ -15,9 +16,18 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { body = {}; }
 
   try {
+    const authHeader = req.headers.get("Authorization") || req.headers.get("authorization") || "";
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      },
+    );
     // Accept both `entity_types` (sent by GlobalSearch) and `types` (legacy) as aliases.
     const rawTypes = body.entity_types ?? body.types;
-    const results = await searchEntities({
+    const results = await searchEntities(userClient, {
       query: String(body.query ?? ""),
       types: Array.isArray(rawTypes) ? rawTypes.filter((t) => typeof t === "string") : undefined,
       limit: body.limit,
