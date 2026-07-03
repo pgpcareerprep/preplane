@@ -12,6 +12,7 @@ export type CopilotIntent =
   | "lmp_process_search"
   | "attention_needed"
   | "create_lmp"
+  | "case_study"
   | "update_lmp"
   | "delete_lmp"
   | "compare_progress"
@@ -28,11 +29,12 @@ export type CopilotIntent =
 
 const GREETING_PATTERNS = /^(hi|hey+|hello+|howdy|hiya|yo|sup|good\s+(morning|afternoon|evening|night)|how are you|how's it going|what'?s up|wassup|greetings|namaste)\W*$/i;
 const HELP_PATTERNS = /\b(help|how do i|what can you do|show me how|guide|tutorial|usage|commands|capabilities)\b/i;
+const CASE_STUDY_PATTERNS = /\b(case\s*stud(?:y|ies|e\w?)|casestud\w*|interview\s+case)\b/i;
 const PLATFORM_SUMMARY_PATTERNS = /\b(overview|summary|dashboard|status|total|all processes|give me a summary|executive|big picture|report card)\b/i;
 const STUDENT_PROGRESS_PATTERNS = /\b(progress of|how is .* doing|status of .* student|update on|tracking .* student)\b/i;
 const STUDENT_SEARCH_PATTERNS = /\b(student|candidate|find student|search student|look up|who is|profile of)\b/i;
 const ATTENTION_PATTERNS = /\b(attention|today|urgent|need my|at.?risk|stale|stuck|delayed|bottleneck|overdue|sla breach)\b/i;
-const CREATE_PATTERNS = /\b(create|add|new|start|initiate|open)\b.*\b(lmp|process|record)\b/i;
+const CREATE_LMP_PATTERNS = /\b(create|add|new|start|initiate|open)\b.*\b(lmp|process|record)\b/i;
 // Require both an action verb AND an LMP/process/status entity reference to
 // avoid false positives like "update me on Samora AI" or "set me up".
 const UPDATE_PATTERNS = /\b(update|change|set|mark|move|edit|modify|convert|close|archive)\b[^.?!\n]{0,40}\b(lmp|process|requisition|status|stage|domain|poc|owner|allocator|company|role|record)\b|\b(lmp|process|status|stage|domain|poc|record)\b[^.?!\n]{0,40}\b(update|change|set|mark|move|edit|modify|convert|close|archive)\b/i;
@@ -45,16 +47,39 @@ const COMPARE_PATTERNS = /\b(compare|vs|versus|difference between|contrast)\b/i;
 
 const ENTITY_LISTING_PATTERNS = /\b(list all|show all|all the|how many|total|count of|who are the)\b.*\b(poc|pocs|student|students|mentor|mentors|alumni)\b|\b(poc|pocs|student|students|mentor|mentors|alumni)\b.*\b(list|all|count|total)\b/i;
 
+/** Task-oriented phrasing after "help" / "how do i" — route to the full tool loop instead of the help fast-path. */
+const HELP_WITH_TASK_PATTERNS =
+  /\b(?:help\s+(?:me\s+)?|how do i\s+)(?:create|make|generate|prepare|draft|build|write|find|get|show|list|search|update|assign|match|parse|analyze|download|export|with)\b/i;
+
+export function isCaseStudyQuery(message: string): boolean {
+  return CASE_STUDY_PATTERNS.test((message ?? "").trim());
+}
+
+export function isGenuineHelpRequest(message: string): boolean {
+  const msg = (message ?? "").trim();
+  if (!msg) return false;
+  if (isCaseStudyQuery(msg)) return false;
+  if (HELP_WITH_TASK_PATTERNS.test(msg)) return false;
+  return HELP_PATTERNS.test(msg);
+}
+
+export function isCreateLmpQuery(message: string): boolean {
+  const msg = (message ?? "").trim();
+  if (!msg || isCaseStudyQuery(msg)) return false;
+  return CREATE_LMP_PATTERNS.test(msg);
+}
+
 export function classifyIntent(userMessage: string): CopilotIntent {
   const msg = (userMessage ?? "").trim();
   if (!msg) return "unknown";
   if (GREETING_PATTERNS.test(msg)) return "greeting";
-  if (HELP_PATTERNS.test(msg)) return "help";
+  if (isCaseStudyQuery(msg)) return "case_study";
+  if (isGenuineHelpRequest(msg)) return "help";
   if (ENTITY_LISTING_PATTERNS.test(msg)) return "entity_listing";
   if (STUDENT_PROGRESS_PATTERNS.test(msg)) return "student_progress";
   if (STUDENT_SEARCH_PATTERNS.test(msg)) return "student_search";
   if (ATTENTION_PATTERNS.test(msg)) return "attention_needed";
-  if (CREATE_PATTERNS.test(msg)) return "create_lmp";
+  if (isCreateLmpQuery(msg)) return "create_lmp";
   if (DELETE_PATTERNS.test(msg)) return "delete_lmp";
   if (UPDATE_PATTERNS.test(msg)) return "update_lmp";
   if (ALUMNI_PATTERNS.test(msg)) return "alumni_matching";
@@ -89,6 +114,9 @@ export function getHelpResponse(): string {
     "• `assign POC for <LMP>` — allocator engine + suggestions",
     "• `match mentors for <LMP>` — JD-grounded mentor matching",
     "• `update <LMP> to <status>` — confirm-then-write to the sheet",
+    "",
+    "**Prep content**",
+    "• `create a case study for <company> <role>` — interview case brief from the JD (@mention the LMP for JD context)",
     "",
     "**Analytics**",
     "• `pipeline summary` / `conversion rate` / `domain breakdown`",

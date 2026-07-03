@@ -38,7 +38,7 @@ export const LIGHTWEIGHT_INTENTS = new Set([
 // Heavy analysis: longer context, reasoning, larger output
 export const ANALYSIS_INTENTS = new Set([
   "report_generation", "analytics_query", "mentor_matching",
-  "alumni_matching", "compare_progress", "poc_allocation",
+  "alumni_matching", "compare_progress", "poc_allocation", "case_study",
 ] as const);
 
 export type TaskTier = "lightweight" | "standard" | "analysis";
