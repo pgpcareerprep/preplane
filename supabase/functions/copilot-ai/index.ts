@@ -53,6 +53,10 @@ import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
 import { buildSystemPrompt } from "./systemPrompt.ts";
 
+function sanitizeProviderDetail(msg: string): string {
+  return msg.replace(/key=[^&\s]+/gi, "key=[redacted]").slice(0, 300);
+}
+
 async function handleRequest(req: Request) {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
@@ -731,7 +735,7 @@ async function handleRequest(req: Request) {
         telemetry.model = toolResult.model;
         requestState().context.activeProviderName = toolResult.provider;
       } catch (toolModelErr) {
-        const errMsg = (toolModelErr as Error).message;
+        const errMsg = sanitizeProviderDetail((toolModelErr as Error).message);
         requestState().log.error("ai_gateway_exhausted", toolModelErr, { round });
         void logTurn({ status: "ai_gateway_error", error_message: errMsg });
         return new Response(JSON.stringify({

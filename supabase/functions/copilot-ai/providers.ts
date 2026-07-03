@@ -110,7 +110,7 @@ export async function callSynthesis(
   }
 
   console.error(`[synthesis] exhausted all providers: ${lastFailMsg}`);
-  throw new Error(`AI services temporarily unavailable (tried all providers: ${providers.map(p => p.name).join(" → ")}). Please retry in a moment.`);
+  throw new Error(`AI gateway unavailable after trying ${providers.map(p => p.name).join(" → ")}. Last error: ${lastFailMsg}`);
 }
 
 /**
