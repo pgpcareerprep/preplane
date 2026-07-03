@@ -37,7 +37,9 @@ import {
   resetRequestCache,
   viewAsBlocksWrites,
 } from "./requestContext.ts";
-import { ensureVaultLoaded, getEnv } from "./secrets.ts";
+import { ensureVaultLoaded, getVaultSecret } from "./secrets.ts";
+import { loadSecretWithSource, normalizeSecretValue } from "../_shared/providers/secrets.ts";
+import { GEMINI_FREE_MODEL } from "../_shared/providers/config.ts";
 import { retrieveRAGContext } from "./rag.ts";
 import {
   ANALYTICAL_TTL,
@@ -58,7 +60,33 @@ function sanitizeProviderDetail(msg: string): string {
   return sanitizeFailMsg(msg).slice(0, 400);
 }
 
-async function probeCopilotProvider(prov: ProviderConfig) {
+async function probeGeminiNativeGenerate(apiKey: string) {
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FREE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10_000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "ping" }] }],
+          generationConfig: { maxOutputTokens: 8 },
+        }),
+      },
+    );
+    const bodyText = (await resp.text()).slice(0, 300);
+    const lower = bodyText.toLowerCase();
+    const blocked = lower.includes("are blocked") || lower.includes("permission_denied");
+    return { ok: resp.ok, status: resp.status, blocked, error: resp.ok ? null : sanitizeFailMsg(bodyText) };
+  } catch (e) {
+    return { ok: false, status: 0, blocked: false, error: sanitizeFailMsg((e as Error).message) };
+  }
+}
+
+async function probeCopilotProvider(
+  prov: ProviderConfig,
+  keyMeta?: { source: string | null; envLast4: string | null; vaultLast4: string | null; mismatch: boolean },
+) {
   const keyPresent = Boolean(prov.key);
   const keyLast4 = prov.key ? prov.key.slice(-4) : null;
   if (!keyPresent) {
@@ -67,9 +95,15 @@ async function probeCopilotProvider(prov: ProviderConfig) {
       model: prov.toolModel,
       keyPresent: false,
       keyLast4: null,
+      keySource: keyMeta?.source ?? null,
+      keyLength: 0,
+      envLast4: keyMeta?.envLast4 ?? null,
+      vaultLast4: keyMeta?.vaultLast4 ?? null,
+      keyMismatch: keyMeta?.mismatch ?? false,
       status: 0,
       ok: false,
       blocked: false,
+      nativeGenerate: null,
       error: "key not configured",
     };
   }
@@ -103,7 +137,41 @@ async function probeCopilotProvider(prov: ProviderConfig) {
   } catch (e) {
     error = sanitizeFailMsg((e as Error).message);
   }
-  return { name: prov.name, model: prov.toolModel, keyPresent, keyLast4, status, ok, blocked, error };
+  const nativeGenerate = prov.name === "Gemini" && prov.key
+    ? await probeGeminiNativeGenerate(prov.key)
+    : null;
+  return {
+    name: prov.name,
+    model: prov.toolModel,
+    keyPresent,
+    keyLast4,
+    keySource: keyMeta?.source ?? null,
+    keyLength: prov.key?.length ?? 0,
+    envLast4: keyMeta?.envLast4 ?? null,
+    vaultLast4: keyMeta?.vaultLast4 ?? null,
+    keyMismatch: keyMeta?.mismatch ?? false,
+    status,
+    ok,
+    blocked,
+    nativeGenerate,
+    error,
+  };
+}
+
+async function loadProviderKeyMeta(name: string) {
+  const envRaw = Deno.env.get(name);
+  const envVal = envRaw ? normalizeSecretValue(envRaw) : null;
+  await ensureVaultLoaded();
+  const vaultVal = getVaultSecret(name) ?? null;
+  const { value, source } = await loadSecretWithSource(name);
+  const mismatch = Boolean(envVal && vaultVal && envVal !== vaultVal);
+  return {
+    value,
+    source,
+    envLast4: envVal ? envVal.slice(-4) : null,
+    vaultLast4: vaultVal ? vaultVal.slice(-4) : null,
+    mismatch,
+  };
 }
 
 async function handleRequest(req: Request) {
@@ -122,17 +190,23 @@ async function handleRequest(req: Request) {
   requestState().context.authToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim() || null;
   requestState().log = requestState().log.child({ user_id: authedUser.id, role: authedUser.role });
 
-  // Load Vault secrets once per cold start; getEnv() checks Deno.env first then Vault.
+  // Load Vault secrets once per cold start; loadSecretWithSource checks env first then Vault.
   await ensureVaultLoaded();
 
-  // ─── Provider selection: Gemini (primary) → OpenRouter → Grok ───────────
-  // Build an ORDERED list of all configured providers. All AI calls walk this
-  // list with genuine cross-provider fallback — if Gemini fails, OpenRouter is
-  // tried automatically, then Grok. The first provider in the list also sets
-  // request-scoped shortcut fields on requestState().ai for telemetry.
-  const GEMINI_API_KEY    = getEnv("GEMINI_API_KEY");
-  const OPENROUTER_API_KEY = getEnv("OPENROUTER_API_KEY");
-  const GROK_API_KEY      = getEnv("GROK_API_KEY");
+  const [geminiMeta, openrouterMeta, grokMeta] = await Promise.all([
+    loadProviderKeyMeta("GEMINI_API_KEY"),
+    loadProviderKeyMeta("OPENROUTER_API_KEY"),
+    loadProviderKeyMeta("GROK_API_KEY"),
+  ]);
+  const GEMINI_API_KEY = geminiMeta.value ?? undefined;
+  const OPENROUTER_API_KEY = openrouterMeta.value ?? undefined;
+  const GROK_API_KEY = grokMeta.value ?? undefined;
+
+  if (geminiMeta.mismatch) {
+    console.warn(
+      `[copilot-ai] GEMINI_API_KEY env(…${geminiMeta.envLast4}) differs from vault(…${geminiMeta.vaultLast4}); using env`,
+    );
+  }
 
   const ai = aiProvider();
   ai.providers = buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY);
@@ -162,6 +236,7 @@ async function handleRequest(req: Request) {
   console.log(
     `[copilot-ai] providers configured: ${ai.providers.map(p => p.name).join(" → ")}`,
     `| primary=${primaryProvider.name} | intent=${intentFromReq} | tier=${tier} | toolModel=${ai.toolModel}`,
+    `| geminiKey=${geminiMeta.source ?? "missing"}…${geminiMeta.value?.slice(-4) ?? "none"}`,
   );
 
   let body: {
@@ -190,11 +265,26 @@ async function handleRequest(req: Request) {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const providerResults = await Promise.all(ai.providers.map((p) => probeCopilotProvider(p)));
+    const keyMetaByName: Record<string, Awaited<ReturnType<typeof loadProviderKeyMeta>>> = {
+      Gemini: geminiMeta,
+      OpenRouter: openrouterMeta,
+      Grok: grokMeta,
+    };
+    const providerResults = await Promise.all(
+      ai.providers.map((p) => probeCopilotProvider(p, {
+        source: keyMetaByName[p.name]?.source ?? null,
+        envLast4: keyMetaByName[p.name]?.envLast4 ?? null,
+        vaultLast4: keyMetaByName[p.name]?.vaultLast4 ?? null,
+        mismatch: keyMetaByName[p.name]?.mismatch ?? false,
+      })),
+    );
     return new Response(JSON.stringify({
       diag: true,
       providers: providerResults,
       circuit: getHealthSnapshot(),
+      hint: geminiMeta.mismatch
+        ? "GEMINI_API_KEY in Edge Function secrets (env) differs from vault — update both or remove the stale copy."
+        : undefined,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

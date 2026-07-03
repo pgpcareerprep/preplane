@@ -137,7 +137,15 @@ export async function callSynthesis(
           }
           break; // other retryable → try next model
         }
-        // Non-retryable (401, 400, etc.) — skip remaining models for this provider
+        const blocked = errBody.toLowerCase().includes("are blocked")
+          || errBody.toLowerCase().includes("permission_denied");
+        if ((resp.status === 401 || resp.status === 403) && blocked) {
+          break; // blocked key — skip remaining models for this provider
+        }
+        if (resp.status === 401 || resp.status === 403) {
+          continue; // model/auth issue — try next model
+        }
+        // Other non-retryable (400, etc.) — skip remaining models for this provider
         break;
       }
     }
@@ -210,9 +218,14 @@ export async function callToolModel(
         }
         // continue to next model in same provider
       } else if (status === 401 || status === 403) {
-        // Auth failure — don't try more models for this provider, try next provider
-        console.warn(`[tool-model] ${prov.name} auth failure (${status}) — trying next provider`);
-        break;
+        const blocked = errBody.toLowerCase().includes("are blocked")
+          || errBody.toLowerCase().includes("permission_denied");
+        if (blocked) {
+          console.warn(`[tool-model] ${prov.name} key blocked (${status}) — trying next provider`);
+          break;
+        }
+        console.warn(`[tool-model] ${prov.name}/${model} auth ${status} — trying next model`);
+        continue;
       } else {
         break; // non-retryable
       }

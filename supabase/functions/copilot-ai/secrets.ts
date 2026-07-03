@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { normalizeSecretValue } from "../_shared/providers/secrets.ts";
 
 type SupabaseLike = ReturnType<typeof createClient>;
 
@@ -24,7 +25,8 @@ export async function ensureVaultLoaded(): Promise<void> {
     }
     for (const row of (data ?? []) as Array<{ name: string; decrypted_secret: string }>) {
       if (row.name && row.decrypted_secret) {
-        _vault.set(row.name, row.decrypted_secret.trim());
+        const val = normalizeSecretValue(row.decrypted_secret);
+        if (val) _vault.set(row.name, val);
       }
     }
     console.log(`[copilot-ai] vault loaded ${_vault.size} secrets`);
@@ -33,6 +35,15 @@ export async function ensureVaultLoaded(): Promise<void> {
   }
 }
 
+export function getVaultSecret(name: string): string | undefined {
+  return _vault.get(name);
+}
+
 export function getEnv(name: string): string | undefined {
-  return Deno.env.get(name)?.trim() || _vault.get(name) || undefined;
+  const rawEnv = Deno.env.get(name);
+  if (rawEnv) {
+    const val = normalizeSecretValue(rawEnv);
+    if (val) return val;
+  }
+  return _vault.get(name) || undefined;
 }
