@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 const SPEAK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/voice-speak`;
 
@@ -81,8 +82,10 @@ async function speakChunk(
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    resp = await fetch(SPEAK_URL, {
+    resp = await fetchWithTimeout(SPEAK_URL, {
       method: "POST",
+      timeoutMs: 15_000,
+      timeoutLabel: "Voice speak",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,

@@ -7,6 +7,7 @@
  * dashboard panels can ask the copilot at once without spawning N requests.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { fetchWithTimeout, withTimeout } from "@/lib/fetchWithTimeout";
 
 export type CopilotMode =
   | "auto" | "ask" | "summarize" | "update" | "assign" | "analyze" | "search";
@@ -153,14 +154,18 @@ async function invokeCopilot(
   messages: { role: string; content: string }[],
   opts: { mode: CopilotMode; lmpId?: string; snapshot?: string },
 ): Promise<string> {
-  const { data, error } = await supabase.functions.invoke("copilot-ai", {
-    body: {
-      messages,
-      mode: opts.mode,
-      lmpId: opts.lmpId,
-      snapshot: opts.snapshot,
-    },
-  });
+  const { data, error } = await withTimeout(
+    supabase.functions.invoke("copilot-ai", {
+      body: {
+        messages,
+        mode: opts.mode,
+        lmpId: opts.lmpId,
+        snapshot: opts.snapshot,
+      },
+    }),
+    30_000,
+    "Copilot",
+  );
   if (error) throw new Error(error.message);
 
   // The edge function returns SSE. supabase-js will hand us back the raw body
@@ -209,8 +214,10 @@ export async function invokeCopilotPendingAction(
   if (!accessToken) throw new Error("Your session has expired. Please sign in again.");
 
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: "POST",
+    timeoutMs: 30_000,
+    timeoutLabel: "Copilot confirm",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
