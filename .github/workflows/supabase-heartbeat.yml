@@ -11,11 +11,15 @@ jobs:
       - name: Lightweight read against PostgREST
         run: |
           set -euo pipefail
+          if [ -z "${SUPABASE_ANON_KEY}" ]; then
+            echo "Missing repository secret VITE_SUPABASE_PUBLISHABLE_KEY (Supabase anon/publishable key)."
+            exit 1
+          fi
           STATUS=$(curl -s -o /tmp/body -w "%{http_code}" \
             "${SUPABASE_URL}/auth/v1/health" \
             -H "apikey: ${SUPABASE_ANON_KEY}")
           echo "HTTP ${STATUS}"
           if [ "${STATUS}" != "200" ]; then cat /tmp/body; exit 1; fi
         env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || vars.VITE_SUPABASE_URL || 'https://sgqwnjajvgjcwqergnsr.supabase.co' }}
           SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
