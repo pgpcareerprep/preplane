@@ -16,8 +16,18 @@ export function pickAllowedOrigin(req: Request): string {
   if (!origin) return DEFAULT_APP_ORIGIN;
   if (ALLOWED_ORIGINS.has(origin)) return origin;
   try {
-    const host = new URL(origin).hostname;
+    const url = new URL(origin);
+    const host = url.hostname;
     if (host === "localhost" || host === "127.0.0.1") return origin;
+    if (url.protocol === "https:" && (host === "preplane.pages.dev" || host.endsWith(".preplane.pages.dev"))) {
+      return origin;
+    }
+    const appUrl = (Deno.env.get("APP_URL") || "").trim().replace(/\/$/, "");
+    if (appUrl) {
+      try {
+        if (origin === new URL(appUrl).origin) return origin;
+      } catch { /* ignore invalid APP_URL */ }
+    }
   } catch { /* fall through */ }
   return DEFAULT_APP_ORIGIN;
 }
