@@ -63,6 +63,49 @@ Deno.serve(async (req) => {
     const voiceName = /^[A-Za-z]{2,24}$/.test(requestedVoice) ? requestedVoice : DEFAULT_GEMINI_VOICE;
     const prompt = `${TTS_STYLE_PREFIX}${truncated}`;
 
+    // ── Try: ElevenLabs TTS (premium; falls through on any failure) ──
+    const elevenKey = await loadSecret("ELEVENLABS_API_KEY");
+    if (elevenKey) {
+      const rawVoiceId = (body?.voiceId ?? "").toString().trim();
+      const voiceId = /^[A-Za-z0-9]{8,32}$/.test(rawVoiceId) ? rawVoiceId : "21m00Tcm4TlvDq8ikWAM";
+      const t0 = Date.now();
+      try {
+        const resp = await fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
+          {
+            method: "POST",
+            headers: { "xi-api-key": elevenKey, "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(15_000),
+            body: JSON.stringify({
+              text: truncated,
+              model_id: "eleven_flash_v2_5",
+              voice_settings: { stability: 0.45, similarity_boost: 0.75 },
+            }),
+          },
+        );
+        if (resp.ok) {
+          const audio = await resp.arrayBuffer();
+          logAiUsage({
+            userId: auth.user.id,
+            feature: "tts",
+            model: "eleven_flash_v2_5",
+            promptTokens: estimateTokens(truncated),
+            latencyMs: Date.now() - t0,
+            status: "ok",
+            metadata: { provider: "elevenlabs", voice: voiceId, chars: truncated.length },
+          });
+          return new Response(audio, {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+          });
+        }
+        const errText = await resp.text().catch(() => "");
+        console.warn(`[voice-speak] ElevenLabs ${resp.status}: ${errText.slice(0, 200).replace(/xi-api-key[^,\s]*/gi, "xi-api-key=***")}`);
+      } catch (err) {
+        console.warn(`[voice-speak] ElevenLabs error: ${(err as Error).message}`);
+      }
+    }
+
     // ── Try: Gemini TTS ──────────────────────────────────────────────
     const geminiKey = await loadSecret("GEMINI_API_KEY");
     if (geminiKey) {
