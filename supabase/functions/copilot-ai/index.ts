@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildCorsHeaders, pickAllowedOrigin } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import {
   classifyIntent,
   getGreetingResponse,
@@ -26,7 +26,6 @@ import {
 } from "../_shared/copilotDeterministicConfirm.ts";
 import { cancelPendingAction } from "../_shared/copilotPendingActions.ts";
 import { buildConversionReport, formatConversionReportSse } from "../_shared/conversionReport.ts";
-import { DEFAULT_APP_ORIGIN } from "../_shared/appConfig.ts";
 import { requireAuth } from "../_shared/requireAuth.ts";
 import { buildProviderList, callSynthesis, callToolModel } from "./providers.ts";
 import {
@@ -54,16 +53,8 @@ import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
 import { buildSystemPrompt } from "./systemPrompt.ts";
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": DEFAULT_APP_ORIGIN,
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Vary": "Origin",
-};
-
 async function handleRequest(req: Request) {
-  corsHeaders["Access-Control-Allow-Origin"] = pickAllowedOrigin(req);
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -94,7 +85,7 @@ async function handleRequest(req: Request) {
   ai.providers = buildProviderList(GEMINI_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY);
 
   if (!ai.providers.length) {
-    return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 503);
+    return jsonError("No AI API key configured. Set GEMINI_API_KEY (or OPENROUTER_API_KEY, GROK_API_KEY) in Supabase Edge Function secrets.", 503, corsHeaders);
   }
 
   // Initialise request-scoped shortcut vars from the primary (first) provider
@@ -135,7 +126,7 @@ async function handleRequest(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return jsonError("Invalid JSON body", 400);
+    return jsonError("Invalid JSON body", 400, corsHeaders);
   }
 
   const messages = body.messages;
@@ -334,7 +325,7 @@ async function handleRequest(req: Request) {
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     requestState().log.warn("missing_messages");
-    return jsonError("Missing 'messages' array", 400);
+    return jsonError("Missing 'messages' array", 400, corsHeaders);
   }
 
   requestState().log.event("turn_start", {
@@ -754,7 +745,7 @@ async function handleRequest(req: Request) {
       const aiResult = await aiResponse.json();
       const choice = aiResult.choices?.[0];
 
-      if (!choice) return jsonError("No AI response", 500);
+      if (!choice) return jsonError("No AI response", 500, corsHeaders);
 
       const msg = choice.message;
 
@@ -1061,7 +1052,7 @@ async function handleRequest(req: Request) {
     requestState().log.error("turn_failed", err, { ms: Math.round(performance.now() - tStart) });
     console.error("copilot-ai error:", err);
     void logTurn({ status: "error", error_message: err instanceof Error ? err.message : "Unknown error" });
-    return jsonError(err instanceof Error ? err.message : "Unknown error", 500);
+    return jsonError(err instanceof Error ? err.message : "Unknown error", 500, corsHeaders);
   }
 }
 
@@ -1069,7 +1060,7 @@ Deno.serve((req: Request) =>
   requestStateStorage.run(createRequestState(req), () => handleRequest(req))
 );
 
-function jsonError(message: string, status: number) {
+function jsonError(message: string, status: number, corsHeaders: Record<string, string>) {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
