@@ -134,6 +134,7 @@ function CopilotPageInner() {
   const queryClient = useQueryClient();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionAnchorRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // BUG FIX 5 — reset local optimistic state when the user switches LMP scope so
@@ -605,6 +606,8 @@ function CopilotPageInner() {
   const send = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
+    const outgoingMentions = [...mentions];
+    const outgoingAttachments = [...attachments];
     // Disambiguation pick / @mention insert may carry an explicit entity id like
     // "...id=<uuid>...". Promote it into activeContext so subsequent pronouns resolve.
     const m = trimmed.match(/\b(student|poc|mentor|alumni|lmp|company|domain|status)[:= ]+([^\s)]+)[^a-z0-9]*?id=([a-z0-9-]{6,})/i);
@@ -616,7 +619,7 @@ function CopilotPageInner() {
         source: "disambiguation",
       }));
     }
-    streamChat(trimmed);
+    streamChat(trimmed, outgoingMentions, outgoingAttachments);
   };
 
   const handleCopilotAction = useCallback((cmd: string) => {
@@ -736,32 +739,41 @@ function CopilotPageInner() {
     const val = e.target.value;
     setDraft(val);
 
-    // Check for @ trigger
     const cursorPos = e.target.selectionStart;
     const textBefore = val.slice(0, cursorPos);
-    const atMatch = textBefore.match(/@(\w*)$/);
-
-    if (atMatch) {
-      setShowMentions(true);
-      setMentionQuery(atMatch[1]);
-      // Position dropdown above textarea
-      setMentionPos({ top: 60, left: 16 });
-    } else {
-      setShowMentions(false);
-      setMentionQuery("");
+    const at = textBefore.lastIndexOf("@");
+    if (at >= 0) {
+      const after = textBefore.slice(at + 1);
+      const prevChar = at === 0 ? " " : textBefore[at - 1];
+      if (/\s/.test(prevChar) && !/\n/.test(after)) {
+        mentionAnchorRef.current = at;
+        setShowMentions(true);
+        setMentionQuery(after);
+        setMentionPos({ top: 60, left: 16 });
+        return;
+      }
     }
+    setShowMentions(false);
+    setMentionQuery("");
+    mentionAnchorRef.current = null;
   };
 
   const handleMentionSelect = (entity: MentionEntity) => {
-    // Replace @query with @Name
+    const anchor = mentionAnchorRef.current;
     const cursorPos = textareaRef.current?.selectionStart ?? draft.length;
-    const textBefore = draft.slice(0, cursorPos);
-    const textAfter = draft.slice(cursorPos);
-    const replaced = textBefore.replace(/@\w*$/, `@${entity.name} `);
-    setDraft(replaced + textAfter);
-    setMentions(prev => [...prev, entity]);
-    // Promote the freshly mentioned entity to activeContext (unless one is pinned).
-    setActiveContext(prev => (prev?.pinned ? prev : {
+    const atPos = anchor ?? draft.lastIndexOf("@", Math.max(0, cursorPos - 1));
+    if (atPos < 0) return;
+    const before = draft.slice(0, atPos);
+    const after = draft.slice(cursorPos);
+    const insertion = `@${entity.name} `;
+    const next = before + insertion + after;
+    setDraft(next);
+    const mentionKey = `${entity.type}:${entity.entityId || entity.name}`;
+    setMentions((prev) => {
+      if (prev.some((m) => `${m.type}:${m.entityId || m.name}` === mentionKey)) return prev;
+      return [...prev, entity];
+    });
+    setActiveContext((prev) => (prev?.pinned ? prev : {
       entity_type: entity.type,
       entity_id: entity.entityId || entity.name,
       display_name: entity.name,
@@ -769,7 +781,13 @@ function CopilotPageInner() {
       source: "mention",
     }));
     setShowMentions(false);
-    textareaRef.current?.focus();
+    setMentionQuery("");
+    mentionAnchorRef.current = null;
+    requestAnimationFrame(() => {
+      const pos = (before + insertion).length;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(pos, pos);
+    });
   };
 
   // File attachment handler
@@ -994,7 +1012,9 @@ function CopilotPageInner() {
 
                 {/* @ Mention trigger */}
                 <button type="button" title="Mention entity" aria-label="Mention" onClick={() => {
-                  setDraft(prev => prev + "@");
+                  const anchor = draft.length;
+                  setDraft((prev) => prev + "@");
+                  mentionAnchorRef.current = anchor;
                   setShowMentions(true);
                   setMentionQuery("");
                   textareaRef.current?.focus();
