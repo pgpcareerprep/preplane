@@ -104,3 +104,23 @@ When adding a new block:
 3. Teach the system prompt in `supabase/functions/copilot-ai/index.ts`
    when to emit it.
 4. Add a test case to `copilotBlocks.test.ts` covering a valid payload.
+
+## Operator: GEMINI_API_KEY rotation
+
+If copilot or voice returns **403 PERMISSION_DENIED** / "API key blocked" from Gemini:
+
+1. Create a new key in [Google AI Studio](https://aistudio.google.com/apikey) (or your org's GCP console).
+2. Update Supabase Edge Function secrets for project `sgqwnjajvgjcwqergnsr`:
+
+```bash
+npx supabase secrets set GEMINI_API_KEY="<new-key>" --project-ref sgqwnjajvgjcwqergnsr
+```
+
+3. If vault also stores a copy, update the `GEMINI_API_KEY` vault secret in the Supabase dashboard (Settings → Vault) so env and vault stay in sync — `copilot-ai` logs a warning when they diverge.
+4. Redeploy AI functions (secrets are picked up on cold start; redeploy ensures clean rollout):
+
+```bash
+npx supabase functions deploy copilot-ai voice-copilot voice-speak create-case-study --project-ref sgqwnjajvgjcwqergnsr
+```
+
+5. Verify with a simple copilot prompt; check function logs for `ALL_AI_PROVIDERS_UNAVAILABLE` vs a clean response.
