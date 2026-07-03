@@ -432,7 +432,7 @@ export function VoiceInterimBubble({ interim, listening }: { interim: string; li
 
 // ─── Conversational Voice Overlay (full-screen mic + TTS) ─────────────────
 
-import { speak as speakWithEleven, stopSpeaking as stopElevenSpeaking } from "@/lib/voice/speakTts";
+import { speak as speakTts, stopSpeaking as stopTts } from "@/lib/voice/speakTts";
 import { X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -549,7 +549,7 @@ export function VoiceConversationOverlay({
     setLastSpoken(text);
     if (muted) return;
     try {
-      await speakWithEleven(text, {
+      await speakTts(text, {
         onStart: () => setSpeaking(true),
         onEnd: () => setSpeaking(false),
       });
@@ -577,7 +577,21 @@ export function VoiceConversationOverlay({
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    const timeout = window.setTimeout(() => ctrl.abort(), 35_000);
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      ctrl.abort();
+    }, 60_000);
+
+    const handleAbort = async () => {
+      setThinking(false);
+      if (timedOut) {
+        const spoken = "That took too long to process. Please try a shorter request.";
+        messagesRef.current.push({ role: "assistant", content: spoken });
+        setVisibleMessages(prev => [...prev, { role: "assistant", content: spoken }]);
+        await speak(spoken);
+      }
+    };
 
     // Confirmation branch: if we have a pending action and user agrees, execute it
     const pending = pendingActionRef.current;
@@ -623,8 +637,12 @@ export function VoiceConversationOverlay({
           setThinking(false);
           await speak(spoken);
         } catch (err) {
-          if ((err as any)?.name !== "AbortError") console.error(err);
-          setThinking(false);
+          if ((err as any)?.name === "AbortError") {
+            await handleAbort();
+          } else {
+            console.error(err);
+            setThinking(false);
+          }
         }
         window.clearTimeout(timeout);
         return;
@@ -710,12 +728,12 @@ export function VoiceConversationOverlay({
       setThinking(false);
       await speak(spoken);
     } catch (err) {
-      if ((err as any)?.name !== "AbortError") {
+      if ((err as any)?.name === "AbortError") {
+        await handleAbort();
+      } else {
         console.error("voice copilot error", err);
         setThinking(false);
         await speak("I had trouble reaching the assistant. Please check your connection and try again.");
-      } else {
-        setThinking(false);
       }
     } finally {
       window.clearTimeout(timeout);
@@ -729,7 +747,7 @@ export function VoiceConversationOverlay({
       const utterance = text.trim();
       setTranscript(utterance);
       // Barge-in: cut TTS immediately
-      stopElevenSpeaking();
+      stopTts();
       setSpeaking(false);
       try {
         await callVoiceCopilot(utterance);
@@ -761,7 +779,7 @@ export function VoiceConversationOverlay({
     setLastSpoken(greet);
     setVisibleMessages([{ role: "assistant", content: greet }]);
     if (!muted) {
-      void speakWithEleven(greet, {
+      void speakTts(greet, {
         onStart: () => setSpeaking(true),
         onEnd: () => {
           setSpeaking(false);
@@ -774,7 +792,7 @@ export function VoiceConversationOverlay({
       window.setTimeout(() => { try { start(); } catch { /* noop */ } }, 200);
     }
     return () => {
-      stopElevenSpeaking();
+      stopTts();
       setSpeaking(false);
       try { stop(); } catch { /* noop */ }
     };
@@ -785,7 +803,7 @@ export function VoiceConversationOverlay({
 
   const handleClose = () => {
     autoListenRef.current = false;
-    stopElevenSpeaking();
+    stopTts();
     try { stop(); } catch { /* noop */ }
     onClose();
     autoListenRef.current = true;
@@ -880,7 +898,7 @@ export function VoiceConversationOverlay({
           <button
             onClick={() => {
               if (listening) { stop(); }
-              else { stopElevenSpeaking(); setSpeaking(false); start(); }
+              else { stopTts(); setSpeaking(false); start(); }
             }}
             disabled={status === "unsupported" || thinking}
             className={cn(
@@ -913,7 +931,7 @@ export function VoiceConversationOverlay({
             onClick={() => {
               setMuted(m => {
                 const next = !m;
-                if (next) stopElevenSpeaking();
+                if (next) stopTts();
                 return next;
               });
             }}
@@ -928,7 +946,7 @@ export function VoiceConversationOverlay({
 
           {speaking && (
             <button
-              onClick={() => { stopElevenSpeaking(); setSpeaking(false); }}
+              onClick={() => { stopTts(); setSpeaking(false); }}
               className="h-10 px-4 rounded-xl bg-n100 text-n700 text-[12.5px] font-medium hover:bg-n200"
             >Stop</button>
           )}
