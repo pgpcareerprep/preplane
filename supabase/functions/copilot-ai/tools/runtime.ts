@@ -15,6 +15,11 @@ import {
 import { retrieveRAGContext } from "../rag.ts";
 import { getCacheClient } from "../cache.ts";
 import { executeWebSearch } from "./web_search.ts";
+import {
+  lmpKeyFromArgs,
+  trimStr,
+  validateChatWriteKind,
+} from "../../_shared/lmpWriteValidation.ts";
 
 async function assertPocOwnsLmp(payload: Record<string, unknown>): Promise<{ ok: true } | { ok: false; reason: string }> {
   const actorRole = requestState().context.role;
@@ -563,8 +568,20 @@ export async function executeTool(
           });
         }
         const kind = String(args.kind || "");
-        const payload = (args.payload as Record<string, unknown>) || {};
+        const payloadRaw = (args.payload as Record<string, unknown>) || {};
         const targetSummary = typeof args.target_summary === "string" ? args.target_summary : undefined;
+
+        const writeVal = validateChatWriteKind(kind, payloadRaw);
+        if (!writeVal.ok) {
+          return JSON.stringify({
+            error: writeVal.error,
+            missing: writeVal.missing,
+            clarification_needed: true,
+            ask: writeVal.ask,
+            target_summary: targetSummary,
+          });
+        }
+        const payload = writeVal.normalized;
         const SYNC_IMPACT_BY_KIND: Record<string, string> = {
           add_lmp_record: "Adds a row to LMP Tracker (sheet) and inserts into the LMP database (mirrored).",
           update_lmp_status: "Updates the LMP Tracker sheet and mirrors the new status to the LMP database; activity-log entry recorded.",
@@ -1036,6 +1053,9 @@ export async function executeTool(
       }
 
       case "update_lmp_status": {
+        const key = lmpKeyFromArgs(args);
+        if ("error" in key) return JSON.stringify({ error: key.error, code: key.code });
+        const { company, role } = key;
         const { headers, allRows } = await getLmpRecords();
         const companyCol = headers.indexOf("Company");
         const roleCol = headers.indexOf("Role");
@@ -1044,23 +1064,23 @@ export async function executeTool(
 
         let rowIndex = -1;
         for (let i = 1; i < allRows.length; i++) {
-          if ((allRows[i][companyCol] || "").trim().toLowerCase() === (args.company as string).trim().toLowerCase() &&
-              (allRows[i][roleCol] || "").trim().toLowerCase() === (args.role as string).trim().toLowerCase()) {
+          if ((allRows[i][companyCol] || "").trim().toLowerCase() === company.toLowerCase() &&
+              (allRows[i][roleCol] || "").trim().toLowerCase() === role.toLowerCase()) {
             rowIndex = i;
             break;
           }
         }
-        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${args.company} - ${args.role}` });
+        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${company} - ${role}` });
 
         const oldStatus = allRows[rowIndex][statusCol];
 
         // DB-only write.
-        const dbResult = await mirrorLmpUpsert({ company: args.company as string, role: args.role as string, status: args.status as string });
+        const dbResult = await mirrorLmpUpsert({ company, role, status: args.status as string });
 
         return JSON.stringify({
           success: dbResult.ok,
-          company: args.company,
-          role: args.role,
+          company,
+          role,
           old_status: oldStatus,
           new_status: args.status,
           message: `Status updated from "${oldStatus}" to "${args.status}"`,
@@ -1069,6 +1089,9 @@ export async function executeTool(
       }
 
       case "update_lmp_field": {
+        const key = lmpKeyFromArgs(args);
+        if ("error" in key) return JSON.stringify({ error: key.error, code: key.code });
+        const { company, role } = key;
         const { headers, allRows } = await getLmpRecords();
         const companyCol = headers.indexOf("Company");
         const roleCol = headers.indexOf("Role");
@@ -1076,13 +1099,13 @@ export async function executeTool(
 
         let rowIndex = -1;
         for (let i = 1; i < allRows.length; i++) {
-          if ((allRows[i][companyCol] || "").trim().toLowerCase() === (args.company as string).trim().toLowerCase() &&
-              (allRows[i][roleCol] || "").trim().toLowerCase() === (args.role as string).trim().toLowerCase()) {
+          if ((allRows[i][companyCol] || "").trim().toLowerCase() === company.toLowerCase() &&
+              (allRows[i][roleCol] || "").trim().toLowerCase() === role.toLowerCase()) {
             rowIndex = i;
             break;
           }
         }
-        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${args.company} - ${args.role}` });
+        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${company} - ${role}` });
 
         const fields = args.fields as Record<string, string>;
         const newRow = [...allRows[rowIndex]];
@@ -1097,12 +1120,15 @@ export async function executeTool(
         const updatedAtCol = headers.indexOf("updatedAt");
         if (updatedAtCol !== -1) newRow[updatedAtCol] = new Date().toISOString();
 
-        const dbResult = await mirrorLmpFields(args.company as string, args.role as string, fields);
+        const dbResult = await mirrorLmpFields(company, role, fields);
 
-        return JSON.stringify({ success: dbResult.ok, company: args.company, role: args.role, changes, db_result: dbResult });
+        return JSON.stringify({ success: dbResult.ok, company, role, changes, db_result: dbResult });
       }
 
       case "assign_poc": {
+        const key = lmpKeyFromArgs(args);
+        if ("error" in key) return JSON.stringify({ error: key.error, code: key.code });
+        const { company, role } = key;
         const pocTypeMap: Record<string, string> = { primary: "Prep POC", secondary: "Secondary POC", outreach: "Outreach POC" };
         const pocCol = pocTypeMap[(args.poc_type as string)] || "Prep POC";
         const { headers, allRows } = await getLmpRecords();
@@ -1114,13 +1140,13 @@ export async function executeTool(
 
         let rowIndex = -1;
         for (let i = 1; i < allRows.length; i++) {
-          if ((allRows[i][companyCol] || "").trim().toLowerCase() === (args.company as string).trim().toLowerCase() &&
-              (allRows[i][roleCol] || "").trim().toLowerCase() === (args.role as string).trim().toLowerCase()) {
+          if ((allRows[i][companyCol] || "").trim().toLowerCase() === company.toLowerCase() &&
+              (allRows[i][roleCol] || "").trim().toLowerCase() === role.toLowerCase()) {
             rowIndex = i;
             break;
           }
         }
-        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${args.company} - ${args.role}` });
+        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${company} - ${role}` });
 
         const oldPoc = allRows[rowIndex][targetCol] || "";
         const newRow = [...allRows[rowIndex]];
@@ -1128,12 +1154,12 @@ export async function executeTool(
         const updatedAtCol = headers.indexOf("updatedAt");
         if (updatedAtCol !== -1) newRow[updatedAtCol] = new Date().toISOString();
 
-        const dbResult = await mirrorLmpFields(args.company as string, args.role as string, { [pocCol]: args.poc_name as string });
+        const dbResult = await mirrorLmpFields(company, role, { [pocCol]: args.poc_name as string });
 
         return JSON.stringify({
           success: dbResult.ok,
-          company: args.company,
-          role: args.role,
+          company,
+          role,
           poc_type: args.poc_type,
           poc_column: pocCol,
           old_poc: oldPoc,
@@ -1144,9 +1170,12 @@ export async function executeTool(
       }
 
       case "add_lmp_record": {
+        const key = lmpKeyFromArgs(args);
+        if ("error" in key) return JSON.stringify({ error: key.error, code: key.code });
+        const { company, role } = key;
         const dbResult = await mirrorLmpUpsert({
-          company: args.company as string,
-          role: args.role as string,
+          company,
+          role,
           domain_raw: (args.domain as string) || null,
           type: (args.type as string) || "Full Time",
           status: (args.status as string) || "Ongoing",
@@ -1156,13 +1185,16 @@ export async function executeTool(
 
         return JSON.stringify({
           success: dbResult.ok,
-          message: `New LMP record created: ${args.company} - ${args.role}`,
-          record: { company: args.company, role: args.role, domain: args.domain, type: args.type || "Full Time", status: args.status || "Ongoing" },
+          message: `New LMP record created: ${company} - ${role}`,
+          record: { company, role, domain: args.domain, type: args.type || "Full Time", status: args.status || "Ongoing" },
           db_result: dbResult,
         });
       }
 
       case "delete_lmp_record": {
+        const key = lmpKeyFromArgs(args);
+        if ("error" in key) return JSON.stringify({ error: key.error, code: key.code });
+        const { company, role } = key;
         const { headers, allRows } = await getLmpRecords();
         const companyCol = headers.indexOf("Company");
         const roleCol = headers.indexOf("Role");
@@ -1170,18 +1202,18 @@ export async function executeTool(
 
         let rowIndex = -1;
         for (let i = 1; i < allRows.length; i++) {
-          if ((allRows[i][companyCol] || "").trim().toLowerCase() === (args.company as string).trim().toLowerCase() &&
-              (allRows[i][roleCol] || "").trim().toLowerCase() === (args.role as string).trim().toLowerCase()) {
+          if ((allRows[i][companyCol] || "").trim().toLowerCase() === company.toLowerCase() &&
+              (allRows[i][roleCol] || "").trim().toLowerCase() === role.toLowerCase()) {
             rowIndex = i;
             break;
           }
         }
-        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${args.company} - ${args.role}` });
+        if (rowIndex === -1) return JSON.stringify({ error: `Record not found: ${company} - ${role}` });
 
         // Soft-close in DB (no hard-delete column today).
-        const dbResult = await mirrorLmpUpsert({ company: args.company as string, role: args.role as string, status: "Closed" });
+        const dbResult = await mirrorLmpUpsert({ company, role, status: "Closed" });
 
-        return JSON.stringify({ success: dbResult.ok, message: `Record soft-deleted: ${args.company} - ${args.role}`, db_result: dbResult });
+        return JSON.stringify({ success: dbResult.ok, message: `Record soft-deleted: ${company} - ${role}`, db_result: dbResult });
       }
 
       case "bulk_update": {
@@ -1194,28 +1226,41 @@ export async function executeTool(
         const results: { company: string; role: string; success: boolean; error?: string }[] = [];
 
         for (const upd of updates) {
+          const company = trimStr(upd.company);
+          const role = trimStr(upd.role);
+          if (!company || !role) {
+            results.push({
+              company: company || "?",
+              role: role || "?",
+              success: false,
+              error: "Missing company or role",
+            });
+            continue;
+          }
           let rowIndex = -1;
           for (let i = 1; i < allRows.length; i++) {
-            if ((allRows[i][companyCol] || "").trim().toLowerCase() === upd.company.trim().toLowerCase() &&
-                (allRows[i][roleCol] || "").trim().toLowerCase() === upd.role.trim().toLowerCase()) {
+            if ((allRows[i][companyCol] || "").trim().toLowerCase() === company.toLowerCase() &&
+                (allRows[i][roleCol] || "").trim().toLowerCase() === role.toLowerCase()) {
               rowIndex = i;
               break;
             }
           }
           if (rowIndex === -1) {
-            results.push({ company: upd.company, role: upd.role, success: false, error: "Not found" });
+            results.push({ company, role, success: false, error: "Not found" });
             continue;
           }
-          results.push({ company: upd.company, role: upd.role, success: true });
+          results.push({ company, role, success: true });
         }
 
         // DB-only writes.
         const dbResults: { company: string; role: string; ok: boolean }[] = [];
         for (const upd of updates) {
-          const r = results.find((x) => x.company === upd.company && x.role === upd.role);
+          const company = trimStr(upd.company);
+          const role = trimStr(upd.role);
+          const r = results.find((x) => x.company === company && x.role === role);
           if (!r?.success) continue;
-          const m = await mirrorLmpFields(upd.company, upd.role, upd.fields);
-          dbResults.push({ company: upd.company, role: upd.role, ok: m.ok });
+          const m = await mirrorLmpFields(company, role, upd.fields);
+          dbResults.push({ company, role, ok: m.ok });
         }
 
         return JSON.stringify({

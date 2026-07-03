@@ -18,6 +18,7 @@ import { TOOLS as COPILOT_TOOL_REGISTRY, executeTool as copilotExecuteTool } fro
 import { createRequestState, requestStateStorage, type CopilotRequestState } from "../copilot-ai/requestContext.ts";
 import { buildProviderList, callToolModel } from "../copilot-ai/providers.ts";
 import { validateLogSubmissionArgs } from "../_shared/logSubmissionWrite.ts";
+import { formatLmpLabel, trimStr, validateVoicePrepareWrite } from "../_shared/lmpWriteValidation.ts";
 import { stagePendingAction } from "../_shared/copilotPendingActions.ts";
 import { resolveViewAsEffectiveRole } from "../_shared/viewAsRole.ts";
 import {
@@ -361,8 +362,9 @@ function voiceBlocksWrites(): boolean {
 /** Exact company+role match — avoids partial ilike hitting the wrong LMP. */
 async function findLmpByCompanyRole(company: string, role: string) {
   const c = sb();
-  const co = company.trim();
-  const ro = role.trim();
+  const co = trimStr(company);
+  const ro = trimStr(role);
+  if (!co || !ro) return null;
   const { data } = await c
     .from("lmp_processes")
     .select("id,company,role,status,domain_raw,type,prep_poc,support_poc,outreach_poc,prep_progress,placement_progress,daily_progress,remarks,prep_doc,closing_date,r1_names,r2_names,r3_names,final_converted_numbers,final_converted_names")
@@ -375,8 +377,10 @@ async function findLmpByCompanyRole(company: string, role: string) {
 type PendingAction = Record<string, any> & { action: string; _current?: Record<string, any> };
 
 async function snapshotForPending(p: PendingAction): Promise<Record<string, any> | null> {
-  if (!p.company || !p.role) return null;
-  return await findLmpByCompanyRole(String(p.company), String(p.role));
+  const company = trimStr(p.company);
+  const role = trimStr(p.role);
+  if (!company || !role) return null;
+  return await findLmpByCompanyRole(company, role);
 }
 
 function summarisePending(p: PendingAction): string {
@@ -385,23 +389,24 @@ function summarisePending(p: PendingAction): string {
     was && String(was) !== String(to)
       ? `${label} from "${was}" to "${to}"`
       : `${label} to "${to}"`;
+  const lmp = formatLmpLabel(p.company, p.role);
   switch (p.action) {
     case "create_lmp":
-      return `Create new LMP for ${p.company} – ${p.role}${p.domain ? ` in ${p.domain}` : ""}${p.prep_poc ? `, prep POC ${p.prep_poc}` : ""}${p.outreach_poc ? `, outreach POC ${p.outreach_poc}` : ""}`;
+      return `Create new LMP for ${lmp}${p.domain ? ` in ${p.domain}` : ""}${p.prep_poc ? `, prep POC ${p.prep_poc}` : ""}${p.outreach_poc ? `, outreach POC ${p.outreach_poc}` : ""}`;
     case "update_lmp_status":
-      return `${fmtChange(`Set ${p.company} – ${p.role} status`, cur.status, p.status)}`;
+      return `${fmtChange(`Set ${lmp} status`, cur.status, p.status)}`;
     case "update_lmp_field":
-      return `${fmtChange(`Set ${p.field} on ${p.company} – ${p.role}`, cur[p.field], p.value)}`;
+      return `${fmtChange(`Set ${trimStr(p.field)} on ${lmp}`, cur[p.field], p.value)}`;
     case "assign_poc": {
       const isSupport = p.poc_type === "support" || p.poc_type === "secondary";
       const col = isSupport ? "support POC" : p.poc_type === "outreach" ? "outreach POC (display tag)" : "prep POC";
       const colKey = isSupport ? "support_poc" : p.poc_type === "outreach" ? "outreach_poc" : "prep_poc";
-      return fmtChange(`Assign ${col} for ${p.company} – ${p.role}`, cur[colKey], p.poc_name);
+      return fmtChange(`Assign ${col} for ${lmp}`, cur[colKey], p.poc_name);
     }
     case "delete_lmp":
-      return `Delete LMP ${p.company} – ${p.role}`;
+      return `Delete LMP ${lmp}`;
     case "update_student_field":
-      return `Set ${p.field} to "${p.value}" for student ${p.student_name}`;
+      return `Set ${trimStr(p.field)} to "${p.value}" for student ${trimStr(p.student_name)}`;
     case "log_submission":
       return `Log ${p.candidate || p.candidate_name}'s ${p.round} submission (${p.outcome}) for ${p.company} – ${p.role} on ${p.date || "today"}`;
     default:
@@ -440,7 +445,18 @@ async function runTool(name: string, args: any): Promise<{ result: any; pendingR
         result: { blocked: true, reason: "View-as mode is read-only." },
       };
     }
-    const pending = args as PendingAction;
+    const validated = validateVoicePrepareWrite(args as Record<string, unknown>);
+    if (!validated.ok) {
+      return {
+        result: {
+          error: validated.error,
+          missing: validated.missing,
+          ask: validated.ask,
+          clarification_needed: true,
+        },
+      };
+    }
+    const pending = validated.normalized as PendingAction;
     try {
       const snap = await snapshotForPending(pending);
       if (snap) pending._current = snap;
