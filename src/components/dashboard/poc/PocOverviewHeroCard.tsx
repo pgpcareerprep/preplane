@@ -1,5 +1,5 @@
 /**
- * Combined POC overview hero — conversion, summary stats, status distribution.
+ * Combined POC overview hero — status distribution (horizontal) + conversion.
  * UI only; all values passed from parent live hook data.
  */
 import { useMemo } from "react";
@@ -18,7 +18,7 @@ const POC_HERO_SURFACE = {
   border: "0.5px solid var(--lx-border)",
   borderRadius: 16,
   boxShadow: "var(--shadow-sm)",
-  background: "var(--lmp-health-card-bg)",
+  background: "var(--poc-hero-card-bg)",
   minHeight: 280,
 } as const;
 
@@ -30,6 +30,7 @@ const POC_MINI_CARD = {
 
 const POC_TXT = "var(--lx-hero-text, #1A1916)";
 const POC_MUTED = "var(--lx-hero-muted, rgba(26,25,22,0.66))";
+const POC_DIVIDE = "var(--lx-hero-divider, rgba(26,25,22,0.16))";
 
 const STATUS_ROWS: Array<{ status: ActiveLmpStatus; label: string }> = [
   { status: "not-started", label: "Not Started" },
@@ -40,6 +41,168 @@ const STATUS_ROWS: Array<{ status: ActiveLmpStatus; label: string }> = [
   { status: "not-converted", label: "Not Converted" },
   { status: "other-reasons", label: "Other Reasons" },
 ];
+
+function PocMiniStat({
+  icon: Icon,
+  label,
+  value,
+  accent,
+  onClick,
+}: {
+  icon: typeof Layers;
+  label: string;
+  value: number;
+  accent: string;
+  onClick?: () => void;
+}) {
+  const clickable = !!onClick;
+  return (
+    <button
+      type="button"
+      disabled={!clickable}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-left transition-colors shrink-0",
+        clickable && "hover:bg-white/55 cursor-pointer",
+      )}
+      style={POC_MINI_CARD}
+    >
+      <span
+        className="h-6 w-6 rounded-md grid place-items-center shrink-0"
+        style={{ background: `${accent}22`, color: accent }}
+      >
+        <Icon className="h-3 w-3" strokeWidth={2.25} />
+      </span>
+      <span className="flex items-baseline gap-1.5 whitespace-nowrap">
+        <span className="text-[15px] font-bold tabular-nums leading-none" style={{ color: POC_TXT }}>
+          {value}
+        </span>
+        <span className="text-[11px] font-medium" style={{ color: POC_MUTED }}>
+          {label}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function PocStatusDistribution({
+  totalLmpCount,
+  segments,
+  convertedCount,
+  eligibleCount,
+  onStatusClick,
+  onTotalClick,
+  onConvertedClick,
+  onEligibleClick,
+}: {
+  totalLmpCount: number;
+  segments: Array<{
+    status: ActiveLmpStatus;
+    label: string;
+    value: number;
+    hex: string;
+    pct: number;
+  }>;
+  convertedCount: number;
+  eligibleCount: number;
+  onStatusClick?: (status: ActiveLmpStatus) => void;
+  onTotalClick?: () => void;
+  onConvertedClick?: () => void;
+  onEligibleClick?: () => void;
+}) {
+  const safeTotal = totalLmpCount || 0;
+  const hasData = safeTotal > 0;
+
+  return (
+    <div className="flex flex-col h-full min-w-0 px-4 py-4 lg:px-5 lg:py-4 gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-[14px] font-semibold leading-tight shrink-0" style={{ color: POC_TXT }}>
+          LMP Status Distribution
+        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <PocMiniStat icon={Layers} label="Total" value={totalLmpCount} accent={LX_HEX.info} onClick={onTotalClick} />
+          <PocMiniStat icon={CheckCircle2} label="Converted" value={convertedCount} accent={LX_HEX.success} onClick={onConvertedClick} />
+          <PocMiniStat icon={Users} label="Eligible" value={eligibleCount} accent={LX_HEX.ai} onClick={onEligibleClick} />
+        </div>
+      </div>
+
+      {hasData ? (
+        <>
+          <div className="flex min-h-[12px] shrink-0">
+            {segments.map((s) =>
+              s.pct > 0 ? (
+                <div
+                  key={`pct-${s.status}`}
+                  className="text-[8.5px] font-medium tabular-nums text-center truncate leading-none"
+                  style={{ width: `${s.pct}%`, color: POC_MUTED }}
+                >
+                  {s.pct.toFixed(0)}%
+                </div>
+              ) : null,
+            )}
+          </div>
+          <div
+            className="h-[9px] w-full overflow-hidden rounded-full shrink-0"
+            style={{ background: "rgba(255,255,255,0.4)" }}
+            role="img"
+            aria-label="LMP status distribution"
+          >
+            <div className="flex h-full w-full">
+              {segments.map((s) => {
+                if (s.pct <= 0) return null;
+                const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
+                return (
+                  <motion.div
+                    key={s.status}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${s.pct}%` }}
+                    transition={{ duration: 0.45, ease: [0, 0, 0.2, 1] }}
+                    className={cn("h-full", click && "cursor-pointer")}
+                    style={{ background: s.hex, minWidth: s.pct > 0 ? 2 : 0 }}
+                    title={`${s.label}: ${s.value}`}
+                    onClick={click}
+                    role={click ? "button" : undefined}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="h-[9px] w-full rounded-full shrink-0" style={{ background: "var(--lx-soft)" }} />
+      )}
+
+      <div className="flex-1 min-h-0 flex flex-wrap content-start gap-x-4 gap-y-1.5 overflow-y-auto">
+        {segments.map((s) => {
+          const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
+          return (
+            <button
+              key={s.status}
+              type="button"
+              disabled={!click}
+              onClick={click}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-1.5 py-[3px] text-left transition-colors shrink-0",
+                click && "hover:bg-white/45 cursor-pointer",
+              )}
+            >
+              <span className="h-[7px] w-[7px] rounded-full shrink-0" style={{ background: s.hex }} aria-hidden />
+              <span className="text-[12px] whitespace-nowrap" style={{ color: POC_MUTED }}>
+                {s.label}
+              </span>
+              <span className="font-mono tabular-nums text-[11.5px] font-semibold" style={{ color: POC_TXT }}>
+                {s.value}
+              </span>
+              <span className="font-mono tabular-nums text-[11px]" style={{ color: POC_MUTED }}>
+                {s.pct.toFixed(0)}%
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function PocConversionSummary({
   conversionPct,
@@ -123,187 +286,6 @@ function PocConversionSummary({
   );
 }
 
-function PocSummaryMiniStats({
-  totalLmpCount,
-  convertedCount,
-  eligibleCount,
-  onTotalClick,
-  onConvertedClick,
-  onEligibleClick,
-}: {
-  totalLmpCount: number;
-  convertedCount: number;
-  eligibleCount: number;
-  onTotalClick?: () => void;
-  onConvertedClick?: () => void;
-  onEligibleClick?: () => void;
-}) {
-  const items = [
-    { icon: Layers, label: "Total LMPs", value: totalLmpCount, accent: LX_HEX.info, onClick: onTotalClick },
-    { icon: CheckCircle2, label: "Converted", value: convertedCount, accent: LX_HEX.success, onClick: onConvertedClick },
-    { icon: Users, label: "Eligible", value: eligibleCount, accent: LX_HEX.ai, onClick: onEligibleClick },
-  ] as const;
-
-  return (
-    <div className="flex flex-col justify-center gap-2 h-full min-w-0 px-4 py-4 lg:px-3 lg:py-4">
-      {items.map(({ icon: Icon, label, value, accent, onClick }) => {
-        const clickable = !!onClick;
-        return (
-          <button
-            key={label}
-            type="button"
-            disabled={!clickable}
-            onClick={onClick}
-            className={cn(
-              "flex items-center gap-2.5 w-full rounded-xl border px-3 py-2.5 text-left transition-colors",
-              clickable && "hover:bg-white/55 cursor-pointer",
-            )}
-            style={POC_MINI_CARD}
-          >
-            <span
-              className="h-8 w-8 rounded-lg grid place-items-center shrink-0"
-              style={{ background: `${accent}22`, color: accent }}
-            >
-              <Icon className="h-3.5 w-3.5" strokeWidth={2.25} />
-            </span>
-            <span className="min-w-0 flex-1 flex items-baseline justify-between gap-2">
-              <span className="text-[11.5px] font-medium truncate" style={{ color: POC_MUTED }}>
-                {label}
-              </span>
-              <span className="text-[18px] font-bold tabular-nums leading-none shrink-0" style={{ color: POC_TXT }}>
-                {value}
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function PocStatusDistribution({
-  totalLmpCount,
-  segments,
-  onStatusClick,
-}: {
-  totalLmpCount: number;
-  segments: Array<{
-    status: ActiveLmpStatus;
-    label: string;
-    value: number;
-    hex: string;
-    pct: number;
-  }>;
-  onStatusClick?: (status: ActiveLmpStatus) => void;
-}) {
-  const safeTotal = totalLmpCount || 0;
-  const hasData = safeTotal > 0;
-
-  return (
-    <div className="flex flex-col h-full min-w-0 px-4 py-4 lg:px-5 lg:py-4">
-      <div className="flex items-start justify-between gap-3 mb-2.5 shrink-0">
-        <h3 className="text-[14px] font-semibold leading-tight" style={{ color: POC_TXT }}>
-          LMP Status Distribution
-        </h3>
-        <div className="text-right shrink-0">
-          <div
-            className="text-[9.5px] font-semibold uppercase tracking-[0.6px]"
-            style={{ color: POC_MUTED }}
-          >
-            Total LMPs
-          </div>
-          <div
-            className="text-[22px] font-bold tabular-nums leading-none mt-0.5"
-            style={{ color: POC_TXT }}
-          >
-            {safeTotal}
-          </div>
-        </div>
-      </div>
-
-      {hasData ? (
-        <>
-          <div className="flex mb-0.5 min-h-[12px] shrink-0">
-            {segments.map((s) =>
-              s.pct > 0 ? (
-                <div
-                  key={`pct-${s.status}`}
-                  className="text-[8.5px] font-medium tabular-nums text-center truncate leading-none"
-                  style={{ width: `${s.pct}%`, color: POC_MUTED }}
-                >
-                  {s.pct.toFixed(0)}%
-                </div>
-              ) : null,
-            )}
-          </div>
-          <div
-            className="h-[7px] w-full overflow-hidden rounded-full mb-2.5 shrink-0"
-            style={{ background: "rgba(255,255,255,0.35)" }}
-            role="img"
-            aria-label="LMP status distribution"
-          >
-            <div className="flex h-full w-full">
-              {segments.map((s) => {
-                if (s.pct <= 0) return null;
-                const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
-                return (
-                  <motion.div
-                    key={s.status}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${s.pct}%` }}
-                    transition={{ duration: 0.45, ease: [0, 0, 0.2, 1] }}
-                    className={cn("h-full", click && "cursor-pointer")}
-                    style={{ background: s.hex, minWidth: s.pct > 0 ? 2 : 0 }}
-                    title={`${s.label}: ${s.value}`}
-                    onClick={click}
-                    role={click ? "button" : undefined}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="h-[7px] w-full rounded-full mb-2.5 shrink-0" style={{ background: "var(--lx-soft)" }} />
-      )}
-
-      <ul className="flex-1 min-h-0 space-y-0 overflow-y-auto">
-        {segments.map((s) => {
-          const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
-          return (
-            <li key={s.status}>
-              <button
-                type="button"
-                disabled={!click}
-                onClick={click}
-                className={cn(
-                  "flex items-center justify-between gap-2 w-full rounded-md px-1.5 py-[5px] text-left transition-colors",
-                  click && "hover:bg-white/45 cursor-pointer",
-                )}
-              >
-                <span className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="h-[7px] w-[7px] rounded-full shrink-0" style={{ background: s.hex }} aria-hidden />
-                  <span className="text-[12px] truncate" style={{ color: POC_MUTED }}>
-                    {s.label}
-                  </span>
-                </span>
-                <span className="shrink-0 font-mono tabular-nums text-[11.5px] flex items-center gap-2.5">
-                  <span className="font-semibold min-w-[1.25rem] text-right" style={{ color: POC_TXT }}>
-                    {s.value}
-                  </span>
-                  <span className="min-w-[2rem] text-right" style={{ color: POC_MUTED }}>
-                    {s.pct.toFixed(0)}%
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
 export function PocOverviewHeroCard({
   conversionPct,
   convertedCount,
@@ -345,32 +327,29 @@ export function PocOverviewHeroCard({
 
   return (
     <div
-      className="rounded-2xl border overflow-hidden relative lx-grad-yellow lx-grain-overlay"
+      className="rounded-2xl border overflow-hidden relative lx-grad-green lx-grain-overlay"
       style={POC_HERO_SURFACE}
     >
       <div
-        className="relative z-[1] grid grid-cols-1 md:grid-cols-[1.15fr_0.95fr_1.35fr] items-stretch divide-y md:divide-y-0 md:divide-x min-h-[280px]"
-        style={{ borderColor: "var(--lx-border)" }}
+        className="relative z-[1] grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] items-stretch divide-y lg:divide-y-0 lg:divide-x min-h-[280px]"
+        style={{ borderColor: POC_DIVIDE }}
       >
+        <PocStatusDistribution
+          totalLmpCount={totalLmpCount}
+          segments={segments}
+          convertedCount={convertedCount}
+          eligibleCount={eligibleCount}
+          onStatusClick={onStatusClick}
+          onTotalClick={onTotalClick}
+          onConvertedClick={onConvertedClick}
+          onEligibleClick={onEligibleClick}
+        />
         <PocConversionSummary
           conversionPct={conversionPct}
           convertedCount={convertedCount}
           eligibleCount={eligibleCount}
           conversionInfo={conversionInfo}
           onConversionClick={onConversionClick}
-        />
-        <PocSummaryMiniStats
-          totalLmpCount={totalLmpCount}
-          convertedCount={convertedCount}
-          eligibleCount={eligibleCount}
-          onTotalClick={onTotalClick}
-          onConvertedClick={onConvertedClick}
-          onEligibleClick={onEligibleClick}
-        />
-        <PocStatusDistribution
-          totalLmpCount={totalLmpCount}
-          segments={segments}
-          onStatusClick={onStatusClick}
         />
       </div>
     </div>

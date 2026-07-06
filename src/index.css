@@ -210,6 +210,8 @@
     --lmp-health-mini-bg: rgba(255,255,255,0.35);
     --lmp-health-mini-border: rgba(232,229,220,0.75);
 
+    --poc-hero-card-bg: linear-gradient(to right, rgba(255,255,255,0.72), rgba(255,255,255,0.42)), var(--lx-grad-green);
+
     /* Sidebar shadcn tokens (legacy) */
     --sidebar-background: var(--n900);
     --sidebar-foreground: var(--n400);
@@ -342,6 +344,8 @@
     --lmp-health-card-bg: linear-gradient(135deg, hsl(var(--d-accent) / 0.10), hsl(var(--d-surface-1)));
     --lmp-health-mini-bg: hsl(var(--d-surface-2));
     --lmp-health-mini-border: hsl(var(--d-border-soft));
+
+    --poc-hero-card-bg: linear-gradient(135deg, hsl(var(--d-green) / 0.14), hsl(var(--d-surface-1)));
 
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);
     --shadow-md: 0 4px 16px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.30);
