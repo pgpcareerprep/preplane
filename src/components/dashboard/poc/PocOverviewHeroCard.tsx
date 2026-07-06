@@ -28,9 +28,18 @@ const POC_MINI_CARD = {
   borderRadius: 10,
 } as const;
 
+const POC_STATUS_CARD = {
+  background: "var(--lmp-health-mini-bg)",
+  border: "0.5px solid var(--lmp-health-mini-border)",
+  borderRadius: 12,
+} as const;
+
 const POC_TXT = "var(--lx-hero-text, #1A1916)";
 const POC_MUTED = "var(--lx-hero-muted, rgba(26,25,22,0.66))";
 const POC_DIVIDE = "var(--lx-hero-divider, rgba(26,25,22,0.16))";
+
+/** Segments below this share get their % rendered above the bar instead of inside it. */
+const INLINE_LABEL_THRESHOLD = 8;
 
 const STATUS_ROWS: Array<{ status: ActiveLmpStatus; label: string }> = [
   { status: "not-started", label: "Not Started" },
@@ -41,6 +50,13 @@ const STATUS_ROWS: Array<{ status: ActiveLmpStatus; label: string }> = [
   { status: "not-converted", label: "Not Converted" },
   { status: "other-reasons", label: "Other Reasons" },
 ];
+
+/** Safe percentage — never divides by zero, never returns NaN. */
+function pctOf(value: number, total: number): number {
+  if (total <= 0 || !Number.isFinite(value)) return 0;
+  const pct = (value / total) * 100;
+  return Number.isFinite(pct) ? pct : 0;
+}
 
 function PocMiniStat({
   icon: Icon,
@@ -85,6 +101,50 @@ function PocMiniStat({
   );
 }
 
+function PocStatusCard({
+  label,
+  value,
+  pct,
+  hex,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  pct: number;
+  hex: string;
+  onClick?: () => void;
+}) {
+  const clickable = !!onClick;
+  return (
+    <button
+      type="button"
+      disabled={!clickable}
+      onClick={onClick}
+      title={`${label}: ${value} (${pct.toFixed(0)}%)`}
+      className={cn(
+        "flex flex-col gap-1.5 rounded-xl px-2.5 py-2 text-left transition-colors min-w-0",
+        clickable && "hover:brightness-95 cursor-pointer",
+      )}
+      style={POC_STATUS_CARD}
+    >
+      <span className="flex items-center gap-1.5 min-w-0">
+        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: hex }} aria-hidden />
+        <span className="text-[11px] font-medium truncate" style={{ color: POC_TXT }} title={label}>
+          {label}
+        </span>
+      </span>
+      <span className="flex items-baseline justify-between gap-1">
+        <span className="text-[15px] font-bold tabular-nums leading-none" style={{ color: POC_TXT }}>
+          {value}
+        </span>
+        <span className="text-[11px] font-semibold tabular-nums" style={{ color: pct > 0 ? hex : POC_MUTED }}>
+          {pct.toFixed(0)}%
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function PocStatusDistribution({
   totalLmpCount,
   segments,
@@ -115,7 +175,7 @@ function PocStatusDistribution({
 
   return (
     <div className="flex flex-col h-full min-w-0 px-4 py-4 lg:px-5 lg:py-4 gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <h3 className="text-[14px] font-semibold leading-tight shrink-0" style={{ color: POC_TXT }}>
           LMP Status Distribution
         </h3>
@@ -126,11 +186,24 @@ function PocStatusDistribution({
         </div>
       </div>
 
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-1.5 lg:gap-2 shrink-0">
+        {segments.map((s) => (
+          <PocStatusCard
+            key={s.status}
+            label={s.label}
+            value={s.value}
+            pct={s.pct}
+            hex={s.hex}
+            onClick={onStatusClick ? () => onStatusClick(s.status) : undefined}
+          />
+        ))}
+      </div>
+
       {hasData ? (
         <>
           <div className="flex min-h-[12px] shrink-0">
             {segments.map((s) =>
-              s.pct > 0 ? (
+              s.pct > 0 && s.pct < INLINE_LABEL_THRESHOLD ? (
                 <div
                   key={`pct-${s.status}`}
                   className="text-[8.5px] font-medium tabular-nums text-center truncate leading-none"
@@ -138,11 +211,13 @@ function PocStatusDistribution({
                 >
                   {s.pct.toFixed(0)}%
                 </div>
+              ) : s.pct > 0 ? (
+                <div key={`pct-${s.status}`} style={{ width: `${s.pct}%` }} />
               ) : null,
             )}
           </div>
           <div
-            className="h-[9px] w-full overflow-hidden rounded-full shrink-0"
+            className="h-5 w-full overflow-hidden rounded-full shrink-0"
             style={{ background: "rgba(255,255,255,0.4)" }}
             role="img"
             aria-label="LMP status distribution"
@@ -157,49 +232,26 @@ function PocStatusDistribution({
                     initial={{ width: 0 }}
                     animate={{ width: `${s.pct}%` }}
                     transition={{ duration: 0.45, ease: [0, 0, 0.2, 1] }}
-                    className={cn("h-full", click && "cursor-pointer")}
+                    className={cn("h-full flex items-center justify-center overflow-hidden", click && "cursor-pointer")}
                     style={{ background: s.hex, minWidth: s.pct > 0 ? 2 : 0 }}
-                    title={`${s.label}: ${s.value}`}
+                    title={`${s.label}: ${s.value} (${s.pct.toFixed(0)}%)`}
                     onClick={click}
                     role={click ? "button" : undefined}
-                  />
+                  >
+                    {s.pct >= INLINE_LABEL_THRESHOLD && (
+                      <span className="text-[10.5px] font-semibold text-white leading-none truncate px-1">
+                        {s.pct.toFixed(0)}%
+                      </span>
+                    )}
+                  </motion.div>
                 );
               })}
             </div>
           </div>
         </>
       ) : (
-        <div className="h-[9px] w-full rounded-full shrink-0" style={{ background: "var(--lx-soft)" }} />
+        <div className="h-5 w-full rounded-full shrink-0" style={{ background: "var(--lx-soft)" }} />
       )}
-
-      <div className="flex-1 min-h-0 flex flex-wrap content-start gap-x-4 gap-y-1.5 overflow-y-auto">
-        {segments.map((s) => {
-          const click = onStatusClick ? () => onStatusClick(s.status) : undefined;
-          return (
-            <button
-              key={s.status}
-              type="button"
-              disabled={!click}
-              onClick={click}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-1.5 py-[3px] text-left transition-colors shrink-0",
-                click && "hover:bg-white/45 cursor-pointer",
-              )}
-            >
-              <span className="h-[7px] w-[7px] rounded-full shrink-0" style={{ background: s.hex }} aria-hidden />
-              <span className="text-[12px] whitespace-nowrap" style={{ color: POC_MUTED }}>
-                {s.label}
-              </span>
-              <span className="font-mono tabular-nums text-[11.5px] font-semibold" style={{ color: POC_TXT }}>
-                {s.value}
-              </span>
-              <span className="font-mono tabular-nums text-[11px]" style={{ color: POC_MUTED }}>
-                {s.pct.toFixed(0)}%
-              </span>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -218,14 +270,14 @@ function PocConversionSummary({
   onConversionClick?: () => void;
 }) {
   const safe = Number.isFinite(conversionPct) ? Math.max(0, Math.min(100, conversionPct)) : 0;
-  const r = 44;
+  const r = 40;
   const c = 2 * Math.PI * r;
   const dash = (safe / 100) * c;
 
   return (
-    <div className="flex flex-col h-full min-w-0 px-4 py-4 lg:px-5 lg:py-4">
+    <div className="flex flex-col h-full min-w-0 px-3 py-4 lg:px-4 lg:py-4">
       <h3
-        className="text-[14px] font-semibold inline-flex items-center gap-1.5 shrink-0"
+        className="text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 leading-tight"
         style={{ color: POC_TXT }}
       >
         Overall POC Conversion
@@ -237,12 +289,12 @@ function PocConversionSummary({
         onClick={onConversionClick}
         disabled={!onConversionClick}
         className={cn(
-          "flex flex-col items-center justify-center flex-1 mt-3 min-h-[140px] w-full rounded-xl transition-colors",
+          "flex flex-col items-center justify-center flex-1 mt-2 min-h-[140px] w-full rounded-xl transition-colors",
           onConversionClick && "hover:bg-card/40 dark:hover:bg-card/20 cursor-pointer group",
         )}
       >
-        <div className="relative shrink-0" style={{ width: 120, height: 120 }} aria-hidden>
-          <svg viewBox="0 0 100 100" width="120" height="120">
+        <div className="relative shrink-0" style={{ width: 108, height: 108 }} aria-hidden>
+          <svg viewBox="0 0 100 100" width="108" height="108">
             <circle cx="50" cy="50" r={r} fill="none" stroke="var(--lx-soft)" strokeWidth="7" />
             <motion.circle
               cx="50"
@@ -260,7 +312,7 @@ function PocConversionSummary({
             />
           </svg>
           <div
-            className="absolute inset-0 grid place-items-center text-[26px] font-bold tabular-nums"
+            className="absolute inset-0 grid place-items-center text-[23px] font-bold tabular-nums"
             style={{ color: LX_HEX.success }}
           >
             {safe.toFixed(0)}%
@@ -269,7 +321,7 @@ function PocConversionSummary({
 
         <p
           className={cn(
-            "text-[13px] mt-3 text-center leading-snug max-w-[220px]",
+            "text-[12px] mt-2.5 text-center leading-snug max-w-[180px]",
             onConversionClick && "group-hover:underline underline-offset-2",
           )}
           style={{ color: POC_MUTED }}
@@ -320,7 +372,7 @@ export function PocOverviewHeroCard({
         label,
         value: lsc[status] ?? 0,
         hex: STATUS_HEX[status] ?? LX_HEX.neutral,
-        pct: safeTotal > 0 ? ((lsc[status] ?? 0) / safeTotal) * 100 : 0,
+        pct: pctOf(lsc[status] ?? 0, safeTotal),
       })),
     [lsc, safeTotal],
   );
@@ -331,7 +383,7 @@ export function PocOverviewHeroCard({
       style={POC_HERO_SURFACE}
     >
       <div
-        className="relative z-[1] grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] items-stretch divide-y lg:divide-y-0 lg:divide-x min-h-[280px]"
+        className="relative z-[1] grid grid-cols-1 lg:grid-cols-[4fr_1fr] items-stretch divide-y lg:divide-y-0 lg:divide-x min-h-[280px]"
         style={{ borderColor: POC_DIVIDE }}
       >
         <PocStatusDistribution
