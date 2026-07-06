@@ -229,18 +229,6 @@ export function PocLmpDashboard({
       `${filtered.length} in my scope`,
     );
   };
-  const openEligibleLmps = () => {
-    const ids = new Set(
-      filteredRecords
-        .filter((r) => r.status === "converted" || r.status === "offer-received" || r.status === "not-converted")
-        .map((r) => r.id),
-    );
-    openLmps(
-      filtered.filter((p) => ids.has(p.processId)),
-      "Eligible LMPs · outcomes",
-      `${eligibleCount} with terminal outcome`,
-    );
-  };
   const openSnapshot = (kind: Parameters<typeof snapshotDrill>[0]) => {
     const { rows, title } = snapshotDrill(
       kind,
@@ -295,9 +283,6 @@ export function PocLmpDashboard({
         lsc={lsc}
         conversionInfo={info("poc.hero.conversion")}
         onConversionClick={() => openCanonicalStatus("converted")}
-        onTotalClick={() => openLmps(filtered, "All my LMPs", `${totalLmpCount} processes`)}
-        onConvertedClick={() => openCanonicalStatus("converted")}
-        onEligibleClick={openEligibleLmps}
         onStatusClick={openCanonicalStatus}
       />
 
