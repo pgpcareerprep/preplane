@@ -4,7 +4,6 @@
  */
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, Layers, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { LX_HEX } from "@/components/insights/primitives";
@@ -20,12 +19,6 @@ const POC_HERO_SURFACE = {
   boxShadow: "var(--shadow-sm)",
   background: "var(--poc-hero-card-bg)",
   minHeight: 280,
-} as const;
-
-const POC_MINI_CARD = {
-  background: "var(--lmp-health-mini-bg)",
-  border: "0.5px solid var(--lmp-health-mini-border)",
-  borderRadius: 10,
 } as const;
 
 const POC_STATUS_CARD = {
@@ -56,49 +49,6 @@ function pctOf(value: number, total: number): number {
   if (total <= 0 || !Number.isFinite(value)) return 0;
   const pct = (value / total) * 100;
   return Number.isFinite(pct) ? pct : 0;
-}
-
-function PocMiniStat({
-  icon: Icon,
-  label,
-  value,
-  accent,
-  onClick,
-}: {
-  icon: typeof Layers;
-  label: string;
-  value: number;
-  accent: string;
-  onClick?: () => void;
-}) {
-  const clickable = !!onClick;
-  return (
-    <button
-      type="button"
-      disabled={!clickable}
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-left transition-colors shrink-0",
-        clickable && "hover:bg-white/55 cursor-pointer",
-      )}
-      style={POC_MINI_CARD}
-    >
-      <span
-        className="h-6 w-6 rounded-md grid place-items-center shrink-0"
-        style={{ background: `${accent}22`, color: accent }}
-      >
-        <Icon className="h-3 w-3" strokeWidth={2.25} />
-      </span>
-      <span className="flex items-baseline gap-1.5 whitespace-nowrap">
-        <span className="text-[15px] font-bold tabular-nums leading-none" style={{ color: POC_TXT }}>
-          {value}
-        </span>
-        <span className="text-[11px] font-medium" style={{ color: POC_MUTED }}>
-          {label}
-        </span>
-      </span>
-    </button>
-  );
 }
 
 function PocStatusCard({
@@ -148,12 +98,7 @@ function PocStatusCard({
 function PocStatusDistribution({
   totalLmpCount,
   segments,
-  convertedCount,
-  eligibleCount,
   onStatusClick,
-  onTotalClick,
-  onConvertedClick,
-  onEligibleClick,
 }: {
   totalLmpCount: number;
   segments: Array<{
@@ -163,28 +108,16 @@ function PocStatusDistribution({
     hex: string;
     pct: number;
   }>;
-  convertedCount: number;
-  eligibleCount: number;
   onStatusClick?: (status: ActiveLmpStatus) => void;
-  onTotalClick?: () => void;
-  onConvertedClick?: () => void;
-  onEligibleClick?: () => void;
 }) {
   const safeTotal = totalLmpCount || 0;
   const hasData = safeTotal > 0;
 
   return (
     <div className="flex flex-col h-full min-w-0 px-4 py-4 lg:px-5 lg:py-4 gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <h3 className="text-[14px] font-semibold leading-tight shrink-0" style={{ color: POC_TXT }}>
-          LMP Status Distribution
-        </h3>
-        <div className="flex flex-wrap items-center gap-2">
-          <PocMiniStat icon={Layers} label="Total" value={totalLmpCount} accent={LX_HEX.info} onClick={onTotalClick} />
-          <PocMiniStat icon={CheckCircle2} label="Converted" value={convertedCount} accent={LX_HEX.success} onClick={onConvertedClick} />
-          <PocMiniStat icon={Users} label="Eligible" value={eligibleCount} accent={LX_HEX.ai} onClick={onEligibleClick} />
-        </div>
-      </div>
+      <h3 className="text-[14px] font-semibold leading-tight shrink-0" style={{ color: POC_TXT }}>
+        LMP Status Distribution
+      </h3>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-1.5 lg:gap-2 shrink-0">
         {segments.map((s) => (
@@ -346,9 +279,6 @@ export function PocOverviewHeroCard({
   lsc,
   conversionInfo,
   onConversionClick,
-  onTotalClick,
-  onConvertedClick,
-  onEligibleClick,
   onStatusClick,
 }: {
   conversionPct: number;
@@ -358,9 +288,6 @@ export function PocOverviewHeroCard({
   lsc: LmpStatusCounts;
   conversionInfo?: string;
   onConversionClick?: () => void;
-  onTotalClick?: () => void;
-  onConvertedClick?: () => void;
-  onEligibleClick?: () => void;
   onStatusClick?: (status: ActiveLmpStatus) => void;
 }) {
   const safeTotal = totalLmpCount || 0;
@@ -389,12 +316,7 @@ export function PocOverviewHeroCard({
         <PocStatusDistribution
           totalLmpCount={totalLmpCount}
           segments={segments}
-          convertedCount={convertedCount}
-          eligibleCount={eligibleCount}
           onStatusClick={onStatusClick}
-          onTotalClick={onTotalClick}
-          onConvertedClick={onConvertedClick}
-          onEligibleClick={onEligibleClick}
         />
         <PocConversionSummary
           conversionPct={conversionPct}
