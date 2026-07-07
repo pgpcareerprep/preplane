@@ -17,6 +17,44 @@ import type { DomainOption } from "@/lib/hooks/useDomainOptions";
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
+function resolvedDomainName(
+  domain: string | null | undefined,
+  canonicalDomains: DomainOption[],
+): string | null {
+  const d = resolveDomainName(domain, canonicalDomains) ?? domain?.trim();
+  if (!d || d.toLowerCase() === "unmapped") return null;
+  return d;
+}
+
+/**
+ * Map canonical LmpRecord rows to live Process drill rows by shared id.
+ * Keeps domain-load counts and drill-down modals on the same status/domain rules.
+ */
+export function processesForDomainRecords(
+  processes: Process[],
+  records: LmpRecord[],
+  opts: {
+    canonicalDomains: DomainOption[];
+    domain?: string;
+    domains?: Set<string>;
+    predicate?: (rec: LmpRecord) => boolean;
+  },
+): Process[] {
+  const { canonicalDomains, domain, domains, predicate = () => true } = opts;
+  const ids = new Set(
+    records
+      .filter((rec) => {
+        const d = resolvedDomainName(rec.domain, canonicalDomains);
+        if (!d) return false;
+        if (domain && d !== domain) return false;
+        if (domains && !domains.has(d)) return false;
+        return predicate(rec);
+      })
+      .map((rec) => rec.id),
+  );
+  return processes.filter((p) => ids.has(p.processId));
+}
+
 /* ─────────── LMP filters ─────────── */
 export function lmpsByStatus(rows: Process[], status: ProcessStatus): Process[] {
   return rows.filter((r) => r.status === status);

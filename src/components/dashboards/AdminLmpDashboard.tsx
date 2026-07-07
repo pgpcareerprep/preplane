@@ -42,7 +42,7 @@ import { LxDrillDown, type DrillState, type ConvertedStudentDrillRow } from "@/c
 import { info } from "@/lib/dashboardInfo";
 import {
   lmpsForPoc,
-  studentsInBucket, studentsByPrimaryDomain, studentsInResolvedDomain, snapshotDrill, countZeroCandidateLmps,
+  studentsInBucket, studentsByPrimaryDomain, studentsInResolvedDomain, processesForDomainRecords, snapshotDrill, countZeroCandidateLmps,
   buildConvertedCandidateCountByLmp,
 } from "@/lib/dashboardDrill";
 import { STATUS_META } from "@/lib/lmpTypes";
@@ -813,16 +813,19 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const openLmps = (rows: typeof filtered, title: string, subtitle?: string) =>
     setDrill({ kind: "lmps", title, subtitle, rows });
   const openDomainLmps = (domain: string, subtitle?: string) => {
-    const matched = filtered.filter((p) => (resolveDomainName(p.domain, canonicalDomains) ?? p.domain ?? "Unmapped") === domain);
+    const matched = processesForDomainRecords(filtered, filteredRecords, {
+      canonicalDomains,
+      domain,
+    });
     openLmps(matched, `${domain} · LMPs`, subtitle ?? `${matched.length} LMPs in current view`);
   };
-  const resolveProcessDomain = (domain: string | null | undefined) =>
-    resolveDomainName(domain, canonicalDomains) ?? domain?.trim() ?? "Unmapped";
 
   const openDomainConvertedLmps = (domain: string, subtitle?: string) => {
-    const matched = filtered.filter(
-      (p) => resolveProcessDomain(p.domain) === domain && CONVERTED_LMP_STATUSES.has(p.status),
-    );
+    const matched = processesForDomainRecords(filtered, filteredRecords, {
+      canonicalDomains,
+      domain,
+      predicate: (rec) => CONVERTED_LMP_STATUSES.has(rec.status),
+    });
     openLmps(matched, `${domain} · Converted LMPs`, subtitle ?? `${matched.length} converted LMPs`);
   };
 
@@ -856,9 +859,11 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
   const openVisibleConvertedLmps = () => {
     const domains = new Set(visibleDomainRows.map((row) => row.domain));
-    const matched = filtered.filter(
-      (p) => domains.has(resolveProcessDomain(p.domain)) && CONVERTED_LMP_STATUSES.has(p.status),
-    );
+    const matched = processesForDomainRecords(filtered, filteredRecords, {
+      canonicalDomains,
+      domains,
+      predicate: (rec) => CONVERTED_LMP_STATUSES.has(rec.status),
+    });
     openLmps(matched, "Converted LMPs", `${matched.length} across visible domains`);
   };
 
