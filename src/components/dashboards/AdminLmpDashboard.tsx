@@ -50,7 +50,6 @@ import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
 import { CohortSummaryCard } from "@/components/dashboard/CohortSummaryCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
-import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/ui/multi-select-filter";
 import { formatBatchLabel } from "@/lib/cohortProgram";
 import type { ReactNode } from "react";
 
@@ -252,42 +251,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const { data: cohortMaster = [] } = useCohorts(false);
   const { data: programMaster = [] } = usePrograms(null, false);
   const cohortById = useMemo(() => new Map(cohortMaster.map((c) => [c.id, c])), [cohortMaster]);
-  const selectedCohortSet = useMemo(() => new Set(studentFilterState.cohortIds), [studentFilterState.cohortIds]);
-  const cohortFilterOptions = useMemo<MultiSelectFilterOption[]>(
-    () => cohortMaster.map((c) => ({
-      value: c.id,
-      label: c.code,
-      description: c.name,
-    })),
-    [cohortMaster],
-  );
-  const studentProgramOptions = useMemo<MultiSelectFilterOption[]>(() => {
-    const scoped = studentFilterState.cohortIds.length
-      ? programMaster.filter((p) => selectedCohortSet.has(p.cohort_id))
-      : programMaster;
-    const codeCounts = scoped.reduce((acc, p) => {
-      acc.set(p.code, (acc.get(p.code) ?? 0) + 1);
-      return acc;
-    }, new Map<string, number>());
-    const showCohortPrefix = studentFilterState.cohortIds.length !== 1;
-    return scoped.map((p) => {
-      const cohortCode = cohortById.get(p.cohort_id)?.code ?? "";
-      const duplicateCode = (codeCounts.get(p.code) ?? 0) > 1;
-      return {
-        value: p.id,
-        label: showCohortPrefix || duplicateCode ? `${cohortCode} · ${p.code}` : p.code,
-        description: p.name,
-      };
-    });
-  }, [cohortById, programMaster, selectedCohortSet, studentFilterState.cohortIds]);
-  const setStudentCohortIds = (cohortIds: string[]) => {
-    const allowedProgramIds = new Set(
-      (cohortIds.length ? programMaster.filter((p) => cohortIds.includes(p.cohort_id)) : programMaster)
-        .map((p) => p.id),
-    );
-    studentFilterState.setCohortIds(cohortIds);
-    studentFilterState.setProgramIds(studentFilterState.programIds.filter((id) => allowedProgramIds.has(id)));
-  };
   const enrichedStudentRoster = useMemo(
     () =>
       studentRoster.map((s) => ({
@@ -668,9 +631,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       return next;
     };
 
-    const rosterByKey = new Map<string, typeof studentRoster[0]>();
-    const rosterById = new Map<string, typeof studentRoster[0]>();
-    studentRoster.forEach((s) => {
+    const rosterByKey = new Map<string, typeof scopedStudentRoster[0]>();
+    const rosterById = new Map<string, typeof scopedStudentRoster[0]>();
+    scopedStudentRoster.forEach((s) => {
       rosterByKey.set(getStudentIdentityKey(s), s);
       if (s.id) rosterById.set(s.id, s);
     });
@@ -694,7 +657,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       }
     }
 
-    for (const student of studentRoster) {
+    for (const student of scopedStudentRoster) {
       const studentKey = normalizeConvertedName(student.name);
       if (!studentKey) continue;
       const studentDomains = new Set<string>();
@@ -728,7 +691,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     });
     rows.forEach((row, index) => { row.rank = index + 1; });
     return rows;
-  }, [canonicalDomains, filteredRecords, studentRoster, candidatesByLmp]);
+  }, [canonicalDomains, filteredRecords, scopedStudentRoster, candidatesByLmp]);
 
   const visibleDomainRows = useMemo(() => {
     const scoped = domainLoadFilter === "all"
@@ -756,9 +719,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const placedStudents = new Set<string>();
     const optedStudents = new Set<string>();
 
-    const rosterByKey = new Map<string, typeof studentRoster[0]>();
-    const rosterById = new Map<string, typeof studentRoster[0]>();
-    studentRoster.forEach((s) => {
+    const rosterByKey = new Map<string, typeof scopedStudentRoster[0]>();
+    const rosterById = new Map<string, typeof scopedStudentRoster[0]>();
+    scopedStudentRoster.forEach((s) => {
       rosterByKey.set(getStudentIdentityKey(s), s);
       if (s.id) rosterById.set(s.id, s);
     });
@@ -781,7 +744,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       }
     }
 
-    for (const student of studentRoster) {
+    for (const student of scopedStudentRoster) {
       const studentKey = normalizeConvertedName(student.name);
       if (!studentKey) continue;
       const studentDomains = [student.primaryDomain, student.secondaryDomain]
@@ -807,7 +770,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         return a.domain.localeCompare(b.domain);
       })[0]?.domain ?? "—",
     };
-  }, [canonicalDomains, filteredRecords, studentRoster, visibleDomainRows, candidatesByLmp]);
+  }, [canonicalDomains, filteredRecords, scopedStudentRoster, visibleDomainRows, candidatesByLmp]);
 
   // ── Drill openers ──
   const openLmps = (rows: typeof filtered, title: string, subtitle?: string) =>
@@ -992,29 +955,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         typeOptions={typeOptions}
         showPrepPoc
         showOutreachPoc
-        right={
-          <>
-            <MultiSelectFilter
-              label="Cohort"
-              placeholder="All cohorts"
-              options={cohortFilterOptions}
-              selected={studentFilterState.cohortIds}
-              onChange={setStudentCohortIds}
-            />
-            <MultiSelectFilter
-              label="Program"
-              placeholder="All programs"
-              options={studentProgramOptions}
-              selected={studentFilterState.programIds}
-              onChange={studentFilterState.setProgramIds}
-            />
-            {studentFilterState.hasFilters && (
-              <button type="button" className="text-[12px] text-orange-600 hover:underline" onClick={studentFilterState.clear}>
-                Clear
-              </button>
-            )}
-          </>
-        }
       />
 
       {/* ─────── SECTION 1: LMP Health Summary ─────── */}

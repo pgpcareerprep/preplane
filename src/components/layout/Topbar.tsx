@@ -3,7 +3,7 @@ import { FileSpreadsheet, Moon, Search, Sun, Eye, Lock, RotateCcw } from "lucide
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { GlobalSearch, type GlobalSearchHandle } from "@/components/search/GlobalSearch";
 import { PrepLaneLogo } from "@/components/brand/PrepLaneLogo";
-import { MobileNav } from "@/components/layout/MobileNav";
+import { GlobalCohortProgramFilters } from "@/components/layout/GlobalCohortProgramFilters";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/lib/themeContext";
 import { useRole } from "@/lib/rolesContext";
@@ -114,6 +114,7 @@ export function Topbar() {
 
         {/* Desktop search + actions */}
         <div className="hidden md:flex items-center gap-1.5">
+          <GlobalCohortProgramFilters />
           <GlobalSearch ref={searchRef} scope={searchScope} />
           <a
             href={PREPLANE_MASTER_SHEET_URL}
@@ -159,6 +160,7 @@ export function Topbar() {
           <SheetHeader className="sr-only">
             <SheetTitle>Search</SheetTitle>
           </SheetHeader>
+          <GlobalCohortProgramFilters className="w-full max-w-none mb-3" />
           <GlobalSearch
             ref={searchRef}
             scope={searchScope}

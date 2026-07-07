@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { RoleProvider } from "@/lib/rolesContext";
 import { ViewerProvider } from "@/lib/viewerContext";
 import { WorkspaceViewProvider } from "@/lib/workspaceViewContext";
+import { CohortProgramFilterProvider } from "@/lib/cohortProgramFilterContext";
 import { LmpViewingProvider } from "@/lib/lmpViewingContext";
 import { LmpChatProvider } from "@/lib/lmpChatContext";
 import { LmpCommentsDrawer } from "@/components/lmp/LmpCommentsDrawer";
@@ -83,12 +84,14 @@ const App = () => (
             <Route path="*" element={
               <AuthGate>
                 <WorkspaceViewProvider>
+                <CohortProgramFilterProvider>
                 <LmpViewingProvider>
                 <LmpChatProvider>
                   <AppShell><Suspense fallback={<PageLoader />}><AppRoutes /></Suspense></AppShell>
                   <LmpCommentsDrawer />
                 </LmpChatProvider>
                 </LmpViewingProvider>
+                </CohortProgramFilterProvider>
                 </WorkspaceViewProvider>
               </AuthGate>
             } />

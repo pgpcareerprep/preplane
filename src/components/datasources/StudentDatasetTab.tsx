@@ -4,8 +4,6 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useRole } from "@/lib/rolesContext";
 import {
-  useCohorts,
-  usePrograms,
   useStudentsDataset,
   type CohortRow,
   type ProgramRow,
@@ -16,7 +14,8 @@ import { exportTableToCsv, dateStamp } from "@/lib/exportCsv";
 import { CreateCohortModal } from "./CreateCohortModal";
 import { AddProgramModal } from "./AddProgramModal";
 import { cn } from "@/lib/utils";
-import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/ui/multi-select-filter";
+import { useStudentFilters } from "@/lib/hooks/useStudentFilters";
+import { useCohortProgramFilterOptions } from "@/lib/hooks/useCohortProgramFilterOptions";
 
 const PAGE_SIZE = 50;
 
@@ -29,8 +28,13 @@ export function StudentDatasetTab({ onUpload }: Props) {
   const isAdmin = role === "admin";
 
   const [search, setSearch] = useState("");
-  const [cohortFilter, setCohortFilter] = useState<string[]>([]);
-  const [programFilter, setProgramFilter] = useState<string[]>([]);
+  const { cohortIds: cohortFilter, programIds: programFilter } = useStudentFilters();
+  const {
+    cohortMaster: cohorts,
+    programMaster: allPrograms,
+    setCohorts,
+    setProgramIds,
+  } = useCohortProgramFilterOptions();
   const [placementStatus, setPlacementStatus] = useState("All");
   const [primaryDomain, setPrimaryDomain] = useState("All");
   const [secondaryDomain, setSecondaryDomain] = useState("All");
@@ -42,34 +46,7 @@ export function StudentDatasetTab({ onUpload }: Props) {
   const [editProgram, setEditProgram] = useState<ProgramRow | null>(null);
   const [programCohortId, setProgramCohortId] = useState<string | undefined>();
 
-  const { data: cohorts = [] } = useCohorts(false);
-  const { data: allPrograms = [] } = usePrograms(null, false);
   const { names: domains, display: domainDisplay, matches: domainMatches } = useResolveDomain();
-  const cohortById = useMemo(() => new Map(cohorts.map((c) => [c.id, c])), [cohorts]);
-  const selectedCohortSet = useMemo(() => new Set(cohortFilter), [cohortFilter]);
-  const cohortOptions = useMemo<MultiSelectFilterOption[]>(
-    () => cohorts.map((c) => ({ value: c.id, label: c.code, description: c.name })),
-    [cohorts],
-  );
-  const programOptions = useMemo<MultiSelectFilterOption[]>(() => {
-    const scoped = cohortFilter.length
-      ? allPrograms.filter((p) => selectedCohortSet.has(p.cohort_id))
-      : allPrograms;
-    const codeCounts = scoped.reduce((acc, p) => {
-      acc.set(p.code, (acc.get(p.code) ?? 0) + 1);
-      return acc;
-    }, new Map<string, number>());
-    const showCohortPrefix = cohortFilter.length !== 1;
-    return scoped.map((p) => {
-      const cohortCode = cohortById.get(p.cohort_id)?.code ?? "";
-      const duplicateCode = (codeCounts.get(p.code) ?? 0) > 1;
-      return {
-        value: p.id,
-        label: showCohortPrefix || duplicateCode ? `${cohortCode} · ${p.code}` : p.code,
-        description: p.name,
-      };
-    });
-  }, [allPrograms, cohortById, cohortFilter, selectedCohortSet]);
 
   const { data: students = [], isLoading } = useStudentsDataset({
     search,
@@ -109,8 +86,6 @@ export function StudentDatasetTab({ onUpload }: Props) {
 
   const clearFilters = () => {
     setSearch("");
-    setCohortFilter([]);
-    setProgramFilter([]);
     setPlacementStatus("All");
     setPrimaryDomain("All");
     setSecondaryDomain("All");
@@ -118,32 +93,12 @@ export function StudentDatasetTab({ onUpload }: Props) {
   };
 
   const toggleCohort = (id: string) => {
-    setCohortFilter((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      const allowedProgramIds = new Set(
-        (next.length ? allPrograms.filter((p) => next.includes(p.cohort_id)) : allPrograms)
-          .map((p) => p.id),
-      );
-      setProgramFilter((current) => current.filter((programId) => allowedProgramIds.has(programId)));
-      return next;
-    });
-    setPage(1);
-  };
-
-  const setCohorts = (ids: string[]) => {
-    const allowedProgramIds = new Set(
-      (ids.length ? allPrograms.filter((p) => ids.includes(p.cohort_id)) : allPrograms)
-        .map((p) => p.id),
-    );
-    setCohortFilter(ids);
-    setProgramFilter((current) => current.filter((programId) => allowedProgramIds.has(programId)));
+    setCohorts(cohortFilter.includes(id) ? cohortFilter.filter((x) => x !== id) : [...cohortFilter, id]);
     setPage(1);
   };
 
   const toggleProgram = (id: string) => {
-    setProgramFilter((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setProgramIds(programFilter.includes(id) ? programFilter.filter((x) => x !== id) : [...programFilter, id]);
     setPage(1);
   };
 
@@ -285,20 +240,6 @@ export function StudentDatasetTab({ onUpload }: Props) {
             </button>
           )}
         </div>
-        <MultiSelectFilter
-          label="Cohort"
-          placeholder="All cohorts"
-          options={cohortOptions}
-          selected={cohortFilter}
-          onChange={setCohorts}
-        />
-        <MultiSelectFilter
-          label="Program"
-          placeholder="All programs"
-          options={programOptions}
-          selected={programFilter}
-          onChange={(ids) => { setProgramFilter(ids); setPage(1); }}
-        />
         <select
           className="h-8 rounded-md border border-input bg-background px-2 text-[13px]"
           value={placementStatus}
@@ -345,6 +286,11 @@ export function StudentDatasetTab({ onUpload }: Props) {
               </span>
             ) : null;
           })}
+          {(cohortFilter.length > 0 || programFilter.length > 0) && (
+            <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+              Cohort/program set in top bar
+            </span>
+          )}
         </div>
       )}
 

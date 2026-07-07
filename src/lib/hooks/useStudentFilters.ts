@@ -1,28 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { StudentCohortFields } from "@/lib/cohortProgram";
 import { getStudentCohortCode, getStudentProgramCode } from "@/lib/cohortProgram";
 import type { CohortRow, ProgramRow } from "@/lib/hooks/useCohortProgram";
+import { useCohortProgramFilter } from "@/lib/cohortProgramFilterContext";
 
 export type StudentFilterState = {
   cohortIds: string[];
   programIds: string[];
 };
 
+/** Global cohort/program filter — backed by CohortProgramFilterProvider. */
 export function useStudentFilters() {
-  const [cohortIds, setCohortIds] = useState<string[]>([]);
-  const [programIds, setProgramIds] = useState<string[]>([]);
-
-  return {
-    cohortIds,
-    programIds,
-    setCohortIds,
-    setProgramIds,
-    clear: () => {
-      setCohortIds([]);
-      setProgramIds([]);
-    },
-    hasFilters: cohortIds.length > 0 || programIds.length > 0,
-  };
+  return useCohortProgramFilter();
 }
 
 export function filterStudentsByCohortProgram<T extends StudentCohortFields>(

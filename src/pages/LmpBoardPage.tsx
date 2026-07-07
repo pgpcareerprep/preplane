@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import type { LmpRecord } from "@/lib/lmpTypes";
 import { exportLmpBoardCsv } from "@/lib/exportCsv";
+import { useCohortProgramLmpScope } from "@/lib/hooks/useCohortProgramLmpScope";
 
 /**
  * Resolve which records fall inside the selected board scope.
@@ -108,6 +109,8 @@ export default function LmpBoardPage() {
   const { update: updateMutation } = useLmpMutation();
   const { data: candidateCounts = {} } = useLmpCandidateCounts();
 
+  const cohortProgramLmpScope = useCohortProgramLmpScope();
+
   const records = useMemo(() => {
     return rawRecords.map((r) => {
       const dbCount = r.id ? (candidateCounts[r.id] || 0) : 0;
@@ -163,15 +166,20 @@ export default function LmpBoardPage() {
 
   // 1. Apply board scope.
   const scopedRecords = useMemo(
-    () =>
-      resolveLmpBoardScope(
+    () => {
+      let rows = resolveLmpBoardScope(
         records,
         scope,
         effectivePocId,
         effectivePocName,
         activePocLmpIdsMap,
-      ),
-    [records, scope, effectivePocId, effectivePocName, activePocLmpIdsMap],
+      );
+      if (cohortProgramLmpScope) {
+        rows = rows.filter((r) => cohortProgramLmpScope.has(r.id));
+      }
+      return rows;
+    },
+    [records, scope, effectivePocId, effectivePocName, activePocLmpIdsMap, cohortProgramLmpScope],
   );
 
   // 2. Apply domain / status / text filters on top.
