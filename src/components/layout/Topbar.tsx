@@ -3,6 +3,7 @@ import { FileSpreadsheet, Moon, Search, Sun, Eye, Lock, RotateCcw } from "lucide
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { GlobalSearch, type GlobalSearchHandle } from "@/components/search/GlobalSearch";
 import { PrepLaneLogo } from "@/components/brand/PrepLaneLogo";
+import { MobileNav } from "@/components/layout/MobileNav";
 import { GlobalCohortProgramFilters } from "@/components/layout/GlobalCohortProgramFilters";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/lib/themeContext";
