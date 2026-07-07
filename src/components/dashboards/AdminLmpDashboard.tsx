@@ -42,7 +42,7 @@ import { LxDrillDown, type DrillState, type ConvertedStudentDrillRow } from "@/c
 import { info } from "@/lib/dashboardInfo";
 import {
   lmpsForPoc,
-  studentsInBucket, studentsByPrimaryDomain, snapshotDrill, countZeroCandidateLmps,
+  studentsInBucket, studentsByPrimaryDomain, studentsInResolvedDomain, snapshotDrill, countZeroCandidateLmps,
   buildConvertedCandidateCountByLmp,
 } from "@/lib/dashboardDrill";
 import { STATUS_META } from "@/lib/lmpTypes";
@@ -65,8 +65,7 @@ type DomainSortKey =
   | "activeLoad"
   | "convertedLmps"
   | "studentsPlaced"
-  | "studentsOpted"
-  | "conversionPct";
+  | "studentsOpted";
 
 type DomainAnalyticsRow = {
   rank: number;
@@ -76,8 +75,6 @@ type DomainAnalyticsRow = {
   convertedLmps: number;
   studentsPlaced: number;
   studentsOpted: number;
-  conversionPct: number | null;
-  insight: "Highest load" | "Strong conversion" | "Balanced" | "Watchlist" | "No current load";
 };
 
 type StudentProgramGroup = {
@@ -110,17 +107,6 @@ function downloadDashboardCsv(filename: string, csv: string) {
 function csvEscape(value: unknown): string {
   const raw = value == null ? "" : String(value);
   return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
-}
-
-function formatConversion(value: number | null): string {
-  return value == null ? "—" : `${value.toFixed(1)}%`;
-}
-
-function pctClass(value: number | null): LxAccent {
-  if (value == null) return "neutral";
-  if (value >= 50) return "success";
-  if (value >= 20) return "yellow";
-  return "risk";
 }
 
 function canonicalStatus(status: import("@/types/lmp").LmpStatus): CanonicalLmpStatus {
@@ -722,41 +708,16 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const rawRows = Array.from(byDomain.values()).filter(
       (row) => row.lmpIds.size > 0 || row.optedStudents.size > 0 || row.placedStudents.size > 0,
     );
-    const visibleLmpRows = rawRows.filter((row) => row.lmpIds.size > 0);
-    const highestActive = Math.max(0, ...visibleLmpRows.map((row) => row.activeIds.size));
-    const overallPlaced = new Set<string>();
-    const overallOpted = new Set<string>();
-    rawRows.forEach((row) => {
-      row.placedStudents.forEach((id) => overallPlaced.add(id));
-      row.optedStudents.forEach((id) => overallOpted.add(id));
-    });
-    const overallConversion = overallOpted.size ? (overallPlaced.size / overallOpted.size) * 100 : null;
-    const optedMedian = rawRows.length
-      ? [...rawRows].map((row) => row.optedStudents.size).sort((a, b) => a - b)[Math.floor(rawRows.length / 2)] ?? 0
-      : 0;
 
-    const rows: DomainAnalyticsRow[] = rawRows.map((row) => {
-      const conversionPct = row.optedStudents.size
-        ? (row.placedStudents.size / row.optedStudents.size) * 100
-        : null;
-      let insight: DomainAnalyticsRow["insight"] = "Balanced";
-      if (row.activeIds.size === 0) insight = "No current load";
-      else if (highestActive > 0 && row.activeIds.size === highestActive) insight = "Highest load";
-      else if (conversionPct != null && overallConversion != null && conversionPct > overallConversion && row.placedStudents.size > 0) insight = "Strong conversion";
-      else if (row.optedStudents.size >= optedMedian && (conversionPct == null || conversionPct < Math.max(15, overallConversion ?? 0))) insight = "Watchlist";
-
-      return {
-        rank: 0,
-        domain: row.domain,
-        totalLmps: row.lmpIds.size,
-        activeLoad: row.activeIds.size,
-        convertedLmps: row.convertedIds.size,
-        studentsPlaced: row.placedStudents.size,
-        studentsOpted: row.optedStudents.size,
-        conversionPct,
-        insight,
-      };
-    });
+    const rows: DomainAnalyticsRow[] = rawRows.map((row) => ({
+      rank: 0,
+      domain: row.domain,
+      totalLmps: row.lmpIds.size,
+      activeLoad: row.activeIds.size,
+      convertedLmps: row.convertedIds.size,
+      studentsPlaced: row.placedStudents.size,
+      studentsOpted: row.optedStudents.size,
+    }));
 
     rows.sort((a, b) => {
       const loadDiff = b.activeLoad - a.activeLoad;
@@ -776,12 +737,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const sorted = [...scoped].sort((a, b) => {
       const dir = domainLoadSort.dir === "asc" ? 1 : -1;
       if (domainLoadSort.key === "domain") return dir * a.domain.localeCompare(b.domain);
-      if (domainLoadSort.key === "conversionPct") {
-        const av = a.conversionPct ?? -1;
-        const bv = b.conversionPct ?? -1;
-        const diff = av - bv;
-        return diff ? dir * diff : a.domain.localeCompare(b.domain);
-      }
       const diff = Number(a[domainLoadSort.key]) - Number(b[domainLoadSort.key]);
       if (diff) return dir * diff;
       const loadDiff = b.activeLoad - a.activeLoad;
@@ -844,7 +799,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       convertedLmps: convertedLmpIds.size,
       studentsPlaced: placedStudents.size,
       studentsOpted: optedStudents.size,
-      conversionPct: optedStudents.size ? (placedStudents.size / optedStudents.size) * 100 : null,
       highestLoad: [...visibleDomainRows].sort((a, b) => {
         const loadDiff = b.activeLoad - a.activeLoad;
         if (loadDiff) return loadDiff;
@@ -862,6 +816,87 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const matched = filtered.filter((p) => (resolveDomainName(p.domain, canonicalDomains) ?? p.domain ?? "Unmapped") === domain);
     openLmps(matched, `${domain} · LMPs`, subtitle ?? `${matched.length} LMPs in current view`);
   };
+  const resolveProcessDomain = (domain: string | null | undefined) =>
+    resolveDomainName(domain, canonicalDomains) ?? domain?.trim() ?? "Unmapped";
+
+  const openDomainConvertedLmps = (domain: string, subtitle?: string) => {
+    const matched = filtered.filter(
+      (p) => resolveProcessDomain(p.domain) === domain && CONVERTED_LMP_STATUSES.has(p.status),
+    );
+    openLmps(matched, `${domain} · Converted LMPs`, subtitle ?? `${matched.length} converted LMPs`);
+  };
+
+  const openDomainPlacedStudents = (domain: string, subtitle?: string) => {
+    const seen = new Set<string>();
+    const rows = convertedStudentsData.rows.filter((r) => {
+      const d = resolveDomainName(r.lmpDomain, canonicalDomains) ?? r.lmpDomain;
+      if (d !== domain) return false;
+      const key = r.email.trim().toLowerCase() || normalizeConvertedName(r.studentName);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    setDrill({
+      kind: "converted-students",
+      title: `${domain} · Students Placed`,
+      subtitle: subtitle ?? `${rows.length} unique students`,
+      rows,
+    });
+  };
+
+  const openDomainOptedStudents = (domain: string, subtitle?: string) => {
+    const rows = studentsInResolvedDomain(scopedStudentRoster, domain, canonicalDomains);
+    setDrill({
+      kind: "students",
+      title: `${domain} · Students Opted`,
+      subtitle: subtitle ?? `${rows.length} students with this domain preference`,
+      rows,
+    });
+  };
+
+  const openVisibleConvertedLmps = () => {
+    const domains = new Set(visibleDomainRows.map((row) => row.domain));
+    const matched = filtered.filter(
+      (p) => domains.has(resolveProcessDomain(p.domain)) && CONVERTED_LMP_STATUSES.has(p.status),
+    );
+    openLmps(matched, "Converted LMPs", `${matched.length} across visible domains`);
+  };
+
+  const openVisiblePlacedStudents = () => {
+    const domains = new Set(visibleDomainRows.map((row) => row.domain));
+    const seen = new Set<string>();
+    const rows = convertedStudentsData.rows.filter((r) => {
+      const d = resolveDomainName(r.lmpDomain, canonicalDomains) ?? r.lmpDomain;
+      if (!domains.has(d)) return false;
+      const key = r.email.trim().toLowerCase() || normalizeConvertedName(r.studentName);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    setDrill({
+      kind: "converted-students",
+      title: "Students Placed",
+      subtitle: `${rows.length} unique students across visible domains`,
+      rows,
+    });
+  };
+
+  const openVisibleOptedStudents = () => {
+    const domains = new Set(visibleDomainRows.map((row) => row.domain));
+    const rows = studentsInBucket(scopedStudentRoster, { bucket: "all" }).filter((s) => {
+      const resolved = [s.primaryDomain, s.secondaryDomain]
+        .map((raw) => (raw ? resolveDomainName(raw, canonicalDomains) : null))
+        .filter((d): d is string => !!d);
+      return resolved.some((d) => domains.has(d));
+    });
+    setDrill({
+      kind: "students",
+      title: "Students Opted",
+      subtitle: `${rows.length} students across visible domains`,
+      rows,
+    });
+  };
+
   const setDomainSortKey = (key: DomainSortKey) => {
     setDomainLoadSort((current) => ({
       key,
@@ -890,8 +925,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       "Converted LMPs",
       "Students Placed",
       "Total student opted",
-      "Conversion %",
-      "Insight",
     ];
     const body = visibleDomainRows.map((row) => [
       row.rank,
@@ -901,8 +934,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       row.convertedLmps,
       row.studentsPlaced,
       row.studentsOpted,
-      formatConversion(row.conversionPct),
-      row.insight,
     ]);
     const csv = [
       ...metadata.map((line) => line.map(csvEscape).join(",")),
@@ -1070,7 +1101,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                       ["convertedLmps", "Converted LMPs"],
                       ["studentsPlaced", "Students Placed"],
                       ["studentsOpted", "Total student opted"],
-                      ["conversionPct", "Conversion %"],
                     ].map(([key, label]) => (
                       <th key={key} className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
                         <button
@@ -1084,9 +1114,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                         </button>
                       </th>
                     ))}
-                    <th className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
-                      Insight
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1113,21 +1140,37 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                           </button>
                         </td>
                         <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(106,158,98,0.12)", color: LX_HEX.success }}>{row.convertedLmps}</span>
+                          <button
+                            type="button"
+                            onClick={() => openDomainConvertedLmps(row.domain)}
+                            disabled={row.convertedLmps === 0}
+                            className="rounded-full px-2 py-1 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                            style={{ background: "rgba(106,158,98,0.12)", color: LX_HEX.success }}
+                          >
+                            {row.convertedLmps}
+                          </button>
                         </td>
                         <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(109,40,217,0.10)", color: LX_HEX.ai }}>{row.studentsPlaced}</span>
+                          <button
+                            type="button"
+                            onClick={() => openDomainPlacedStudents(row.domain)}
+                            disabled={row.studentsPlaced === 0}
+                            className="rounded-full px-2 py-1 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                            style={{ background: "rgba(109,40,217,0.10)", color: LX_HEX.ai }}
+                          >
+                            {row.studentsPlaced}
+                          </button>
                         </td>
                         <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(227,131,48,0.12)", color: LX_HEX.orange }}>{row.studentsOpted}</span>
-                        </td>
-                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                          <span className="rounded-full px-2 py-1" style={{ background: `${LX_HEX[pctClass(row.conversionPct)]}1f`, color: LX_HEX[pctClass(row.conversionPct)] }}>{formatConversion(row.conversionPct)}</span>
-                        </td>
-                        <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                          <span className="rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }} title="Rule-based signal from active load, student interest, and conversion.">
-                            {row.insight}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openDomainOptedStudents(row.domain)}
+                            disabled={row.studentsOpted === 0}
+                            className="rounded-full px-2 py-1 hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                            style={{ background: "rgba(227,131,48,0.12)", color: LX_HEX.orange }}
+                          >
+                            {row.studentsOpted}
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1139,11 +1182,36 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                     </td>
                     <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.info }}>{domainTotals.totalLmps}</td>
                     <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.teal }}>{domainTotals.activeLoad}</td>
-                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.success }}>{domainTotals.convertedLmps}</td>
-                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.ai }}>{domainTotals.studentsPlaced}</td>
-                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.orange }}>{domainTotals.studentsOpted}</td>
-                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX[pctClass(domainTotals.conversionPct)] }}>{formatConversion(domainTotals.conversionPct)}</td>
-                    <td className="px-3 py-3" style={{ borderTop: "2px solid var(--lx-border)" }} />
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.success }}>
+                      <button
+                        type="button"
+                        onClick={openVisibleConvertedLmps}
+                        disabled={domainTotals.convertedLmps === 0}
+                        className="hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                      >
+                        {domainTotals.convertedLmps}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.ai }}>
+                      <button
+                        type="button"
+                        onClick={openVisiblePlacedStudents}
+                        disabled={domainTotals.studentsPlaced === 0}
+                        className="hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                      >
+                        {domainTotals.studentsPlaced}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.orange }}>
+                      <button
+                        type="button"
+                        onClick={openVisibleOptedStudents}
+                        disabled={domainTotals.studentsOpted === 0}
+                        className="hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-60"
+                      >
+                        {domainTotals.studentsOpted}
+                      </button>
+                    </td>
                   </tr>
                 </tbody>
               </table>

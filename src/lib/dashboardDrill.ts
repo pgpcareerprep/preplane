@@ -12,6 +12,8 @@ import type { LmpFlagKey } from "@/lib/lmpFlags";
 import type { StudentDrillRow } from "@/components/insights/LxDrillDown";
 import { isCandidatePipelineConverted, isOptedOutStatus } from "@/lib/studentAnalytics";
 import { formatBatchLabel, getStudentCohortCode, getStudentProgramCode } from "@/lib/cohortProgram";
+import { resolveDomainName } from "@/lib/domainAlias";
+import type { DomainOption } from "@/lib/hooks/useDomainOptions";
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
@@ -279,4 +281,18 @@ export function studentsInBucket(
 
 export function studentsByPrimaryDomain(roster: RosterRow[], domain: string): StudentDrillRow[] {
   return studentsInBucket(roster, { domain });
+}
+
+/** Students whose primary or secondary domain resolves to the given canonical domain name. */
+export function studentsInResolvedDomain(
+  roster: RosterRow[],
+  domain: string,
+  canonicalDomains: DomainOption[],
+): StudentDrillRow[] {
+  return studentsInBucket(roster, { bucket: "all" }).filter((s) => {
+    const resolved = [s.primaryDomain, s.secondaryDomain]
+      .map((raw) => (raw ? resolveDomainName(raw, canonicalDomains) : null))
+      .filter((d): d is string => !!d);
+    return resolved.includes(domain);
+  });
 }
