@@ -15,7 +15,7 @@ export function useCohortProgramLmpScope(): Set<string> | null {
   const { data: cohorts = [] } = useCohorts(false);
   const { data: programs = [] } = usePrograms(null, false);
 
-  const { data: linkRows = [] } = useQuery({
+  const { data: linkRows } = useQuery({
     queryKey: ["cohort_program_lmp_scope_links"],
     queryFn: async () => {
       const PAGE = 1000;
@@ -64,6 +64,7 @@ export function useCohortProgramLmpScope(): Set<string> | null {
 
   return useMemo(() => {
     if (!hasFilters) return null;
+    if (!linkRows?.students || !linkRows?.candidates) return new Set<string>();
 
     const scopedStudents = filterStudentsByCohortProgram(
       linkRows.students,
