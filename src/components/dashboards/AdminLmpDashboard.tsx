@@ -58,7 +58,6 @@ import { parseConvertedNames, normalizeConvertedName } from "@/lib/convertedStud
 
 export { parseConvertedNames, normalizeConvertedName };
 
-type DomainLoadView = "table" | "heatmap";
 type DomainSortKey =
   | "rank"
   | "domain"
@@ -603,7 +602,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
 
   const todaySet = useTodayDailyLogIds();
   const [drill, setDrill] = useState<DrillState | null>(null);
-  const [domainLoadView, setDomainLoadView] = useState<DomainLoadView>("table");
   const [domainLoadFilter, setDomainLoadFilter] = useState("all");
   const [domainLoadSort, setDomainLoadSort] = useState<{ key: DomainSortKey; dir: "asc" | "desc" }>({
     key: "activeLoad",
@@ -881,7 +879,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const metadata = [
       ["Exported At", new Date().toISOString()],
       ["Applied Filters", JSON.stringify(filters)],
-      ["Selected View", domainLoadView],
       ["Domain Filter", domainLoadFilter === "all" ? "All Domains" : domainLoadFilter],
       [],
     ];
@@ -912,7 +909,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       headers.map(csvEscape).join(","),
       ...body.map((line) => line.map(csvEscape).join(",")),
     ].join("\n");
-    downloadDashboardCsv(`domain-load-${domainLoadView}.csv`, csv);
+    downloadDashboardCsv("domain-load.csv", csv);
   };
   const openStatus = (status: ActiveLmpStatus) => {
     const ids = new Set(
@@ -1008,23 +1005,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
             info={info("admin.domain.bar")}
             right={
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex rounded-control p-0.5" style={{ background: "var(--lx-soft)", border: "1px solid var(--lx-border)" }}>
-                  {(["table", "heatmap"] as const).map((view) => (
-                    <button
-                      key={view}
-                      type="button"
-                      onClick={() => setDomainLoadView(view)}
-                      className="h-8 px-3 rounded-sm text-[11.5px] font-semibold transition-colors"
-                      style={{
-                        background: domainLoadView === view ? "var(--lx-surface)" : "transparent",
-                        color: domainLoadView === view ? LX_HEX.info : "var(--lx-text-2)",
-                        boxShadow: domainLoadView === view ? "0 1px 2px rgba(16,33,63,0.08)" : "none",
-                      }}
-                    >
-                      {view === "table" ? "Table" : "Heatmap"}
-                    </button>
-                  ))}
-                </div>
                 <select
                   value={domainLoadFilter}
                   onChange={(event) => setDomainLoadFilter(event.target.value)}
@@ -1104,27 +1084,14 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                         </button>
                       </th>
                     ))}
-                    {domainLoadView === "table" && (
-                      <th className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
-                        Insight
-                      </th>
-                    )}
+                    <th className="px-3 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.6px]" style={{ color: "var(--lx-text-3)", borderBottom: "1px solid var(--lx-border)" }}>
+                      Insight
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleDomainRows.map((row) => {
                     const activePct = (row.activeLoad / maxDomainMetrics.activeLoad) * 100;
-                    const heat = (value: number, max: number, palette: string[]) => {
-                      if (value === 0) return palette[0];
-                      const intensity = value / Math.max(1, max);
-                      if (intensity <= 0.25) return palette[1];
-                      if (intensity <= 0.5) return palette[2];
-                      if (intensity <= 0.75) return palette[3];
-                      return palette[4];
-                    };
-                    const conversionHeat = row.conversionPct == null
-                      ? "rgba(122,117,108,0.07)"
-                      : row.conversionPct >= 50 ? "rgba(106,158,98,0.18)" : row.conversionPct >= 20 ? "rgba(247,211,68,0.22)" : "rgba(240,112,64,0.16)";
                     const metricClass = "px-3 py-3 text-left font-semibold tabular-nums";
                     return (
                       <tr key={row.domain} className="group transition-colors hover:bg-[var(--lx-soft)]">
@@ -1134,47 +1101,34 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                             {row.domain}
                           </button>
                         </td>
-                        {domainLoadView === "table" ? (
-                          <>
-                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <button onClick={() => openDomainLmps(row.domain)} className="rounded-full px-2 py-1 hover:underline" style={{ background: "rgba(74,142,232,0.10)", color: "var(--lx-text)" }}>{row.totalLmps}</button>
-                            </td>
-                            <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <button type="button" onClick={() => openDomainLmps(row.domain, `${row.activeLoad} active LMPs`)} className="grid w-full grid-cols-[1fr_auto] items-center gap-3 text-left">
-                                <span className="h-2.5 overflow-hidden rounded-full" style={{ background: "rgba(74,142,232,0.12)" }}>
-                                  <span className="block h-full rounded-full transition-all" style={{ width: `${activePct}%`, background: LX_HEX.info }} />
-                                </span>
-                                <span className="font-mono font-semibold tabular-nums" style={{ color: "var(--lx-text)" }}>{row.activeLoad}</span>
-                              </button>
-                            </td>
-                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(106,158,98,0.12)", color: LX_HEX.success }}>{row.convertedLmps}</span>
-                            </td>
-                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(109,40,217,0.10)", color: LX_HEX.ai }}>{row.studentsPlaced}</span>
-                            </td>
-                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <span className="rounded-full px-2 py-1" style={{ background: "rgba(227,131,48,0.12)", color: LX_HEX.orange }}>{row.studentsOpted}</span>
-                            </td>
-                            <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <span className="rounded-full px-2 py-1" style={{ background: `${LX_HEX[pctClass(row.conversionPct)]}1f`, color: LX_HEX[pctClass(row.conversionPct)] }}>{formatConversion(row.conversionPct)}</span>
-                            </td>
-                            <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
-                              <span className="rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }} title="Rule-based signal from active load, student interest, and conversion.">
-                                {row.insight}
-                              </span>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className={metricClass} style={{ background: heat(row.totalLmps, maxDomainMetrics.totalLmps, ["#f8fafc", "#eef4fb", "#dfeafa", "#cbdcf5", "#b5ccef"]), border: "1px solid #fff" }}>{row.totalLmps}</td>
-                            <td className={metricClass} style={{ background: heat(row.activeLoad, maxDomainMetrics.activeLoad, ["#f8fbff", "#ecf4fe", "#d8e8fd", "#b7d3f8", "#93bdf4"]), border: "1px solid #fff" }}>{row.activeLoad}</td>
-                            <td className={metricClass} style={{ background: heat(row.convertedLmps, maxDomainMetrics.convertedLmps, ["#f8fcf6", "#eaf6e2", "#d5edcb", "#b9dfae", "#9ccc90"]), border: "1px solid #fff" }}>{row.convertedLmps}</td>
-                            <td className={metricClass} style={{ background: heat(row.studentsPlaced, maxDomainMetrics.studentsPlaced, ["#fcfaff", "#f2e8fd", "#e3d1fa", "#cdb4f1", "#b99be8"]), border: "1px solid #fff" }}>{row.studentsPlaced}</td>
-                            <td className={metricClass} style={{ background: heat(row.studentsOpted, maxDomainMetrics.studentsOpted, ["#fffaf6", "#fef3e8", "#fde1c9", "#f6c18f", "#efaa69"]), border: "1px solid #fff" }}>{row.studentsOpted}</td>
-                            <td className={metricClass} style={{ background: conversionHeat, border: "1px solid #fff" }}>{formatConversion(row.conversionPct)}</td>
-                          </>
-                        )}
+                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <button onClick={() => openDomainLmps(row.domain)} className="rounded-full px-2 py-1 hover:underline" style={{ background: "rgba(74,142,232,0.10)", color: "var(--lx-text)" }}>{row.totalLmps}</button>
+                        </td>
+                        <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <button type="button" onClick={() => openDomainLmps(row.domain, `${row.activeLoad} active LMPs`)} className="grid w-full grid-cols-[1fr_auto] items-center gap-3 text-left">
+                            <span className="h-2.5 overflow-hidden rounded-full" style={{ background: "rgba(74,142,232,0.12)" }}>
+                              <span className="block h-full rounded-full transition-all" style={{ width: `${activePct}%`, background: LX_HEX.info }} />
+                            </span>
+                            <span className="font-mono font-semibold tabular-nums" style={{ color: "var(--lx-text)" }}>{row.activeLoad}</span>
+                          </button>
+                        </td>
+                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(106,158,98,0.12)", color: LX_HEX.success }}>{row.convertedLmps}</span>
+                        </td>
+                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(109,40,217,0.10)", color: LX_HEX.ai }}>{row.studentsPlaced}</span>
+                        </td>
+                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <span className="rounded-full px-2 py-1" style={{ background: "rgba(227,131,48,0.12)", color: LX_HEX.orange }}>{row.studentsOpted}</span>
+                        </td>
+                        <td className={metricClass} style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <span className="rounded-full px-2 py-1" style={{ background: `${LX_HEX[pctClass(row.conversionPct)]}1f`, color: LX_HEX[pctClass(row.conversionPct)] }}>{formatConversion(row.conversionPct)}</span>
+                        </td>
+                        <td className="px-3 py-3" style={{ borderBottom: "1px solid var(--lx-border)" }}>
+                          <span className="rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: "var(--lx-soft)", color: "var(--lx-text-2)" }} title="Rule-based signal from active load, student interest, and conversion.">
+                            {row.insight}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1189,19 +1143,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
                     <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.ai }}>{domainTotals.studentsPlaced}</td>
                     <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX.orange }}>{domainTotals.studentsOpted}</td>
                     <td className="px-3 py-3 font-semibold tabular-nums" style={{ borderTop: "2px solid var(--lx-border)", color: LX_HEX[pctClass(domainTotals.conversionPct)] }}>{formatConversion(domainTotals.conversionPct)}</td>
-                    {domainLoadView === "table" && <td className="px-3 py-3" style={{ borderTop: "2px solid var(--lx-border)" }} />}
+                    <td className="px-3 py-3" style={{ borderTop: "2px solid var(--lx-border)" }} />
                   </tr>
                 </tbody>
               </table>
-              {domainLoadView === "heatmap" && (
-                <div className="flex items-center justify-end gap-2 border-t px-4 py-3 text-[11px]" style={{ borderColor: "var(--lx-border)", color: "var(--lx-text-3)" }}>
-                  <span>Low</span>
-                  {["#f8fbff", "#ecf4fe", "#d8e8fd", "#b7d3f8", "#93bdf4"].map((color) => (
-                    <span key={color} className="h-3 w-3 rounded-[3px] border border-white" style={{ background: color }} />
-                  ))}
-                  <span>High</span>
-                </div>
-              )}
             </div>
           )}
         </LxCard>
