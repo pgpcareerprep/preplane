@@ -1,0 +1,11 @@
+[package]
+name = "preplane-governance"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+preplane-contracts = { workspace = true }
+serde = { workspace = true }

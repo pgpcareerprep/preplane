@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/canonical-request.json",
+  "title": "CanonicalRequest",
+  "description": "Normalized ingress request from any channel (web, voice, slack, whatsapp).",
+  "type": "object",
+  "required": ["channel", "user", "mode", "messages", "turnId"],
+  "additionalProperties": false,
+  "properties": {
+    "channel": {
+      "type": "string",
+      "enum": ["web", "voice", "slack", "whatsapp"]
+    },
+    "user": { "$ref": "#/$defs/UserContext" },
+    "mode": {
+      "type": "string",
+      "enum": ["admin", "poc", "student", "mentor"]
+    },
+    "lmpId": { "type": ["string", "null"] },
+    "snapshot": { "type": ["string", "null"] },
+    "scope": { "type": ["string", "null"] },
+    "threadId": { "type": ["string", "null"] },
+    "mentions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Mention" },
+      "default": []
+    },
+    "activeContext": {
+      "oneOf": [{ "$ref": "#/$defs/ActiveContext" }, { "type": "null" }]
+    },
+    "messages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ChatMessage" },
+      "minItems": 0
+    },
+    "turnId": { "type": "string", "format": "uuid" },
+    "pendingAction": {
+      "oneOf": [{ "$ref": "#/$defs/PendingActionRef" }, { "type": "null" }]
+    },
+    "confirmAction": { "type": ["boolean", "null"] },
+    "cancelAction": { "type": ["boolean", "null"] }
+  },
+  "$defs": {
+    "UserContext": {
+      "type": "object",
+      "required": ["id", "role", "realRole", "name", "email"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": "string" },
+        "realRole": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "viewAs": {
+          "oneOf": [{ "$ref": "#/$defs/ViewAs" }, { "type": "null" }]
+        }
+      }
+    },
+    "ViewAs": {
+      "type": "object",
+      "required": ["userName", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "userName": { "type": ["string", "null"] },
+        "role": { "type": ["string", "null"] }
+      }
+    },
+    "Mention": {
+      "type": "object",
+      "required": ["type", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "name": { "type": "string" },
+        "entity_id": { "type": ["string", "null"] },
+        "email": { "type": ["string", "null"] }
+      }
+    },
+    "ActiveContext": {
+      "type": "object",
+      "required": ["entity_type", "entity_id", "display_name"],
+      "additionalProperties": false,
+      "properties": {
+        "entity_type": { "type": "string" },
+        "entity_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "sub": { "type": ["string", "null"] },
+        "pinned": { "type": "boolean", "default": false }
+      }
+    },
+    "ChatMessage": {
+      "type": "object",
+      "required": ["role", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "assistant", "system", "tool"] },
+        "content": { "type": "string" }
+      }
+    },
+    "PendingActionRef": {
+      "type": "object",
+      "required": ["pending_action_id"],
+      "additionalProperties": false,
+      "properties": {
+        "pending_action_id": { "type": "string", "format": "uuid" }
+      }
+    }
+  }
+}

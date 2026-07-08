@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/sse-chunk.json",
+  "title": "SseChunk",
+  "description": "OpenAI-compatible SSE delta chunk consumed by assembleFromSse.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["choices"],
+      "additionalProperties": true,
+      "properties": {
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["delta"],
+            "properties": {
+              "delta": {
+                "type": "object",
+                "properties": {
+                  "content": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "string",
+      "const": "[DONE]"
+    }
+  ]
+}

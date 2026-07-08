@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/voice-speak-request.json",
+  "title": "VoiceSpeakRequest",
+  "type": "object",
+  "required": ["text"],
+  "additionalProperties": false,
+  "properties": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 5000 },
+    "voiceId": { "type": ["string", "null"] }
+  }
+}

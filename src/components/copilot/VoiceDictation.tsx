@@ -433,11 +433,12 @@ export function VoiceInterimBubble({ interim, listening }: { interim: string; li
 // ─── Conversational Voice Overlay (full-screen mic + TTS) ─────────────────
 
 import { speak as speakTts, stopSpeaking as stopTts } from "@/lib/voice/speakTts";
+import { voiceCopilotUrl } from "@/lib/copilotGateway";
 import { sanitizePendingActionSummary } from "@/lib/copilot/confirmationLabels";
 import { X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-const VOICE_COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/voice-copilot`;
+const VOICE_COPILOT_URL = voiceCopilotUrl();
 
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();

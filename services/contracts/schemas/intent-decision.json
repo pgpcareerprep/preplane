@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/intent-decision.json",
+  "title": "IntentDecision",
+  "type": "object",
+  "required": ["category", "sub_intent", "confidence", "signals", "entities"],
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["COMMAND", "QUERY", "REASONING", "WORKFLOW", "UNKNOWN"]
+    },
+    "sub_intent": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "signals": { "$ref": "#/$defs/IntentSignals" },
+    "entities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ExtractedEntity" }
+    }
+  },
+  "$defs": {
+    "IntentSignals": {
+      "type": "object",
+      "required": ["rules", "semantic", "similarity"],
+      "additionalProperties": false,
+      "properties": {
+        "rules": { "$ref": "#/$defs/SignalVote" },
+        "semantic": { "$ref": "#/$defs/SignalVote" },
+        "similarity": { "$ref": "#/$defs/SignalVote" }
+      }
+    },
+    "SignalVote": {
+      "type": "object",
+      "required": ["category", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["COMMAND", "QUERY", "REASONING", "WORKFLOW", "UNKNOWN"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "ExtractedEntity": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "value": { "type": "string" },
+        "entity_id": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

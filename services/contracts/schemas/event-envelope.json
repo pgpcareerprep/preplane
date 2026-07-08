@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/event-envelope.json",
+  "title": "EventEnvelope",
+  "type": "object",
+  "required": ["type", "entityId", "occurredAt", "actor", "payload", "causationId", "correlationId"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "LMP_Updated",
+        "Mentor_Assigned",
+        "Plan_Generated",
+        "Interview_Scheduled",
+        "Task_Failed",
+        "Retry_Requested",
+        "Notification_Sent"
+      ]
+    },
+    "entityId": { "type": "string" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "actor": { "$ref": "#/$defs/EventActor" },
+    "payload": { "type": "object", "additionalProperties": true },
+    "causationId": { "type": "string" },
+    "correlationId": { "type": "string" }
+  },
+  "$defs": {
+    "EventActor": {
+      "type": "object",
+      "required": ["id", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "email": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

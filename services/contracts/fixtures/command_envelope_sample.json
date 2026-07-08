@@ -1,0 +1,22 @@
+{
+  "command": "UPDATE_LMP_STATUS",
+  "entityId": "lmp_8f3c2a1b-0000-4000-8000-000000000001",
+  "payload": {
+    "status": "On Hold",
+    "company": "Acme",
+    "role": "Product Manager"
+  },
+  "idempotencyKey": "idem_7c9e2f4a8b1d3e5f6a7c8d9e0f1a2b3c",
+  "requestedBy": "user_a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "issuedAt": "2026-07-09T12:00:00Z",
+  "currentSnapshot": {
+    "status": "In Progress",
+    "company": "Acme",
+    "role": "Product Manager"
+  },
+  "proposedSnapshot": {
+    "status": "On Hold",
+    "company": "Acme",
+    "role": "Product Manager"
+  }
+}

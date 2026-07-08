@@ -1,0 +1,12 @@
+[package]
+name = "preplane-event-bus"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "preplane-event-bus"
+path = "src/main.rs"
+
+[dependencies]
+preplane-health = { workspace = true }
+tokio = { workspace = true }

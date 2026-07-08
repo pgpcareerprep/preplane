@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/voice-response.json",
+  "title": "VoiceResponse",
+  "type": "object",
+  "required": ["spoken"],
+  "additionalProperties": false,
+  "properties": {
+    "spoken": { "type": "string" },
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "copilot-block.json" },
+      "default": []
+    },
+    "pendingAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["pending_action_id"],
+          "properties": {
+            "pending_action_id": { "type": "string", "format": "uuid" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "error": { "type": ["string", "null"] },
+    "code": { "type": ["string", "null"] }
+  }
+}

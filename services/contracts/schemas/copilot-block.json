@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/copilot-block.json",
+  "title": "CopilotBlock",
+  "description": "Dynamic block types from src/lib/copilotBlocks.ts VALID_BLOCK_TYPES allowlist.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "executive-summary",
+        "kpi-row",
+        "bar-chart",
+        "donut-chart",
+        "area-chart",
+        "funnel",
+        "table",
+        "status-cards",
+        "timeline",
+        "kanban",
+        "heatmap",
+        "alert-cards",
+        "recommendations",
+        "follow-ups",
+        "progress-tracker",
+        "text",
+        "inline-form",
+        "action-buttons",
+        "confirmation-card",
+        "info-card",
+        "pipeline-card",
+        "activity-feed",
+        "disambiguation-card",
+        "permission-denied-card",
+        "jd-summary-card",
+        "mentor-shortlist-card",
+        "cv-gap-card",
+        "case-study-card",
+        "plan-card"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

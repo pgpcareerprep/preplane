@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1
+ARG RUST_VERSION=1.84
+FROM rust:${RUST_VERSION}-bookworm AS builder
+WORKDIR /app
+COPY Cargo.toml ./
+COPY contracts/rust/preplane-contracts ./contracts/rust/preplane-contracts
+COPY shared/rust-health ./shared/rust-health
+COPY governance ./governance
+COPY gateway ./gateway
+COPY intent-router ./intent-router
+COPY command-plane ./command-plane
+COPY event-bus ./event-bus
+COPY engines ./engines
+ARG SERVICE_CRATE=preplane-gateway
+RUN cargo build --release -p ${SERVICE_CRATE}
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+ARG SERVICE_CRATE=preplane-gateway
+ARG SERVICE_BIN=preplane-gateway
+COPY --from=builder /app/target/release/${SERVICE_BIN} /usr/local/bin/service
+ENV PORT=8080
+EXPOSE 8080
+CMD ["/usr/local/bin/service"]

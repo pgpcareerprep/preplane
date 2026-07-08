@@ -1,0 +1,12 @@
+[package]
+name = "preplane-lmp"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "preplane-lmp"
+path = "src/main.rs"
+
+[dependencies]
+preplane-health = { workspace = true }
+tokio = { workspace = true }

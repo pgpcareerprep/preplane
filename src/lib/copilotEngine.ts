@@ -8,6 +8,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout, withTimeout } from "@/lib/fetchWithTimeout";
+import { copilotChatUrl, copilotPendingUrl, isCopilotGatewayEnabled } from "@/lib/copilotGateway";
 
 export type CopilotMode =
   | "auto" | "ask" | "summarize" | "update" | "assign" | "analyze" | "search";
@@ -154,6 +155,34 @@ async function invokeCopilot(
   messages: { role: string; content: string }[],
   opts: { mode: CopilotMode; lmpId?: string; snapshot?: string },
 ): Promise<string> {
+  if (isCopilotGatewayEnabled()) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) throw new Error("Your session has expired. Please sign in again.");
+
+    const resp = await fetchWithTimeout(copilotChatUrl(), {
+      method: "POST",
+      timeoutMs: 30_000,
+      timeoutLabel: "Copilot",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({
+        messages,
+        mode: opts.mode,
+        lmpId: opts.lmpId,
+        snapshot: opts.snapshot,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `Error ${resp.status}` }));
+      throw new Error(err.error || err.message || `Error ${resp.status}`);
+    }
+    return assembleFromSse(await resp.text());
+  }
+
   const { data, error } = await withTimeout(
     supabase.functions.invoke("copilot-ai", {
       body: {
@@ -175,7 +204,8 @@ async function invokeCopilot(
   return JSON.stringify(data ?? "");
 }
 
-function assembleFromSse(raw: string): string {
+/** Assemble assistant text from OpenAI-compatible SSE chunks. */
+export function assembleFromSse(raw: string): string {
   let out = "";
   for (const block of raw.split("\n\n")) {
     const line = block.split("\n").find((l) => l.startsWith("data:"));
@@ -213,7 +243,7 @@ export async function invokeCopilotPendingAction(
   const accessToken = sessionData?.session?.access_token;
   if (!accessToken) throw new Error("Your session has expired. Please sign in again.");
 
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
+  const url = copilotPendingUrl();
   const resp = await fetchWithTimeout(url, {
     method: "POST",
     timeoutMs: 30_000,

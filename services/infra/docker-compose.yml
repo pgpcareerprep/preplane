@@ -1,0 +1,253 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: preplane
+      POSTGRES_PASSWORD: preplane
+      POSTGRES_DB: preplane
+    ports:
+      - "54322:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preplane"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.96.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-gateway
+        SERVICE_BIN: preplane-gateway
+    environment:
+      PORT: "8080"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  intent-router:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-intent-router
+        SERVICE_BIN: preplane-intent-router
+    environment:
+      PORT: "8081"
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  command-plane:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-command-plane
+        SERVICE_BIN: preplane-command-plane
+    environment:
+      PORT: "8082"
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  event-bus:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-event-bus
+        SERVICE_BIN: preplane-event-bus
+    environment:
+      PORT: "8083"
+    ports:
+      - "8083:8083"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  engine-lmp:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-lmp
+        SERVICE_BIN: preplane-lmp
+    environment:
+      PORT: "8090"
+    ports:
+      - "8090:8090"
+
+  engine-sync:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-sync
+        SERVICE_BIN: preplane-sync
+    environment:
+      PORT: "8091"
+    ports:
+      - "8091:8091"
+
+  engine-notification:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-notification
+        SERVICE_BIN: preplane-notification
+    environment:
+      PORT: "8092"
+    ports:
+      - "8092:8092"
+
+  engine-calendar:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-calendar
+        SERVICE_BIN: preplane-calendar
+    environment:
+      PORT: "8093"
+    ports:
+      - "8093:8093"
+
+  engine-analytics:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-analytics
+        SERVICE_BIN: preplane-analytics
+    environment:
+      PORT: "8094"
+    ports:
+      - "8094:8094"
+
+  semantic-classifier:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: semantic-classifier
+    environment:
+      PORT: "9001"
+    ports:
+      - "9001:9001"
+
+  reasoning:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: reasoning
+    environment:
+      PORT: "9002"
+    ports:
+      - "9002:9002"
+
+  workflow:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: workflow
+    environment:
+      PORT: "9003"
+    ports:
+      - "9003:9003"
+
+  engine-mentor:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: engines/mentor
+    environment:
+      PORT: "9010"
+    ports:
+      - "9010:9010"
+
+  engine-poc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: engines/poc
+    environment:
+      PORT: "9011"
+    ports:
+      - "9011:9011"
+
+  engine-career:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: engines/career
+    environment:
+      PORT: "9012"
+    ports:
+      - "9012:9012"
+
+  engine-resume:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: engines/resume
+    environment:
+      PORT: "9013"
+    ports:
+      - "9013:9013"
+
+  engine-interview:
+    build:
+      context: ..
+      dockerfile: Dockerfile.python
+      args:
+        SERVICE_DIR: engines/interview
+    environment:
+      PORT: "9014"
+    ports:
+      - "9014:9014"
+
+volumes:
+  pgdata:

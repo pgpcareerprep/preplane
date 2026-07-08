@@ -23,6 +23,7 @@ import { useRole } from "@/lib/rolesContext";
 import { useCopilotPermission } from "@/lib/hooks/usePermissions";
 import { logAuditEvent } from "@/lib/auditLog";
 import { QUICK_PROMPTS, type CopilotMode, invokeCopilotPendingAction } from "@/lib/copilotEngine";
+import { copilotChatUrl } from "@/lib/copilotGateway";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuSeparator,
@@ -47,7 +48,7 @@ import {
 } from "@/lib/copilot/copilotPdfExport";
 import { CopilotMessageActions } from "@/components/copilot/CopilotMessageActions";
 
-const COPILOT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
+const COPILOT_URL = copilotChatUrl();
 
 /** Strip inlined attachment payloads from prior turns to cap context size. */
 export function stripHistoricalAttachments(content: string): string {

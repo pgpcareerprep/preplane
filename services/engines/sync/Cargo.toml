@@ -1,0 +1,12 @@
+[package]
+name = "preplane-sync"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "preplane-sync"
+path = "src/main.rs"
+
+[dependencies]
+preplane-health = { workspace = true }
+tokio = { workspace = true }

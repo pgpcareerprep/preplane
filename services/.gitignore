@@ -1,0 +1,7 @@
+/target/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+contracts/fixtures/command_envelope_rust_export.json

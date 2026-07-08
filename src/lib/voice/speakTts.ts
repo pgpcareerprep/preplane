@@ -1,7 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { voiceSpeakUrl } from "@/lib/copilotGateway";
 
-const SPEAK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/voice-speak`;
+const SPEAK_URL = voiceSpeakUrl();
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;

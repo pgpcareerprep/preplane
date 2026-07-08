@@ -1,0 +1,12 @@
+[package]
+name = "preplane-command-plane"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "preplane-command-plane"
+path = "src/main.rs"
+
+[dependencies]
+preplane-health = { workspace = true }
+tokio = { workspace = true }

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://preplane.dev/schemas/voice-request.json",
+  "title": "VoiceRequest",
+  "type": "object",
+  "required": ["messages"],
+  "additionalProperties": false,
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": { "type": "string", "enum": ["user", "assistant"] },
+          "content": { "type": "string" }
+        }
+      }
+    },
+    "userName": { "type": "string" },
+    "role": { "type": "string" },
+    "userId": { "type": ["string", "null"] },
+    "userEmail": { "type": ["string", "null"] },
+    "viewAsUserName": { "type": ["string", "null"] },
+    "viewAsRole": { "type": ["string", "null"] },
+    "confirm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["pending_action_id"],
+          "properties": {
+            "pending_action_id": { "type": "string", "format": "uuid" }
+          }
+        },
+        { "type": "null" }
+      ]
+    }
+  }
+}
