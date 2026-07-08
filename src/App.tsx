@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -15,40 +15,43 @@ import { LmpCommentsDrawer } from "@/components/lmp/LmpCommentsDrawer";
 import { ThemeProvider } from "@/lib/themeContext";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGate, RouteRoleGate } from "@/components/auth/AuthGate";
+import { lazyPage } from "@/lib/lazyWithChunkReload";
 
 // Eager: tiny pages shown before auth resolves
 import NotFound from "./pages/NotFound.tsx";
 import LoginPage from "./pages/LoginPage";
 
 // Lazy: every route-level page gets its own chunk
-const DashboardPage      = lazy(() => import("./pages/DashboardPage"));
-const LmpBoardPage       = lazy(() => import("./pages/LmpBoardPage"));
-const LmpDetailPage      = lazy(() => import("./pages/LmpDetailPage"));
-const CreateLmpPage      = lazy(() => import("./pages/CreateLmpPage"));
-const PocBoardPage       = lazy(() => import("./pages/PocBoardPage"));
-const CopilotPage        = lazy(() => import("./pages/CopilotPage"));
-const MentorsPage        = lazy(() => import("./pages/MentorsPage"));
-const MentorDetailPage   = lazy(() => import("./pages/MentorDetailPage"));
-const MentorFeedbackPage = lazy(() => import("./pages/MentorFeedbackPage"));
-const DataSourcesPage    = lazy(() => import("./pages/DataSourcesPage"));
-const StudentFeedbackPage= lazy(() => import("./pages/StudentFeedbackPage"));
-const AlumniPage         = lazy(() => import("./pages/AlumniPage"));
-const StudentDetailPage  = lazy(() => import("./pages/StudentDetailPage"));
-const HistoryPage        = lazy(() => import("./pages/ImportHistoryPage"));
+const DashboardPage      = lazyPage(() => import("./pages/DashboardPage"));
+const LmpBoardPage       = lazyPage(() => import("./pages/LmpBoardPage"));
+const LmpDetailPage      = lazyPage(() => import("./pages/LmpDetailPage"));
+const CreateLmpPage      = lazyPage(() => import("./pages/CreateLmpPage"));
+const PocBoardPage       = lazyPage(() => import("./pages/PocBoardPage"));
+const CopilotPage        = lazyPage(() => import("./pages/CopilotPage"));
+const MentorsPage        = lazyPage(() => import("./pages/MentorsPage"));
+const MentorDetailPage   = lazyPage(() => import("./pages/MentorDetailPage"));
+const MentorFeedbackPage = lazyPage(() => import("./pages/MentorFeedbackPage"));
+const DataSourcesPage    = lazyPage(() => import("./pages/DataSourcesPage"));
+const StudentFeedbackPage= lazyPage(() => import("./pages/StudentFeedbackPage"));
+const AlumniPage         = lazyPage(() => import("./pages/AlumniPage"));
+const StudentDetailPage  = lazyPage(() => import("./pages/StudentDetailPage"));
+const HistoryPage        = lazyPage(() => import("./pages/ImportHistoryPage"));
 
 // Lazy: mobile quick-actions PWA (no AppShell)
-const QuickActionsPage   = lazy(() => import("./pages/QuickActionsPage"));
+const QuickActionsPage   = lazyPage(() => import("./pages/QuickActionsPage"));
 
 // Lazy: settings layout + sub-pages
-const SettingsLayout     = lazy(() => import("@/components/settings/SettingsLayout").then(m => ({ default: m.SettingsLayout })));
-const GeneralPage        = lazy(() => import("./pages/settings/GeneralPage"));
-const ScoringWeightsPage = lazy(() => import("./pages/settings/ScoringWeightsPage"));
-const PocDomainsPage     = lazy(() => import("./pages/settings/PocDomainsPage"));
-const FeedbackFormsPage  = lazy(() => import("./pages/settings/FeedbackFormsPage"));
-const UserManagementPage = lazy(() => import("./pages/settings/UserManagementPage"));
-const NotificationsPage  = lazy(() => import("./pages/settings/NotificationsPage"));
-const KnowledgeBasePage  = lazy(() => import("./pages/settings/KnowledgeBasePage"));
-const LmpGuidePage       = lazy(() => import("./pages/settings/LmpGuidePage"));
+const SettingsLayout     = lazyPage(() =>
+  import("@/components/settings/SettingsLayout").then((m) => ({ default: m.SettingsLayout })),
+);
+const GeneralPage        = lazyPage(() => import("./pages/settings/GeneralPage"));
+const ScoringWeightsPage = lazyPage(() => import("./pages/settings/ScoringWeightsPage"));
+const PocDomainsPage     = lazyPage(() => import("./pages/settings/PocDomainsPage"));
+const FeedbackFormsPage  = lazyPage(() => import("./pages/settings/FeedbackFormsPage"));
+const UserManagementPage = lazyPage(() => import("./pages/settings/UserManagementPage"));
+const NotificationsPage  = lazyPage(() => import("./pages/settings/NotificationsPage"));
+const KnowledgeBasePage  = lazyPage(() => import("./pages/settings/KnowledgeBasePage"));
+const LmpGuidePage       = lazyPage(() => import("./pages/settings/LmpGuidePage"));
 
 // Minimal full-screen loader shown while a lazy chunk downloads
 function PageLoader() {

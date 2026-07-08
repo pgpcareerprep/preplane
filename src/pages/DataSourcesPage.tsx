@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -24,9 +24,10 @@ import {
   MU_TEMPLATE_HEADERS, ALU_TEMPLATE_HEADERS, STU_TEMPLATE_HEADERS, downloadCsvTemplate,
 } from "@/lib/csvTemplates";
 import { exportTableToCsv, exportLmpProcessesCsv, dateStamp } from "@/lib/exportCsv";
-
 import AuditLogPageContent from "@/pages/AuditLogPage";
-const AiUsagePage = lazy(() => import("@/pages/AiUsagePage"));
+import { lazyPage } from "@/lib/lazyWithChunkReload";
+
+const AiUsagePage = lazyPage(() => import("@/pages/AiUsagePage"));
 import { MappingInspectorModal } from "@/components/datasources/MappingInspectorModal";
 import { StudentDatasetTab } from "@/components/datasources/StudentDatasetTab";
 import { HistoricalLmpBackfillModal } from "@/components/datasources/HistoricalLmpBackfillModal";

@@ -1,10 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { parseBlocks, isIncompleteBlocksFence } from "@/lib/copilotBlocks";
-const BlockRenderer = lazy(() => import("@/components/copilot/BlockRenderer").then((m) => ({ default: m.BlockRenderer })));
+import { lazyPage } from "@/lib/lazyWithChunkReload";
+const BlockRenderer = lazyPage(() =>
+  import("@/components/copilot/BlockRenderer").then((m) => ({ default: m.BlockRenderer })),
+);
 import {
   Sparkles, ArrowUp, Paperclip, AtSign, Mic, ChevronDown,
   CheckCircle2, AlertTriangle, ShieldCheck, ListChecks,

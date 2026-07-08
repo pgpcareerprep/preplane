@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import App from "./App.tsx";
 import { redirectToCanonicalOriginIfNeeded } from "./lib/appOrigin.ts";
+import { CHUNK_RELOAD_KEY } from "./lib/lazyWithChunkReload.ts";
 import "./index.css";
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -32,6 +33,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 }
 
 redirectToCanonicalOriginIfNeeded();
+sessionStorage.removeItem(CHUNK_RELOAD_KEY);
 
 createRoot(document.getElementById("root")!).render(
   <RootErrorBoundary>
