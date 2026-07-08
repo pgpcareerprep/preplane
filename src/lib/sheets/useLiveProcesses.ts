@@ -166,7 +166,7 @@ function lmpToProcess(r: LmpRecord): Process {
   let finalConvert = "";
   if (status === "Converted") {
     offerOutcome = "Accepted";
-    finalConvert = r.finalConvertedNames || r.company;
+    finalConvert = r.finalConvertedNames || r.company || "";
   } else if (r.status === "not-converted") {
     offerOutcome = "Rejected";
   }

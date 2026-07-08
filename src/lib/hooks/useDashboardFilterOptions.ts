@@ -80,7 +80,7 @@ export function useDashboardFilterOptions(): DashboardFilterOptions {
   );
 
   const statusOptions = useMemo(
-    () => [ALL_OPTION, ...(data?.statusSlugs ?? []).map((slug) => ({
+    () => [ALL_OPTION, ...(data?.statusSlugs ?? []).filter(Boolean).map((slug) => ({
       value: slug,
       label: labelForStatusSlug(slug),
     }))],
@@ -88,7 +88,7 @@ export function useDashboardFilterOptions(): DashboardFilterOptions {
   );
 
   const typeOptions = useMemo(
-    () => [ALL_OPTION, ...(data?.typeRaws ?? []).map((raw) => ({
+    () => [ALL_OPTION, ...(data?.typeRaws ?? []).filter(Boolean).map((raw) => ({
       value: raw,
       label: labelForTypeRaw(raw),
     }))],

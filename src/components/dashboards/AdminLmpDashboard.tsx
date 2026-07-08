@@ -537,7 +537,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const m = new Map<string, number>();
     const seen = new Set<string>();
     for (const row of convertedStudentsData.rows) {
-      const identity = row.email.trim().toLowerCase() || normalizeConvertedName(row.studentName);
+      const identity = (row.email ?? "").trim().toLowerCase() || normalizeConvertedName(row.studentName);
       if (!identity) continue;
       const groupKey = groupKeyByStudentIdentity.get(identity);
       if (!groupKey) continue;
@@ -797,7 +797,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const rows = convertedStudentsData.rows.filter((r) => {
       const d = resolveDomainName(r.lmpDomain, canonicalDomains) ?? r.lmpDomain;
       if (d !== domain) return false;
-      const key = r.email.trim().toLowerCase() || normalizeConvertedName(r.studentName);
+      const key = (r.email ?? "").trim().toLowerCase() || normalizeConvertedName(r.studentName);
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -836,7 +836,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     const rows = convertedStudentsData.rows.filter((r) => {
       const d = resolveDomainName(r.lmpDomain, canonicalDomains) ?? r.lmpDomain;
       if (!domains.has(d)) return false;
-      const key = r.email.trim().toLowerCase() || normalizeConvertedName(r.studentName);
+      const key = (r.email ?? "").trim().toLowerCase() || normalizeConvertedName(r.studentName);
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;

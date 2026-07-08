@@ -41,7 +41,7 @@ export function getStudentIdentityKey(student: {
   if (student.id) return `id:${student.id}`;
   const e = (student.email ?? "").trim().toLowerCase();
   if (e) return `email:${e}`;
-  return `name:${student.name.trim().toLowerCase()}`;
+  return `name:${(student.name ?? "").trim().toLowerCase()}`;
 }
 
 /** Stable identity key for an lmp_candidate row. Prefers student_id → email → student_name. */
@@ -53,7 +53,7 @@ export function getCandidateIdentityKey(candidate: {
   if (candidate.studentId) return `id:${candidate.studentId}`;
   const e = (candidate.email ?? "").trim().toLowerCase();
   if (e) return `email:${e}`;
-  return `name:${candidate.studentName.trim().toLowerCase()}`;
+  return `name:${(candidate.studentName ?? "").trim().toLowerCase()}`;
 }
 
 /** True when the candidate is in the LMP pipeline Converted column. */

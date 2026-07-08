@@ -9,6 +9,6 @@ export function parseConvertedNames(raw: string | null | undefined): string[] {
     .filter((s) => s.length > 0 && !CONVERTED_NAME_JUNK.has(s.toLowerCase()));
 }
 
-export function normalizeConvertedName(name: string): string {
-  return name.replace(/\s+/g, " ").trim().toLowerCase();
+export function normalizeConvertedName(name: string | null | undefined): string {
+  return (name ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }

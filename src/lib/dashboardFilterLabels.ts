@@ -16,17 +16,19 @@ export const STATUS_FILTER_LABELS: Record<string, string> = {
   "converted-na": "Converted NA",
 };
 
-export function labelForStatusSlug(slug: string): string {
-  const key = slug.trim().toLowerCase();
-  return STATUS_FILTER_LABELS[key] ?? slug
+export function labelForStatusSlug(slug: string | null | undefined): string {
+  const safe = (slug ?? "").trim();
+  if (!safe) return "";
+  const key = safe.toLowerCase();
+  return STATUS_FILTER_LABELS[key] ?? safe
     .split(/[-_\s]+/)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
 
-export function labelForTypeRaw(raw: string): string {
-  const trimmed = raw.trim();
+export function labelForTypeRaw(raw: string | null | undefined): string {
+  const trimmed = (raw ?? "").trim();
   if (!trimmed) return trimmed;
   return trimmed
     .split(/\s+/)

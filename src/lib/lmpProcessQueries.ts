@@ -247,7 +247,7 @@ export function scopeForRole(
 
 /** Returns true if the row counts as "Converted" per spec. */
 export const isConverted = (r: Process) =>
-  r.status === "Converted" || r.finalConvert.trim() !== "";
+  r.status === "Converted" || (r.finalConvert ?? "").trim() !== "";
 
 /** Returns true if Status = Offer Received OR Offer Outcome present. */
 export const hasOffer = (r: Process) =>
