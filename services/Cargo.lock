@@ -805,8 +805,16 @@ dependencies = [
 name = "preplane-lmp"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "chrono",
+ "preplane-contracts",
  "preplane-health",
+ "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

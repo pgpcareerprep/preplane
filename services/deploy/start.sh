@@ -5,6 +5,7 @@ set -eu
 GATEWAY_PORT="${PORT:-8080}"
 INTENT_ROUTER_PORT="${INTENT_ROUTER_PORT:-8081}"
 COMMAND_PLANE_PORT="${COMMAND_PLANE_PORT:-8082}"
+LMP_ENGINE_PORT="${LMP_ENGINE_PORT:-8090}"
 
 export PORT="${INTENT_ROUTER_PORT}"
 preplane-intent-router &
@@ -14,9 +15,14 @@ export PORT="${COMMAND_PLANE_PORT}"
 preplane-command-plane &
 COMMAND_PLANE_PID=$!
 
+export PORT="${LMP_ENGINE_PORT}"
+preplane-lmp &
+LMP_PID=$!
+
 export INTENT_ROUTER_URL="http://127.0.0.1:${INTENT_ROUTER_PORT}"
 export COMMAND_PLANE_URL="http://127.0.0.1:${COMMAND_PLANE_PORT}"
+export LMP_ENGINE_URL="http://127.0.0.1:${LMP_ENGINE_PORT}"
 export PORT="${GATEWAY_PORT}"
 
-trap 'kill "$INTENT_PID" "$COMMAND_PLANE_PID" 2>/dev/null || true' EXIT INT TERM
+trap 'kill "$INTENT_PID" "$COMMAND_PLANE_PID" "$LMP_PID" 2>/dev/null || true' EXIT INT TERM
 exec preplane-gateway

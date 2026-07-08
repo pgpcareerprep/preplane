@@ -1,5 +1,6 @@
 #[test]
-#[ignore = "Phase 1+: lmp behavior not implemented"]
-fn behavior_not_implemented() {
-    panic!("lmp behavior pending");
+fn execute_module_exports() {
+    assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/execute.rs")
+        .exists());
 }

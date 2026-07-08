@@ -1,4 +1,5 @@
 use crate::bus::publish_command;
+use crate::engine_client::{call_lmp_engine, EngineExecuteInput};
 use crate::guard::{enforce_write_guard, GuardContext};
 use crate::idempotency::find_prior_execution;
 use crate::sse::{
@@ -224,7 +225,31 @@ async fn handle_execute(
         }
     };
     finalize_pending(&state.sb, &pending.id, &body.user_id, true).await;
-    let sse_text = format_execute_sse(&pending.kind, &prepared.target_summary, &correlation_id);
+    let engine_message = if let Ok(engine_url) = std::env::var("LMP_ENGINE_URL") {
+        call_lmp_engine(
+            &engine_url,
+            EngineExecuteInput {
+                command_log_id: &published.command_log_id,
+                envelope: &prepared.envelope,
+                actor_name: body.actor_name.as_deref(),
+                role: Some(role),
+                current_snapshot: Some(&pending.current_snapshot),
+                proposed_snapshot: Some(&pending.proposed_snapshot),
+            },
+        )
+        .await
+        .map(|r| (r.ok, r.message))
+    } else {
+        None
+    };
+    let (engine_ok, engine_msg) = engine_message.unwrap_or((false, String::new()));
+    let sse_text = format_execute_sse(
+        &pending.kind,
+        &prepared.target_summary,
+        &correlation_id,
+        engine_ok,
+        engine_msg.as_str(),
+    );
     Ok(Json(ExecuteResponse {
         sse_text,
         correlation_id: published.correlation_id,

@@ -34,15 +34,31 @@ pub fn format_permission_denied(reason: &str, safe_alternative: Option<&str>) ->
     )
 }
 
-pub fn format_execute_sse(kind: &str, target: &str, correlation_id: &str) -> String {
+pub fn format_execute_sse(
+    kind: &str,
+    target: &str,
+    correlation_id: &str,
+    engine_ok: bool,
+    engine_message: &str,
+) -> String {
+    let (status, details) = if engine_message.is_empty() {
+        (
+            "queued",
+            format!("Command recorded (correlation {correlation_id}). LMP engine not configured."),
+        )
+    } else if engine_ok {
+        ("success", engine_message.to_string())
+    } else {
+        ("error", engine_message.to_string())
+    };
     format!(
-        "Confirmed — staged {kind} for {target}.\n\n:::blocks\n{}\n:::",
+        "Confirmed {kind} for {target}.\n\n:::blocks\n{}\n:::",
         json!([{
             "type": "activity-feed",
             "entries": [{
                 "action": format!("copilot:{kind}"),
-                "status": "success",
-                "details": format!("Command recorded (correlation {correlation_id}). Engine execution lands in Phase 5."),
+                "status": status,
+                "details": details,
             }]
         }])
     )

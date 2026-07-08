@@ -26,7 +26,7 @@ pub async fn publish_command(
         "result": json!({
             "status": "queued",
             "phase": 4,
-            "note": "Command bus recorded; engine execution is Phase 5."
+            "note": "Awaiting LMP engine execution."
         }),
         "correlation_id": correlation_id,
     });

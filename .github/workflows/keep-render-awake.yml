@@ -1,0 +1,44 @@
+name: Keep Render Service Awake
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: "3,13,23,33,43,53 * * * *"
+
+  # Allows manual testing from the GitHub Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-keep-alive
+  cancel-in-progress: true
+
+jobs:
+  ping-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Ping Render health endpoint
+        env:
+          HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "RENDER_HEALTH_URL repository variable is missing."
+            exit 1
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 3 \
+            --retry-delay 10 \
+            --max-time 120 \
+            -H "User-Agent: PrepPlane-GitHub-Keepalive" \
+            "$HEALTH_URL"
+
+          echo "Render service pinged successfully."
