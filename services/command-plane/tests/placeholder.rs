@@ -1,5 +1,4 @@
 #[test]
-#[ignore = "Phase 1+: command-plane behavior not implemented"]
-fn behavior_not_implemented() {
-    panic!("command-plane behavior pending");
+fn command_plane_module_exports_api() {
+    assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api.rs").exists());
 }

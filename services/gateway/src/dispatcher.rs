@@ -2,7 +2,7 @@ use crate::auth::AuthedUser;
 use crate::config::Config;
 use crate::echo::{get_greeting_response, get_help_response};
 use crate::intent_client::{
-    call_command_path, call_query_path, call_reasoning_path, call_workflow_path,
+    call_command_plane_stage, call_query_path, call_reasoning_path, call_workflow_path,
     classify_utterance, query_template_for_sub_intent, RouterContextInput,
 };
 use preplane_contracts::IntentCategory;
@@ -89,22 +89,23 @@ pub async fn dispatch_copilot(
             }
         }
         IntentCategory::Command => {
-            if let Some(text) = call_command_path(
+            if let Some(text) = call_command_plane_stage(
                 config,
                 body.utterance,
                 body.role,
                 body.view_as_role,
                 &auth.id,
+                body.user_name,
             )
             .await
             {
                 return DispatchResult {
                     text,
-                    intent: "command_validated".into(),
+                    intent: "command_staged".into(),
                 };
             }
             DispatchResult {
-                text: "Command path unavailable — start command-path on :8085.".into(),
+                text: "Command plane unavailable — start command-plane on :8082.".into(),
                 intent: "command_stub".into(),
             }
         }

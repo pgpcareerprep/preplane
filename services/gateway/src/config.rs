@@ -6,6 +6,7 @@ pub struct Config {
     pub intent_router_url: Option<String>,
     pub query_path_url: Option<String>,
     pub command_path_url: Option<String>,
+    pub command_plane_url: Option<String>,
     pub reasoning_url: Option<String>,
     pub workflow_url: Option<String>,
 }
@@ -24,6 +25,7 @@ impl Config {
         let intent_router_url = std::env::var("INTENT_ROUTER_URL").ok();
         let query_path_url = std::env::var("QUERY_PATH_URL").ok();
         let command_path_url = std::env::var("COMMAND_PATH_URL").ok();
+        let command_plane_url = std::env::var("COMMAND_PLANE_URL").ok();
         let reasoning_url = std::env::var("REASONING_URL").ok();
         let workflow_url = std::env::var("WORKFLOW_URL").ok();
         Self {
@@ -33,6 +35,7 @@ impl Config {
             intent_router_url,
             query_path_url,
             command_path_url,
+            command_plane_url,
             reasoning_url,
             workflow_url,
         }

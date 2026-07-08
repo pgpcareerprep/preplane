@@ -15,14 +15,16 @@ COPY command-path ./command-path
 COPY command-plane ./command-plane
 COPY event-bus ./event-bus
 COPY engines ./engines
-RUN cargo build --release -p preplane-gateway -p preplane-intent-router
+RUN cargo build --release -p preplane-gateway -p preplane-intent-router -p preplane-command-plane
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/preplane-intent-router /usr/local/bin/preplane-intent-router
+COPY --from=builder /app/target/release/preplane-command-plane /usr/local/bin/preplane-command-plane
 COPY --from=builder /app/target/release/preplane-gateway /usr/local/bin/preplane-gateway
 COPY deploy/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 ENV INTENT_ROUTER_PORT=8081
+ENV COMMAND_PLANE_PORT=8082
 EXPOSE 8080
 CMD ["/usr/local/bin/start.sh"]

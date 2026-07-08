@@ -86,6 +86,120 @@ pub async fn call_query_path(
     resp.json::<QueryExecuteResponse>().await.ok().map(|r| r.sse_text)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CommandStageResponse {
+    pub sse_text: String,
+    #[serde(default)]
+    pub pending_action_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommandExecuteResponse {
+    pub sse_text: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommandCancelResponse {
+    pub sse_text: String,
+}
+
+pub async fn call_command_plane_stage(
+    config: &Config,
+    utterance: &str,
+    role: Option<&str>,
+    view_as_role: Option<&str>,
+    requested_by: &str,
+    actor_name: Option<&str>,
+) -> Option<String> {
+    let base = config.command_plane_url.as_ref()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .ok()?;
+    let resp = client
+        .post(format!("{}/stage", base.trim_end_matches('/')))
+        .json(&serde_json::json!({
+            "utterance": utterance,
+            "role": role,
+            "viewAsRole": view_as_role,
+            "requestedBy": requested_by,
+            "actorName": actor_name,
+            "payload": {},
+        }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<CommandStageResponse>()
+        .await
+        .ok()
+        .map(|r| r.sse_text)
+}
+
+pub async fn call_command_plane_execute(
+    config: &Config,
+    pending_action_id: &str,
+    user_id: &str,
+    role: Option<&str>,
+    view_as_role: Option<&str>,
+    actor_name: Option<&str>,
+) -> Option<String> {
+    let base = config.command_plane_url.as_ref()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .ok()?;
+    let resp = client
+        .post(format!("{}/execute", base.trim_end_matches('/')))
+        .json(&serde_json::json!({
+            "pendingActionId": pending_action_id,
+            "userId": user_id,
+            "role": role,
+            "viewAsRole": view_as_role,
+            "actorName": actor_name,
+        }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<CommandExecuteResponse>()
+        .await
+        .ok()
+        .map(|r| r.sse_text)
+}
+
+pub async fn call_command_plane_cancel(
+    config: &Config,
+    pending_action_id: &str,
+    user_id: &str,
+) -> Option<String> {
+    let base = config.command_plane_url.as_ref()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let resp = client
+        .post(format!("{}/cancel", base.trim_end_matches('/')))
+        .json(&serde_json::json!({
+            "pendingActionId": pending_action_id,
+            "userId": user_id,
+        }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<CommandCancelResponse>()
+        .await
+        .ok()
+        .map(|r| r.sse_text)
+}
+
 pub async fn call_command_path(
     config: &Config,
     utterance: &str,

@@ -720,8 +720,17 @@ dependencies = [
 name = "preplane-command-plane"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "chrono",
+ "preplane-command-path",
+ "preplane-contracts",
  "preplane-health",
+ "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
