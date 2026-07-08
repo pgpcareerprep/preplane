@@ -1,6 +1,10 @@
 use crate::auth::{require_auth, AuthError};
 use crate::config::Config;
-use crate::echo::{cancel_pending_response, confirm_pending_stub_response, get_greeting_response, voice_spoken_from_greeting};
+use crate::echo::{
+    cancel_pending_response, confirm_pending_stub_response, get_greeting_response, get_help_response,
+    voice_spoken_from_greeting,
+};
+use crate::intent_client::{classify_utterance, RouterContextInput};
 use crate::sse::build_plain_sse_response;
 use axum::{
     body::Body,
@@ -35,12 +39,22 @@ struct CopilotBody {
     messages: Option<Vec<ChatMessage>>,
     #[serde(rename = "userName")]
     user_name: Option<String>,
+    role: Option<String>,
+    #[serde(rename = "realRole")]
+    real_role: Option<String>,
+    #[serde(rename = "viewAsRole")]
+    view_as_role: Option<String>,
+    #[serde(rename = "viewAsUserName")]
+    view_as_user_name: Option<String>,
+    mode: Option<String>,
+    #[serde(rename = "lmpId")]
+    lmp_id: Option<String>,
     confirm_action: Option<bool>,
     cancel_action: Option<bool>,
     pending_action_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct ChatMessage {
     role: String,
     content: String,
@@ -78,14 +92,51 @@ fn auth_error(err: AuthError) -> Response {
     json_error(err.status(), err.message())
 }
 
-fn sse_response(text: String) -> Response {
+fn sse_response(text: String, intent: &str) -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
-        .header("X-Copilot-Intent", "greeting")
+        .header("X-Copilot-Intent", intent)
         .body(Body::from(build_plain_sse_response(&text)))
         .unwrap()
+}
+
+fn last_user_message(messages: &[ChatMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.clone())
+        .unwrap_or_default()
+}
+
+async fn echo_text_for_intent(
+    state: &AppState,
+    utterance: &str,
+    body: &CopilotBody,
+) -> (String, String) {
+    let history_len = body.messages.as_ref().map(|m| m.len()).unwrap_or(0);
+    let ctx = RouterContextInput {
+        role: body.role.clone(),
+        real_role: body.real_role.clone(),
+        view_as_role: body.view_as_role.clone(),
+        view_as_user_name: body.view_as_user_name.clone(),
+        lmp_id: body.lmp_id.clone(),
+        mode: body.mode.clone(),
+        history_len,
+    };
+    let decision = classify_utterance(&state.config, utterance, &ctx).await;
+    let sub_intent = decision
+        .as_ref()
+        .map(|d| d.sub_intent.as_str())
+        .unwrap_or("greeting");
+    let text = match sub_intent {
+        "help" => get_help_response(),
+        "greeting" => get_greeting_response(first_name(body.user_name.as_deref())),
+        _ => get_greeting_response(first_name(body.user_name.as_deref())),
+    };
+    (text, sub_intent.to_string())
 }
 
 fn first_name(user_name: Option<&str>) -> &str {
@@ -105,21 +156,22 @@ async fn handle_copilot(
     }
 
     if body.pending_action_id.is_some() && (body.confirm_action == Some(true) || body.cancel_action == Some(true)) {
-        let text = if body.cancel_action == Some(true) {
-            cancel_pending_response()
+        let (text, intent) = if body.cancel_action == Some(true) {
+            (cancel_pending_response(), "deterministic_cancel".to_string())
         } else {
-            confirm_pending_stub_response()
+            (confirm_pending_stub_response(), "deterministic_confirm".to_string())
         };
-        return sse_response(text);
+        return sse_response(text, &intent);
     }
 
-    let messages = body.messages.unwrap_or_default();
+    let messages = body.messages.clone().unwrap_or_default();
     if messages.is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "Missing 'messages' array");
     }
 
-    let text = get_greeting_response(first_name(body.user_name.as_deref()));
-    sse_response(text)
+    let utterance = last_user_message(&messages);
+    let (text, intent) = echo_text_for_intent(&state, &utterance, &body).await;
+    sse_response(text, &intent)
 }
 
 async fn handle_copilot_pending(
@@ -131,12 +183,12 @@ async fn handle_copilot_pending(
         return auth_error(err);
     }
 
-    let text = if body.cancel_action == Some(true) {
-        cancel_pending_response()
+    let (text, intent) = if body.cancel_action == Some(true) {
+        (cancel_pending_response(), "deterministic_cancel".to_string())
     } else {
-        confirm_pending_stub_response()
+        (confirm_pending_stub_response(), "deterministic_confirm".to_string())
     };
-    sse_response(text)
+    sse_response(text, &intent)
 }
 
 async fn handle_voice(

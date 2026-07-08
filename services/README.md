@@ -88,6 +88,15 @@ npm run dev
 
 With the flag on, sending "hi" in `/copilot` should render a greeting bubble via SSE echo.
 
+## Phase 2 verification
+
+```bash
+source "$HOME/.cargo/env"
+cd services
+cargo test -p preplane-intent-router
+cd semantic-classifier && PYTHONPATH=../shared/python:. python3 -m pytest -q tests/
+```
+
 ## Next phase
 
-**Phase 2** — Intent Router (Rust rules + pgvector + Python semantic classifier).
+**Phase 3** — Query, Command, Reasoning, and Workflow path front-halves.

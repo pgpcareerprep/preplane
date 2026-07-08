@@ -45,6 +45,32 @@ pub fn confirm_pending_stub_response() -> String {
     .join("\n")
 }
 
+pub fn get_help_response() -> String {
+    [
+        "Here's what I can help with:",
+        "",
+        "**Look up data**",
+        "• `progress of <student name>` — full student snapshot",
+        "• `find LMP processes for <company>` — search the LMP tracker",
+        "• `who needs attention today?` — stale or stuck processes",
+        "",
+        "**Take action**",
+        "• `assign POC for <LMP>` — allocator engine + suggestions",
+        "• `match mentors for <LMP>` — JD-grounded mentor matching",
+        "• `update <LMP> to <status>` — confirm-then-write to the sheet",
+        "",
+        "**Prep content**",
+        "• `create a case study for <company> <role>` — interview case brief from the JD (@mention the LMP for JD context)",
+        "",
+        "**Analytics**",
+        "• `pipeline summary` / `conversion rate` / `domain breakdown`",
+        "• `POC workload` / `SLA breaches`",
+        "",
+        "Tip: I can also accept @mentions for students, LMPs, mentors, and POCs.",
+    ]
+    .join("\n")
+}
+
 pub fn voice_spoken_from_greeting(greeting: &str) -> String {
     greeting
         .replace("👋", "")
