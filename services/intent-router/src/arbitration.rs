@@ -1,4 +1,3 @@
-use crate::category::category_for_sub_intent;
 use crate::context::RouterContext;
 use crate::rules::CopilotSubIntent;
 use preplane_contracts::{ExtractedEntity, IntentCategory, IntentDecision, IntentSignals, SignalVote};
