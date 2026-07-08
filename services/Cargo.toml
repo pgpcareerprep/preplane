@@ -6,6 +6,8 @@ members = [
   "governance",
   "gateway",
   "intent-router",
+  "query-path",
+  "command-path",
   "command-plane",
   "event-bus",
   "engines/lmp",

@@ -1,0 +1,29 @@
+# Render Blueprint — PrepLane Copilot (gateway + intent-router in one container).
+# Connect this repo in Render Dashboard → New → Blueprint, then provide secret env values.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: preplane-copilot
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./services/Dockerfile.copilot
+    dockerContext: ./services
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - services/**
+        - render.yaml
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: INTENT_ROUTER_PORT
+        value: "8081"
+      - key: RUST_LOG
+        value: preplane_gateway=info,preplane_intent_router=info

@@ -97,6 +97,41 @@ cargo test -p preplane-intent-router
 cd semantic-classifier && PYTHONPATH=../shared/python:. python3 -m pytest -q tests/
 ```
 
+## Phase 3 verification
+
+```bash
+source "$HOME/.cargo/env"
+cd services
+cargo test -p preplane-query-path
+cargo test -p preplane-command-path
+cargo test -p preplane-gateway
+
+cd reasoning && PYTHONPATH=../shared/python:. python3 -m pytest -q tests/
+cd ../workflow && PYTHONPATH=../shared/python:. python3 -m pytest -q tests/
+```
+
+With docker-compose path services running, gateway routes by `IntentDecision.category`:
+- **QUERY** → `query-path` templates (`search_lmp_records`, `get_analytics`)
+- **COMMAND** → `command-path` validated `CommandEnvelope` (no write — Phase 4)
+- **REASONING** → `reasoning` `/plan`
+- **WORKFLOW** → `workflow` `/decompose`
+
+## Production deploy (Render)
+
+The copilot gateway + intent-router ship as one Docker web service on [Render](https://render.com).
+
+1. In Render Dashboard: **New → Blueprint** → connect `pgpcareerprep/preplane`.
+2. When prompted, set:
+   - `SUPABASE_URL` — e.g. `https://sgqwnjajvgjcwqergnsr.supabase.co`
+   - `SUPABASE_PUBLISHABLE_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+3. Render builds `services/Dockerfile.copilot` remotely (no local Docker required).
+4. Health check: `GET /health` on the assigned `PORT` (gateway listens on `0.0.0.0:$PORT`).
+5. Set Cloudflare Pages production env:
+   - `VITE_COPILOT_GATEWAY_URL=https://preplane-copilot.onrender.com`
+
+Blueprint: `render.yaml` at repo root.
+
 ## Next phase
 
-**Phase 3** — Query, Command, Reasoning, and Workflow path front-halves.
+**Phase 4** — Command & Planning Layer (guardrails → idempotency → command bus).

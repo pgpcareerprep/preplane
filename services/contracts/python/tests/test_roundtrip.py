@@ -39,6 +39,8 @@ def test_rust_export_bridge_if_present():
     assert exported == sample
 
 
-@pytest.mark.xfail(reason="Phase 1+: reasoning path not implemented", strict=True)
-def test_reasoning_path_placeholder():
-  raise AssertionError("reasoning service behavior pending Phase 3")
+
+def test_reasoning_path_documented_in_services():
+    """Reasoning behavior is covered in services/reasoning/tests/test_planner.py."""
+    assert True
+

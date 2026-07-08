@@ -47,6 +47,10 @@ services:
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       INTENT_ROUTER_URL: http://intent-router:8081
+      QUERY_PATH_URL: http://query-path:8084
+      COMMAND_PATH_URL: http://command-path:8085
+      REASONING_URL: http://reasoning:9002
+      WORKFLOW_URL: http://workflow:9003
     ports:
       - "8080:8080"
     depends_on:
@@ -54,6 +58,41 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      intent-router:
+        condition: service_started
+      query-path:
+        condition: service_started
+      command-path:
+        condition: service_started
+
+  query-path:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-query-path
+        SERVICE_BIN: preplane-query-path
+    environment:
+      PORT: "8084"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  command-path:
+    build:
+      context: ..
+      dockerfile: Dockerfile.rust
+      args:
+        SERVICE_CRATE: preplane-command-path
+        SERVICE_BIN: preplane-command-path
+    environment:
+      PORT: "8085"
+    ports:
+      - "8085:8085"
 
   intent-router:
     build:

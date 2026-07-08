@@ -1,13 +1,12 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared", "python"))
+import uvicorn
 
-from preplane_health import create_app
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "shared", "python"))
+sys.path.insert(0, ROOT)
 
-app = create_app("workflow")
+from plan import app  # noqa: E402
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "9003")))
