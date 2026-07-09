@@ -58,6 +58,16 @@ jobs:
       - name: Gateway health
         run: curl -sf "$COPILOT_GATEWAY_URL/health"
       - name: Gateway copilot rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$COPILOT_GATEWAY_URL/copilot" -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"hi"}]}')" = "401"
+        run: |
+          code="$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -X POST "$COPILOT_GATEWAY_URL/copilot" \
+            -H 'Content-Type: application/json' \
+            -d '{"messages":[{"role":"user","content":"hi"}]}')"
+          test "$code" = "401"
       - name: Gateway voice rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$COPILOT_GATEWAY_URL/voice" -H 'Content-Type: application/json' -d '{"messages":[]}')" = "401"
+        run: |
+          code="$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -X POST "$COPILOT_GATEWAY_URL/voice" \
+            -H 'Content-Type: application/json' \
+            -d '{"messages":[]}')"
+          test "$code" = "401"
