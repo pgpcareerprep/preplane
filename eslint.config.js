@@ -10,6 +10,7 @@ export default tseslint.config(
       "dist",
       ".claude/**",          // git worktrees / agent scratch space
       "supabase/functions/**", // Deno edge functions — separate toolchain
+      "services/orchestrator/**", // Deno LLM orchestrator — separate toolchain
     ],
   },
   {
