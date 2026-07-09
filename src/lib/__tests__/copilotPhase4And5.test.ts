@@ -9,7 +9,7 @@ function read(rel: string): string {
 }
 
 describe("copilot phase 4 deterministic confirm", () => {
-  const index = read("supabase/functions/copilot-ai/index.ts");
+  const index = read("services/orchestrator/copilot/chat_handler.ts");
   const page = read("src/pages/CopilotPage.tsx");
   const card = read("src/components/copilot/CopilotConfirmationCard.tsx");
   const engine = read("src/lib/copilotEngine.ts");
@@ -43,7 +43,7 @@ describe("voice phonetic glossary helpers", () => {
 });
 
 describe("copilot phase 5 voice glossary", () => {
-  const voice = read("supabase/functions/voice-copilot/index.ts");
+  const voice = read("services/orchestrator/voice_handler.ts");
 
   it("removes hardcoded person names from voice system prompt", () => {
     expect(voice).not.toContain("Sonali Awasthi");

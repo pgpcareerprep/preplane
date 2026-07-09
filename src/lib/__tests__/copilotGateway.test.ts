@@ -12,7 +12,6 @@ describe("copilotGateway URL resolution", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("VITE_COPILOT_GATEWAY_URL", "");
-    vi.stubEnv("VITE_COPILOT_USE_LEGACY", "");
     vi.stubEnv("PROD", "");
     vi.stubEnv("DEV", "true");
   });
@@ -44,13 +43,5 @@ describe("copilotGateway URL resolution", () => {
     expect(isCopilotGatewayEnabled()).toBe(true);
     expect(copilotChatUrl()).toBe(`${PRODUCTION_COPILOT_GATEWAY_URL}/copilot`);
     expect(voiceSpeakUrl()).toBe(`${PRODUCTION_COPILOT_GATEWAY_URL}/voice/speak`);
-  });
-
-  it("VITE_COPILOT_USE_LEGACY=1 forces edge functions even in prod", () => {
-    vi.stubEnv("PROD", "true");
-    vi.stubEnv("DEV", "");
-    vi.stubEnv("VITE_COPILOT_USE_LEGACY", "1");
-    expect(isCopilotGatewayEnabled()).toBe(false);
-    expect(copilotChatUrl()).toBe("https://example.supabase.co/functions/v1/copilot-ai");
   });
 });

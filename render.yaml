@@ -9,12 +9,13 @@ services:
     plan: free
     region: singapore
     dockerfilePath: ./services/Dockerfile.copilot
-    dockerContext: ./services
+    dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: commit
     buildFilter:
       paths:
         - services/**
+        - supabase/functions/**
         - render.yaml
     envVars:
       - key: SUPABASE_URL
@@ -39,5 +40,11 @@ services:
         value: "8083"
       - key: QUERY_PATH_PORT
         value: "8084"
+      - key: ORCHESTRATOR_PORT
+        value: "9005"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROK_API_KEY
+        sync: false
       - key: RUST_LOG
         value: preplane_gateway=info,preplane_intent_router=info,preplane_command_plane=info,preplane_lmp=info,preplane_event_bus=info,preplane_query_path=info

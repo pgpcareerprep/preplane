@@ -1,7 +1,7 @@
 /**
  * LMP Copilot configuration.
  *
- * The actual AI logic runs server-side in the copilot-ai edge function
+ * The actual AI logic runs server-side in the hybrid gateway orchestrator
  * with full tool-calling capabilities. This file provides client-side
  * constants (modes, quick prompts) and a small batching layer so multiple
  * dashboard panels can ask the copilot at once without spawning N requests.

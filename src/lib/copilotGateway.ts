@@ -1,16 +1,12 @@
 /**
- * Copilot gateway URL resolution (Phase 9 cutover).
+ * Copilot gateway URL resolution (Phase 9b — orchestrator behind gateway).
  *
- * Production builds default to the Render gateway. Set `VITE_COPILOT_USE_LEGACY=1`
- * to roll back to Supabase edge functions (`copilot-ai`, `voice-copilot`).
+ * Production builds default to the Render gateway. Override with
+ * `VITE_COPILOT_GATEWAY_URL` for local gateway development.
  */
 export const PRODUCTION_COPILOT_GATEWAY_URL = "https://preplane-copilot.onrender.com";
 
 function gatewayBase(): string | null {
-  const useLegacy = import.meta.env.VITE_COPILOT_USE_LEGACY;
-  if (useLegacy === "1" || useLegacy === "true") {
-    return null;
-  }
   const raw = import.meta.env.VITE_COPILOT_GATEWAY_URL;
   if (typeof raw === "string" && raw.trim()) {
     return raw.trim().replace(/\/$/, "");
@@ -21,14 +17,14 @@ function gatewayBase(): string | null {
   return null;
 }
 
-/** Web copilot chat + pending-action (same path as legacy copilot-ai). */
+/** Web copilot chat. */
 export function copilotChatUrl(): string {
   const gw = gatewayBase();
   if (gw) return `${gw}/copilot`;
   return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/copilot-ai`;
 }
 
-/** Alias for pending confirm/cancel — gateway exposes /copilot/pending; legacy uses /copilot. */
+/** Pending confirm/cancel — gateway exposes /copilot/pending. */
 export function copilotPendingUrl(): string {
   const gw = gatewayBase();
   if (gw) return `${gw}/copilot/pending`;

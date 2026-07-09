@@ -145,10 +145,10 @@ curl -sf https://preplane-copilot.onrender.com/health
 # VITE_COPILOT_GATEWAY_URL=http://localhost:8080
 ```
 
-Edge functions `copilot-ai`, `voice-copilot`, and `voice-speak` are **deprecated**
-(see `DEPRECATED.md` in each folder) but kept for rollback and LLM flows not yet
-ported to the hybrid backend.
+## Phase 9b — LLM orchestrator shipped
 
-## Next phase
+`services/orchestrator/` runs the full tool-loop (ported from edge functions) inside the
+Render container alongside Rust services. Set `VITE_COPILOT_GATEWAY_URL=http://localhost:8080`
+for local gateway development.
 
-Post-cutover: port remaining LLM tool-loop orchestration, then delete deprecated edge functions.
+Edge functions `copilot-ai`, `voice-copilot`, and `voice-speak` are **deleted**.

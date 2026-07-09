@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assembleFromSse } from "@/lib/copilotEngine";
-import { buildPlainSseResponse } from "../../../supabase/functions/copilot-ai/intentRouter";
+import { buildPlainSseResponse } from "../../../services/orchestrator/copilot/intentRouter";
 
 describe("gateway SSE compatibility", () => {
   it("assembleFromSse parses buildPlainSseResponse output", () => {

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildCorsHeaders } from "../_shared/cors.ts";
+import { buildCorsHeaders } from "../../../supabase/functions/_shared/cors.ts";
 import {
   classifyIntent,
   getGreetingResponse,
@@ -10,25 +10,25 @@ import {
   GEMINI_ANALYSIS_MODEL,
   getTaskTier,
 } from "./modelConfig.ts";
-import { validateResponse as validateAiResponse } from "../_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../_shared/copilotFastPaths.ts";
+import { validateResponse as validateAiResponse } from "../../../supabase/functions/_shared/responseValidator.ts";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
 import {
   fetchMentorCoverageFastPath,
   fetchPocWorkloadFastPath,
   formatMentorCoverageChatSse,
   formatPocWorkloadChatSse,
-} from "../_shared/fastPathHandlers.ts";
-import { resolveViewAsEffectiveRole } from "../_shared/viewAsRole.ts";
+} from "../../../supabase/functions/_shared/fastPathHandlers.ts";
+import { resolveViewAsEffectiveRole } from "../../../supabase/functions/_shared/viewAsRole.ts";
 import {
   formatCancelPendingChatSse,
   formatCancelPendingErrorSse,
   formatExecutePendingChatSse,
-} from "../_shared/copilotDeterministicConfirm.ts";
-import { cancelPendingAction } from "../_shared/copilotPendingActions.ts";
-import { buildConversionReport, formatConversionReportSse, tallyLmpConversionBuckets, formatLmpProcessConversionRate } from "../_shared/conversionReport.ts";
-import { requireAuth } from "../_shared/requireAuth.ts";
+} from "../../../supabase/functions/_shared/copilotDeterministicConfirm.ts";
+import { cancelPendingAction } from "../../../supabase/functions/_shared/copilotPendingActions.ts";
+import { buildConversionReport, formatConversionReportSse, tallyLmpConversionBuckets, formatLmpProcessConversionRate } from "../../../supabase/functions/_shared/conversionReport.ts";
+import { requireAuth } from "../../../supabase/functions/_shared/requireAuth.ts";
 import { buildProviderList, callSynthesis, callToolModel, sanitizeFailMsg, type ProviderConfig } from "./providers.ts";
-import { getHealthSnapshot } from "../_shared/circuitBreaker.ts";
+import { getHealthSnapshot } from "../../../supabase/functions/_shared/circuitBreaker.ts";
 import {
   requestStateStorage,
   createRequestState,
@@ -38,8 +38,8 @@ import {
   viewAsBlocksWrites,
 } from "./requestContext.ts";
 import { ensureVaultLoaded, getVaultSecret } from "./secrets.ts";
-import { loadSecretWithSource, normalizeSecretValue } from "../_shared/providers/secrets.ts";
-import { GEMINI_FREE_MODEL } from "../_shared/providers/config.ts";
+import { loadSecretWithSource, normalizeSecretValue } from "../../../supabase/functions/_shared/providers/secrets.ts";
+import { GEMINI_FREE_MODEL } from "../../../supabase/functions/_shared/providers/config.ts";
 import { retrieveRAGContext } from "./rag.ts";
 import {
   ANALYTICAL_TTL,
@@ -174,7 +174,7 @@ async function loadProviderKeyMeta(name: string) {
   };
 }
 
-async function handleRequest(req: Request) {
+export async function handleChatRequest(req: Request) {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -317,7 +317,7 @@ async function handleRequest(req: Request) {
     scope_broadened_count: 0,
   };
   let usedWriteTool = false;
-  const { reserveAiRequest } = await import("../_shared/ai-usage.ts");
+  const { reserveAiRequest } = await import("../../../supabase/functions/_shared/ai-usage.ts");
   const budget = await reserveAiRequest(authedUser.id, aiProvider().toolModel);
   if (!budget.allowed) {
     return new Response(JSON.stringify({
@@ -364,9 +364,9 @@ async function handleRequest(req: Request) {
       });
       // Mirror to ai_usage_events for the AI Usage dashboard.
       try {
-        const { logAiUsage } = await import("../_shared/ai-usage.ts");
+        const { logAiUsage } = await import("../../../supabase/functions/_shared/ai-usage.ts");
         const lastUser = [...(messages || [])].reverse().find((m) => m.role === "user")?.content || "";
-        const { estimateTokens } = await import("../_shared/ai-usage.ts");
+        const { estimateTokens } = await import("../../../supabase/functions/_shared/ai-usage.ts");
         const pt = estimateTokens(lastUser);
         const rt = estimateTokens(String(params.response_chars ? "x".repeat(params.response_chars) : ""));
         await logAiUsage({
@@ -1226,10 +1226,6 @@ async function handleRequest(req: Request) {
     return jsonError(err instanceof Error ? err.message : "Unknown error", 500, corsHeaders);
   }
 }
-
-Deno.serve((req: Request) =>
-  requestStateStorage.run(createRequestState(req), () => handleRequest(req))
-);
 
 function jsonError(message: string, status: number, corsHeaders: Record<string, string>) {
   return new Response(JSON.stringify({ error: message }), {

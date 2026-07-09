@@ -10,10 +10,10 @@ import { resolve } from "node:path";
 const root = resolve(__dirname, "../../..");
 const read = (p: string) => readFileSync(resolve(root, p), "utf-8");
 
-const COPILOT_AI = "supabase/functions/copilot-ai/index.ts";
-const COPILOT_PROVIDERS = "supabase/functions/copilot-ai/providers.ts";
-const COPILOT_REQUEST = "supabase/functions/copilot-ai/requestContext.ts";
-const VOICE_COPILOT = "supabase/functions/voice-copilot/index.ts";
+const COPILOT_AI = "services/orchestrator/copilot/chat_handler.ts";
+const COPILOT_PROVIDERS = "services/orchestrator/copilot/providers.ts";
+const COPILOT_REQUEST = "services/orchestrator/copilot/requestContext.ts";
+const VOICE_COPILOT = "services/orchestrator/voice_handler.ts";
 const COPILOT_PAGE = "src/pages/CopilotPage.tsx";
 const VOICE_DICTATION = "src/components/copilot/VoiceDictation.tsx";
 

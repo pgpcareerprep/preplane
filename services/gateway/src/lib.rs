@@ -3,6 +3,7 @@ pub mod config;
 pub mod dispatcher;
 pub mod echo;
 pub mod intent_client;
+pub mod orchestrator_client;
 pub mod routes;
 pub mod sse;
 pub mod tts;

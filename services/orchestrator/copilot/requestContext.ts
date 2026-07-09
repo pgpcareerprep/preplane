@@ -3,7 +3,7 @@ import {
   GEMINI_TOOL_MODEL,
   GEMINI_TOOL_FALLBACK_MODELS,
 } from "./modelConfig.ts";
-import { createLogger, type Logger } from "../_shared/logger.ts";
+import { createLogger, type Logger } from "../../../supabase/functions/_shared/logger.ts";
 import { GEMINI_DIRECT_URL } from "./constants.ts";
 import type { ProviderConfig } from "./types.ts";
 

@@ -1,5 +1,5 @@
-import { estimateTokens, logAiUsage } from "../../_shared/ai-usage.ts";
-import { GEMINI_FREE_MODEL } from "../../_shared/providers/config.ts";
+import { estimateTokens, logAiUsage } from "../../../../supabase/functions/_shared/ai-usage.ts";
+import { GEMINI_FREE_MODEL } from "../../../../supabase/functions/_shared/providers/config.ts";
 import { readCache, sha256Hex, writeCache } from "../cache.ts";
 import { getEnv } from "../secrets.ts";
 import { requestState } from "../requestContext.ts";

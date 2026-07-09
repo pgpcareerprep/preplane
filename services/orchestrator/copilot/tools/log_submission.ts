@@ -4,7 +4,7 @@ import {
   SUBMISSION_ROUNDS,
   validateLogSubmissionArgs,
   writeSubmissionRecord,
-} from "../../_shared/logSubmissionWrite.ts";
+} from "../../../../supabase/functions/_shared/logSubmissionWrite.ts";
 
 export const LOG_SUBMISSION_SCHEMA = {
   type: "function",

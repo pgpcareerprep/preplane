@@ -10,8 +10,8 @@ function read(rel: string): string {
 
 describe("copilot phase 3 fast path handlers", () => {
   const handlers = read("supabase/functions/_shared/fastPathHandlers.ts");
-  const chat = read("supabase/functions/copilot-ai/index.ts");
-  const voice = read("supabase/functions/voice-copilot/index.ts");
+  const chat = read("services/orchestrator/copilot/chat_handler.ts");
+  const voice = read("services/orchestrator/voice_handler.ts");
 
   it("defines shared mentor coverage and POC workload fetchers", () => {
     expect(handlers).toContain("export async function fetchMentorCoverageFastPath");

@@ -4,7 +4,7 @@ import {
   isCaseStudyQuery,
   isCreateLmpQuery,
   isGenuineHelpRequest,
-} from "../../../supabase/functions/copilot-ai/intentRouter";
+} from "../../../services/orchestrator/copilot/intentRouter";
 
 describe("copilot intent router — case study", () => {
   it("routes case study requests to case_study (not help or create_lmp)", () => {

@@ -1,11 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { checkPermission } from "../../_shared/rbac.ts";
-import { POC_WRITABLE_LMP_COLUMNS } from "../../_shared/permissionContract.ts";
+import { checkPermission } from "../../../../supabase/functions/_shared/rbac.ts";
+import { POC_WRITABLE_LMP_COLUMNS } from "../../../../supabase/functions/_shared/permissionContract.ts";
 import {
   claimPendingActionForExecution,
   finalizePendingActionExecution,
   stagePendingAction,
-} from "../../_shared/copilotPendingActions.ts";
+} from "../../../../supabase/functions/_shared/copilotPendingActions.ts";
 import {
   requestState,
   aiProvider,
@@ -20,12 +20,12 @@ import {
   lmpKeyFromArgs,
   trimStr,
   validateChatWriteKind,
-} from "../../_shared/lmpWriteValidation.ts";
-import { getServiceClient } from "../../_shared/entitySearch.ts";
+} from "../../../../supabase/functions/_shared/lmpWriteValidation.ts";
+import { getServiceClient } from "../../../../supabase/functions/_shared/entitySearch.ts";
 import {
   formatLmpProcessConversionRate,
   tallyLmpConversionBuckets,
-} from "../../_shared/conversionReport.ts";
+} from "../../../../supabase/functions/_shared/conversionReport.ts";
 
 function getCallerSupabase() {
   const token = requestState().context.authToken;
@@ -513,7 +513,7 @@ export async function executeTool(
           });
         }
 
-        const { searchEntities: _se } = await import("../../_shared/entitySearch.ts");
+        const { searchEntities: _se } = await import("../../../../supabase/functions/_shared/entitySearch.ts");
         let regData = await _se(getCallerSupabase(), { query: "", types: [entityType], limit: limitVal, perTypeLimit: limitVal });
         if (args.domain) {
           const dq = String(args.domain).toLowerCase();
@@ -897,7 +897,7 @@ export async function executeTool(
         const preferredScope = (args.preferred_scope as string) || "global";
         const limit = Math.max(1, Math.min(20, (args.limit as number) || 6));
 
-        const { searchEntities: _se2 } = await import("../../_shared/entitySearch.ts");
+        const { searchEntities: _se2 } = await import("../../../../supabase/functions/_shared/entitySearch.ts");
         const candidates = await _se2(getCallerSupabase(), { query, limit: 50, perTypeLimit: 12 });
 
         const q = query.toLowerCase();

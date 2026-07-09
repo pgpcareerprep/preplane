@@ -9,7 +9,7 @@ function read(rel: string): string {
 }
 
 describe("copilot phase 2 voice delegation", () => {
-  const voice = read("supabase/functions/voice-copilot/index.ts");
+  const voice = read("services/orchestrator/voice_handler.ts");
 
   it("routes reads through shared copilot tool runtime", () => {
     expect(voice).toContain("runSharedCopilotTool");

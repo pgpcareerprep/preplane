@@ -5,9 +5,19 @@ It is composed of three main surfaces:
 
 1. **`/copilot`** — the chat UI (`src/pages/CopilotPage.tsx`).
 2. **`/copilot/insights`** — observability dashboard (`src/pages/CopilotInsightsPage.tsx`).
-3. **Copilot backend** — production traffic routes to the Rust gateway
-   (`https://preplane-copilot.onrender.com`) by default. Legacy edge functions
-   (`copilot-ai`, `voice-copilot`) remain for rollback via `VITE_COPILOT_USE_LEGACY=1`.
+## Phase 9b — LLM orchestrator (Deno)
+
+Chat and voice LLM tool-loop orchestration lives in `services/orchestrator/` (Deno).
+The gateway proxies `/copilot` and `/voice` to the orchestrator; confirm/cancel still
+routes through the Rust command-plane.
+
+```
+CopilotPage ─▶ gateway /copilot ─▶ orchestrator /chat (tool loop)
+VoiceDictation ─▶ gateway /voice ─▶ orchestrator /voice
+TTS ─▶ gateway /voice/speak (Rust)
+```
+
+Legacy edge functions `copilot-ai`, `voice-copilot`, and `voice-speak` have been removed.
 
 ## Data flow (Phase 9 — hybrid gateway)
 
@@ -120,7 +130,7 @@ When adding a new block:
 1. Add the type to `src/lib/copilotBlocks.ts` (both the union and
    `VALID_BLOCK_TYPES`).
 2. Add a renderer case in `src/components/copilot/BlockRenderer.tsx`.
-3. Teach the system prompt in `supabase/functions/copilot-ai/index.ts`
+3. Teach the system prompt in `services/orchestrator/copilot/systemPrompt.ts`
    when to emit it.
 4. Add a test case to `copilotBlocks.test.ts` covering a valid payload.
 
@@ -139,7 +149,7 @@ npx supabase secrets set GEMINI_API_KEY="<new-key>" --project-ref sgqwnjajvgjcwq
 4. Redeploy AI functions (secrets are picked up on cold start; redeploy ensures clean rollout):
 
 ```bash
-npx supabase functions deploy copilot-ai voice-copilot voice-speak create-case-study --project-ref sgqwnjajvgjcwqergnsr
+npx supabase functions deploy create-case-study --project-ref sgqwnjajvgjcwqergnsr
 ```
 
 5. Verify with a simple copilot prompt; check function logs for `ALL_AI_PROVIDERS_UNAVAILABLE` vs a clean response.

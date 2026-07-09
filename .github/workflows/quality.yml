@@ -43,10 +43,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Copilot rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/copilot-ai")" = "401"
-      - name: Voice rejects anonymous requests
-        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/voice-copilot")" = "401"
       - name: Privileged jobs reject anonymous requests
         run: |
           test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/progress-reminder-cron")" = "401"

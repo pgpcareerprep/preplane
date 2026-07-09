@@ -7,8 +7,8 @@ import {
   GROK_TOOL_MODEL,
   GROK_SYNTHESIS_MODELS,
 } from "./modelConfig.ts";
-import { isCircuitOpen, recordSuccess, recordFailure } from "../_shared/circuitBreaker.ts";
-import { getAppOrigin } from "../_shared/appConfig.ts";
+import { isCircuitOpen, recordSuccess, recordFailure } from "../../../supabase/functions/_shared/circuitBreaker.ts";
+import { getAppOrigin } from "../../../supabase/functions/_shared/appConfig.ts";
 import { requestState, aiProvider } from "./requestContext.ts";
 import { GEMINI_DIRECT_URL, OPENROUTER_URL, GROK_URL } from "./constants.ts";
 import type { ProviderConfig } from "./types.ts";

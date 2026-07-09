@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { normalizeSecretValue } from "../_shared/providers/secrets.ts";
+import { normalizeSecretValue } from "../../../supabase/functions/_shared/providers/secrets.ts";
 
 type SupabaseLike = ReturnType<typeof createClient>;
 

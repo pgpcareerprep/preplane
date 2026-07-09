@@ -1,14 +1,9 @@
 use crate::auth::{require_auth, AuthError};
 use crate::config::Config;
-use crate::dispatcher::{dispatch_copilot, DispatchBody};
-use crate::echo::{
-    cancel_pending_response, confirm_pending_stub_response, get_greeting_response,
-    voice_spoken_from_greeting,
-};
+use crate::echo::{cancel_pending_response, confirm_pending_stub_response, voice_spoken_from_greeting};
 use crate::intent_client::{call_command_plane_cancel, call_command_plane_execute};
+use crate::orchestrator_client::{proxy_orchestrator_chat, proxy_orchestrator_voice};
 use crate::tts::{synthesize, TtsOutcome};
-use crate::voice::parse_voice_response;
-use crate::sse::build_plain_sse_response;
 use axum::{
     body::Body,
     extract::State,
@@ -17,8 +12,8 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -37,7 +32,7 @@ pub fn api_router(config: Config) -> Router {
         .with_state(state)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CopilotBody {
     messages: Option<Vec<ChatMessage>>,
     #[serde(rename = "userName")]
@@ -57,13 +52,13 @@ struct CopilotBody {
     pending_action_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct ChatMessage {
     role: String,
     content: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct VoiceBody {
     messages: Option<Vec<ChatMessage>>,
     #[serde(rename = "userName")]
@@ -76,7 +71,7 @@ struct VoiceBody {
     confirm: Option<VoiceConfirm>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct VoiceConfirm {
     pending_action_id: String,
 }
@@ -101,6 +96,7 @@ fn auth_error(err: AuthError) -> Response {
 }
 
 fn sse_response(text: String, intent: &str) -> Response {
+    use crate::sse::build_plain_sse_response;
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/event-stream")
@@ -164,24 +160,11 @@ async fn handle_copilot(
         return json_error(StatusCode::BAD_REQUEST, "Missing 'messages' array");
     }
 
-    let utterance = last_user_message(&messages);
-    let result = dispatch_copilot(
-        &state.config,
-        &auth,
-        DispatchBody {
-            utterance: &utterance,
-            user_name: body.user_name.as_deref(),
-            role: body.role.as_deref().or(Some(auth.role.as_str())),
-            real_role: body.real_role.as_deref(),
-            view_as_role: body.view_as_role.as_deref(),
-            view_as_user_name: body.view_as_user_name.as_deref(),
-            lmp_id: body.lmp_id.as_deref(),
-            mode: body.mode.as_deref(),
-            history_len: messages.len(),
-        },
-    )
-    .await;
-    sse_response(result.text, &result.intent)
+    let payload = serde_json::to_value(&body).unwrap_or(json!({}));
+    match proxy_orchestrator_chat(&state.config, &headers, &payload).await {
+        Ok(resp) => resp,
+        Err(status) => json_error(status, "Copilot orchestrator unavailable"),
+    }
 }
 
 async fn handle_copilot_pending(
@@ -246,42 +229,11 @@ async fn handle_voice(
         return Json(json!({ "spoken": spoken })).into_response();
     }
 
-    let messages = body.messages.clone().unwrap_or_default();
-    if messages.is_empty() {
-        let greeting = get_greeting_response(first_name(body.user_name.as_deref()));
-        let spoken = voice_spoken_from_greeting(&greeting);
-        return Json(json!({ "spoken": spoken, "blocks": [] })).into_response();
+    let payload = serde_json::to_value(&body).unwrap_or(json!({}));
+    match proxy_orchestrator_voice(&state.config, &headers, &payload).await {
+        Ok(resp) => resp,
+        Err(status) => json_error(status, "Voice orchestrator unavailable"),
     }
-
-    let utterance = last_user_message(&messages);
-    if utterance.trim().is_empty() {
-        let spoken = voice_spoken_from_greeting(&get_greeting_response(first_name(body.user_name.as_deref())));
-        return Json(json!({ "spoken": spoken, "blocks": [] })).into_response();
-    }
-
-    let result = dispatch_copilot(
-        &state.config,
-        &auth,
-        DispatchBody {
-            utterance: &utterance,
-            user_name: body.user_name.as_deref(),
-            role: body.role.as_deref().or(Some(auth.role.as_str())),
-            real_role: None,
-            view_as_role: body.view_as_role.as_deref(),
-            view_as_user_name: body.view_as_user_name.as_deref(),
-            lmp_id: None,
-            mode: Some("voice"),
-            history_len: messages.len(),
-        },
-    )
-    .await;
-    let parsed = parse_voice_response(&result.text);
-    Json(json!({
-        "spoken": parsed.spoken,
-        "blocks": parsed.blocks,
-        "intent": result.intent,
-    }))
-    .into_response()
 }
 
 async fn handle_voice_speak(

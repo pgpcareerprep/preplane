@@ -5,7 +5,7 @@ import {
   GEMINI_TOOL_MODEL,
   OPENROUTER_SYNTHESIS_MODELS,
   OPENROUTER_TOOL_MODEL,
-} from "../../../supabase/functions/copilot-ai/modelConfig";
+} from "../../../services/orchestrator/copilot/modelConfig";
 
 const RETIRED_OPENROUTER_IDS = new Set([
   "deepseek/deepseek-chat-v3-0324:free",

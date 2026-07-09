@@ -1,36 +1,45 @@
 # syntax=docker/dockerfile:1
-# Production image for Render: intent-router + gateway in one web service.
-# rand 0.10+ needs edition2024 support (Cargo 1.85+).
+# Production image for Render: Rust services + Deno LLM orchestrator.
 ARG RUST_VERSION=1.96
 FROM rust:${RUST_VERSION}-bookworm AS builder
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
-COPY contracts/rust/preplane-contracts ./contracts/rust/preplane-contracts
-COPY shared/rust-health ./shared/rust-health
-COPY governance ./governance
-COPY gateway ./gateway
-COPY intent-router ./intent-router
-COPY query-path ./query-path
-COPY command-path ./command-path
-COPY command-plane ./command-plane
-COPY event-bus ./event-bus
-COPY engines ./engines
+COPY services/Cargo.toml services/Cargo.lock ./
+COPY services/contracts/rust/preplane-contracts ./contracts/rust/preplane-contracts
+COPY services/shared/rust-health ./shared/rust-health
+COPY services/governance ./governance
+COPY services/gateway ./gateway
+COPY services/intent-router ./intent-router
+COPY services/query-path ./query-path
+COPY services/command-path ./command-path
+COPY services/command-plane ./command-plane
+COPY services/event-bus ./event-bus
+COPY services/engines ./engines
 RUN cargo build --release -p preplane-gateway -p preplane-intent-router -p preplane-command-plane -p preplane-lmp -p preplane-event-bus -p preplane-query-path
 
+FROM denoland/deno:2.1.4 AS deno
+WORKDIR /app
+COPY supabase/functions ./supabase/functions
+COPY services/orchestrator ./services/orchestrator
+RUN cd services/orchestrator && deno cache main.ts
+
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+COPY --from=denoland/deno:2.1.4 /usr/local/bin/deno /usr/local/bin/deno
 COPY --from=builder /app/target/release/preplane-intent-router /usr/local/bin/preplane-intent-router
 COPY --from=builder /app/target/release/preplane-command-plane /usr/local/bin/preplane-command-plane
 COPY --from=builder /app/target/release/preplane-lmp /usr/local/bin/preplane-lmp
 COPY --from=builder /app/target/release/preplane-event-bus /usr/local/bin/preplane-event-bus
 COPY --from=builder /app/target/release/preplane-query-path /usr/local/bin/preplane-query-path
 COPY --from=builder /app/target/release/preplane-gateway /usr/local/bin/preplane-gateway
-COPY deploy/start.sh /usr/local/bin/start.sh
+COPY --from=deno /app/supabase/functions /app/supabase/functions
+COPY --from=deno /app/services/orchestrator /app/services/orchestrator
+COPY services/deploy/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 ENV INTENT_ROUTER_PORT=8081
 ENV COMMAND_PLANE_PORT=8082
 ENV LMP_ENGINE_PORT=8090
 ENV EVENT_BUS_PORT=8083
 ENV QUERY_PATH_PORT=8084
+ENV ORCHESTRATOR_PORT=9005
 EXPOSE 8080
 CMD ["/usr/local/bin/start.sh"]

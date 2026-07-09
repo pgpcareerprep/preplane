@@ -18,21 +18,21 @@ function moreRestrictiveRole(a: string, b: string): string {
 
 describe("copilot phase 1 security wiring", () => {
   it("removes voiceCopilotBridge global from voice-copilot", () => {
-    const voice = read("supabase/functions/voice-copilot/index.ts");
+    const voice = read("services/orchestrator/voice_handler.ts");
     expect(voice).not.toContain("voiceCopilotBridge");
     expect(voice).toContain("voiceRequestStateStorage");
     expect(voice).toContain("resolveViewAsEffectiveRole");
   });
 
   it("stages pending writes server-side in runtime", () => {
-    const runtime = read("supabase/functions/copilot-ai/tools/runtime.ts");
+    const runtime = read("services/orchestrator/copilot/tools/runtime.ts");
     expect(runtime).toContain("stagePendingAction");
     expect(runtime).toContain("claimPendingActionForExecution");
     expect(runtime).not.toContain("stateless flow requires both");
   });
 
   it("voice confirm executes by pending_action_id only", () => {
-    const voice = read("supabase/functions/voice-copilot/index.ts");
+    const voice = read("services/orchestrator/voice_handler.ts");
     expect(voice).toContain('execute_pending", { pending_action_id: confirmId }');
     expect(voice).toContain("LEGACY_CONFIRM_REJECTED");
   });
