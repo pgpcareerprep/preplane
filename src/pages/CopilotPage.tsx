@@ -948,7 +948,7 @@ function CopilotPageInner() {
       <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto max-w-[980px] w-full px-6 pt-8 pb-40">
           {!hasChat ? (
-            <EmptyHero firstName={user.name.split(" ")[0]} onPick={p => send(p)} />
+            <EmptyHero firstName={(user?.name || "there").split(" ")[0]} onPick={p => send(p)} />
           ) : (
             <div className="space-y-6">
               {messages.map(m => {

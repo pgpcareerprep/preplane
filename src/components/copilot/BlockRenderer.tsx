@@ -45,6 +45,27 @@ export function BlockRenderer({ block, onFollowUp, onAction, onConfirmPending, o
     else if (onFollowUp) onFollowUp(cmd);
   };
 
+  try {
+    return renderBlock(block, handleAction, onFollowUp, onConfirmPending, onCancelPending, lmpId);
+  } catch (err) {
+    const type = (block as { type?: string }).type ?? "unknown";
+    console.warn("[BlockRenderer] render failed:", type, err);
+    return (
+      <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+        Could not render <code className="font-mono">{type}</code> block.
+      </div>
+    );
+  }
+}
+
+function renderBlock(
+  block: CopilotBlock,
+  handleAction: (cmd: string) => void,
+  onFollowUp?: (prompt: string) => void,
+  onConfirmPending?: (pendingActionId: string) => void,
+  onCancelPending?: (pendingActionId: string) => void,
+  lmpId?: string,
+) {
   switch (block.type) {
     case "executive-summary":
       return <ExecutiveSummaryWithAggregation block={block} lmpId={lmpId} />;

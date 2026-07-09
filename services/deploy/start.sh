@@ -32,9 +32,22 @@ QUERY_PATH_PID=$!
 
 export PORT="${ORCHESTRATOR_PORT}"
 cd /app/services/orchestrator
-deno run --allow-net --allow-env --allow-read main.ts &
+deno run --allow-all main.ts &
 ORCHESTRATOR_PID=$!
 cd - >/dev/null
+
+# Wait for orchestrator before accepting gateway traffic (cold-start race).
+i=0
+while [ "$i" -lt 45 ]; do
+  if curl -sf "http://127.0.0.1:${ORCHESTRATOR_PORT}/health" >/dev/null 2>&1; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+if ! curl -sf "http://127.0.0.1:${ORCHESTRATOR_PORT}/health" >/dev/null 2>&1; then
+  echo "[start.sh] orchestrator failed to become ready on :${ORCHESTRATOR_PORT}" >&2
+fi
 
 export INTENT_ROUTER_URL="http://127.0.0.1:${INTENT_ROUTER_PORT}"
 export COMMAND_PLANE_URL="http://127.0.0.1:${COMMAND_PLANE_PORT}"

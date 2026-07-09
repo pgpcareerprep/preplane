@@ -45,6 +45,30 @@ describe("parseBlocks (Copilot acceptance suite)", () => {
     expect(Array.isArray(blocks)).toBe(true);
   });
 
+  it("normalizes table blocks missing headers/rows so renderers never crash", () => {
+    const content = `:::blocks\n${JSON.stringify([
+      { type: "table", title: "LMP processes" },
+    ])}\n:::`;
+    const { blocks } = parseBlocks(content);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("table");
+    if (blocks[0].type === "table") {
+      expect(blocks[0].headers).toEqual([]);
+      expect(blocks[0].rows).toEqual([]);
+    }
+  });
+
+  it("normalizes plan-card blocks missing steps", () => {
+    const content = `:::blocks\n${JSON.stringify([
+      { type: "plan-card", plan_id: "p1", goal: "Find mentors" },
+    ])}\n:::`;
+    const { blocks } = parseBlocks(content);
+    expect(blocks).toHaveLength(1);
+    if (blocks[0].type === "plan-card") {
+      expect(blocks[0].steps).toEqual([]);
+    }
+  });
+
   it("accepts the new plan-card and mentor-shortlist-card block types", () => {
     const content = `:::blocks\n${JSON.stringify([
       {

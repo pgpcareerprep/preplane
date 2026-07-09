@@ -57,10 +57,9 @@ Threads and messages persist via `useCopilotThreads` →
 
 ## Dynamic UI blocks
 
-The assistant emits a fenced `:::blocks … :::` JSON array. `parseBlocks`
-(`src/lib/copilotBlocks.ts`) validates each entry against the allowlist and
-silently drops unknown / malformed blocks so partial streams never crash the
-renderer. Supported block types include: `executive-summary`, `kpi-row`,
+The assistant emits a fenced `:::blocks … :::` JSON array. `parseBlocks` (`src/lib/copilotBlocks.ts`) validates each entry against the allowlist,
+normalizes missing array fields (`normalizeCopilotBlock`), and silently drops unknown /
+malformed blocks so partial streams and historical messages never crash the renderer. Supported block types include: `executive-summary`, `kpi-row`,
 `bar-chart`, `donut-chart`, `area-chart`, `funnel`, `table`, `status-cards`,
 `timeline`, `kanban`, `heatmap`, `alert-cards`, `recommendations`,
 `follow-ups`, `progress-tracker`, `text`, `inline-form`, `action-buttons`,

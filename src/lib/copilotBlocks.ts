@@ -475,6 +475,118 @@ function isValidBlock(b: unknown): b is CopilotBlock {
   return VALID_BLOCK_TYPES.has(t);
 }
 
+/** Coalesce missing array fields so renderers never call `.map` on undefined. */
+export function normalizeCopilotBlock(block: CopilotBlock): CopilotBlock {
+  const raw = { ...block } as Record<string, unknown>;
+  const ensureArray = (key: string) => {
+    if (!Array.isArray(raw[key])) raw[key] = [];
+  };
+
+  switch (block.type) {
+    case "kpi-row":
+      ensureArray("items");
+      break;
+    case "bar-chart":
+    case "donut-chart":
+    case "area-chart":
+      ensureArray("data");
+      break;
+    case "funnel":
+      ensureArray("steps");
+      break;
+    case "table":
+      ensureArray("headers");
+      ensureArray("rows");
+      if (raw.row_actions !== undefined) ensureArray("row_actions");
+      break;
+    case "status-cards":
+      ensureArray("cards");
+      break;
+    case "timeline":
+      ensureArray("events");
+      break;
+    case "kanban":
+      ensureArray("columns");
+      if (Array.isArray(raw.columns)) {
+        raw.columns = (raw.columns as KanbanColumn[]).map((col) => ({
+          ...col,
+          items: Array.isArray(col.items) ? col.items : [],
+        }));
+      }
+      break;
+    case "heatmap":
+      ensureArray("rows");
+      ensureArray("cols");
+      ensureArray("cells");
+      break;
+    case "alert-cards":
+      ensureArray("alerts");
+      break;
+    case "recommendations":
+      ensureArray("items");
+      break;
+    case "follow-ups":
+      ensureArray("suggestions");
+      break;
+    case "progress-tracker":
+      ensureArray("items");
+      break;
+    case "inline-form":
+      ensureArray("fields");
+      break;
+    case "action-buttons":
+      ensureArray("buttons");
+      break;
+    case "confirmation-card":
+      if (raw.changes !== undefined) ensureArray("changes");
+      break;
+    case "info-card":
+      ensureArray("fields");
+      if (raw.actions !== undefined) ensureArray("actions");
+      break;
+    case "pipeline-card":
+      ensureArray("stages");
+      break;
+    case "activity-feed":
+      ensureArray("entries");
+      break;
+    case "disambiguation-card":
+      ensureArray("candidates");
+      break;
+    case "mentor-shortlist-card":
+      ensureArray("shortlist");
+      break;
+    case "plan-card":
+      ensureArray("steps");
+      break;
+    case "case-study-card":
+      ensureArray("rubric");
+      ensureArray("model_answer_outline");
+      break;
+    case "executive-summary":
+      if (raw.highlights !== undefined) ensureArray("highlights");
+      break;
+    case "jd-summary-card":
+      for (const key of ["required_skills", "preferred_skills", "responsibilities", "qualifications"]) {
+        if (raw[key] !== undefined) ensureArray(key);
+      }
+      break;
+    case "cv-gap-card":
+      for (const key of ["missing_mandatory", "missing_preferred", "top_recommendations"]) {
+        if (raw[key] !== undefined) ensureArray(key);
+      }
+      break;
+    default:
+      break;
+  }
+
+  return raw as CopilotBlock;
+}
+
+function normalizeBlocks(blocks: CopilotBlock[]): CopilotBlock[] {
+  return blocks.map(normalizeCopilotBlock);
+}
+
 /**
  * Parse assistant content for :::blocks JSON fence.
  * Filters out malformed / unknown blocks so partial streams never crash the renderer.
@@ -559,15 +671,15 @@ export function parseBlocks(
 
   let blocks: CopilotBlock[] = [];
   if (Array.isArray(parsed)) {
-    blocks = parsed.filter(isValidBlock);
+    blocks = normalizeBlocks(parsed.filter(isValidBlock));
   } else {
     // Partial: extract whatever balanced objects we have so far.
     const partials = extractPartialObjects(fenceBody.slice(1)); // drop leading `[`
-    blocks = partials.filter(isValidBlock);
+    blocks = normalizeBlocks(partials.filter(isValidBlock));
   }
 
   if (blocks.length === 0 && closeIdx < 0) {
-    blocks = salvagePartialBlocks(content).filter(isValidBlock);
+    blocks = normalizeBlocks(salvagePartialBlocks(content).filter(isValidBlock));
   }
 
   const plainText = (before + after).trim();
