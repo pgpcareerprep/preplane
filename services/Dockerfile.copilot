@@ -24,7 +24,8 @@ RUN cd services/orchestrator && deno cache main.ts
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
-COPY --from=denoland/deno:2.1.4 /usr/local/bin/deno /usr/local/bin/deno
+# The denoland/deno Debian image ships the binary at /usr/bin/deno (NOT /usr/local/bin).
+COPY --from=deno /usr/bin/deno /usr/local/bin/deno
 COPY --from=builder /app/target/release/preplane-intent-router /usr/local/bin/preplane-intent-router
 COPY --from=builder /app/target/release/preplane-command-plane /usr/local/bin/preplane-command-plane
 COPY --from=builder /app/target/release/preplane-lmp /usr/local/bin/preplane-lmp
