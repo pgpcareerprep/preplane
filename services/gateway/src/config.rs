@@ -9,6 +9,8 @@ pub struct Config {
     pub command_plane_url: Option<String>,
     pub reasoning_url: Option<String>,
     pub workflow_url: Option<String>,
+    pub gemini_api_key: Option<String>,
+    pub elevenlabs_api_key: Option<String>,
 }
 
 impl Config {
@@ -28,6 +30,8 @@ impl Config {
         let command_plane_url = std::env::var("COMMAND_PLANE_URL").ok();
         let reasoning_url = std::env::var("REASONING_URL").ok();
         let workflow_url = std::env::var("WORKFLOW_URL").ok();
+        let gemini_api_key = std::env::var("GEMINI_API_KEY").ok().filter(|s| !s.trim().is_empty());
+        let elevenlabs_api_key = std::env::var("ELEVENLABS_API_KEY").ok().filter(|s| !s.trim().is_empty());
         Self {
             supabase_url: supabase_url.trim_end_matches('/').to_string(),
             supabase_anon_key,
@@ -38,6 +42,8 @@ impl Config {
             command_plane_url,
             reasoning_url,
             workflow_url,
+            gemini_api_key,
+            elevenlabs_api_key,
         }
     }
 }

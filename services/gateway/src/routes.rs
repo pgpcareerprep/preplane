@@ -6,6 +6,8 @@ use crate::echo::{
     voice_spoken_from_greeting,
 };
 use crate::intent_client::{call_command_plane_cancel, call_command_plane_execute};
+use crate::tts::{synthesize, TtsOutcome};
+use crate::voice::parse_voice_response;
 use crate::sse::build_plain_sse_response;
 use axum::{
     body::Body,
@@ -66,6 +68,11 @@ struct VoiceBody {
     messages: Option<Vec<ChatMessage>>,
     #[serde(rename = "userName")]
     user_name: Option<String>,
+    role: Option<String>,
+    #[serde(rename = "viewAsRole")]
+    view_as_role: Option<String>,
+    #[serde(rename = "viewAsUserName")]
+    view_as_user_name: Option<String>,
     confirm: Option<VoiceConfirm>,
 }
 
@@ -229,8 +236,8 @@ async fn handle_voice(
                 &state.config,
                 &confirm.pending_action_id,
                 &auth.id,
-                None,
-                None,
+                body.role.as_deref().or(Some(auth.role.as_str())),
+                body.view_as_role.as_deref(),
                 body.user_name.as_deref(),
             )
             .await
@@ -239,9 +246,42 @@ async fn handle_voice(
         return Json(json!({ "spoken": spoken })).into_response();
     }
 
-    let greeting = get_greeting_response(first_name(body.user_name.as_deref()));
-    let spoken = voice_spoken_from_greeting(&greeting);
-    Json(json!({ "spoken": spoken, "blocks": [] })).into_response()
+    let messages = body.messages.clone().unwrap_or_default();
+    if messages.is_empty() {
+        let greeting = get_greeting_response(first_name(body.user_name.as_deref()));
+        let spoken = voice_spoken_from_greeting(&greeting);
+        return Json(json!({ "spoken": spoken, "blocks": [] })).into_response();
+    }
+
+    let utterance = last_user_message(&messages);
+    if utterance.trim().is_empty() {
+        let spoken = voice_spoken_from_greeting(&get_greeting_response(first_name(body.user_name.as_deref())));
+        return Json(json!({ "spoken": spoken, "blocks": [] })).into_response();
+    }
+
+    let result = dispatch_copilot(
+        &state.config,
+        &auth,
+        DispatchBody {
+            utterance: &utterance,
+            user_name: body.user_name.as_deref(),
+            role: body.role.as_deref().or(Some(auth.role.as_str())),
+            real_role: None,
+            view_as_role: body.view_as_role.as_deref(),
+            view_as_user_name: body.view_as_user_name.as_deref(),
+            lmp_id: None,
+            mode: Some("voice"),
+            history_len: messages.len(),
+        },
+    )
+    .await;
+    let parsed = parse_voice_response(&result.text);
+    Json(json!({
+        "spoken": parsed.spoken,
+        "blocks": parsed.blocks,
+        "intent": result.intent,
+    }))
+    .into_response()
 }
 
 async fn handle_voice_speak(
@@ -258,9 +298,16 @@ async fn handle_voice_speak(
         return json_error(StatusCode::BAD_REQUEST, "text is required");
     }
 
-    // Phase 8 wires Gemini/ElevenLabs TTS. Until then, signal browser fallback (voice-speak parity).
-    let _ = body.voice_id;
-    Json(json!({ "fallback": true })).into_response()
+    match synthesize(&state.config, &text, body.voice_id.as_deref()).await {
+        TtsOutcome::Audio { bytes, content_type } => Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", content_type)
+            .header("Cache-Control", "no-store")
+            .body(Body::from(bytes))
+            .unwrap()
+            .into_response(),
+        TtsOutcome::Fallback => Json(json!({ "fallback": true })).into_response(),
+    }
 }
 
 async fn handle_channel_stub(

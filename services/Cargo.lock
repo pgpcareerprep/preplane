@@ -904,6 +904,7 @@ name = "preplane-gateway"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "preplane-contracts",
  "preplane-health",
  "reqwest",
