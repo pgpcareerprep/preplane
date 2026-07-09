@@ -73,6 +73,52 @@ export const SOURCE_META: Record<MentorSource, { label: string; chip: string; do
   EXT: { label: "External",     chip: "bg-sky-400/10 text-sky-400 border-sky-400/30", dot: "bg-sky-400" },
 };
 
+const SOURCE_ORDER: MentorSource[] = ["MU", "ALU", "EXT"];
+
+export function normalizeMentorNameForMatch(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function mentorSourceFromRow(row: {
+  source?: string | null;
+  sync_source?: string | null;
+}): MentorSource {
+  const src = (row.source || "").toUpperCase();
+  if (src === "MU" || src === "ALU" || src === "EXT") return src;
+  if (row.sync_source === "alumni_mirror") return "ALU";
+  return "EXT";
+}
+
+export function mergeMentorSources(
+  ...sources: (string | null | undefined)[]
+): MentorSource[] {
+  const set = new Set<MentorSource>();
+  for (const raw of sources) {
+    const s = (raw || "").toUpperCase();
+    if (s === "MU" || s === "ALU" || s === "EXT") set.add(s);
+  }
+  return SOURCE_ORDER.filter((s) => set.has(s));
+}
+
+/** Collect unique MU/ALU/EXT tags for mentors sharing the same name. */
+export function buildNameToSourcesMap(
+  rows: { name?: string | null; source?: string | null; sync_source?: string | null }[],
+): Map<string, MentorSource[]> {
+  const acc = new Map<string, Set<MentorSource>>();
+  for (const row of rows) {
+    const key = normalizeMentorNameForMatch(row.name || "");
+    if (!key) continue;
+    const src = mentorSourceFromRow(row);
+    if (!acc.has(key)) acc.set(key, new Set());
+    acc.get(key)!.add(src);
+  }
+  const out = new Map<string, MentorSource[]>();
+  for (const [key, set] of acc) {
+    out.set(key, SOURCE_ORDER.filter((s) => set.has(s)));
+  }
+  return out;
+}
+
 export const SCORE_DIM_COLORS = {
   role:      "bg-orange-500",
   skills:    "bg-teal-400",

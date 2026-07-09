@@ -4,6 +4,13 @@ import { Search, Users, Star } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MentorSourceTags } from "@/components/mentors/MentorSourceTags";
+import {
+  buildNameToSourcesMap,
+  mergeMentorSources,
+  normalizeMentorNameForMatch,
+  type MentorSource,
+} from "@/lib/mentor";
 
 const PAGE_SIZE = 50;
 
@@ -25,18 +32,11 @@ type Row = {
   mentor_company?: string | null;
   mentor_rating?: number | null;
   source?: string | null;
+  sources?: MentorSource[];
   lmp_label?: string | null;
   student_count?: number;
   mode?: "1:1" | "Group";
   sessions_count?: number;
-};
-
-const sourceStyle = (src?: string | null) => {
-  const s = (src || "").toUpperCase();
-  if (s === "MU") return "bg-teal-50 text-teal-700 border-teal-200";
-  if (s === "ALU") return "bg-violet-50 text-violet-700 border-violet-200";
-  if (s === "EXT") return "bg-orange-50 text-orange-700 border-orange-200";
-  return "bg-n50 text-n600 border-n200";
 };
 
 const cleanMentorText = (value?: string | null): string | null => {
@@ -67,7 +67,7 @@ export function LmpMentorAssignmentsModal({
 
       const [mentors, lmps, sessions] = await Promise.all([
         mentorIds.length
-          ? supabase.from("mentors").select("id, name, role, company, designation, source, rating")
+          ? supabase.from("mentors").select("id, name, role, company, designation, source, sync_source, rating")
               .in("id", mentorIds)
           : Promise.resolve({ data: [], error: null } as any),
         lmpIds.length
@@ -81,7 +81,27 @@ export function LmpMentorAssignmentsModal({
           : Promise.resolve({ data: [], error: null } as any),
       ]);
 
-      const mMap = new Map<string, any>((mentors.data ?? []).map((m: any) => [m.id, m]));
+      const assignedMentorRows = mentors.data ?? [];
+      const mMap = new Map<string, any>(assignedMentorRows.map((m: any) => [m.id, m]));
+
+      const names = Array.from(new Set(
+        assignedMentorRows.map((m: any) => (m?.name || "").trim()).filter(Boolean),
+      ));
+      let sourceIndex = buildNameToSourcesMap(assignedMentorRows);
+      if (names.length > 0) {
+        const orFilter = names
+          .slice(0, 50)
+          .map((n) => `name.ilike."${n.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+          .join(",");
+        const { data: aliasRows } = await supabase
+          .from("mentors")
+          .select("name, source, sync_source")
+          .or(orFilter);
+        if (aliasRows?.length) {
+          sourceIndex = buildNameToSourcesMap([...assignedMentorRows, ...aliasRows]);
+        }
+      }
+
       const lMap = new Map<string, string>(
         (lmps.data ?? []).map((l: any) => [l.id, [l.company, l.role].filter(Boolean).join(" · ")]),
       );
@@ -123,6 +143,10 @@ export function LmpMentorAssignmentsModal({
         const mode: "1:1" | "Group" = (anyGroupSession || studentCount > 1) ? "Group" : "1:1";
         const sessionsCount = sList.length || (r.session_count ?? 0);
         const rating = (m?.rating && m.rating > 0) ? Number(m.rating) : (r.feedback_avg ?? 0);
+        const nameKey = normalizeMentorNameForMatch(m?.name ?? "");
+        const sources = nameKey && sourceIndex.has(nameKey)
+          ? sourceIndex.get(nameKey)!
+          : mergeMentorSources(m?.source, r.mentor_source);
 
         return {
           ...r,
@@ -130,7 +154,8 @@ export function LmpMentorAssignmentsModal({
           mentor_role: cleanMentorText(m?.designation || m?.role),
           mentor_company: cleanMentorText(m?.company),
           mentor_rating: rating || null,
-          source: m?.source ?? r.mentor_source ?? null,
+          source: sources[0] ?? m?.source ?? r.mentor_source ?? null,
+          sources,
           lmp_label: lMap.get(r.lmp_id) ?? null,
           student_count: studentCount,
           mode,
@@ -154,7 +179,8 @@ export function LmpMentorAssignmentsModal({
       (r.mentor_company || "").toLowerCase().includes(q) ||
       (r.lmp_label || "").toLowerCase().includes(q) ||
       (r.status || "").toLowerCase().includes(q) ||
-      (r.source || "").toLowerCase().includes(q),
+      (r.source || "").toLowerCase().includes(q) ||
+      (r.sources ?? []).some((s) => s.toLowerCase().includes(q)),
     );
   }, [rows, search]);
 
@@ -219,11 +245,7 @@ export function LmpMentorAssignmentsModal({
                     </td>
                     <td className="py-2 pr-3 text-n700">{r.lmp_label || r.lmp_id.slice(0, 8)}</td>
                     <td className="py-2 pr-3">
-                      {r.source ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${sourceStyle(r.source)}`}>
-                          {r.source.toUpperCase()}
-                        </span>
-                      ) : <span className="text-n400">—</span>}
+                      <MentorSourceTags sources={r.sources ?? mergeMentorSources(r.source)} />
                     </td>
                     <td className="py-2 pr-3 text-n700 tabular-nums text-right">{r.student_count ?? 0}</td>
                     <td className="py-2 pr-3">

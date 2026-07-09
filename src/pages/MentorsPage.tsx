@@ -4,7 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Star, ArrowUpDown, UserPlus, Sparkles } from "lucide-react";
 import { RunMentorModal } from "@/components/mentors/RunMentorModal";
 import { cn } from "@/lib/utils";
-import { SOURCE_META, type MentorSource } from "@/lib/mentor";
+import {
+  buildNameToSourcesMap,
+  mentorSourceFromRow,
+  normalizeMentorNameForMatch,
+  type MentorSource,
+} from "@/lib/mentor";
+import { MentorSourceTags } from "@/components/mentors/MentorSourceTags";
 import { useAllMentors, type DbMentorRow } from "@/lib/hooks/useDbData";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -161,6 +167,11 @@ export default function MentorsPage() {
     [allMentors, assignmentMap],
   );
 
+  const nameSourceIndex = useMemo(
+    () => buildNameToSourcesMap(allMentors),
+    [allMentors],
+  );
+
   // Realtime: mentor edits + assignments + sessions (so feedback ratings flow
   // back instantly) + alumni mirror updates.
   useRealtimeInvalidate("mentors", [["db-all-mentors"], ["db-mentor-stats"], ["db-mentor-preview"]]);
@@ -182,7 +193,11 @@ export default function MentorsPage() {
     const ql = q.trim().toLowerCase();
     const min = parseFloat(ratingMin);
     const filtered = mentors.filter((m) => {
-      if (source !== "all" && m.source !== source) return false;
+      if (source !== "all") {
+        const key = normalizeMentorNameForMatch(m.name);
+        const sources = nameSourceIndex.get(key) ?? [mentorSourceFromRow(m)];
+        if (!sources.includes(source)) return false;
+      }
       if (Number(m.rating) < min) return false;
       if (domainFilter !== "all" && primaryDomain(m.functional_domain) !== domainFilter) return false;
       if (ql) {
@@ -198,7 +213,7 @@ export default function MentorsPage() {
       domain: (a, b) => primaryDomain(a.functional_domain).localeCompare(primaryDomain(b.functional_domain)),
     };
     return [...filtered].sort(sorters[sort]);
-  }, [mentors, q, source, ratingMin, domainFilter, sort]);
+  }, [mentors, q, source, ratingMin, domainFilter, sort, nameSourceIndex]);
 
   if (isLoading) {
     return (
@@ -275,8 +290,8 @@ export default function MentorsPage() {
           </thead>
           <tbody>
               {rows.map((m) => {
-                const src = (["MU", "ALU", "EXT"].includes(m.source) ? m.source : "EXT") as MentorSource;
-                const meta = SOURCE_META[src];
+                const sources = nameSourceIndex.get(normalizeMentorNameForMatch(m.name))
+                  ?? [mentorSourceFromRow(m)];
                 return (
                   <tr
                     key={m.id}
@@ -297,9 +312,7 @@ export default function MentorsPage() {
                     </Td>
                     <Td><span className="text-n700">{primaryDomain(m.functional_domain)}</span></Td>
                     <Td>
-                      <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.5px]", meta.chip)}>
-                        {src}
-                      </span>
+                      <MentorSourceTags sources={sources} />
                     </Td>
                     <Td className="text-n700">{m.seniority ?? "—"}</Td>
                     <Td align="right">
