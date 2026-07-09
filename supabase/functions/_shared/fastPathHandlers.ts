@@ -3,6 +3,11 @@ import {
   isPocConversionMetricsQuery,
   isPocProgressReportQuery,
 } from "./copilotFastPaths.ts";
+import {
+  formatNamedPocConversionSse,
+  summarizeConversionStatuses,
+  type ConversionMetricsSummary,
+} from "./conversionReport.ts";
 
 /** Read-scoping identity for fast paths (view-as or POC self). */
 export type FastPathReadScope = {
@@ -39,6 +44,42 @@ export function lmpMatchesOperationalPoc(
   pocName: string,
 ): boolean {
   return [l.prep_poc, l.support_poc, l.outreach_poc].some((n) => nameMatchesPoc(n, pocName));
+}
+
+/** Prep/support assignment only — matches POC Performance dashboard scope. */
+export function lmpMatchesDashboardPoc(
+  l: { prep_poc?: string | null; support_poc?: string | null },
+  pocName: string,
+): boolean {
+  return [l.prep_poc, l.support_poc].some((n) => nameMatchesPoc(n, pocName));
+}
+
+// ─── Named POC conversion (dashboard-aligned) ────────────────────────────────
+
+export type NamedPocConversionResult =
+  | { ok: true; pocName: string; summary: ConversionMetricsSummary }
+  | { ok: false; error: string };
+
+export async function fetchNamedPocConversionFastPath(
+  pocName: string,
+  sb: SupabaseClient = serviceSupabase(),
+): Promise<NamedPocConversionResult> {
+  const name = pocName.trim();
+  if (!name) return { ok: false, error: "POC name is required" };
+  const { data, error } = await sb
+    .from("lmp_processes")
+    .select("status, prep_poc, support_poc")
+    .limit(5000);
+  if (error) return { ok: false, error: error.message };
+  const filtered = (data || []).filter((r) => lmpMatchesDashboardPoc(r, name));
+  const summary = summarizeConversionStatuses(filtered.map((r) => r.status));
+  return { ok: true, pocName: name, summary };
+}
+
+export function formatNamedPocConversionChatSse(
+  result: Extract<NamedPocConversionResult, { ok: true }>,
+): string {
+  return formatNamedPocConversionSse(result.pocName, result.summary);
 }
 
 // ─── Mentor coverage ───────────────────────────────────────────────────────

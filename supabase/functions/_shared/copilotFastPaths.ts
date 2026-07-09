@@ -88,3 +88,38 @@ export function isConversionCountQuery(message: string): boolean {
   return /\b(how many|count|total|number of|tell me how many)\b/.test(text) &&
     /\b(converted|conversions?|placed|offer received)\b/.test(text);
 }
+
+/** Single named POC conversion (e.g. "Radhika Goyal conversion rate") — not org-wide POC-wise reports. */
+export function isNamedPocConversionQuery(
+  message: string,
+  activePocName?: string | null,
+): boolean {
+  if (isConversionReportQuery(message)) return false;
+  if (isPocConversionMetricsQuery(message)) return false;
+  const text = message.toLowerCase();
+  if (!/\b(conversion|converted|convert|performance|not converted|not-converted)\b/.test(text)) {
+    return false;
+  }
+  if (/\b(poc wise|by poc|per poc|each poc|all poc|every poc|all pocs)\b/.test(text)) {
+    return false;
+  }
+  if (activePocName?.trim()) return true;
+  return /[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/.test(message);
+}
+
+export function extractPocNameFromConversionQuery(
+  message: string,
+  fallback?: string | null,
+): string | null {
+  const fb = fallback?.trim();
+  if (fb) return fb;
+  const forOf = message.match(/(?:for|of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
+  if (forOf?.[1]) return forOf[1].trim();
+  const possessive = message.match(
+    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:'s)?\s+(?:conversion|performance|converted|not converted)/i,
+  );
+  if (possessive?.[1]) return possessive[1].trim();
+  const leading = message.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/);
+  if (leading?.[1]) return leading[1].trim();
+  return null;
+}

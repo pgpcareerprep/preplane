@@ -1,4 +1,4 @@
-use crate::scope::{apply_poc_read_scope, matches_filter, matches_poc_filter};
+use crate::scope::{apply_poc_read_scope, matches_filter, matches_poc_filter, record_matches_operational_poc_scope};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -186,24 +186,112 @@ pub fn lmp_with_alumni_mentors(rows: Vec<Value>, args: &Value) -> Result<Value, 
     }))
 }
 
-fn tally_conversion(statuses: impl Iterator<Item = String>) -> (usize, usize, usize, usize, usize) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusBucket {
+    NotStarted,
+    PrepOngoing,
+    PrepDone,
+    OnHold,
+    Converted,
+    NotConverted,
+    OtherReasons,
+    Unknown,
+}
+
+fn map_status_bucket(raw: &str) -> StatusBucket {
+    let s = raw.trim().to_lowercase();
+    match s.as_str() {
+        "not-started" => StatusBucket::NotStarted,
+        "prep-ongoing" | "ongoing" => StatusBucket::PrepOngoing,
+        "prep-done" => StatusBucket::PrepDone,
+        "hold" => StatusBucket::OnHold,
+        "converted" | "offer-received" => StatusBucket::Converted,
+        "not-converted" | "not converted" => StatusBucket::NotConverted,
+        "other-reasons" | "dormant" | "closed" | "converted-na" => StatusBucket::OtherReasons,
+        _ => StatusBucket::Unknown,
+    }
+}
+
+struct ConversionSummary {
+    total: usize,
+    converted: usize,
+    not_converted_closed: usize,
+    closed_other: usize,
+    in_pipeline: usize,
+    lmp_process_denom: usize,
+    poc_performance_denom: usize,
+    lmp_process_pct: Option<f64>,
+    poc_performance_pct: Option<f64>,
+}
+
+fn pct(n: usize, d: usize) -> Option<f64> {
+    if d == 0 {
+        None
+    } else {
+        Some(((n as f64 / d as f64) * 1000.0).round() / 10.0)
+    }
+}
+
+fn tally_conversion(statuses: impl Iterator<Item = String>) -> ConversionSummary {
     let mut total = 0usize;
     let mut converted = 0usize;
-    let mut not_converted = 0usize;
-    let mut closed = 0usize;
+    let mut not_converted_closed = 0usize;
+    let mut closed_other = 0usize;
+    let mut in_pipeline = 0usize;
     for s in statuses {
         total += 1;
-        let lower = s.to_lowercase();
-        if lower.contains("converted") {
-            converted += 1;
-        } else if lower.contains("closed") || lower.contains("dropped") {
-            closed += 1;
-        } else {
-            not_converted += 1;
+        match map_status_bucket(&s) {
+            StatusBucket::Converted => converted += 1,
+            StatusBucket::NotConverted => not_converted_closed += 1,
+            StatusBucket::OtherReasons => closed_other += 1,
+            StatusBucket::NotStarted
+            | StatusBucket::PrepOngoing
+            | StatusBucket::PrepDone
+            | StatusBucket::OnHold
+            | StatusBucket::Unknown => in_pipeline += 1,
         }
     }
-    let denom = total.saturating_sub(closed);
-    (total, converted, not_converted, closed, denom)
+    let lmp_process_denom = total.saturating_sub(closed_other);
+    let poc_performance_denom = converted + not_converted_closed;
+    ConversionSummary {
+        total,
+        converted,
+        not_converted_closed,
+        closed_other,
+        in_pipeline,
+        lmp_process_denom,
+        poc_performance_denom,
+        lmp_process_pct: pct(converted, lmp_process_denom),
+        poc_performance_pct: pct(converted, poc_performance_denom),
+    }
+}
+
+fn conversion_metrics_json(summary: &ConversionSummary, poc_label: Option<&str>) -> Value {
+    json!({
+        "scope_label": poc_label,
+        "total_lmps": summary.total,
+        "converted": summary.converted,
+        "not_converted_closed_outcome": summary.not_converted_closed,
+        "in_pipeline": summary.in_pipeline,
+        "closed_other_reasons": summary.closed_other,
+        "poc_performance_conversion_pct": summary.poc_performance_pct,
+        "poc_performance_conversion_rate": match summary.poc_performance_pct {
+            Some(p) => format!("{}/{} - {}%", summary.converted, summary.poc_performance_denom, p),
+            None => "—".to_string(),
+        },
+        "lmp_process_conversion_pct": summary.lmp_process_pct,
+        "lmp_process_conversion_rate": match summary.lmp_process_pct {
+            Some(p) => format!("{}/{} - {}%", summary.converted, summary.lmp_process_denom, p),
+            None => "—".to_string(),
+        },
+        "kpi_labeling": {
+            "converted": "Converted",
+            "not_converted_closed_outcome": "Not converted (closed outcome)",
+            "in_pipeline": "In pipeline",
+            "closed_other_reasons": "Closed — other reasons (excluded from denominators)",
+            "do_not_compute": "Never set not_converted = total − converted. Use not_converted_closed_outcome and in_pipeline.",
+        },
+    })
 }
 
 pub fn get_analytics(
@@ -237,10 +325,7 @@ pub fn get_analytics(
         filtered.retain(|r| matches_filter(r.get("Domain").map(String::as_str).unwrap_or(""), domain));
     }
     if let Some(poc) = args.get("poc").and_then(Value::as_str) {
-        filtered.retain(|r| {
-            matches_poc_filter(r.get("Prep POC").map(String::as_str).unwrap_or(""), poc)
-                || matches_poc_filter(r.get("Outreach POC").map(String::as_str).unwrap_or(""), poc)
-        });
+        filtered.retain(|r| record_matches_operational_poc_scope(r, poc));
     }
     match metric {
         "status_distribution" => {
@@ -314,22 +399,13 @@ pub fn get_analytics(
             }))
         }
         "conversion_rate" => {
-            let (total, converted, not_converted, closed, denom) =
-                tally_conversion(filtered.iter().map(|r| r.get("Status").cloned().unwrap_or_default()));
-            let rate = if denom == 0 {
-                "0%".to_string()
-            } else {
-                format!("{:.1}%", (converted as f64 / denom as f64) * 100.0)
-            };
-            Ok(json!({
-                "total": total,
-                "converted": converted,
-                "not_converted": not_converted,
-                "closed": closed,
-                "eligible_denominator": denom,
-                "conversion_rate": rate,
-                "formula": "Converted ÷ (Total − closed)",
-            }))
+            let summary = tally_conversion(
+                filtered
+                    .iter()
+                    .map(|r| r.get("Status").cloned().unwrap_or_default()),
+            );
+            let poc_label = args.get("poc").and_then(Value::as_str);
+            Ok(conversion_metrics_json(&summary, poc_label))
         }
         "type_distribution" => {
             let mut dist: HashMap<String, usize> = HashMap::new();
@@ -366,13 +442,11 @@ pub fn get_analytics(
             Ok(json!({ "records": ages.into_iter().take(30).collect::<Vec<_>>() }))
         }
         "overview" | "pipeline_summary" => {
-            let (total, converted, not_converted, closed, denom) =
-                tally_conversion(filtered.iter().map(|r| r.get("Status").cloned().unwrap_or_default()));
-            let rate = if denom == 0 {
-                "0%".to_string()
-            } else {
-                format!("{:.1}%", (converted as f64 / denom as f64) * 100.0)
-            };
+            let summary = tally_conversion(
+                filtered
+                    .iter()
+                    .map(|r| r.get("Status").cloned().unwrap_or_default()),
+            );
             let mut status_dist: HashMap<String, usize> = HashMap::new();
             let mut domain_dist: HashMap<String, usize> = HashMap::new();
             for r in &filtered {
@@ -383,17 +457,13 @@ pub fn get_analytics(
                     .entry(r.get("Domain").cloned().unwrap_or_else(|| "Unknown".into()))
                     .or_default() += 1;
             }
-            Ok(json!({
-                "total": total,
-                "converted": converted,
-                "not_converted": not_converted,
-                "closed": closed,
-                "eligible_denominator": denom,
-                "conversion_rate": rate,
-                "formula": "Converted ÷ (Total − closed)",
-                "status_distribution": status_dist,
-                "domain_distribution": domain_dist,
-            }))
+            let poc_label = args.get("poc").and_then(Value::as_str);
+            let mut payload = conversion_metrics_json(&summary, poc_label);
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("status_distribution".into(), json!(status_dist));
+                obj.insert("domain_distribution".into(), json!(domain_dist));
+            }
+            Ok(payload)
         }
         _ => Err(format!("Unsupported metric: {metric}")),
     }
@@ -575,5 +645,44 @@ mod tests {
         )
         .unwrap();
         assert!(result.get("pocs").and_then(Value::as_array).map(|a| !a.is_empty()) == Some(true));
+    }
+
+    #[test]
+    fn conversion_rate_distinguishes_not_converted_from_converted() {
+        let records = vec![
+            HashMap::from([
+                ("Status".into(), "Converted".into()),
+                ("Prep POC".into(), "Radhika".into()),
+                ("Support POC".into(), "".into()),
+                ("Secondary POC".into(), "".into()),
+            ]),
+            HashMap::from([
+                ("Status".into(), "Not Converted".into()),
+                ("Prep POC".into(), "Radhika".into()),
+                ("Support POC".into(), "".into()),
+                ("Secondary POC".into(), "".into()),
+            ]),
+            HashMap::from([
+                ("Status".into(), "Prep-Ongoing".into()),
+                ("Prep POC".into(), "Radhika".into()),
+                ("Support POC".into(), "".into()),
+                ("Secondary POC".into(), "".into()),
+            ]),
+        ];
+        let result = get_analytics(
+            records,
+            Some("admin"),
+            Some("Admin"),
+            &json!({ "metric": "conversion_rate", "poc": "Radhika" }),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result.get("converted").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            result.get("not_converted_closed_outcome").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(result.get("in_pipeline").and_then(Value::as_u64), Some(1));
+        assert_eq!(result.get("poc_performance_conversion_pct").and_then(Value::as_f64), Some(50.0));
     }
 }

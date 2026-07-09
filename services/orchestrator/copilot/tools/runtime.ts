@@ -25,7 +25,9 @@ import {
 } from "../../../../supabase/functions/_shared/lmpWriteValidation.ts";
 import { getServiceClient } from "../../../../supabase/functions/_shared/entitySearch.ts";
 import {
+  buildConversionMetricsToolPayload,
   formatLmpProcessConversionRate,
+  summarizeConversionStatuses,
   tallyLmpConversionBuckets,
 } from "../../../../supabase/functions/_shared/conversionReport.ts";
 
@@ -1345,10 +1347,9 @@ export async function executeTool(
         const metric = args.metric as string;
         let filtered = applyPocReadScope(records, args as Record<string, unknown>);
         if (args.domain) filtered = filtered.filter(r => matchesFilter(r["Domain"] || "", args.domain as string));
-        if (args.poc) filtered = filtered.filter(r =>
-          matchesFilter(r["Prep POC"] || "", args.poc as string) ||
-          matchesFilter(r["Outreach POC"] || "", args.poc as string)
-        );
+        if (args.poc) {
+          filtered = filtered.filter((r) => recordMatchesOperationalPocScope(r, args.poc as string));
+        }
 
         switch (metric) {
           case "status_distribution": {
@@ -1391,18 +1392,9 @@ export async function executeTool(
             });
           }
           case "conversion_rate": {
-            const buckets = tallyLmpConversionBuckets(filtered.map((r) => r["Status"]));
-            const ongoing = filtered.filter((r) => /ongoing|prep/i.test(r["Status"] || "")).length;
-            return JSON.stringify({
-              total: buckets.total,
-              converted: buckets.converted,
-              not_converted: buckets.notConverted,
-              closed: buckets.closed,
-              eligible_denominator: buckets.lmpProcessDenominator,
-              ongoing,
-              conversion_rate: formatLmpProcessConversionRate(buckets),
-              formula: "Converted ÷ (Total − closed)",
-            });
+            const summary = summarizeConversionStatuses(filtered.map((r) => r["Status"]));
+            const pocLabel = typeof args.poc === "string" ? args.poc : null;
+            return JSON.stringify(buildConversionMetricsToolPayload(summary, pocLabel));
           }
           case "type_distribution": {
             const dist: Record<string, number> = {};
@@ -1421,7 +1413,7 @@ export async function executeTool(
           }
           case "overview":
           case "pipeline_summary": {
-            const buckets = tallyLmpConversionBuckets(filtered.map((r) => r["Status"]));
+            const summary = summarizeConversionStatuses(filtered.map((r) => r["Status"]));
             const statusDist: Record<string, number> = {};
             const domainDist: Record<string, number> = {};
             filtered.forEach((r) => {
@@ -1430,14 +1422,9 @@ export async function executeTool(
               const d = r["Domain"] || "Unknown";
               domainDist[d] = (domainDist[d] || 0) + 1;
             });
+            const pocLabel = typeof args.poc === "string" ? args.poc : null;
             return JSON.stringify({
-              total: buckets.total,
-              converted: buckets.converted,
-              not_converted: buckets.notConverted,
-              closed: buckets.closed,
-              eligible_denominator: buckets.lmpProcessDenominator,
-              conversion_rate: formatLmpProcessConversionRate(buckets),
-              formula: "Converted ÷ (Total − closed)",
+              ...buildConversionMetricsToolPayload(summary, pocLabel),
               status_distribution: statusDist,
               domain_distribution: domainDist,
             });

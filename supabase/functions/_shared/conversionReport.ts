@@ -120,6 +120,142 @@ export function formatPocPerformanceConversionRate(buckets: LmpConversionBuckets
   return `${buckets.converted}/${buckets.pocPerformanceDenominator} - ${buckets.pocPerformanceConversionPct}%`;
 }
 
+export type ConversionMetricsSummary = LmpConversionBuckets & {
+  inPipeline: number;
+  statusBreakdown: {
+    notStarted: number;
+    prepOngoing: number;
+    prepDone: number;
+    onHold: number;
+    unknown: number;
+  };
+};
+
+/** Dashboard-aligned counts: pipeline vs closed not-converted vs other closed. */
+export function summarizeConversionStatuses(
+  statuses: Iterable<string | null | undefined>,
+): ConversionMetricsSummary {
+  let converted = 0;
+  let notConverted = 0;
+  let closed = 0;
+  let total = 0;
+  let notStarted = 0;
+  let prepOngoing = 0;
+  let prepDone = 0;
+  let onHold = 0;
+  let unknown = 0;
+  for (const raw of statuses) {
+    total += 1;
+    const bucket = mapStatusToBucket(raw);
+    switch (bucket) {
+      case "converted":
+        converted += 1;
+        break;
+      case "notConverted":
+        notConverted += 1;
+        break;
+      case "otherReasons":
+        closed += 1;
+        break;
+      case "notStarted":
+        notStarted += 1;
+        break;
+      case "prepOngoing":
+        prepOngoing += 1;
+        break;
+      case "prepDone":
+        prepDone += 1;
+        break;
+      case "onHold":
+        onHold += 1;
+        break;
+      default:
+        unknown += 1;
+        break;
+    }
+  }
+  const lmpProcessDenominator = total - closed;
+  const pocPerformanceDenominator = converted + notConverted;
+  const inPipeline = notStarted + prepOngoing + prepDone + onHold + unknown;
+  return {
+    converted,
+    notConverted,
+    closed,
+    total,
+    lmpProcessDenominator,
+    pocPerformanceDenominator,
+    lmpProcessConversionPct: calculateLmpProcessConversionPct(converted, total, closed),
+    pocPerformanceConversionPct: calculatePocPerformanceConversionPct(converted, notConverted),
+    inPipeline,
+    statusBreakdown: { notStarted, prepOngoing, prepDone, onHold, unknown },
+  };
+}
+
+/** Structured analytics payload — prevents LLM from recomputing not_converted as total − converted. */
+export function buildConversionMetricsToolPayload(
+  summary: ConversionMetricsSummary,
+  pocLabel?: string | null,
+) {
+  return {
+    scope_label: pocLabel ?? null,
+    total_lmps: summary.total,
+    converted: summary.converted,
+    not_converted_closed_outcome: summary.notConverted,
+    in_pipeline: summary.inPipeline,
+    closed_other_reasons: summary.closed,
+    poc_performance_conversion_pct: summary.pocPerformanceConversionPct,
+    poc_performance_conversion_rate: formatPocPerformanceConversionRate(summary),
+    lmp_process_conversion_pct: summary.lmpProcessConversionPct,
+    lmp_process_conversion_rate: formatLmpProcessConversionRate(summary),
+    status_breakdown: summary.statusBreakdown,
+    kpi_labeling: {
+      converted: "Converted",
+      not_converted_closed_outcome: "Not converted (closed outcome)",
+      in_pipeline: "In pipeline",
+      closed_other_reasons: "Closed — other reasons (excluded from denominators)",
+      poc_performance_formula: "POC dashboard: Converted ÷ (Converted + Not converted closed outcome)",
+      lmp_process_formula: "LMP process: Converted ÷ (Total − closed other reasons)",
+      do_not_compute:
+        "Never set not_converted = total − converted. Use not_converted_closed_outcome and in_pipeline from this payload.",
+    },
+  };
+}
+
+export function formatNamedPocConversionSse(pocName: string, summary: ConversionMetricsSummary): string {
+  const pocPct = fmtPct(summary.pocPerformanceConversionPct);
+  return [
+    `${pocName}'s POC performance conversion is **${pocPct}** (${summary.converted} converted, ${summary.notConverted} not converted closed outcomes, ${summary.inPipeline} in pipeline).`,
+    "",
+    ":::blocks",
+    JSON.stringify([
+      {
+        type: "executive-summary",
+        content: `**${pocName}** — dashboard-aligned POC performance: **${pocPct}**. **In pipeline** counts active prep LMPs; **Not converted (closed outcome)** counts only terminal \`not-converted\` status.`,
+      },
+      {
+        type: "kpi-row",
+        items: [
+          { label: "POC performance conversion", value: pocPct, color: "green" },
+          { label: "Converted", value: summary.converted, color: "green" },
+          { label: "Not converted (closed outcome)", value: summary.notConverted, color: "red" },
+          { label: "In pipeline", value: summary.inPipeline, color: "orange" },
+          { label: "Closed — other reasons", value: summary.closed, color: "gray" },
+          { label: "Total LMPs", value: summary.total, color: "blue" },
+        ],
+      },
+      {
+        type: "follow-ups",
+        suggestions: [
+          `Show ${pocName}'s ongoing LMPs`,
+          "Break down conversion by POC",
+          "Show conversion report",
+        ],
+      },
+    ]),
+    ":::",
+  ].join("\n");
+}
+
 export type ConversionReportPocRow = {
   pocName: string;
   eligibleClosed: number;

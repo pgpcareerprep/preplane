@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConversionReport, formatConversionReportSse, mapStatusToBucket, tallyLmpConversionBuckets } from "../../../supabase/functions/_shared/conversionReport";
+import { buildConversionReport, buildConversionMetricsToolPayload, formatConversionReportSse, mapStatusToBucket, summarizeConversionStatuses, tallyLmpConversionBuckets } from "../../../supabase/functions/_shared/conversionReport";
 
 describe("conversionReport", () => {
   it("maps terminal LMP statuses", () => {
@@ -81,5 +81,24 @@ describe("conversionReport", () => {
     expect(buckets.pocPerformanceDenominator).toBe(2);
     expect(buckets.lmpProcessConversionPct).toBeCloseTo(33.3, 1);
     expect(buckets.pocPerformanceConversionPct).toBe(50);
+  });
+
+  it("summarizeConversionStatuses separates pipeline from closed not-converted", () => {
+    const summary = summarizeConversionStatuses([
+      "converted",
+      "not-converted",
+      "prep-ongoing",
+      "hold",
+      "closed",
+    ]);
+    expect(summary.converted).toBe(1);
+    expect(summary.notConverted).toBe(1);
+    expect(summary.inPipeline).toBe(2);
+    expect(summary.closed).toBe(1);
+    expect(summary.pocPerformanceConversionPct).toBe(50);
+    const payload = buildConversionMetricsToolPayload(summary, "Radhika Goyal");
+    expect(payload.not_converted_closed_outcome).toBe(1);
+    expect(payload.in_pipeline).toBe(2);
+    expect(payload.kpi_labeling.not_converted_closed_outcome).toContain("closed outcome");
   });
 });

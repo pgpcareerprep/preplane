@@ -11,11 +11,13 @@ import {
   getTaskTier,
 } from "./modelConfig.ts";
 import { validateResponse as validateAiResponse } from "../../../supabase/functions/_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isAlumniMentorLmpQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isAlumniMentorLmpQuery, isMentorCoverageQuery, isNamedPocConversionQuery, isPocWorkloadQuery, shouldPrefetchRag, extractPocNameFromConversionQuery } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
 import {
   fetchAlumniMentorLmpFastPath,
   fetchMentorCoverageFastPath,
+  fetchNamedPocConversionFastPath,
   fetchPocWorkloadFastPath,
+  formatNamedPocConversionChatSse,
   formatAlumniMentorLmpChatSse,
   formatMentorCoverageChatSse,
   formatPocWorkloadChatSse,
@@ -597,6 +599,33 @@ export async function handleChatRequest(req: Request) {
       });
     }
     requestState().log.warn("alumni_mentor_lmp_fast_path_failed", { error: result.error });
+  }
+
+  if (isNamedPocConversionQuery(
+    lastUserMessage,
+    requestedActiveContext?.entity_type === "poc" ? requestedActiveContext.display_name : null,
+  )) {
+    const pocName = extractPocNameFromConversionQuery(
+      lastUserMessage,
+      requestedActiveContext?.entity_type === "poc" ? requestedActiveContext.display_name : null,
+    );
+    if (pocName) {
+      const result = await fetchNamedPocConversionFastPath(pocName);
+      if (result.ok) {
+        const text = formatNamedPocConversionChatSse(result);
+        telemetry.intent = "named_poc_conversion_fast_path";
+        void logTurn({ status: "ok", response_chars: text.length });
+        return new Response(buildPlainSseResponse(text), {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "text/event-stream",
+            "X-Copilot-Model": "deterministic",
+            "X-Copilot-Intent": telemetry.intent,
+          },
+        });
+      }
+      requestState().log.warn("named_poc_conversion_fast_path_failed", { error: result.error, pocName });
+    }
   }
 
   if (isPocWorkloadQuery(lastUserMessage)) {
