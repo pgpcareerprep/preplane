@@ -38,6 +38,8 @@ jobs:
       - name: Type-check Deno orchestrator
         run: deno check main.ts
         working-directory: services/orchestrator
+      - name: Syntax-check Python path services
+        run: python3 -m compileall -q services/reasoning services/workflow services/semantic-classifier services/deploy
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

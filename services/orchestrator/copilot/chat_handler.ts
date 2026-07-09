@@ -55,6 +55,12 @@ import {
   replayCachedSse,
   teeSseForCache,
 } from "./cache.ts";
+import {
+  classifyViaRouter,
+  fetchReasoningHint,
+  fetchWorkflowSteps,
+  looksMultiStep,
+} from "./pathServices.ts";
 import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
 import { buildSystemPrompt, type ActiveContextHint } from "./systemPrompt.ts";
@@ -761,6 +767,54 @@ export async function handleChatRequest(req: Request) {
   // (snapshot + every tool call share one fetch + one Supabase fallback).
   resetRequestCache();
 
+  // ── Hybrid-mesh advisory signals ──
+  // Shadow-classify via the intent-router (rules + semantic classifier) and
+  // fetch path-service hints in parallel. Strictly advisory: 300ms budget,
+  // silent fallback, never replaces the local classification or tool loop.
+  const meshLmpId = typeof body.lmpId === "string" ? body.lmpId : null;
+  const [routerDecision, reasoningGuidance, workflowSteps] = await Promise.all([
+    classifyViaRouter(lastUserMessage, {
+      role: authedUser.role,
+      real_role: authedUser.role,
+      view_as_role: requestState().context.isImpersonating ? effectiveRole : null,
+      view_as_user_name: requestState().context.viewAsName,
+      lmp_id: meshLmpId,
+      mode: requestedMode,
+      history_len: messages.length,
+    }),
+    tier === "analysis"
+      ? fetchReasoningHint({
+        utterance: lastUserMessage,
+        subIntent: intent,
+        role: effectiveRole,
+        lmpId: meshLmpId,
+        mode: requestedMode,
+      })
+      : Promise.resolve(null),
+    looksMultiStep(lastUserMessage)
+      ? fetchWorkflowSteps(lastUserMessage)
+      : Promise.resolve(null),
+  ]);
+  if (routerDecision) {
+    requestState().log.event("router_decision", {
+      category: routerDecision.category,
+      sub_intent: routerDecision.sub_intent,
+      confidence: routerDecision.confidence,
+      local_intent: intent,
+    });
+    // When the local regex classifier is unsure, the router's verdict may
+    // still warrant the analysis-tier model upgrade.
+    if (
+      intent === "unknown" &&
+      (routerDecision.category === "REASONING" || routerDecision.category === "WORKFLOW") &&
+      ai.providers[0]?.name === "Gemini"
+    ) {
+      ai.toolModel = GEMINI_ANALYSIS_MODEL;
+      ai.providers[0] = { ...ai.providers[0], toolModel: GEMINI_ANALYSIS_MODEL };
+      console.log(`[copilot-ai] router=${routerDecision.category} (local unknown) → toolModel=${GEMINI_ANALYSIS_MODEL}`);
+    }
+  }
+
   try {
     // ── Step 1: Build rich data snapshot for system prompt context ──
     // Phase 5c: snapshot is built from DB-only data (no Sheets metadata fetch).
@@ -866,6 +920,17 @@ export async function handleChatRequest(req: Request) {
       { role: "system", content: systemPrompt },
       ...messages,
     ];
+
+    // Path-service hints (advisory context from the reasoning/workflow paths).
+    if (reasoningGuidance) {
+      aiMessages.push({ role: "system", content: `Reasoning-path hint: ${reasoningGuidance}` });
+    }
+    if (workflowSteps) {
+      aiMessages.push({
+        role: "system",
+        content: `Workflow-path decomposition suggestion — consider these steps in order: ${workflowSteps.join(" → ")}`,
+      });
+    }
 
     const MAX_TOOL_ROUNDS = 8;
     const SOFT_WARN_AT = 6;

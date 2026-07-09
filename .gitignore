@@ -40,3 +40,6 @@ supabase/.temp/
 # Rust local cargo cache (CI/dev)
 services/.cargo-home/
 services/target/
+
+# Deno lockfile — local deno may be newer than the Docker image deno (lockfile version mismatch breaks the build)
+services/orchestrator/deno.lock

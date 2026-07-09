@@ -14,7 +14,7 @@ COPY services/command-path ./command-path
 COPY services/command-plane ./command-plane
 COPY services/event-bus ./event-bus
 COPY services/engines ./engines
-RUN cargo build --release -p preplane-gateway -p preplane-intent-router -p preplane-command-plane -p preplane-lmp -p preplane-event-bus -p preplane-query-path
+RUN cargo build --release -p preplane-gateway -p preplane-intent-router -p preplane-command-plane -p preplane-lmp -p preplane-event-bus -p preplane-query-path -p preplane-sync -p preplane-notification -p preplane-calendar -p preplane-analytics
 
 FROM denoland/deno:2.1.4 AS deno
 WORKDIR /app
@@ -23,7 +23,10 @@ COPY services/orchestrator ./services/orchestrator
 RUN cd services/orchestrator && deno cache main.ts
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip python3 python3-pip && rm -rf /var/lib/apt/lists/*
+# Python path services (semantic classifier + reasoning + workflow, one uvicorn host).
+COPY services/reasoning/requirements.txt /tmp/paths-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/paths-requirements.txt && rm /tmp/paths-requirements.txt
 # The denoland/deno Debian image ships the binary at /usr/bin/deno (NOT /usr/local/bin).
 COPY --from=deno /usr/bin/deno /usr/local/bin/deno
 COPY --from=builder /app/target/release/preplane-intent-router /usr/local/bin/preplane-intent-router
@@ -32,8 +35,17 @@ COPY --from=builder /app/target/release/preplane-lmp /usr/local/bin/preplane-lmp
 COPY --from=builder /app/target/release/preplane-event-bus /usr/local/bin/preplane-event-bus
 COPY --from=builder /app/target/release/preplane-query-path /usr/local/bin/preplane-query-path
 COPY --from=builder /app/target/release/preplane-gateway /usr/local/bin/preplane-gateway
+COPY --from=builder /app/target/release/preplane-sync /usr/local/bin/preplane-sync
+COPY --from=builder /app/target/release/preplane-notification /usr/local/bin/preplane-notification
+COPY --from=builder /app/target/release/preplane-calendar /usr/local/bin/preplane-calendar
+COPY --from=builder /app/target/release/preplane-analytics /usr/local/bin/preplane-analytics
 COPY --from=deno /app/supabase/functions /app/supabase/functions
 COPY --from=deno /app/services/orchestrator /app/services/orchestrator
+COPY services/shared/python /app/services/shared/python
+COPY services/semantic-classifier /app/services/semantic-classifier
+COPY services/reasoning /app/services/reasoning
+COPY services/workflow /app/services/workflow
+COPY services/deploy/paths_host.py /app/services/deploy/paths_host.py
 COPY services/deploy/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 ENV INTENT_ROUTER_PORT=8081
@@ -42,5 +54,10 @@ ENV LMP_ENGINE_PORT=8090
 ENV EVENT_BUS_PORT=8083
 ENV QUERY_PATH_PORT=8084
 ENV ORCHESTRATOR_PORT=9005
+ENV PATHS_PORT=9001
+ENV SYNC_ENGINE_PORT=8091
+ENV NOTIFICATION_ENGINE_PORT=8092
+ENV CALENDAR_ENGINE_PORT=8093
+ENV ANALYTICS_ENGINE_PORT=8094
 EXPOSE 8080
 CMD ["/usr/local/bin/start.sh"]

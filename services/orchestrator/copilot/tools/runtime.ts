@@ -1314,6 +1314,33 @@ export async function executeTool(
       }
 
       case "get_analytics": {
+        // Delegate to the query-path service when available — same templates,
+        // same POC read-scoping inputs (role + userName). Any failure falls
+        // back silently to the local implementation below.
+        const queryPathBase = Deno.env.get("QUERY_PATH_URL")?.trim().replace(/\/$/, "");
+        if (queryPathBase) {
+          try {
+            const qpCtx = requestState().context;
+            const resp = await fetch(`${queryPathBase}/execute`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(6000),
+              body: JSON.stringify({
+                template: "get_analytics",
+                args,
+                role: qpCtx.effectiveRole ?? qpCtx.role,
+                userName: qpCtx.effectiveName ?? qpCtx.actorName,
+              }),
+            });
+            if (resp.ok) {
+              const j = await resp.json();
+              if (j && j.result !== undefined) {
+                requestState().log.event("query_path_delegated", { template: "get_analytics", metric: args.metric });
+                return JSON.stringify(j.result);
+              }
+            }
+          } catch { /* fall back to local implementation */ }
+        }
         const { records } = await getLmpRecords();
         const metric = args.metric as string;
         let filtered = applyPocReadScope(records, args as Record<string, unknown>);
