@@ -16,7 +16,15 @@ function getClient() {
   return _client;
 }
 
-export type AiFeature = "copilot" | "voice" | "tts" | "parse_jd" | "embeddings" | "mentor_search";
+export type AiFeature =
+  | "copilot"
+  | "copilot_web_search"
+  | "voice"
+  | `voice-${string}` // per-provider voice usage, e.g. voice-gemini
+  | "tts"
+  | "parse_jd"
+  | "embeddings"
+  | "mentor_search";
 
 export interface LogAiUsageInput {
   userId?: string | null;

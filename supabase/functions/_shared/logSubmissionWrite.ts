@@ -85,7 +85,8 @@ export async function writeSubmissionRecord(
   if (!perm.allowed) return { ok: false, error: perm.reason || "Not allowed to log submissions" };
 
   const c = sb();
-  let lmpId = input.lmp_id;
+  // Both branches below resolve this to a verified lmp_processes.id or return early.
+  let lmpId: string = input.lmp_id ?? "";
   let company = input.company;
   let role = input.role;
 

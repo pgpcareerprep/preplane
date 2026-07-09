@@ -1,6 +1,8 @@
 // Shared live-entity search. Replaces the dropped entity_registry table by
 // UNION-ing source tables on the fly. Used by entity-search + copilot-ai.
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Pinned to the same version as every other shared module — a floating `@2`
+// resolves to a different major-line build over time and breaks type unification.
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 export type EntityRow = {
   entity_type: string;

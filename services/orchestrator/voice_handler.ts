@@ -574,7 +574,7 @@ export async function handleVoiceRequest(req: Request) {
     voiceRequestState().viewAs = { impersonating: isImpersonating, name: isImpersonating ? viewAsName : null };
 
     let effectiveName = realName;
-    let effectiveRole = realRole;
+    let effectiveRole: string = realRole;
     if (isImpersonating) {
       const resolved = await resolveViewAsEffectiveRole(viewAsName, claimedViewAsRole, realRole);
       effectiveRole = resolved.effectiveRole;

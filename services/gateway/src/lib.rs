@@ -1,6 +1,5 @@
 pub mod auth;
 pub mod config;
-pub mod dispatcher;
 pub mod echo;
 pub mod intent_client;
 pub mod orchestrator_client;

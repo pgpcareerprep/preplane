@@ -26,6 +26,26 @@ jobs:
       - run: npm run check:bundle
       - run: npm run audit:ci
 
+  services-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      # Deno does not type-check on `run`/`cache`, so a broken orchestrator
+      # only surfaces at runtime (or fails the Render Docker build silently).
+      - name: Type-check Deno orchestrator
+        run: deno check main.ts
+        working-directory: services/orchestrator
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services
+      - name: Compile-check Rust services
+        run: cargo check --workspace --locked
+        working-directory: services
+
   public-e2e:
     runs-on: ubuntu-latest
     steps:

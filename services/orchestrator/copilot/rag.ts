@@ -1,8 +1,10 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnv } from "./secrets.ts";
 import { EMBED_URL } from "./constants.ts";
 
-type SupabaseLike = ReturnType<typeof createClient>;
+// Loose client type: callers construct clients with differing generics.
+// deno-lint-ignore no-explicit-any
+type SupabaseLike = SupabaseClient<any, any, any>;
 
 export async function retrieveRAGContext(
   userMessage: string,

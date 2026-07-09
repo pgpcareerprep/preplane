@@ -12,6 +12,8 @@ import {
   privilegedCopilotRole,
   viewAsBlocksWrites,
   type LmpFetch,
+  type PlanInternal,
+  type PlanStepInternal,
 } from "../requestContext.ts";
 import { retrieveRAGContext } from "../rag.ts";
 import { getCacheClient } from "../cache.ts";
@@ -201,15 +203,15 @@ async function fetchMastersheetFromSupabase(): Promise<Record<string, string>[]>
 
 // DB-only reads. The sheet is no longer consulted by Co-Pilot.
 export async function getLmpRecords(): Promise<LmpFetch> {
-  if (requestState().cache.lmp) return requestState().cache.lmp;
-  requestState().cache.lmp = fetchLmpFromSupabase();
-  return requestState().cache.lmp;
+  const cache = requestState().cache;
+  if (!cache.lmp) cache.lmp = fetchLmpFromSupabase();
+  return cache.lmp;
 }
 
 export async function getMastersheetRecords(): Promise<Record<string, string>[]> {
-  if (requestState().cache.master) return requestState().cache.master;
-  requestState().cache.master = fetchMastersheetFromSupabase();
-  return requestState().cache.master;
+  const cache = requestState().cache;
+  if (!cache.master) cache.master = fetchMastersheetFromSupabase();
+  return cache.master;
 }
 
 function matchesFilter(val: string, filter: string): boolean {
@@ -726,13 +728,14 @@ export async function executeTool(
         }
 
         // Server-staged confirmation: persist row; client/model only round-trips the id.
-        if (!requestState().context.userId) {
+        const stagingCtx = requestState().context;
+        if (!stagingCtx.userId) {
           return JSON.stringify({ error: "Not authenticated" });
         }
         const staged = await stagePendingAction({
-          userId: requestState().context.userId,
-          actorName: requestState().context.actorName,
-          role: requestState().context.role,
+          userId: stagingCtx.userId,
+          actorName: stagingCtx.actorName,
+          role: stagingCtx.role,
           kind,
           payload,
           currentSnapshot,
@@ -1041,7 +1044,7 @@ export async function executeTool(
       }
 
       case "search_sessions": {
-        let q = supabase.from("sessions")
+        let q = getCacheClient().from("sessions")
           .select("id, lmp_id, mentor_id, student_id, session_type, status, scheduled_at, completed_at, duration_min, poc_name, notes, student_rating, mentor_rating, lmp_processes(company, role), mentors(name), students(name)")
           .order("scheduled_at", { ascending: false, nullsFirst: false })
           .limit(Math.min(Number(args.limit) || 50, 200));

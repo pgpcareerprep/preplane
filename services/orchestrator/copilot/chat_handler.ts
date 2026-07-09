@@ -27,7 +27,7 @@ import {
   formatExecutePendingChatSse,
 } from "../../../supabase/functions/_shared/copilotDeterministicConfirm.ts";
 import { cancelPendingAction } from "../../../supabase/functions/_shared/copilotPendingActions.ts";
-import { buildConversionReport, formatConversionReportSse, tallyLmpConversionBuckets, formatLmpProcessConversionRate } from "../../../supabase/functions/_shared/conversionReport.ts";
+import { buildConversionReport, formatConversionReportSse, tallyLmpConversionBuckets, formatLmpProcessConversionRate, type LinkRaw, type LmpRaw } from "../../../supabase/functions/_shared/conversionReport.ts";
 import { requireAuth } from "../../../supabase/functions/_shared/requireAuth.ts";
 import { buildProviderList, callSynthesis, callToolModel, sanitizeFailMsg, type ProviderConfig } from "./providers.ts";
 import { getHealthSnapshot } from "../../../supabase/functions/_shared/circuitBreaker.ts";
@@ -46,6 +46,7 @@ import { retrieveRAGContext } from "./rag.ts";
 import {
   ANALYTICAL_TTL,
   ACTION_TTL,
+  getCacheClient,
   isWriteTool,
   stableStringify,
   buildCacheKey,
@@ -56,7 +57,7 @@ import {
 } from "./cache.ts";
 import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
-import { buildSystemPrompt } from "./systemPrompt.ts";
+import { buildSystemPrompt, type ActiveContextHint } from "./systemPrompt.ts";
 
 function sanitizeProviderDetail(msg: string): string {
   return sanitizeFailMsg(msg).slice(0, 400);
@@ -227,17 +228,9 @@ export async function handleChatRequest(req: Request) {
   ai.extraHeaders = primaryProvider.extraHeaders;
   requestState().context.activeProviderName = primaryProvider.name;
 
-  // ─── Intent-based model override ─────────────────────────────────────────
-  const intentFromReq = requestState().context.intent ?? "";
-  const tier = getTaskTier(intentFromReq);
-  if (tier === "analysis" && primaryProvider.name === "Gemini") {
-    ai.toolModel = GEMINI_ANALYSIS_MODEL;
-    ai.providers[0] = { ...ai.providers[0], toolModel: GEMINI_ANALYSIS_MODEL };
-  }
-
   console.log(
     `[copilot-ai] providers configured: ${ai.providers.map(p => p.name).join(" → ")}`,
-    `| primary=${primaryProvider.name} | intent=${intentFromReq} | tier=${tier} | toolModel=${ai.toolModel}`,
+    `| primary=${primaryProvider.name} | toolModel=${ai.toolModel}`,
     `| geminiKey=${geminiMeta.source ?? "missing"}…${geminiMeta.value?.slice(-4) ?? "none"}`,
   );
 
@@ -414,7 +407,7 @@ export async function handleChatRequest(req: Request) {
   requestState().context.viewAsName = _viewAsName;
   requestState().context.isImpersonating = !!_viewAsName && _viewAsName.toLowerCase() !== _realName;
   let effectiveName = requestState().context.actorName;
-  let effectiveRole = authedUser.role;
+  let effectiveRole: string = authedUser.role;
   if (requestState().context.isImpersonating && _viewAsName) {
     const claimedViewAsRole = (
       (body as Record<string, unknown>).viewAsRole as string | undefined
@@ -508,6 +501,15 @@ export async function handleChatRequest(req: Request) {
     [...messages].reverse().find(m => m?.role === "user")?.content ?? "";
   const intent = classifyIntent(lastUserMessage);
   requestState().context.intent = intent; // used for model tier selection below
+
+  // ─── Intent-based model override ─────────────────────────────────────────
+  // Must run AFTER classifyIntent — the tier depends on the classified intent.
+  const tier = getTaskTier(intent);
+  if (tier === "analysis" && primaryProvider.name === "Gemini") {
+    ai.toolModel = GEMINI_ANALYSIS_MODEL;
+    ai.providers[0] = { ...ai.providers[0], toolModel: GEMINI_ANALYSIS_MODEL };
+    console.log(`[copilot-ai] intent=${intent} tier=analysis → toolModel=${GEMINI_ANALYSIS_MODEL}`);
+  }
   const userName =
     typeof (body as Record<string, unknown>).userName === "string"
       ? ((body as Record<string, unknown>).userName as string)
@@ -664,10 +666,12 @@ export async function handleChatRequest(req: Request) {
     }
     const report = buildConversionReport(
       pocsRes.data ?? [],
-      linksRes.data ?? [],
+      // supabase-js infers the to-one `lmp_processes` join as an array without
+      // generated DB types; at runtime it is a single object (FK to-one).
+      (linksRes.data ?? []) as unknown as LinkRaw[],
       candidatesRes.data ?? [],
       studentsRes.data ?? [],
-      lmpsRes.data ?? [],
+      (lmpsRes.data ?? []) as unknown as LmpRaw[],
     );
     const text = formatConversionReportSse(report);
     telemetry.intent = "conversion_report_fast_path";

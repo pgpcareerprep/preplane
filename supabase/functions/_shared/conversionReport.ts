@@ -163,7 +163,7 @@ type PocRaw = {
   status?: string | null;
 };
 
-type LinkRaw = {
+export type LinkRaw = {
   poc_id: string;
   role: string;
   lmp_id: string;
@@ -184,7 +184,7 @@ type StudentRaw = {
   placement_status?: string | null;
 };
 
-type LmpRaw = {
+export type LmpRaw = {
   id: string;
   status?: string | null;
   domain_raw?: string | null;

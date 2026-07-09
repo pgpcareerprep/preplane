@@ -13,7 +13,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -104,22 +104,6 @@ fn sse_response(text: String, intent: &str) -> Response {
         .header("X-Copilot-Intent", intent)
         .body(Body::from(build_plain_sse_response(&text)))
         .unwrap()
-}
-
-fn last_user_message(messages: &[ChatMessage]) -> String {
-    messages
-        .iter()
-        .rev()
-        .find(|m| m.role == "user")
-        .map(|m| m.content.clone())
-        .unwrap_or_default()
-}
-
-fn first_name(user_name: Option<&str>) -> &str {
-    user_name
-        .and_then(|n| n.split_whitespace().next())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("there")
 }
 
 async fn handle_copilot(
