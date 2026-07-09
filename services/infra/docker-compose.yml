@@ -135,6 +135,9 @@ services:
         SERVICE_BIN: preplane-event-bus
     environment:
       PORT: "8083"
+      REDIS_URL: redis://redis:6379
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
     ports:
       - "8083:8083"
     depends_on:

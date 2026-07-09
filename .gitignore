@@ -36,3 +36,7 @@ dist-ssr
 
 # Supabase CLI temp artifacts
 supabase/.temp/
+
+# Rust local cargo cache (CI/dev)
+services/.cargo-home/
+services/target/
