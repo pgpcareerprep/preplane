@@ -5,29 +5,29 @@
 // - All writes go through prepare -> verbal confirm -> execute
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logAiUsage, estimateTokens, reserveAiRequest } from "../../../supabase/functions/_shared/ai-usage.ts";
-import { isMentorCoverageQuery, isPocWorkloadQuery } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
+import { logAiUsage, estimateTokens, reserveAiRequest } from "../../supabase/functions/_shared/ai-usage.ts";
+import { isMentorCoverageQuery, isPocWorkloadQuery } from "../../supabase/functions/_shared/copilotFastPaths.ts";
 import {
   fetchMentorCoverageFastPath,
   fetchPocWorkloadFastPath,
   formatMentorCoverageVoice,
   formatPocWorkloadVoice,
-} from "../../../supabase/functions/_shared/fastPathHandlers.ts";
+} from "../../supabase/functions/_shared/fastPathHandlers.ts";
 import { GEMINI_TOOL_FALLBACK_MODELS } from "./copilot/modelConfig.ts";
 import { TOOLS as COPILOT_TOOL_REGISTRY, executeTool as copilotExecuteTool } from "./copilot/tools/index.ts";
 import { createRequestState, requestStateStorage, type CopilotRequestState } from "./copilot/requestContext.ts";
 import { buildProviderList, callToolModel } from "./copilot/providers.ts";
-import { validateLogSubmissionArgs } from "../../../supabase/functions/_shared/logSubmissionWrite.ts";
-import { formatLmpLabel, trimStr, validateVoicePrepareWrite } from "../../../supabase/functions/_shared/lmpWriteValidation.ts";
-import { stagePendingAction } from "../../../supabase/functions/_shared/copilotPendingActions.ts";
-import { resolveViewAsEffectiveRole } from "../../../supabase/functions/_shared/viewAsRole.ts";
+import { validateLogSubmissionArgs } from "../../supabase/functions/_shared/logSubmissionWrite.ts";
+import { formatLmpLabel, trimStr, validateVoicePrepareWrite } from "../../supabase/functions/_shared/lmpWriteValidation.ts";
+import { stagePendingAction } from "../../supabase/functions/_shared/copilotPendingActions.ts";
+import { resolveViewAsEffectiveRole } from "../../supabase/functions/_shared/viewAsRole.ts";
 import {
   buildVoiceNameNormalizationBlock,
   buildVoicePocRosterBlock,
-} from "../../../supabase/functions/_shared/voicePhoneticGlossary.ts";
+} from "../../supabase/functions/_shared/voicePhoneticGlossary.ts";
 
 
-import { buildCorsHeaders } from "../../../supabase/functions/_shared/cors.ts";
+import { buildCorsHeaders } from "../../supabase/functions/_shared/cors.ts";
 
 const MAX_ROUNDS = 4;
 
@@ -509,8 +509,8 @@ async function runTool(name: string, args: any): Promise<{ result: any; pendingR
 }
 
 // ─── HTTP ──────────────────────────────────────────────────────────────────
-import { requireAuth } from "../../../supabase/functions/_shared/requireAuth.ts";
-import { createLogger } from "../../../supabase/functions/_shared/logger.ts";
+import { requireAuth } from "../../supabase/functions/_shared/requireAuth.ts";
+import { createLogger } from "../../supabase/functions/_shared/logger.ts";
 
 export async function handleVoiceRequest(req: Request) {
   const corsHeaders = buildCorsHeaders(req);
