@@ -132,6 +132,23 @@ The copilot gateway + intent-router ship as one Docker web service on [Render](h
 
 Blueprint: `render.yaml` at repo root.
 
+## Phase 9 — production cutover
+
+Production Pages builds default to the Render gateway (`src/lib/copilotGateway.ts`).
+Rollback: set `VITE_COPILOT_USE_LEGACY=1` in Cloudflare Pages environment.
+
+```bash
+# Gateway smoke (also in CI)
+curl -sf https://preplane-copilot.onrender.com/health
+
+# Local dev still uses edge functions unless you set:
+# VITE_COPILOT_GATEWAY_URL=http://localhost:8080
+```
+
+Edge functions `copilot-ai`, `voice-copilot`, and `voice-speak` are **deprecated**
+(see `DEPRECATED.md` in each folder) but kept for rollback and LLM flows not yet
+ported to the hybrid backend.
+
 ## Next phase
 
-**Phase 4** — Command & Planning Layer (guardrails → idempotency → command bus).
+Post-cutover: port remaining LLM tool-loop orchestration, then delete deprecated edge functions.

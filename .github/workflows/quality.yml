@@ -52,3 +52,16 @@ jobs:
           test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/progress-reminder-cron")" = "401"
           test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/sheets-retry-sweeper")" = "401"
           test "$(curl -sS -o /tmp/body -w '%{http_code}' "$SUPABASE_URL/functions/v1/sync-ingest")" = "401"
+
+  gateway-smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      COPILOT_GATEWAY_URL: https://preplane-copilot.onrender.com
+    steps:
+      - name: Gateway health
+        run: curl -sf "$COPILOT_GATEWAY_URL/health"
+      - name: Gateway copilot rejects anonymous requests
+        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$COPILOT_GATEWAY_URL/copilot" -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"hi"}]}')" = "401"
+      - name: Gateway voice rejects anonymous requests
+        run: test "$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$COPILOT_GATEWAY_URL/voice" -H 'Content-Type: application/json' -d '{"messages":[]}')" = "401"

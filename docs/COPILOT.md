@@ -5,10 +5,29 @@ It is composed of three main surfaces:
 
 1. **`/copilot`** — the chat UI (`src/pages/CopilotPage.tsx`).
 2. **`/copilot/insights`** — observability dashboard (`src/pages/CopilotInsightsPage.tsx`).
-3. **`copilot-ai` Edge Function** — the LLM + tool runtime
-   (`supabase/functions/copilot-ai/index.ts`).
+3. **Copilot backend** — production traffic routes to the Rust gateway
+   (`https://preplane-copilot.onrender.com`) by default. Legacy edge functions
+   (`copilot-ai`, `voice-copilot`) remain for rollback via `VITE_COPILOT_USE_LEGACY=1`.
 
-## Data flow
+## Data flow (Phase 9 — hybrid gateway)
+
+```text
+User ─▶ CopilotPage ─▶ POST {gateway}/copilot (SSE)
+                            │
+                            ├─ intent-router (rules + classifier)
+                            ├─ query-path / command-plane / reasoning / workflow
+                            └─ telemetry → copilot_turns (legacy edge when applicable)
+                            ▼
+                       streamed blocks
+                            │
+                            ▼
+                       BlockRenderer
+```
+
+Rollback: set `VITE_COPILOT_USE_LEGACY=1` on Cloudflare Pages to restore
+`POST /functions/v1/copilot-ai`.
+
+## Data flow (legacy edge — rollback only)
 
 ```text
 User ─▶ CopilotPage ─▶ POST /functions/v1/copilot-ai (SSE)

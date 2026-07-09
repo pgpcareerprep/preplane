@@ -1,12 +1,24 @@
 /**
- * Copilot gateway URL resolution.
- * When VITE_COPILOT_GATEWAY_URL is set, traffic routes to the Rust gateway.
- * When unset, the legacy Supabase edge functions are used (instant rollback).
+ * Copilot gateway URL resolution (Phase 9 cutover).
+ *
+ * Production builds default to the Render gateway. Set `VITE_COPILOT_USE_LEGACY=1`
+ * to roll back to Supabase edge functions (`copilot-ai`, `voice-copilot`).
  */
+export const PRODUCTION_COPILOT_GATEWAY_URL = "https://preplane-copilot.onrender.com";
+
 function gatewayBase(): string | null {
+  const useLegacy = import.meta.env.VITE_COPILOT_USE_LEGACY;
+  if (useLegacy === "1" || useLegacy === "true") {
+    return null;
+  }
   const raw = import.meta.env.VITE_COPILOT_GATEWAY_URL;
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  return raw.trim().replace(/\/$/, "");
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim().replace(/\/$/, "");
+  }
+  if (import.meta.env.PROD) {
+    return PRODUCTION_COPILOT_GATEWAY_URL;
+  }
+  return null;
 }
 
 /** Web copilot chat + pending-action (same path as legacy copilot-ai). */
