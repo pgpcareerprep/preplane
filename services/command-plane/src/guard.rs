@@ -1,5 +1,5 @@
-use crate::rbac::{check_permission, write_kind_perm};
 use crate::supabase::SupabaseClient;
+use preplane_governance::{check_permission, poc_writable_field, view_as_blocks_writes, write_kind_perm};
 use serde_json::Value;
 
 pub struct GuardContext {
@@ -12,28 +12,6 @@ pub struct GuardContext {
 pub struct GuardBlock {
     pub reason: String,
     pub safe_alternative: Option<String>,
-}
-
-const POC_WRITABLE_FIELDS: &[&str] = &[
-    "daily_progress",
-    "prep_progress",
-    "placement_progress",
-    "remarks",
-    "mentor_aligned",
-    "status",
-    "r1_names",
-    "r2_names",
-    "r3_names",
-    "final_converted_names",
-    "Daily Progress",
-    "Prep Progress",
-    "Placement Progress",
-    "Remarks",
-    "Status",
-];
-
-pub fn view_as_blocks_writes(view_as_role: Option<&str>) -> bool {
-    view_as_role.is_some()
 }
 
 pub async fn enforce_write_guard(
@@ -91,9 +69,7 @@ pub async fn enforce_write_guard(
         if kind == "update_lmp_field" {
             if let Some(fields) = payload.get("fields").and_then(Value::as_object) {
                 for key in fields.keys() {
-                    let norm = key.trim();
-                    let snake = norm.to_lowercase().replace(' ', "_");
-                    if !POC_WRITABLE_FIELDS.contains(&norm) && !POC_WRITABLE_FIELDS.contains(&snake.as_str()) {
+                    if !poc_writable_field(key) {
                         return Err(GuardBlock {
                             reason: format!(
                                 "POC role cannot edit: {key}. Ask an admin or allocator."

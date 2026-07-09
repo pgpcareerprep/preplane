@@ -862,6 +862,7 @@ dependencies = [
  "chrono",
  "preplane-command-path",
  "preplane-contracts",
+ "preplane-governance",
  "preplane-health",
  "reqwest",
  "serde",
@@ -920,6 +921,7 @@ version = "0.1.0"
 dependencies = [
  "preplane-contracts",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -954,6 +956,7 @@ dependencies = [
  "axum",
  "chrono",
  "preplane-contracts",
+ "preplane-governance",
  "preplane-health",
  "reqwest",
  "serde",

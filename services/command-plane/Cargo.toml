@@ -21,6 +21,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 preplane-contracts = { workspace = true }
 preplane-command-path = { path = "../command-path" }
+preplane-governance = { path = "../governance" }
 preplane-health = { workspace = true }
 
 [dev-dependencies]

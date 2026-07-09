@@ -9,3 +9,7 @@ path = "src/lib.rs"
 [dependencies]
 preplane-contracts = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

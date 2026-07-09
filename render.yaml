@@ -3,13 +3,6 @@
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
-  - type: redis
-    name: preplane-redis
-    plan: free
-    region: singapore
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
-
   - type: web
     name: preplane-copilot
     runtime: docker
@@ -31,10 +24,7 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: preplane-redis
-          property: connectionString
+        sync: false
       - key: INTENT_ROUTER_PORT
         value: "8081"
       - key: COMMAND_PLANE_PORT

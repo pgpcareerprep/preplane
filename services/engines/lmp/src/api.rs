@@ -57,27 +57,20 @@ async fn handle_execute(
 
     let kind = write_kind_label(&body.envelope.command);
     let entity_id = body.envelope.entity_id.clone();
-    state
-        .sb
-        .insert_activity_log(json!({
-            "actor_name": body.actor_name.as_deref().unwrap_or("Copilot user"),
-            "poc_role_type": match body.role.as_deref() {
-                Some("admin") => "admin",
-                Some("allocator") => "system",
-                _ => "primary",
-            },
-            "entity_type": if kind == "bulk_update" { "lmp_bulk" } else { "lmp" },
-            "entity_id": entity_id,
-            "action": format!("copilot:{kind}"),
-            "previous_value": body.current_snapshot,
-            "new_value": body.proposed_snapshot,
-            "metadata": {
-                "command_log_id": body.command_log_id,
-                "idempotency_key": body.envelope.idempotency_key,
-                "result": result,
-            },
-        }))
-        .await;
+    let activity = preplane_governance::copilot_activity_entry(
+        body.actor_name.as_deref().unwrap_or("Copilot user"),
+        body.role.as_deref().unwrap_or("poc"),
+        kind,
+        &entity_id,
+        body.current_snapshot.as_ref(),
+        body.proposed_snapshot.as_ref(),
+        json!({
+            "command_log_id": body.command_log_id,
+            "idempotency_key": body.envelope.idempotency_key,
+            "result": result,
+        }),
+    );
+    state.sb.insert_activity_log(activity).await;
 
     Json(ExecuteResponse {
         ok: output.ok,
