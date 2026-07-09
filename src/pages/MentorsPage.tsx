@@ -5,13 +5,13 @@ import { Star, ArrowUpDown, UserPlus, Sparkles } from "lucide-react";
 import { RunMentorModal } from "@/components/mentors/RunMentorModal";
 import { cn } from "@/lib/utils";
 import {
-  buildNameToSourcesMap,
   mentorSourceFromRow,
   normalizeMentorNameForMatch,
   type MentorSource,
 } from "@/lib/mentor";
 import { MentorSourceTags } from "@/components/mentors/MentorSourceTags";
-import { useAllMentors, type DbMentorRow } from "@/lib/hooks/useDbData";
+import { buildMentorIdentitySourceIndex } from "@/lib/mentorSourceIdentity";
+import { useAllMentors, useAllAlumni, type DbMentorRow } from "@/lib/hooks/useDbData";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,6 +78,7 @@ type SortKey = "name" | "rating" | "rate" | "domain";
 export default function MentorsPage() {
   const navigate = useNavigate();
   const { data: allMentors = [], isLoading } = useAllMentors();
+  const { data: allAlumni = [] } = useAllAlumni();
 
   // Live LMP assignments to scope the list
   const { data: assignments = [] } = useQuery({
@@ -167,9 +168,9 @@ export default function MentorsPage() {
     [allMentors, assignmentMap],
   );
 
-  const nameSourceIndex = useMemo(
-    () => buildNameToSourcesMap(allMentors),
-    [allMentors],
+  const mentorSourceIndex = useMemo(
+    () => buildMentorIdentitySourceIndex(allMentors, allAlumni),
+    [allMentors, allAlumni],
   );
 
   // Realtime: mentor edits + assignments + sessions (so feedback ratings flow
@@ -194,8 +195,9 @@ export default function MentorsPage() {
     const min = parseFloat(ratingMin);
     const filtered = mentors.filter((m) => {
       if (source !== "all") {
-        const key = normalizeMentorNameForMatch(m.name);
-        const sources = nameSourceIndex.get(key) ?? [mentorSourceFromRow(m)];
+        const sources = mentorSourceIndex.byId.get(m.id)
+          ?? mentorSourceIndex.byName.get(normalizeMentorNameForMatch(m.name))
+          ?? [mentorSourceFromRow(m)];
         if (!sources.includes(source)) return false;
       }
       if (Number(m.rating) < min) return false;
@@ -213,7 +215,7 @@ export default function MentorsPage() {
       domain: (a, b) => primaryDomain(a.functional_domain).localeCompare(primaryDomain(b.functional_domain)),
     };
     return [...filtered].sort(sorters[sort]);
-  }, [mentors, q, source, ratingMin, domainFilter, sort, nameSourceIndex]);
+  }, [mentors, q, source, ratingMin, domainFilter, sort, mentorSourceIndex]);
 
   if (isLoading) {
     return (
@@ -290,7 +292,8 @@ export default function MentorsPage() {
           </thead>
           <tbody>
               {rows.map((m) => {
-                const sources = nameSourceIndex.get(normalizeMentorNameForMatch(m.name))
+                const sources = mentorSourceIndex.byId.get(m.id)
+                  ?? mentorSourceIndex.byName.get(normalizeMentorNameForMatch(m.name))
                   ?? [mentorSourceFromRow(m)];
                 return (
                   <tr

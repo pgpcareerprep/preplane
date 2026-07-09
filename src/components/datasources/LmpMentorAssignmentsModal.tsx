@@ -5,12 +5,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { supabase } from "@/integrations/supabase/client";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MentorSourceTags } from "@/components/mentors/MentorSourceTags";
+import { type MentorSource } from "@/lib/mentor";
 import {
-  buildNameToSourcesMap,
-  mergeMentorSources,
-  normalizeMentorNameForMatch,
-  type MentorSource,
-} from "@/lib/mentor";
+  buildMentorIdentitySourceIndex,
+  fetchMentorAliasRows,
+  resolveMentorSources,
+} from "@/lib/mentorSourceIdentity";
 
 const PAGE_SIZE = 50;
 
@@ -67,7 +67,7 @@ export function LmpMentorAssignmentsModal({
 
       const [mentors, lmps, sessions] = await Promise.all([
         mentorIds.length
-          ? supabase.from("mentors").select("id, name, role, company, designation, source, sync_source, rating")
+          ? supabase.from("mentors").select("id, name, role, company, designation, source, sync_source, rating, email, linkedin")
               .in("id", mentorIds)
           : Promise.resolve({ data: [], error: null } as any),
         lmpIds.length
@@ -84,23 +84,8 @@ export function LmpMentorAssignmentsModal({
       const assignedMentorRows = mentors.data ?? [];
       const mMap = new Map<string, any>(assignedMentorRows.map((m: any) => [m.id, m]));
 
-      const names = Array.from(new Set(
-        assignedMentorRows.map((m: any) => (m?.name || "").trim()).filter(Boolean),
-      ));
-      let sourceIndex = buildNameToSourcesMap(assignedMentorRows);
-      if (names.length > 0) {
-        const orFilter = names
-          .slice(0, 50)
-          .map((n) => `name.ilike."${n.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
-          .join(",");
-        const { data: aliasRows } = await supabase
-          .from("mentors")
-          .select("name, source, sync_source")
-          .or(orFilter);
-        if (aliasRows?.length) {
-          sourceIndex = buildNameToSourcesMap([...assignedMentorRows, ...aliasRows]);
-        }
-      }
+      const aliasRows = await fetchMentorAliasRows(supabase, assignedMentorRows);
+      const sourceIndex = buildMentorIdentitySourceIndex(aliasRows.mentors, aliasRows.alumni);
 
       const lMap = new Map<string, string>(
         (lmps.data ?? []).map((l: any) => [l.id, [l.company, l.role].filter(Boolean).join(" · ")]),
@@ -143,10 +128,7 @@ export function LmpMentorAssignmentsModal({
         const mode: "1:1" | "Group" = (anyGroupSession || studentCount > 1) ? "Group" : "1:1";
         const sessionsCount = sList.length || (r.session_count ?? 0);
         const rating = (m?.rating && m.rating > 0) ? Number(m.rating) : (r.feedback_avg ?? 0);
-        const nameKey = normalizeMentorNameForMatch(m?.name ?? "");
-        const sources = nameKey && sourceIndex.has(nameKey)
-          ? sourceIndex.get(nameKey)!
-          : mergeMentorSources(m?.source, r.mentor_source);
+        const sources = resolveMentorSources(sourceIndex, m, [m?.source, r.mentor_source]);
 
         return {
           ...r,
@@ -245,7 +227,7 @@ export function LmpMentorAssignmentsModal({
                     </td>
                     <td className="py-2 pr-3 text-n700">{r.lmp_label || r.lmp_id.slice(0, 8)}</td>
                     <td className="py-2 pr-3">
-                      <MentorSourceTags sources={r.sources ?? mergeMentorSources(r.source)} />
+                      <MentorSourceTags sources={r.sources ?? []} />
                     </td>
                     <td className="py-2 pr-3 text-n700 tabular-nums text-right">{r.student_count ?? 0}</td>
                     <td className="py-2 pr-3">
