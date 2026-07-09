@@ -113,3 +113,75 @@ export function looksMultiStep(utterance: string): boolean {
     utterance,
   );
 }
+
+// ── Deterministic QUERY routing ─────────────────────────────────────────────
+// When the intent-router classifies a turn as QUERY and a query-path template
+// can genuinely answer it, the turn is served without any LLM call.
+
+const POC_WORKLOAD_RE =
+  /\bpocs?\b[\s\S]{0,80}\b(workload|active load|capacity|max threshold|conversion rate)\b|\b(workload|active load|capacity)\b[\s\S]{0,80}\bpocs?\b/i;
+
+/**
+ * Map a router QUERY verdict to a query-path template. Returns null for
+ * sub-intents query-path has no template for (student search, attention,
+ * compare) — those stay on the LLM tool loop.
+ */
+export function queryTemplateForDecision(
+  subIntent: string,
+  utterance: string,
+): { template: string; args: Record<string, unknown> } | null {
+  switch (subIntent) {
+    case "analytics_query":
+    case "dashboard_query":
+      return {
+        template: "get_analytics",
+        args: { metric: POC_WORKLOAD_RE.test(utterance) ? "poc_workload" : "pipeline_summary" },
+      };
+    case "poc_allocation":
+      return { template: "get_analytics", args: { metric: "poc_workload" } };
+    case "alumni_matching":
+      return { template: "lmp_with_alumni_mentors", args: { limit: 50 } };
+    case "lmp_process_search":
+      return { template: "search_lmp_records", args: { limit: 50 } };
+    case "entity_listing":
+      // Only LMP/process listings — mentor/student listings have no template.
+      return /\b(lmps?|processes?|process)\b/i.test(utterance)
+        ? { template: "search_lmp_records", args: { limit: 50 } }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/** Execute a query-path template; returns the formatted answer text or null. */
+export async function executeQueryPath(input: {
+  template: string;
+  args: Record<string, unknown>;
+  utterance: string;
+  subIntent: string;
+  role: string | null;
+  userName: string | null;
+}): Promise<string | null> {
+  const base = baseUrl("QUERY_PATH_URL");
+  if (!base) return null;
+  try {
+    const resp = await fetch(`${base}/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(6000),
+      body: JSON.stringify({
+        template: input.template,
+        args: input.args,
+        utterance: input.utterance,
+        sub_intent: input.subIntent,
+        role: input.role,
+        userName: input.userName,
+      }),
+    });
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    return typeof j?.sse_text === "string" && j.sse_text.trim() ? j.sse_text : null;
+  } catch {
+    return null;
+  }
+}

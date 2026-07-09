@@ -57,9 +57,11 @@ import {
 } from "./cache.ts";
 import {
   classifyViaRouter,
+  executeQueryPath,
   fetchReasoningHint,
   fetchWorkflowSteps,
   looksMultiStep,
+  queryTemplateForDecision,
 } from "./pathServices.ts";
 import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
@@ -302,7 +304,10 @@ export async function handleChatRequest(req: Request) {
     tool_calls_count: 0,
     intent: "agent" as string,
     cache_hit: false,
-    model: aiProvider().toolModel,
+    // "deterministic" until an actual LLM call overwrites it (callToolModel /
+    // callSynthesis set the real model) — fast paths and query-path answers
+    // must not be logged as Gemini usage.
+    model: "deterministic",
     scope_summary: [] as Array<{
       round: number;
       tool: string;
@@ -318,18 +323,6 @@ export async function handleChatRequest(req: Request) {
     scope_broadened_count: 0,
   };
   let usedWriteTool = false;
-  const { reserveAiRequest } = await import("../../../supabase/functions/_shared/ai-usage.ts");
-  const budget = await reserveAiRequest(authedUser.id, aiProvider().toolModel);
-  if (!budget.allowed) {
-    return new Response(JSON.stringify({
-      error: "Your daily AI budget is exhausted. It resets at midnight UTC.",
-      code: "AI_DAILY_BUDGET_EXHAUSTED",
-      budget,
-    }), {
-      status: 429,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
   const logTurn = async (params: {
     status: string;
     response_chars?: number;
@@ -631,7 +624,7 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = intent;
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": telemetry.intent },
     });
   }
 
@@ -683,7 +676,7 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = "conversion_report_fast_path";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": telemetry.intent },
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": telemetry.intent },
     });
   }
 
@@ -727,7 +720,7 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "conversion_count_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": aiProvider().toolModel, "X-Copilot-Intent": "conversion_count_fast_path" },
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": "conversion_count_fast_path" },
       });
     }
     requestState().log.warn("conversion_count_fast_path_failed", { error: error.message });
@@ -813,6 +806,64 @@ export async function handleChatRequest(req: Request) {
       ai.providers[0] = { ...ai.providers[0], toolModel: GEMINI_ANALYSIS_MODEL };
       console.log(`[copilot-ai] router=${routerDecision.category} (local unknown) → toolModel=${GEMINI_ANALYSIS_MODEL}`);
     }
+  }
+
+  // ── Deterministic QUERY routing (diagram: Query Path — no LLM) ──
+  // When the intent-router says QUERY with decent confidence and a query-path
+  // template can answer it, serve the turn from query-path templates against
+  // Supabase — no Gemini call, no AI budget. Any failure falls through to the
+  // tool loop below.
+  if (
+    routerDecision &&
+    routerDecision.category === "QUERY" &&
+    routerDecision.confidence >= 0.6 &&
+    !ACTION_MODES.has(requestedMode)
+  ) {
+    const mapping = queryTemplateForDecision(routerDecision.sub_intent, lastUserMessage);
+    if (mapping) {
+      const qpText = await executeQueryPath({
+        template: mapping.template,
+        args: mapping.args,
+        utterance: lastUserMessage,
+        subIntent: routerDecision.sub_intent,
+        role: requestState().context.effectiveRole ?? authedUser.role,
+        userName: requestState().context.effectiveName ?? requestState().context.actorName,
+      });
+      if (qpText) {
+        telemetry.intent = `query_${mapping.template}`;
+        requestState().log.event("query_path_served", {
+          template: mapping.template,
+          sub_intent: routerDecision.sub_intent,
+          confidence: routerDecision.confidence,
+        });
+        void logTurn({ status: "ok", response_chars: qpText.length });
+        return new Response(buildPlainSseResponse(qpText), {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "text/event-stream",
+            "X-Copilot-Intent": telemetry.intent,
+            "X-Copilot-Model": "query-path",
+          },
+        });
+      }
+      requestState().log.warn("query_path_route_failed", { template: mapping.template });
+    }
+  }
+
+  // ── AI budget — reserved only for turns that actually reach the LLM loop.
+  // Greetings, fast paths, cached replays, and query-path answers above cost
+  // nothing and must not decrement the daily budget or log Gemini usage.
+  const { reserveAiRequest } = await import("../../../supabase/functions/_shared/ai-usage.ts");
+  const budget = await reserveAiRequest(authedUser.id, aiProvider().toolModel);
+  if (!budget.allowed) {
+    return new Response(JSON.stringify({
+      error: "Your daily AI budget is exhausted. It resets at midnight UTC.",
+      code: "AI_DAILY_BUDGET_EXHAUSTED",
+      budget,
+    }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   try {

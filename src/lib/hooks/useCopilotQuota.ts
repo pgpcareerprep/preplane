@@ -48,6 +48,10 @@ export function formatCopilotModelDisplay(model: string, fallback = false): {
   shortModel: string;
   label: string;
 } {
+  // Deterministic answers (query-path templates, fast paths) make no LLM call.
+  if (model === "query-path" || model === "deterministic") {
+    return { provider: "Query path", shortModel: "no LLM", label: "Query path · no LLM" };
+  }
   const provider = providerForModel(model);
   const shortModel = model.includes("/")
     ? (model.split("/").pop()?.replace(/:free$/, "") ?? model)
