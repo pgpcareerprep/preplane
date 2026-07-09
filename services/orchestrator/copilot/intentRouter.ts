@@ -45,7 +45,7 @@ const ALUMNI_PATTERNS = /\b(alumni|alum|alu)\b/i;
 const ANALYTICS_PATTERNS = /\b(analytic|metric|kpi|rate|trend|breakdown|distribution|workload|conversion|chart|graph|funnel)\b/i;
 const COMPARE_PATTERNS = /\b(compare|vs|versus|difference between|contrast)\b/i;
 
-const ENTITY_LISTING_PATTERNS = /\b(list all|show all|all the|how many|total|count of|who are the)\b.*\b(poc|pocs|student|students|mentor|mentors|alumni)\b|\b(poc|pocs|student|students|mentor|mentors|alumni)\b.*\b(list|all|count|total)\b/i;
+const ENTITY_LISTING_PATTERNS = /\b(list all|show all|all the|how many|total|count of|who are the|number of)\b.*\b(poc|pocs|student|students|mentor|mentors|alumni|process|processes|lmp|lmps)\b|\b(poc|pocs|student|students|mentor|mentors|alumni|process|processes|lmp|lmps)\b.*\b(list|all|count|total)\b/i;
 
 /** Task-oriented phrasing after "help" / "how do i" — route to the full tool loop instead of the help fast-path. */
 const HELP_WITH_TASK_PATTERNS =
@@ -75,10 +75,10 @@ export function classifyIntent(userMessage: string): CopilotIntent {
   if (GREETING_PATTERNS.test(msg)) return "greeting";
   if (isCaseStudyQuery(msg)) return "case_study";
   if (isGenuineHelpRequest(msg)) return "help";
-  if (ENTITY_LISTING_PATTERNS.test(msg)) return "entity_listing";
   if (STUDENT_PROGRESS_PATTERNS.test(msg)) return "student_progress";
   if (STUDENT_SEARCH_PATTERNS.test(msg)) return "student_search";
   if (ATTENTION_PATTERNS.test(msg)) return "attention_needed";
+  if (ENTITY_LISTING_PATTERNS.test(msg)) return "entity_listing";
   if (isCreateLmpQuery(msg)) return "create_lmp";
   if (DELETE_PATTERNS.test(msg)) return "delete_lmp";
   if (UPDATE_PATTERNS.test(msg)) return "update_lmp";

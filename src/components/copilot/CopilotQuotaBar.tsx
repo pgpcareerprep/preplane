@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
+import { formatCopilotModelDisplay, useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
 import { cn } from "@/lib/utils";
 
 function toneClasses(sev: QuotaSeverity) {
@@ -15,19 +15,27 @@ function toneClasses(sev: QuotaSeverity) {
   }
 }
 
+export type ActiveCopilotInference = {
+  model: string;
+  fallback?: boolean;
+};
+
 interface CopilotUsageStripProps {
   className?: string;
   active?: boolean;
+  inference?: ActiveCopilotInference | null;
 }
 
 /**
  * Minimal in-composer usage strip.
- * Shows requests, tokens, two slim bars and local reset time.
- * No model or provider details are surfaced.
+ * Shows provider + model (from the live response when available) and daily quota.
  */
-export function CopilotUsageStrip({ className, active = false }: CopilotUsageStripProps) {
+export function CopilotUsageStrip({ className, active = false, inference = null }: CopilotUsageStripProps) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
+  const displayModel = inference?.model ?? q.model;
+  const display = formatCopilotModelDisplay(displayModel, inference?.fallback);
+  const quotaProvider = formatCopilotModelDisplay(q.model);
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -41,11 +49,19 @@ export function CopilotUsageStrip({ className, active = false }: CopilotUsageStr
       >
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={cn("max-w-[150px] truncate rounded-full border border-n200 bg-white px-2.5 py-1 text-[10.5px] font-medium shadow-sm", active ? "text-orange-600 border-orange-200" : "text-n600")}>
-              {active ? "Using " : ""}{q.model.split("/").pop()?.replace(/:free$/, "")}
+            <span className={cn(
+              "max-w-[220px] truncate rounded-full border border-n200 bg-white px-2.5 py-1 text-[10.5px] font-medium shadow-sm",
+              active ? "text-orange-600 border-orange-200" : inference?.fallback ? "text-amber-700 border-amber-200" : "text-n600",
+            )}>
+              {active ? "Using " : ""}{display.label}
             </span>
           </TooltipTrigger>
-          <TooltipContent side="top">Current model: {q.model}</TooltipContent>
+          <TooltipContent side="top">
+            {inference
+              ? `This response: ${display.label}`
+              : `Last model: ${quotaProvider.label}`}
+            {inference && inference.model !== q.model ? ` · Daily budget tracked on ${quotaProvider.label}` : ""}
+          </TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -67,9 +83,18 @@ export function CopilotUsageStrip({ className, active = false }: CopilotUsageStr
 }
 
 /** Mobile-only compact pill (used inline on small screens). */
-export function CopilotUsageMini({ className, active = false }: { className?: string; active?: boolean }) {
+export function CopilotUsageMini({
+  className,
+  active = false,
+  inference = null,
+}: {
+  className?: string;
+  active?: boolean;
+  inference?: ActiveCopilotInference | null;
+}) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
+  const display = formatCopilotModelDisplay(inference?.model ?? q.model, inference?.fallback);
   return (
     <span
       className={cn(
@@ -77,10 +102,10 @@ export function CopilotUsageMini({ className, active = false }: { className?: st
         t.text,
         className,
       )}
-      title={`${q.model} · ${q.percentRemaining}% left · refreshes in ${q.resetIn}`}
+      title={`${display.label} · ${q.percentRemaining}% left · refreshes in ${q.resetIn}`}
     >
       <span className={cn("h-1.5 w-1.5 rounded-full", t.bar)} />
-      {active ? q.model.split("/").pop()?.replace(/:free$/, "") : `${q.percentRemaining}%`}
+      {active ? display.shortModel : `${q.percentRemaining}%`}
     </span>
   );
 }

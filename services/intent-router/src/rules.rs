@@ -103,7 +103,7 @@ static ANALYTICS: LazyLock<Regex> = LazyLock::new(|| {
 static COMPARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(compare|vs|versus|difference between|contrast)\b").unwrap());
 static ENTITY_LISTING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(\b(list all|show all|all the|how many|total|count of|who are the)\b.*\b(poc|pocs|student|students|mentor|mentors|alumni)\b|\b(poc|pocs|student|students|mentor|mentors|alumni)\b.*\b(list|all|count|total)\b)").unwrap()
+    Regex::new(r"(?i)(\b(list all|show all|all the|how many|total|count of|who are the|number of)\b.*\b(poc|pocs|student|students|mentor|mentors|alumni|process|processes|lmp|lmps)\b|\b(poc|pocs|student|students|mentor|mentors|alumni|process|processes|lmp|lmps)\b.*\b(list|all|count|total)\b)").unwrap()
 });
 static HELP_WITH_TASK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:help\s+(?:me\s+)?|how do i\s+)(?:create|make|generate|prepare|draft|build|write|find|get|show|list|search|update|assign|match|parse|analyze|download|export|with)\b").unwrap()
@@ -156,9 +156,6 @@ pub fn classify_sub_intent(user_message: &str) -> CopilotSubIntent {
     if is_genuine_help_request(msg) {
         return CopilotSubIntent::Help;
     }
-    if ENTITY_LISTING.is_match(msg) {
-        return CopilotSubIntent::EntityListing;
-    }
     if STUDENT_PROGRESS.is_match(msg) {
         return CopilotSubIntent::StudentProgress;
     }
@@ -167,6 +164,9 @@ pub fn classify_sub_intent(user_message: &str) -> CopilotSubIntent {
     }
     if ATTENTION.is_match(msg) {
         return CopilotSubIntent::AttentionNeeded;
+    }
+    if ENTITY_LISTING.is_match(msg) {
+        return CopilotSubIntent::EntityListing;
     }
     if is_create_lmp_query(msg) {
         return CopilotSubIntent::CreateLmp;

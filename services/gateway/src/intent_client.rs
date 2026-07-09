@@ -279,10 +279,23 @@ pub async fn call_workflow_path(config: &Config, utterance: &str) -> Option<Stri
     resp.json::<PathSseResponse>().await.ok().map(|r| r.sse_text)
 }
 
-pub fn query_template_for_sub_intent(sub_intent: &str) -> (&'static str, serde_json::Value) {
+pub fn query_template_for_sub_intent(sub_intent: &str, utterance: &str) -> (&'static str, serde_json::Value) {
+    let lower = utterance.to_lowercase();
+    let poc_workload = lower.contains("poc")
+        && (lower.contains("workload")
+            || lower.contains("active load")
+            || lower.contains("capacity")
+            || lower.contains("threshold")
+            || lower.contains("conversion rate"));
     match sub_intent {
-        "analytics_query" | "dashboard_query" => ("get_analytics", serde_json::json!({ "metric": "pipeline_summary" })),
+        "analytics_query" | "dashboard_query" if poc_workload => {
+            ("get_analytics", serde_json::json!({ "metric": "poc_workload" }))
+        }
+        "analytics_query" | "dashboard_query" | "entity_listing" | "platform_summary" => {
+            ("get_analytics", serde_json::json!({ "metric": "pipeline_summary" }))
+        }
         "poc_allocation" => ("get_analytics", serde_json::json!({ "metric": "poc_workload" })),
+        "alumni_matching" => ("lmp_with_alumni_mentors", serde_json::json!({ "limit": 50 })),
         _ => ("search_lmp_records", serde_json::json!({ "limit": 50 })),
     }
 }

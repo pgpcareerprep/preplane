@@ -1,6 +1,7 @@
-use crate::data::{fetch_lmp_records, fetch_poc_profiles};
+use crate::data::{fetch_lmp_alumni_mentor_assignments, fetch_lmp_records, fetch_poc_profiles};
 use crate::templates::{
-    format_query_sse, get_analytics, infer_company_from_utterance, search_lmp_records,
+    format_query_sse, get_analytics, infer_company_from_utterance, lmp_with_alumni_mentors,
+    search_lmp_records,
 };
 use axum::{extract::State, routing::post, Json, Router};
 use serde::Deserialize;
@@ -86,6 +87,20 @@ async fn handle_execute(
                 &poc_profiles,
             )
             .map_err(bad_request)?
+        }
+        "lmp_with_alumni_mentors" => {
+            let rows = fetch_lmp_alumni_mentor_assignments(
+                &state.supabase_url,
+                &state.supabase_service_role_key,
+            )
+            .await
+            .map_err(|e| {
+                (
+                    axum::http::StatusCode::BAD_GATEWAY,
+                    Json(json!({ "error": e })),
+                )
+            })?;
+            lmp_with_alumni_mentors(rows, &args).map_err(bad_request)?
         }
         other => {
             return Err((

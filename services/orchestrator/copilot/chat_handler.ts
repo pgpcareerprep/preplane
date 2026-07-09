@@ -11,10 +11,12 @@ import {
   getTaskTier,
 } from "./modelConfig.ts";
 import { validateResponse as validateAiResponse } from "../../../supabase/functions/_shared/responseValidator.ts";
-import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
+import { isConversionCountQuery, isConversionReportQuery, isCopilotPdfExportQuery, isAlumniMentorLmpQuery, isMentorCoverageQuery, isPocWorkloadQuery, shouldPrefetchRag } from "../../../supabase/functions/_shared/copilotFastPaths.ts";
 import {
+  fetchAlumniMentorLmpFastPath,
   fetchMentorCoverageFastPath,
   fetchPocWorkloadFastPath,
+  formatAlumniMentorLmpChatSse,
   formatMentorCoverageChatSse,
   formatPocWorkloadChatSse,
 } from "../../../supabase/functions/_shared/fastPathHandlers.ts";
@@ -581,6 +583,19 @@ export async function handleChatRequest(req: Request) {
       });
     }
     requestState().log.warn("mentor_coverage_fast_path_failed", { error: result.error });
+  }
+
+  if (isAlumniMentorLmpQuery(lastUserMessage)) {
+    const result = await fetchAlumniMentorLmpFastPath();
+    if (result.ok) {
+      const text = formatAlumniMentorLmpChatSse(result);
+      telemetry.intent = "alumni_mentor_lmp_fast_path";
+      void logTurn({ status: "ok", response_chars: text.length });
+      return new Response(buildPlainSseResponse(text), {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      });
+    }
+    requestState().log.warn("alumni_mentor_lmp_fast_path_failed", { error: result.error });
   }
 
   if (isPocWorkloadQuery(lastUserMessage)) {

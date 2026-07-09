@@ -35,7 +35,7 @@ import { ContextRail, type ActiveContext } from "@/components/copilot/ContextRai
 import { useVoiceDictation, VoiceMicButton, VoiceIndicator, VoiceConversationOverlay } from "@/components/copilot/VoiceDictation";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useCopilotThreads } from "@/hooks/useCopilotThreads";
-import { CopilotUsageStrip, CopilotUsageMini } from "@/components/copilot/CopilotQuotaBar";
+import { CopilotUsageStrip, CopilotUsageMini, type ActiveCopilotInference } from "@/components/copilot/CopilotQuotaBar";
 import { CopilotErrorBubble } from "@/components/copilot/CopilotErrorBubble";
 import { useCopilotQuota } from "@/lib/hooks/useCopilotQuota";
 import {
@@ -126,6 +126,7 @@ function CopilotPageInner() {
   const [scope, setScope] = useState<CopilotScope>("auto");
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [activeInference, setActiveInference] = useState<ActiveCopilotInference | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [mentions, setMentions] = useState<MentionEntity[]>([]);
   const [activeContext, setActiveContext] = useState<ActiveContext>(null);
@@ -425,8 +426,9 @@ function CopilotPageInner() {
     setMentions([]);
     setAttachments([]);
     setPending(true);
+    setActiveInference(null);
 
-    // Pre-create the assistant placeholder so error paths can replace it
+    // Pre-create the assistant placeholder
     // (instead of leaving an empty bubble forever).
     const assistantId = crypto.randomUUID();
     setThreads(prev => prev.map(t =>
@@ -524,6 +526,14 @@ function CopilotPageInner() {
         toast.error(msg);
         replaceAssistantWithError(msg);
         return;
+      }
+
+      const responseModel = resp.headers.get("X-Copilot-Model");
+      if (responseModel) {
+        setActiveInference({
+          model: responseModel,
+          fallback: resp.headers.get("X-Copilot-Fallback") != null,
+        });
       }
 
       if (!resp.body) {
@@ -1070,8 +1080,8 @@ function CopilotPageInner() {
                 <ScopeSelector scope={scope} onChange={setScope} />
               </div>
               <div className="flex items-center gap-2">
-                <CopilotUsageStrip active={pending} />
-                <CopilotUsageMini active={pending} />
+                <CopilotUsageStrip active={pending} inference={activeInference} />
+                <CopilotUsageMini active={pending} inference={activeInference} />
                 <button
                   onClick={() => send(draft)}
                   disabled={!draft.trim() || pending || quota.isAtLimit}

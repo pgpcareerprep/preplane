@@ -135,6 +135,57 @@ pub fn search_lmp_records(
     }))
 }
 
+pub fn lmp_with_alumni_mentors(rows: Vec<Value>, args: &Value) -> Result<Value, String> {
+    if let Some(err) = reject_unknown_params(args, &["limit"]) {
+        return Err(err);
+    }
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+    let mut seen = HashSet::new();
+    let mut records: Vec<Value> = Vec::new();
+    for row in rows {
+        let mentor = row.get("mentors");
+        let source = mentor
+            .and_then(|m| m.get("source"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_uppercase();
+        let sync = mentor
+            .and_then(|m| m.get("sync_source"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if source != "ALU" && sync != "alumni_mirror" {
+            continue;
+        }
+        let lmp_id = row
+            .get("lmp_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if lmp_id.is_empty() || seen.contains(&lmp_id) {
+            continue;
+        }
+        seen.insert(lmp_id);
+        let proc = row.get("lmp_processes");
+        records.push(json!({
+            "company": proc.and_then(|p| p.get("company")).and_then(Value::as_str).unwrap_or(""),
+            "role": proc.and_then(|p| p.get("role")).and_then(Value::as_str).unwrap_or(""),
+            "status": proc.and_then(|p| p.get("status")).and_then(Value::as_str).unwrap_or(""),
+            "domain": proc.and_then(|p| p.get("domain_raw")).and_then(Value::as_str).unwrap_or(""),
+            "mentor": mentor.and_then(|m| m.get("name")).and_then(Value::as_str).unwrap_or(""),
+            "source": "ALU",
+        }));
+    }
+    let total = records.len();
+    let truncated = total > limit;
+    let preview: Vec<_> = records.into_iter().take(limit).collect();
+    Ok(json!({
+        "total_count": total,
+        "returned_count": preview.len(),
+        "truncated": truncated,
+        "records": preview,
+    }))
+}
+
 fn tally_conversion(statuses: impl Iterator<Item = String>) -> (usize, usize, usize, usize, usize) {
     let mut total = 0usize;
     let mut converted = 0usize;
@@ -407,6 +458,36 @@ pub fn format_query_sse(template: &str, result: &Value) -> String {
             "Analytics result ready.\n\n:::blocks\n{}\n:::",
             json!([{ "type": "json-card", "title": "Analytics", "data": result }])
         ),
+        "lmp_with_alumni_mentors" => {
+            let count = result.get("returned_count").and_then(Value::as_u64).unwrap_or(0);
+            let total = result.get("total_count").and_then(Value::as_u64).unwrap_or(count);
+            let records = result.get("records").cloned().unwrap_or_else(|| json!([]));
+            let rows: Vec<Vec<String>> = records
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| {
+                    vec![
+                        r.get("company").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("role").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("status").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("domain").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("mentor").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("source").and_then(Value::as_str).unwrap_or("ALU").to_string(),
+                    ]
+                })
+                .collect();
+            format!(
+                "Found {total} LMP process(es) with alumni (ALU) mentors aligned.\n\n:::blocks\n{}\n:::",
+                json!([{
+                    "type": "table",
+                    "title": "LMPs with alumni mentors",
+                    "columns": ["Company", "Role", "Status", "Domain", "Mentor", "Source"],
+                    "rows": rows,
+                }])
+            )
+        }
         _ => format!("Query `{template}` completed.\n\n{result}"),
     }
 }

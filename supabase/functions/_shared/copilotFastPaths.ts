@@ -74,6 +74,14 @@ export function isCopilotPdfExportQuery(message: string): boolean {
   return exportVerb && docNoun && /\b(pdf|download|export|save)\b/.test(text);
 }
 
+/** LMP processes that have an alumni (ALU) mentor aligned. */
+export function isAlumniMentorLmpQuery(message: string): boolean {
+  const text = message.toLowerCase();
+  return /\b(lmp|process|processes)\b/.test(text)
+    && /\b(alumni|alum|alu)\b/.test(text)
+    && /\b(mentor|aligned|alignment|assigned)\b/.test(text);
+}
+
 export function isConversionCountQuery(message: string): boolean {
   if (isConversionReportQuery(message)) return false;
   const text = message.toLowerCase();

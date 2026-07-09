@@ -64,7 +64,7 @@ pub async fn dispatch_copilot(
 
     match category {
         IntentCategory::Query => {
-            let (template, args) = query_template_for_sub_intent(sub_intent);
+            let (template, args) = query_template_for_sub_intent(sub_intent, body.utterance);
             if let Some(text) = call_query_path(
                 config,
                 template,

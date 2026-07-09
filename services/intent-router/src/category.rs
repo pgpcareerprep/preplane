@@ -17,14 +17,14 @@ pub fn category_for_sub_intent(sub: CopilotSubIntent) -> IntentCategory {
         | CopilotSubIntent::CompareProgress
         | CopilotSubIntent::AnalyticsQuery
         | CopilotSubIntent::DashboardQuery
-        | CopilotSubIntent::AlumniMatching => IntentCategory::Query,
+        | CopilotSubIntent::AlumniMatching
+        | CopilotSubIntent::PocAllocation => IntentCategory::Query,
         CopilotSubIntent::CreateLmp
         | CopilotSubIntent::UpdateLmp
         | CopilotSubIntent::DeleteLmp
         | CopilotSubIntent::SheetSync => IntentCategory::Command,
         CopilotSubIntent::CaseStudy
-        | CopilotSubIntent::MentorMatching
-        | CopilotSubIntent::PocAllocation => IntentCategory::Reasoning,
+        | CopilotSubIntent::MentorMatching => IntentCategory::Reasoning,
         CopilotSubIntent::ReportGeneration | CopilotSubIntent::MultiStepPlan => IntentCategory::Workflow,
     }
 }

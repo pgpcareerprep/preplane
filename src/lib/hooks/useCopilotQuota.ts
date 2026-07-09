@@ -43,6 +43,19 @@ function providerForModel(model: string): string {
   return "AI gateway";
 }
 
+export function formatCopilotModelDisplay(model: string, fallback = false): {
+  provider: string;
+  shortModel: string;
+  label: string;
+} {
+  const provider = providerForModel(model);
+  const shortModel = model.includes("/")
+    ? (model.split("/").pop()?.replace(/:free$/, "") ?? model)
+    : model.replace(/^gemini-/i, "").slice(0, 24) || model;
+  const label = fallback ? `${provider} · ${shortModel} (fallback)` : `${provider} · ${shortModel}`;
+  return { provider, shortModel, label };
+}
+
 function computeResetLabels() {
   // Next midnight UTC.
   const next = new Date();

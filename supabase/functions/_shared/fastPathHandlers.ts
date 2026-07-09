@@ -119,6 +119,65 @@ export function formatMentorCoverageVoice(result: Extract<MentorCoverageResult, 
   };
 }
 
+// ─── Alumni mentor LMPs ──────────────────────────────────────────────────────
+
+export type AlumniMentorLmpResult =
+  | { ok: true; count: number; tableRows: string[][] }
+  | { ok: false; error: string };
+
+export async function fetchAlumniMentorLmpFastPath(
+  sb: SupabaseClient = serviceSupabase(),
+): Promise<AlumniMentorLmpResult> {
+  const { data, error } = await sb
+    .from("lmp_mentors")
+    .select("lmp_id, mentors(name,source,sync_source), lmp_processes(company,role,status,domain_raw)")
+    .limit(2000);
+  if (error) return { ok: false, error: error.message };
+
+  const seen = new Set<string>();
+  const tableRows: string[][] = [];
+  for (const row of data ?? []) {
+    const mentor = row.mentors as { name?: string | null; source?: string | null; sync_source?: string | null } | null;
+    const source = (mentor?.source || "").toUpperCase();
+    const sync = mentor?.sync_source || "";
+    if (source !== "ALU" && sync !== "alumni_mirror") continue;
+    const lmpId = String(row.lmp_id || "");
+    if (!lmpId || seen.has(lmpId)) continue;
+    seen.add(lmpId);
+    const proc = row.lmp_processes as { company?: string | null; role?: string | null; status?: string | null; domain_raw?: string | null } | null;
+    tableRows.push([
+      proc?.company || "—",
+      proc?.role || "—",
+      proc?.status || "—",
+      proc?.domain_raw || "—",
+      mentor?.name || "—",
+      "ALU",
+    ]);
+  }
+
+  return { ok: true, count: tableRows.length, tableRows };
+}
+
+export function formatAlumniMentorLmpChatSse(result: Extract<AlumniMentorLmpResult, { ok: true }>): string {
+  const count = result.count;
+  return [
+    `Found ${count} LMP process${count === 1 ? "" : "es"} with alumni (ALU) mentors aligned.`,
+    "",
+    ":::blocks",
+    JSON.stringify([
+      { type: "executive-summary", content: `${count} LMP process${count === 1 ? "" : "es"} have at least one alumni mentor aligned.` },
+      { type: "kpi-row", items: [{ label: "Alumni mentor LMPs", value: count }] },
+      {
+        type: "table",
+        title: "LMPs with alumni mentors",
+        headers: ["Company", "Role", "Status", "Domain", "Mentor", "Source"],
+        rows: result.tableRows.slice(0, 50),
+      },
+    ]),
+    ":::",
+  ].join("\n");
+}
+
 // ─── POC workload ────────────────────────────────────────────────────────────
 
 type PocProfileRow = {

@@ -77,3 +77,25 @@ pub async fn fetch_poc_profiles(
     }
     resp.json().await.map_err(|e| e.to_string())
 }
+
+pub async fn fetch_lmp_alumni_mentor_assignments(
+    supabase_url: &str,
+    service_key: &str,
+) -> Result<Vec<Value>, String> {
+    let url = format!(
+        "{}/rest/v1/lmp_mentors?select=lmp_id,mentors(name,source,sync_source),lmp_processes(company,role,status,domain_raw)&limit=2000",
+        supabase_url.trim_end_matches('/')
+    );
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url)
+        .header("apikey", service_key)
+        .header("Authorization", format!("Bearer {service_key}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("lmp_mentors fetch failed: {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
