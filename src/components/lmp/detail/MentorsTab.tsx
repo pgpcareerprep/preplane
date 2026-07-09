@@ -786,7 +786,7 @@ function MentorsTabImpl({
         // lmp_processes.mentor_selected is recomputed automatically by the
         // lmp_mentors_recompute trigger when the row above is deleted.
       }
-      queryClient.invalidateQueries({ queryKey: ["lmp-mentors", reqId] });
+      queryClient.invalidateQueries({ queryKey: ["lmp-mentors-live", reqId] });
       queryClient.invalidateQueries({ queryKey: ["create-session-mentors", reqId] });
     }
     toast("Assignment removed");
@@ -822,7 +822,7 @@ function MentorsTabImpl({
       subTab: "shortlisted",
     }));
 
-    queryClient.invalidateQueries({ queryKey: ["lmp-mentors", reqId] });
+    queryClient.invalidateQueries({ queryKey: ["lmp-mentors-live", reqId] });
     queryClient.invalidateQueries({ queryKey: ["create-session-mentors", reqId] });
     toast.success(`${mentor.name} aligned to this LMP`);
   };
