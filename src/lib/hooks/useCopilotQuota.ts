@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatCopilotModelDisplay } from "@/lib/copilotInferenceDisplay";
+
+export { formatCopilotModelDisplay };
 
 export const OPENROUTER_REQUEST_QUOTA = 200;
 export const OPENROUTER_TOKEN_QUOTA = 500_000;
@@ -35,8 +38,6 @@ export interface CopilotQuota {
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
-
-export { formatCopilotModelDisplay } from "@/lib/copilotInferenceDisplay";
 
 function computeResetLabels() {
   // Next midnight UTC.
