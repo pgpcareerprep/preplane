@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { copilotSseHeaders, MODEL_CACHED } from "./copilotHeaders.ts";
 
 export const ANALYTICAL_TTL = 300;
 export const ACTION_TTL = 60;
@@ -89,11 +90,12 @@ export function replayCachedSse(text: string, corsHeaders: Record<string, string
     `data: ${JSON.stringify({ choices: [{ delta: { content: text } }], cached: true })}\n\n` +
     `data: [DONE]\n\n`;
   return new Response(sseBody, {
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "text/event-stream",
-      "X-Copilot-Cache": "hit",
-    },
+    headers: copilotSseHeaders(corsHeaders, {
+      intent: "cache_hit",
+      path: "FAST",
+      model: MODEL_CACHED,
+      extra: { "X-Copilot-Cache": "hit" },
+    }),
   });
 }
 

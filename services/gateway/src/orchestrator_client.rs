@@ -41,6 +41,7 @@ pub async fn proxy_orchestrator_chat(
                 | "cache-control"
                 | "x-copilot-intent"
                 | "x-copilot-model"
+                | "x-copilot-path"
                 | "x-copilot-tier"
                 | "x-copilot-cache"
                 | "x-copilot-fallback"

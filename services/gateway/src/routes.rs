@@ -102,6 +102,8 @@ fn sse_response(text: String, intent: &str) -> Response {
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("X-Copilot-Intent", intent)
+        .header("X-Copilot-Model", "command-plane")
+        .header("X-Copilot-Path", "COMMAND")
         .body(Body::from(build_plain_sse_response(&text)))
         .unwrap()
 }

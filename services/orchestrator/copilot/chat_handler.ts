@@ -7,6 +7,12 @@ import {
   buildPlainSseResponse,
 } from "./intentRouter.ts";
 import {
+  copilotSseHeaders,
+  MODEL_COMMAND_PLANE,
+  MODEL_DETERMINISTIC,
+  MODEL_QUERY_PATH,
+} from "./copilotHeaders.ts";
+import {
   GEMINI_ANALYSIS_MODEL,
   getTaskTier,
 } from "./modelConfig.ts";
@@ -446,7 +452,11 @@ export async function handleChatRequest(req: Request) {
         : formatCancelPendingErrorSse(cancelled.error || "Unknown error");
       void logTurn({ status: cancelled.ok ? "ok" : "error", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "COMMAND",
+          model: MODEL_COMMAND_PLANE,
+        }),
       });
     }
 
@@ -457,7 +467,11 @@ export async function handleChatRequest(req: Request) {
       });
       void logTurn({ status: "error", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "COMMAND",
+          model: MODEL_COMMAND_PLANE,
+        }),
       });
     }
 
@@ -476,7 +490,11 @@ export async function handleChatRequest(req: Request) {
       error_message: parsed.error ? String(parsed.error) : null,
     });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: telemetry.intent,
+        path: "COMMAND",
+        model: MODEL_COMMAND_PLANE,
+      }),
     });
   }
 
@@ -524,7 +542,11 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = "greeting";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: "greeting",
+        path: "LOCAL",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
   if (intent === "help") {
@@ -532,7 +554,11 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = "help";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: "help",
+        path: "LOCAL",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
 
@@ -567,7 +593,11 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = hasSource ? "pdf_export_fast_path" : "pdf_export_fast_path_empty";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: telemetry.intent,
+        path: "FAST",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
 
@@ -582,7 +612,11 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "mentor_coverage_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: "mentor_coverage_fast_path",
+          path: "FAST",
+          model: MODEL_DETERMINISTIC,
+        }),
       });
     }
     requestState().log.warn("mentor_coverage_fast_path_failed", { error: result.error });
@@ -595,7 +629,11 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "alumni_mentor_lmp_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: "alumni_mentor_lmp_fast_path",
+          path: "FAST",
+          model: MODEL_DETERMINISTIC,
+        }),
       });
     }
     requestState().log.warn("alumni_mentor_lmp_fast_path_failed", { error: result.error });
@@ -616,12 +654,11 @@ export async function handleChatRequest(req: Request) {
         telemetry.intent = "named_poc_conversion_fast_path";
         void logTurn({ status: "ok", response_chars: text.length });
         return new Response(buildPlainSseResponse(text), {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "text/event-stream",
-            "X-Copilot-Model": "deterministic",
-            "X-Copilot-Intent": telemetry.intent,
-          },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: telemetry.intent,
+            path: "FAST",
+            model: MODEL_DETERMINISTIC,
+          }),
         });
       }
       requestState().log.warn("named_poc_conversion_fast_path_failed", { error: result.error, pocName });
@@ -646,14 +683,22 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "poc_workload_fast_path_error";
       void logTurn({ status: "error", error_message: result.error, response_chars: errText.length });
       return new Response(buildPlainSseResponse(errText), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "FAST",
+          model: MODEL_DETERMINISTIC,
+        }),
       });
     }
     const { text, intent } = formatPocWorkloadChatSse(result, lastUserMessage);
     telemetry.intent = intent;
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": telemetry.intent },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: telemetry.intent,
+        path: "FAST",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
 
@@ -689,7 +734,11 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "conversion_report_fast_path_error";
       void logTurn({ status: "error", error_message: queryError.message, response_chars: errText.length });
       return new Response(buildPlainSseResponse(errText), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "FAST",
+          model: MODEL_DETERMINISTIC,
+        }),
       });
     }
     const report = buildConversionReport(
@@ -705,7 +754,11 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = "conversion_report_fast_path";
     void logTurn({ status: "ok", response_chars: text.length });
     return new Response(buildPlainSseResponse(text), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": telemetry.intent },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: telemetry.intent,
+        path: "FAST",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
 
@@ -749,7 +802,11 @@ export async function handleChatRequest(req: Request) {
       telemetry.intent = "conversion_count_fast_path";
       void logTurn({ status: "ok", response_chars: text.length });
       return new Response(buildPlainSseResponse(text), {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Model": "deterministic", "X-Copilot-Intent": "conversion_count_fast_path" },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: "conversion_count_fast_path",
+          path: "FAST",
+          model: MODEL_DETERMINISTIC,
+        }),
       });
     }
     requestState().log.warn("conversion_count_fast_path_failed", { error: error.message });
@@ -763,7 +820,11 @@ export async function handleChatRequest(req: Request) {
     telemetry.intent = "conversion_count_fast_path_error";
     void logTurn({ status: "error", error_message: error.message, response_chars: errText.length });
     return new Response(buildPlainSseResponse(errText), {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Intent": telemetry.intent },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: telemetry.intent,
+        path: "FAST",
+        model: MODEL_DETERMINISTIC,
+      }),
     });
   }
 
@@ -867,12 +928,11 @@ export async function handleChatRequest(req: Request) {
         });
         void logTurn({ status: "ok", response_chars: qpText.length });
         return new Response(buildPlainSseResponse(qpText), {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "text/event-stream",
-            "X-Copilot-Intent": telemetry.intent,
-            "X-Copilot-Model": "query-path",
-          },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: telemetry.intent,
+            path: "QUERY",
+            model: MODEL_QUERY_PATH,
+          }),
         });
       }
       requestState().log.warn("query_path_route_failed", { template: mapping.template });
@@ -1274,12 +1334,16 @@ export async function handleChatRequest(req: Request) {
           }
           void logTurn({ status: "ok_analysis", response_chars: analysisText.length });
           return new Response(sseBody, {
-            headers: {
-              ...corsHeaders, "Content-Type": "text/event-stream",
-              "X-Copilot-Tier": "analysis",
-              ...(wasRepaired ? { "X-Copilot-Repaired": "1" } : {}),
-              ...(wasFallback  ? { "X-Copilot-Fallback": "validation-fallback" } : {}),
-            },
+            headers: copilotSseHeaders(corsHeaders, {
+              intent: telemetry.intent,
+              path: "AGENT",
+              model: telemetry.model,
+              extra: {
+                "X-Copilot-Tier": "analysis",
+                ...(wasRepaired ? { "X-Copilot-Repaired": "1" } : {}),
+                ...(wasFallback ? { "X-Copilot-Fallback": "validation-fallback" } : {}),
+              },
+            }),
           });
         }
         // Fall through to streaming if non-streaming synthesis failed
@@ -1311,7 +1375,12 @@ export async function handleChatRequest(req: Request) {
         const sseBody = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
         void logTurn({ status: "synthesis_fallback", response_chars: content.length, error_message: errMsg });
         return new Response(sseBody, {
-          headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Fallback": "synthesis-timeout" },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: telemetry.intent,
+            path: "AGENT",
+            model: telemetry.model,
+            extra: { "X-Copilot-Fallback": "synthesis-timeout" },
+          }),
         });
       }
 
@@ -1325,7 +1394,11 @@ export async function handleChatRequest(req: Request) {
         }
         void logTurn({ status: "ok_nostream", response_chars: content.length });
         return new Response(sseBody, {
-          headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: telemetry.intent,
+            path: "AGENT",
+            model: telemetry.model,
+          }),
         });
       }
 
@@ -1335,7 +1408,11 @@ export async function handleChatRequest(req: Request) {
       if (!upstream) {
         void logTurn({ status: "ok_empty_stream" });
         return new Response(streamResponse.body, {
-          headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: telemetry.intent,
+            path: "AGENT",
+            model: synthModel,
+          }),
         });
       }
       const ttl = usedWriteTool ? ACTION_TTL : ANALYTICAL_TTL;
@@ -1346,11 +1423,12 @@ export async function handleChatRequest(req: Request) {
         void logTurn({ status: "ok", response_chars: fullText.length });
       });
       return new Response(teed, {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "text/event-stream",
-          "X-Copilot-Cache": "miss",
-        },
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "AGENT",
+          model: synthModel,
+          extra: { "X-Copilot-Cache": "miss" },
+        }),
       });
     }
 
@@ -1361,16 +1439,22 @@ export async function handleChatRequest(req: Request) {
       content: "You have reached the tool round limit. Do NOT call any more tools. Summarize the most useful insight from the data you've already retrieved, then on a new line append exactly:\n\n:::blocks\n[{\"type\":\"follow-ups\",\"suggestions\":[\"Continue from where you left off and finish the previous task\"]}]\n:::",
     });
     try {
-      const { resp: summaryResp } = await callSynthesis("", {
+      const { resp: summaryResp, model: summaryModel } = await callSynthesis("", {
         messages: aiMessages,
         stream: true,
       });
       if (summaryResp.ok && summaryResp.body) {
+        telemetry.model = summaryModel;
         const teed = teeSseForCache(summaryResp.body, (fullText) => {
           void logTurn({ status: "max_rounds", response_chars: fullText.length });
         });
         return new Response(teed, {
-          headers: { ...corsHeaders, "Content-Type": "text/event-stream", "X-Copilot-Cap": "max_rounds" },
+          headers: copilotSseHeaders(corsHeaders, {
+            intent: "max_rounds",
+            path: "AGENT",
+            model: summaryModel,
+            extra: { "X-Copilot-Cap": "max_rounds" },
+          }),
         });
       }
     } catch (e) {
@@ -1380,7 +1464,11 @@ export async function handleChatRequest(req: Request) {
     const sseBody = `data: ${JSON.stringify({ choices: [{ delta: { content: fallback } }] })}\n\ndata: [DONE]\n\n`;
     void logTurn({ status: "max_rounds", response_chars: fallback.length });
     return new Response(sseBody, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      headers: copilotSseHeaders(corsHeaders, {
+        intent: "max_rounds",
+        path: "AGENT",
+        model: telemetry.model,
+      }),
     });
 
   } catch (err) {

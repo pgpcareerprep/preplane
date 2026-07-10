@@ -529,9 +529,11 @@ function CopilotPageInner() {
       }
 
       const responseModel = resp.headers.get("X-Copilot-Model");
+      const responsePath = resp.headers.get("X-Copilot-Path");
       if (responseModel) {
         setActiveInference({
           model: responseModel,
+          path: responsePath,
           fallback: resp.headers.get("X-Copilot-Fallback") != null,
         });
       }

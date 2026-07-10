@@ -36,29 +36,7 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function providerForModel(model: string): string {
-  if (model.includes("/")) return "OpenRouter";
-  if (/^gemini/i.test(model)) return "Gemini";
-  if (/^grok/i.test(model)) return "xAI";
-  return "AI gateway";
-}
-
-export function formatCopilotModelDisplay(model: string, fallback = false): {
-  provider: string;
-  shortModel: string;
-  label: string;
-} {
-  // Deterministic answers (query-path templates, fast paths) make no LLM call.
-  if (model === "query-path" || model === "deterministic") {
-    return { provider: "Query path", shortModel: "no LLM", label: "Query path · no LLM" };
-  }
-  const provider = providerForModel(model);
-  const shortModel = model.includes("/")
-    ? (model.split("/").pop()?.replace(/:free$/, "") ?? model)
-    : model.replace(/^gemini-/i, "").slice(0, 24) || model;
-  const label = fallback ? `${provider} · ${shortModel} (fallback)` : `${provider} · ${shortModel}`;
-  return { provider, shortModel, label };
-}
+export { formatCopilotModelDisplay } from "@/lib/copilotInferenceDisplay";
 
 function computeResetLabels() {
   // Next midnight UTC.
@@ -106,15 +84,15 @@ export function useCopilotQuota(): CopilotQuota {
         tokens: budget.tokens_used,
         requestLimit: budget.request_limit,
         tokenLimit: budget.token_limit,
-        model: budget.last_model || "qwen/qwen3-coder:free",
+        model: budget.last_model ?? "",
       };
     },
   });
 
   const requestsUsed = data?.requests ?? 0;
   const tokensUsed = data?.tokens ?? 0;
-  const model = data?.model || "qwen/qwen3-coder:free";
-  const provider = providerForModel(model);
+  const model = data?.model ?? "";
+  const provider = model ? formatCopilotModelDisplay(model).provider : "Auto";
   const requestLimit = data?.requestLimit ?? OPENROUTER_REQUEST_QUOTA;
   const tokenLimit = data?.tokenLimit ?? OPENROUTER_TOKEN_QUOTA;
   const requestsRemaining = Math.max(0, requestLimit - requestsUsed);

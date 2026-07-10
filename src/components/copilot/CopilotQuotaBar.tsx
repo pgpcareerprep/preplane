@@ -1,5 +1,6 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCopilotModelDisplay, useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
+import { formatCopilotInferenceDisplay } from "@/lib/copilotInferenceDisplay";
+import { useCopilotQuota, type QuotaSeverity } from "@/lib/hooks/useCopilotQuota";
 import { cn } from "@/lib/utils";
 
 function toneClasses(sev: QuotaSeverity) {
@@ -17,6 +18,7 @@ function toneClasses(sev: QuotaSeverity) {
 
 export type ActiveCopilotInference = {
   model: string;
+  path?: string | null;
   fallback?: boolean;
 };
 
@@ -28,14 +30,25 @@ interface CopilotUsageStripProps {
 
 /**
  * Minimal in-composer usage strip.
- * Shows provider + model (from the live response when available) and daily quota.
+ * Shows path + model (from the live response when available) and daily quota.
  */
 export function CopilotUsageStrip({ className, active = false, inference = null }: CopilotUsageStripProps) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
-  const displayModel = inference?.model ?? q.model;
-  const display = formatCopilotModelDisplay(displayModel, inference?.fallback);
-  const quotaProvider = formatCopilotModelDisplay(q.model);
+  const display = formatCopilotInferenceDisplay({
+    model: inference?.model,
+    path: inference?.path,
+    fallback: inference?.fallback,
+    idle: !inference,
+  });
+  const lastBudget = formatCopilotInferenceDisplay({
+    model: q.model || null,
+    path: "AGENT",
+  });
+  const noLlmTurn = inference != null && !formatCopilotInferenceDisplay({
+    model: inference.model,
+    path: inference.path,
+  }).usesLlm;
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -50,31 +63,45 @@ export function CopilotUsageStrip({ className, active = false, inference = null 
         <Tooltip>
           <TooltipTrigger asChild>
             <span className={cn(
-              "max-w-[220px] truncate rounded-full border border-n200 bg-white px-2.5 py-1 text-[10.5px] font-medium shadow-sm",
-              active ? "text-orange-600 border-orange-200" : inference?.fallback ? "text-amber-700 border-amber-200" : "text-n600",
+              "max-w-[240px] truncate rounded-full border border-n200 bg-white px-2.5 py-1 text-[10.5px] font-medium shadow-sm",
+              active ? "text-orange-600 border-orange-200"
+                : inference?.fallback ? "text-amber-700 border-amber-200"
+                  : noLlmTurn ? "text-emerald-700 border-emerald-200"
+                    : "text-n600",
             )}>
               {active ? "Using " : ""}{display.label}
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">
             {inference
-              ? `This response: ${display.label}`
-              : `Last model: ${quotaProvider.label}`}
-            {inference && inference.model !== q.model ? ` · Daily budget tracked on ${quotaProvider.label}` : ""}
+              ? `This response: ${display.label}${inference.path ? ` (${inference.path})` : ""}`
+              : "Routes automatically across fast path, query path, and LLM reasoning."}
+            {noLlmTurn
+              ? " · No AI budget used"
+              : q.model
+                ? ` · Last billed model: ${lastBudget.label}`
+                : ""}
           </TooltipContent>
         </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 rounded-full border border-n200 bg-n50 px-2.5 py-1.5 min-w-[116px] cursor-default">
+            <div className={cn(
+              "flex items-center gap-2 rounded-full border border-n200 bg-n50 px-2.5 py-1.5 min-w-[116px] cursor-default",
+              noLlmTurn && "opacity-80",
+            )}>
               <div className={cn("h-1.5 flex-1 overflow-hidden rounded-full", t.track)}>
                 <div className={cn("h-full transition-all", t.bar)} style={{ width: `${q.percentRemaining}%` }} />
               </div>
-              <span className={cn("text-[10.5px] font-semibold tabular-nums", t.text)}>{q.percentRemaining}% left</span>
+              <span className={cn("text-[10.5px] font-semibold tabular-nums", t.text)}>
+                {noLlmTurn ? "no AI" : `${q.percentRemaining}% left`}
+              </span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">
-            Refreshes in {q.resetIn} ({q.resetLocal}). Daily allowance: {q.requestLimit} requests or {q.tokenLimit.toLocaleString()} tokens.
+            {noLlmTurn
+              ? "Deterministic path — daily AI allowance unchanged."
+              : `Refreshes in ${q.resetIn} (${q.resetLocal}). Daily allowance: ${q.requestLimit} requests or ${q.tokenLimit.toLocaleString()} tokens.`}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -94,7 +121,16 @@ export function CopilotUsageMini({
 }) {
   const q = useCopilotQuota();
   const t = toneClasses(q.severity);
-  const display = formatCopilotModelDisplay(inference?.model ?? q.model, inference?.fallback);
+  const display = formatCopilotInferenceDisplay({
+    model: inference?.model,
+    path: inference?.path,
+    fallback: inference?.fallback,
+    idle: !inference,
+  });
+  const noLlmTurn = inference != null && !formatCopilotInferenceDisplay({
+    model: inference.model,
+    path: inference.path,
+  }).usesLlm;
   return (
     <span
       className={cn(
@@ -102,10 +138,10 @@ export function CopilotUsageMini({
         t.text,
         className,
       )}
-      title={`${display.label} · ${q.percentRemaining}% left · refreshes in ${q.resetIn}`}
+      title={`${display.label} · ${noLlmTurn ? "no AI used" : `${q.percentRemaining}% left`} · refreshes in ${q.resetIn}`}
     >
-      <span className={cn("h-1.5 w-1.5 rounded-full", t.bar)} />
-      {active ? display.shortModel : `${q.percentRemaining}%`}
+      <span className={cn("h-1.5 w-1.5 rounded-full", noLlmTurn ? "bg-emerald-500" : t.bar)} />
+      {active ? display.shortModel : noLlmTurn ? "no AI" : `${q.percentRemaining}%`}
     </span>
   );
 }
