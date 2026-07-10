@@ -20,10 +20,15 @@ describe("formatCopilotInferenceDisplay", () => {
       .toBe("Local · no LLM");
   });
 
-  it("formats Gemini and OpenRouter models for agent path", () => {
+    it("formats Gemini and OpenRouter models for agent path", () => {
     expect(formatCopilotInferenceDisplay({ model: "gemini-2.5-flash", path: "AGENT" }).label)
       .toContain("Gemini");
     expect(formatCopilotInferenceDisplay({ model: "qwen/qwen3-coder:free", path: "AGENT" }).label)
       .toBe("OpenRouter · qwen3-coder");
+  });
+
+  it("labels workflow path", () => {
+    expect(formatCopilotInferenceDisplay({ model: "workflow", path: "WORKFLOW" }).label)
+      .toBe("Workflow · no LLM");
   });
 });

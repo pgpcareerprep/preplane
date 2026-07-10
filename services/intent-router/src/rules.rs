@@ -93,6 +93,16 @@ static DELETE: LazyLock<Regex> =
 static POC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(poc|assign|allocate|point of contact|prep poc|outreach poc)\b").unwrap()
 });
+static ASSIGN_POC: LazyLock<Regex> = LazyLock::new(|| {
+    // Require a person-like name so "assign POC for Acme" stays poc_allocation (QUERY).
+    Regex::new(r"(?i)\b(assign|reassign|allocate)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+(?:as\s+)?(?:(prep|outreach|support)\s+)?poc\b").unwrap()
+});
+static LMP_PROCESS_SEARCH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(show|list|find|search|get|fetch)\b[\s\S]{0,40}\b(lmp|process|processes)\b|\b(lmp|process|processes)\b[\s\S]{0,40}\b(for|at|of|with)\b").unwrap()
+});
+static REPORT_GEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(generate|create|make|build)\b[\s\S]{0,30}\b(report|summary|deck)\b").unwrap()
+});
 static MENTOR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(mentor|recommend mentor|find mentor|mentor matching)\b").unwrap()
 });
@@ -174,8 +184,14 @@ pub fn classify_sub_intent(user_message: &str) -> CopilotSubIntent {
     if DELETE.is_match(msg) {
         return CopilotSubIntent::DeleteLmp;
     }
+    if ASSIGN_POC.is_match(msg) {
+        return CopilotSubIntent::UpdateLmp;
+    }
     if UPDATE.is_match(msg) {
         return CopilotSubIntent::UpdateLmp;
+    }
+    if REPORT_GEN.is_match(msg) {
+        return CopilotSubIntent::ReportGeneration;
     }
     if ALUMNI.is_match(msg) {
         return CopilotSubIntent::AlumniMatching;
@@ -191,6 +207,9 @@ pub fn classify_sub_intent(user_message: &str) -> CopilotSubIntent {
     }
     if ANALYTICS.is_match(msg) {
         return CopilotSubIntent::AnalyticsQuery;
+    }
+    if LMP_PROCESS_SEARCH.is_match(msg) {
+        return CopilotSubIntent::LmpProcessSearch;
     }
     if PLATFORM_SUMMARY.is_match(msg) {
         return CopilotSubIntent::PlatformSummary;

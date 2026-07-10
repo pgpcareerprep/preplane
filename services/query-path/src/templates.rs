@@ -524,6 +524,51 @@ pub fn format_query_sse(template: &str, result: &Value) -> String {
                 }])
             )
         }
+        "get_analytics" if result.get("not_converted_closed_outcome").is_some()
+            || result.get("poc_performance_conversion_rate").is_some() =>
+        {
+            let rate = result
+                .get("poc_performance_conversion_rate")
+                .and_then(Value::as_str)
+                .or_else(|| result.get("lmp_process_conversion_rate").and_then(Value::as_str))
+                .unwrap_or("—");
+            format!(
+                "Conversion metrics ready ({rate}).\n\n:::blocks\n{}\n:::",
+                json!([{
+                    "type": "kpi-row",
+                    "items": [
+                        { "label": "Converted", "value": result.get("converted").unwrap_or(&json!(0)), "color": "green" },
+                        { "label": "Not converted (closed outcome)", "value": result.get("not_converted_closed_outcome").unwrap_or(&json!(0)), "color": "red" },
+                        { "label": "In pipeline", "value": result.get("in_pipeline").unwrap_or(&json!(0)), "color": "orange" },
+                        { "label": "POC performance", "value": rate, "color": "green" },
+                    ]
+                }])
+            )
+        }
+        "get_analytics" if result.get("records").is_some() => {
+            let records = result.get("records").and_then(Value::as_array).cloned().unwrap_or_default();
+            let rows: Vec<Vec<String>> = records
+                .iter()
+                .take(15)
+                .map(|r| {
+                    vec![
+                        r.get("company").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("role").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("status").and_then(Value::as_str).unwrap_or("").to_string(),
+                        r.get("age_days").map(|v| v.to_string()).unwrap_or_default(),
+                    ]
+                })
+                .collect();
+            format!(
+                "Oldest / attention LMPs (by age).\n\n:::blocks\n{}\n:::",
+                json!([{
+                    "type": "table",
+                    "title": "Age tracking",
+                    "columns": ["Company", "Role", "Status", "Age (days)"],
+                    "rows": rows,
+                }])
+            )
+        }
         "get_analytics" => format!(
             "Analytics result ready.\n\n:::blocks\n{}\n:::",
             json!([{ "type": "json-card", "title": "Analytics", "data": result }])

@@ -40,6 +40,9 @@ export function formatCopilotInferenceDisplay(input: CopilotInferenceInput = {})
   if (pathUpper === "COMMAND" || model === "command-plane") {
     return { provider: "Command plane", shortModel: "no LLM", label: "Command plane · no LLM", usesLlm: false };
   }
+  if (pathUpper === "WORKFLOW" || model === "workflow") {
+    return { provider: "Workflow", shortModel: "no LLM", label: "Workflow · no LLM", usesLlm: false };
+  }
   if (pathUpper === "QUERY" || model === "query-path") {
     return { provider: "Query path", shortModel: "no LLM", label: "Query path · no LLM", usesLlm: false };
   }

@@ -7,7 +7,6 @@ import sys
 import uuid
 from typing import Any, Literal
 
-from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "shared", "python"))
@@ -64,6 +63,7 @@ class WorkflowResponse(BaseModel):
     sse_text: str
     follow_ups: list[str] = Field(default_factory=list)
     soft_wrap: bool = False
+    matched_pattern: bool = False
 
 
 WORKFLOW_PATTERNS = [
@@ -76,6 +76,21 @@ WORKFLOW_PATTERNS = [
         ("Parse JD", "REASONING", "parse_jd"),
         ("Find mentors", "REASONING", "find_mentors_for_jd"),
         ("Assign best mentor", "COMMAND", "prepare_write"),
+    ]),
+    (re.compile(r"(create|generate|make).*(report|summary).*(and|then).*(export|pdf|share)", re.I), [
+        ("Gather metrics", "QUERY", "get_analytics"),
+        ("Draft report", "REASONING", "make_plan"),
+        ("Export PDF", "COMMAND", "prepare_write"),
+    ]),
+    (re.compile(r"(update|mark).*(status|lmp).*(and|then).*(assign|notify)", re.I), [
+        ("Update LMP status", "COMMAND", "update_lmp_status"),
+        ("Assign follow-up owner", "COMMAND", "assign_poc"),
+        ("Confirm changes", "QUERY", "search_lmp_records"),
+    ]),
+    (re.compile(r"(find|show).*(mentor|poc).*(and|then).*(assign|allocate)", re.I), [
+        ("Search candidates", "QUERY", "search_lmp_records"),
+        ("Shortlist", "REASONING", "find_mentors_for_jd"),
+        ("Stage assignment", "COMMAND", "assign_poc"),
     ]),
 ]
 
@@ -109,14 +124,28 @@ def make_plan(goal: str, raw_steps: list[dict[str, Any]]) -> WorkflowPlan:
     return plan
 
 
-def decompose_utterance(utterance: str) -> WorkflowPlan:
+def decompose_utterance(utterance: str) -> tuple[WorkflowPlan, bool]:
     for pattern, blueprint in WORKFLOW_PATTERNS:
         if pattern.search(utterance):
             steps = [
                 {"id": f"s{i+1}", "title": title, "kind": kind, "tool": tool}
                 for i, (title, kind, tool) in enumerate(blueprint)
             ]
-            return make_plan(utterance.strip(), steps)
+            return make_plan(utterance.strip(), steps), True
+    # Generic fallback only for clear multi-step phrasing
+    if re.search(
+        r"\b(and then|then (assign|find|create|update|parse)|after that|first .{3,60} then|make[_ ]plan)\b",
+        utterance,
+        re.I,
+    ):
+        return make_plan(
+            utterance.strip(),
+            [
+                {"id": "s1", "title": "Gather context", "kind": "QUERY", "tool": "search_lmp_records"},
+                {"id": "s2", "title": "Reason over data", "kind": "REASONING", "tool": "check_lmp_context"},
+                {"id": "s3", "title": "Stage command", "kind": "COMMAND", "tool": "prepare_write"},
+            ],
+        ), False
     return make_plan(
         utterance.strip(),
         [
@@ -124,7 +153,7 @@ def decompose_utterance(utterance: str) -> WorkflowPlan:
             {"id": "s2", "title": "Reason over data", "kind": "REASONING", "tool": "check_lmp_context"},
             {"id": "s3", "title": "Stage command", "kind": "COMMAND", "tool": "prepare_write"},
         ],
-    )
+    ), False
 
 
 def update_plan_step(req: UpdatePlanStepRequest) -> WorkflowPlan:
@@ -163,13 +192,13 @@ app = create_app("workflow")
 @app.post("/make_plan", response_model=WorkflowResponse)
 def create_plan(req: MakePlanRequest) -> WorkflowResponse:
     plan = make_plan(req.goal, [s for s in req.steps])
-    return WorkflowResponse(plan=plan, sse_text=format_plan_sse(plan))
+    return WorkflowResponse(plan=plan, sse_text=format_plan_sse(plan), matched_pattern=True)
 
 
 @app.post("/decompose", response_model=WorkflowResponse)
 def decompose(req: DecomposeRequest) -> WorkflowResponse:
-    plan = decompose_utterance(req.utterance)
-    return WorkflowResponse(plan=plan, sse_text=format_plan_sse(plan))
+    plan, matched = decompose_utterance(req.utterance)
+    return WorkflowResponse(plan=plan, sse_text=format_plan_sse(plan), matched_pattern=matched)
 
 
 @app.post("/update_plan_step", response_model=WorkflowResponse)
@@ -182,4 +211,5 @@ def patch_plan_step(req: UpdatePlanStepRequest) -> WorkflowResponse:
         sse_text=format_plan_sse(plan, soft_wrap=soft_wrap),
         follow_ups=follow_ups,
         soft_wrap=soft_wrap,
+        matched_pattern=True,
     )

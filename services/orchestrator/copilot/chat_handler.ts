@@ -11,6 +11,7 @@ import {
   MODEL_COMMAND_PLANE,
   MODEL_DETERMINISTIC,
   MODEL_QUERY_PATH,
+  MODEL_WORKFLOW,
 } from "./copilotHeaders.ts";
 import {
   GEMINI_ANALYSIS_MODEL,
@@ -67,9 +68,12 @@ import {
   classifyViaRouter,
   executeQueryPath,
   fetchReasoningHint,
+  fetchWorkflowPlan,
   fetchWorkflowSteps,
   looksMultiStep,
   queryTemplateForDecision,
+  stageCommandPlane,
+  tryParseCommandArgs,
 } from "./pathServices.ts";
 import { TOOLS, executeTool } from "./tools/index.ts";
 import { getLmpRecords, getMastersheetRecords } from "./tools/runtime.ts";
@@ -903,19 +907,38 @@ export async function handleChatRequest(req: Request) {
   // template can answer it, serve the turn from query-path templates against
   // Supabase — no Gemini call, no AI budget. Any failure falls through to the
   // tool loop below.
-  if (
-    routerDecision &&
-    routerDecision.category === "QUERY" &&
-    routerDecision.confidence >= 0.6 &&
-    !ACTION_MODES.has(requestedMode)
-  ) {
-    const mapping = queryTemplateForDecision(routerDecision.sub_intent, lastUserMessage);
+  const queryEligible =
+    !ACTION_MODES.has(requestedMode) &&
+    (
+      (routerDecision?.category === "QUERY" && (routerDecision.confidence ?? 0) >= 0.6) ||
+      // Local classifier often catches these before/without a router hit.
+      intent === "platform_summary" ||
+      intent === "analytics_query" ||
+      intent === "attention_needed" ||
+      intent === "lmp_process_search" ||
+      intent === "entity_listing"
+    );
+
+  if (queryEligible) {
+    const subIntent = routerDecision?.sub_intent
+      ?? (intent === "platform_summary"
+        ? "platform_summary"
+        : intent === "analytics_query"
+        ? "analytics_query"
+        : intent === "attention_needed"
+        ? "attention_needed"
+        : intent === "lmp_process_search"
+        ? "lmp_process_search"
+        : intent === "entity_listing"
+        ? "entity_listing"
+        : "unknown");
+    const mapping = queryTemplateForDecision(subIntent, lastUserMessage);
     if (mapping) {
       const qpText = await executeQueryPath({
         template: mapping.template,
         args: mapping.args,
         utterance: lastUserMessage,
-        subIntent: routerDecision.sub_intent,
+        subIntent,
         role: requestState().context.effectiveRole ?? authedUser.role,
         userName: requestState().context.effectiveName ?? requestState().context.actorName,
       });
@@ -923,8 +946,8 @@ export async function handleChatRequest(req: Request) {
         telemetry.intent = `query_${mapping.template}`;
         requestState().log.event("query_path_served", {
           template: mapping.template,
-          sub_intent: routerDecision.sub_intent,
-          confidence: routerDecision.confidence,
+          sub_intent: subIntent,
+          confidence: routerDecision?.confidence ?? null,
         });
         void logTurn({ status: "ok", response_chars: qpText.length });
         return new Response(buildPlainSseResponse(qpText), {
@@ -936,6 +959,79 @@ export async function handleChatRequest(req: Request) {
         });
       }
       requestState().log.warn("query_path_route_failed", { template: mapping.template });
+    }
+  }
+
+  // ── Deterministic COMMAND staging (command-plane — no LLM) ──
+  // Only when we can parse company · role (+ status/poc) explicitly. Stages a
+  // confirmation card; never auto-executes.
+  const parsedCommand = tryParseCommandArgs(lastUserMessage);
+  const commandEligible =
+    !viewAsBlocksWrites() &&
+    !ACTION_MODES.has(requestedMode) &&
+    !!parsedCommand &&
+    (
+      (routerDecision?.category === "COMMAND" && (routerDecision.confidence ?? 0) >= 0.85) ||
+      !!parsedCommand
+    );
+
+  if (commandEligible && parsedCommand) {
+    const staged = await stageCommandPlane({
+      utterance: lastUserMessage,
+      kind: parsedCommand.kind,
+      payload: parsedCommand.payload,
+      requestedBy: authedUser.id,
+      role: requestState().context.effectiveRole ?? authedUser.role,
+      viewAsRole: requestState().context.isImpersonating
+        ? (requestState().context.effectiveRole ?? null)
+        : null,
+      actorName: requestState().context.actorName,
+    });
+    if (staged?.sse_text) {
+      telemetry.intent = `command_${staged.phase}`;
+      requestState().log.event("command_plane_staged", {
+        phase: staged.phase,
+        pending_action_id: staged.pending_action_id,
+      });
+      void logTurn({ status: "ok", response_chars: staged.sse_text.length });
+      return new Response(buildPlainSseResponse(staged.sse_text), {
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "COMMAND",
+          model: MODEL_COMMAND_PLANE,
+        }),
+      });
+    }
+  }
+
+  // ── Deterministic WORKFLOW plan-card (no LLM) ──
+  // High-confidence multi-step / report plans return a plan-card from the
+  // workflow service. Pattern-matched plans preferred; generic plans only when
+  // the router explicitly says WORKFLOW.
+  const workflowEligible =
+    !ACTION_MODES.has(requestedMode) &&
+    (
+      (routerDecision?.category === "WORKFLOW" && (routerDecision.confidence ?? 0) >= 0.7) ||
+      (looksMultiStep(lastUserMessage) && (routerDecision?.category === "WORKFLOW" || routerDecision?.sub_intent === "multi_step_plan"))
+    );
+
+  if (workflowEligible) {
+    const plan = await fetchWorkflowPlan(lastUserMessage);
+    if (plan?.sse_text && (plan.matched_pattern || routerDecision?.category === "WORKFLOW")) {
+      telemetry.intent = "workflow_plan";
+      requestState().log.event("workflow_plan_served", {
+        plan_id: plan.plan_id,
+        steps: plan.steps.length,
+        matched_pattern: plan.matched_pattern,
+      });
+      void logTurn({ status: "ok", response_chars: plan.sse_text.length });
+      return new Response(buildPlainSseResponse(plan.sse_text), {
+        headers: copilotSseHeaders(corsHeaders, {
+          intent: telemetry.intent,
+          path: "WORKFLOW",
+          model: MODEL_WORKFLOW,
+        }),
+      });
     }
   }
 

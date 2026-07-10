@@ -5,7 +5,6 @@ pub fn category_for_sub_intent(sub: CopilotSubIntent) -> IntentCategory {
     match sub {
         CopilotSubIntent::Greeting
         | CopilotSubIntent::Help
-        | CopilotSubIntent::PlatformSummary
         | CopilotSubIntent::GeneralChat
         | CopilotSubIntent::VoiceCommand
         | CopilotSubIntent::Unknown => IntentCategory::Unknown,
@@ -18,7 +17,8 @@ pub fn category_for_sub_intent(sub: CopilotSubIntent) -> IntentCategory {
         | CopilotSubIntent::AnalyticsQuery
         | CopilotSubIntent::DashboardQuery
         | CopilotSubIntent::AlumniMatching
-        | CopilotSubIntent::PocAllocation => IntentCategory::Query,
+        | CopilotSubIntent::PocAllocation
+        | CopilotSubIntent::PlatformSummary => IntentCategory::Query,
         CopilotSubIntent::CreateLmp
         | CopilotSubIntent::UpdateLmp
         | CopilotSubIntent::DeleteLmp

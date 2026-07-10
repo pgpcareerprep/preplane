@@ -1,10 +1,11 @@
 /** Consistent SSE response headers for Copilot path / model telemetry. */
 
-export type CopilotPath = "LOCAL" | "FAST" | "QUERY" | "COMMAND" | "AGENT";
+export type CopilotPath = "LOCAL" | "FAST" | "QUERY" | "COMMAND" | "WORKFLOW" | "AGENT";
 
 export const MODEL_DETERMINISTIC = "deterministic";
 export const MODEL_QUERY_PATH = "query-path";
 export const MODEL_COMMAND_PLANE = "command-plane";
+export const MODEL_WORKFLOW = "workflow";
 export const MODEL_CACHED = "cached";
 
 export function copilotSseHeaders(
