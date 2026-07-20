@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { labelForStatusSlug, labelForTypeRaw, sortStatusSlugs } from "@/lib/dashboardFilterLabels";
@@ -21,58 +22,58 @@ export type DashboardFilterOptions = {
 const ALL_OPTION: FilterOption = { value: "All", label: "All" };
 
 export function useDashboardFilterOptions(): DashboardFilterOptions {
-  useRealtimeInvalidate("domains", [["dashboard_filter_options"]], {
-    cachePrefixes: ['["dashboard_filter_options"'],
+  useRealtimeInvalidate("domains", [["dashboard_filter_domains"]], {
+    cachePrefixes: ['["dashboard_filter_domains"'],
   });
-  useRealtimeInvalidate("lmp_processes", [["dashboard_filter_options"]], {
-    cachePrefixes: ['["dashboard_filter_options"'],
+  useRealtimeInvalidate("lmp_processes", [["db-lmp-processes"]], {
+    cachePrefixes: ['["db-lmp-processes'],
   });
-  useRealtimeInvalidate("poc_profiles", [["dashboard_filter_options"], ["eligible_prep_pocs"]], {
-    cachePrefixes: ['["dashboard_filter_options"', '["eligible_prep_pocs"'],
+  useRealtimeInvalidate("poc_profiles", [["eligible_prep_pocs"]], {
+    cachePrefixes: ['["eligible_prep_pocs"'],
   });
-  useRealtimeInvalidate("lmp_poc_links", [["dashboard_filter_options"], ["eligible_prep_pocs"]], {
-    cachePrefixes: ['["dashboard_filter_options"', '["eligible_prep_pocs"'],
+  useRealtimeInvalidate("lmp_poc_links", [["eligible_prep_pocs"]], {
+    cachePrefixes: ['["eligible_prep_pocs"'],
   });
 
   const { selectOptions: eligiblePrepOptions, isLoading: prepLoading } = useEligiblePrepPocs();
+  // Reuse the same lmp_processes query as useLmpRows — avoids a duplicate full-table fetch.
+  const { data: lmpRows = [], isLoading: lmpLoading } = useLmpProcesses({ includeArchived: true });
 
-  const { data, isLoading: metaLoading } = useQuery({
-    queryKey: ["dashboard_filter_options"],
+  const { data: domainRows = [], isLoading: domainsLoading } = useQuery({
+    queryKey: ["dashboard_filter_domains"],
     queryFn: async () => {
-      const [domainsRes, processesRes] = await Promise.all([
-        supabase.from("domains").select("name").order("name"),
-        supabase.from("lmp_processes").select("status, type, domain_raw"),
-      ]);
-
-      if (domainsRes.error) throw new Error(domainsRes.error.message);
-      if (processesRes.error) throw new Error(processesRes.error.message);
-
-      const domainNames = new Set<string>();
-      for (const row of domainsRes.data ?? []) {
-        const name = (row.name ?? "").trim();
-        if (name) domainNames.add(name);
-      }
-
-      const statusSlugs = new Set<string>();
-      const typeRaws = new Set<string>();
-      for (const row of processesRes.data ?? []) {
-        const status = (row.status ?? "").trim().toLowerCase();
-        if (status) statusSlugs.add(status);
-        const typeRaw = (row.type ?? "").trim();
-        if (typeRaw) typeRaws.add(typeRaw);
-        const domain = (row.domain_raw ?? "").trim();
-        if (domain) domainNames.add(domain);
-      }
-
-      return {
-        domainNames: Array.from(domainNames).sort((a, b) => a.localeCompare(b)),
-        statusSlugs: sortStatusSlugs(Array.from(statusSlugs)),
-        typeRaws: Array.from(typeRaws).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
-      };
+      const { data, error } = await supabase.from("domains").select("name").order("name");
+      if (error) throw new Error(error.message);
+      return data ?? [];
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
+
+  const data = useMemo(() => {
+    const domainNames = new Set<string>();
+    for (const row of domainRows) {
+      const name = (row.name ?? "").trim();
+      if (name) domainNames.add(name);
+    }
+
+    const statusSlugs = new Set<string>();
+    const typeRaws = new Set<string>();
+    for (const row of lmpRows) {
+      const status = (row.status ?? "").trim().toLowerCase();
+      if (status) statusSlugs.add(status);
+      const typeRaw = (row.type ?? "").trim();
+      if (typeRaw) typeRaws.add(typeRaw);
+      const domain = (row.domain_raw ?? "").trim();
+      if (domain) domainNames.add(domain);
+    }
+
+    return {
+      domainNames: Array.from(domainNames).sort((a, b) => a.localeCompare(b)),
+      statusSlugs: sortStatusSlugs(Array.from(statusSlugs)),
+      typeRaws: Array.from(typeRaws).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    };
+  }, [domainRows, lmpRows]);
 
   const domainOptions = useMemo(
     () => [ALL_OPTION, ...(data?.domainNames ?? []).map((name) => ({ value: name, label: name }))],
@@ -107,6 +108,6 @@ export function useDashboardFilterOptions(): DashboardFilterOptions {
     statusOptions,
     typeOptions,
     prepPocOptions,
-    isLoading: metaLoading || prepLoading,
+    isLoading: lmpLoading || domainsLoading || prepLoading,
   };
 }

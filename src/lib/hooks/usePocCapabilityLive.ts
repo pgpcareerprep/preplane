@@ -77,7 +77,8 @@ const ACTIVE_STATUSES = new Set(["ongoing", "on hold", "offer received"]);
 
 export function usePocCapabilityList() {
   const { data, isLoading, error } = usePocProfilesWithLoad();
-  const { data: lmps } = useLmpProcesses();
+  // Same query key as useLmpRows — dedupes the dashboard's second full lmp_processes fetch.
+  const { data: lmps } = useLmpProcesses({ includeArchived: true });
 
   const liveLoadMap = useMemo<Record<string, number>>(() => {
     const rows = (lmps as any[]) || [];

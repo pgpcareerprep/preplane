@@ -55,6 +55,23 @@ function initialsFrom(name: string): string {
 
 const GUEST: User = { id: "", name: "", email: "", initials: "" };
 
+const PROFILE_SELECT =
+  "id, user_id, display_name, email, role, access_status, is_active, avatar_url";
+
+type ProfileRow = {
+  id: string;
+  user_id: string | null;
+  display_name: string | null;
+  email: string | null;
+  role: string | null;
+  access_status: string | null;
+  is_active: boolean | null;
+  avatar_url?: string | null;
+};
+
+/** Safety net so a hung Supabase call cannot block the app forever. */
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 12_000;
+
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,47 +125,63 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       const userEmail = session.user.email?.toLowerCase() || "";
+      let bootstrapComplete = false;
+      const safetyTimer = window.setTimeout(() => {
+        if (!cancelled && !bootstrapComplete) {
+          if (import.meta.env.DEV) {
+            console.warn("[auth] Profile bootstrap timed out after", AUTH_BOOTSTRAP_TIMEOUT_MS, "ms");
+          }
+          setIsLoading(false);
+        }
+      }, AUTH_BOOTSTRAP_TIMEOUT_MS);
 
+      try {
       if (import.meta.env.DEV) {
         console.log("[auth] Session found — uid:", uid, "email:", userEmail);
       }
 
-      // Look up profile by user_id first, then by email (first-time OAuth users
-      // may not have user_id bound yet if the trigger hasn't run on this row).
-      const { data: byUid, error: uidErr } = await supabase
-        .from("profiles")
-        .select("id, user_id, display_name, email, role, access_status, is_active, avatar_url")
-        .eq("user_id", uid)
-        .maybeSingle();
+      // Parallel lookups — uid profile, email fallback, and poc_profiles by email.
+      const [byUidRes, byEmailRes, pocByEmailRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select(PROFILE_SELECT)
+          .eq("user_id", uid)
+          .maybeSingle(),
+        userEmail
+          ? supabase
+              .from("profiles")
+              .select(PROFILE_SELECT)
+              .ilike("email", userEmail.trim())
+              .maybeSingle()
+          : Promise.resolve({ data: null as ProfileRow | null, error: null }),
+        userEmail
+          ? supabase
+              .from("poc_profiles")
+              .select("id, name")
+              .eq("email", userEmail)
+              .maybeSingle()
+          : Promise.resolve({ data: null as { id: string; name: string | null } | null, error: null }),
+      ]);
 
       // If the DB query itself failed (network/RLS error), do NOT sign the user out.
       // A transient failure must not revoke a legitimate session.
-      if (uidErr) {
+      if (byUidRes.error) {
         if (import.meta.env.DEV) {
-          console.error("[auth] Profile lookup by user_id failed:", uidErr.message);
+          console.error("[auth] Profile lookup by user_id failed:", byUidRes.error.message);
         }
         if (!cancelled) setIsLoading(false);
         return;
       }
 
-      let profile = byUid ?? null;
-
-      if (!profile && userEmail) {
-        const { data: byEmail, error: emailErr } = await supabase
-          .from("profiles")
-          .select("id, user_id, display_name, email, role, access_status, is_active, avatar_url")
-          .ilike("email", userEmail.trim())
-          .maybeSingle();
-
-        if (emailErr) {
-          if (import.meta.env.DEV) {
-            console.error("[auth] Profile lookup by email failed:", emailErr.message);
-          }
-          if (!cancelled) setIsLoading(false);
-          return;
+      if (userEmail && byEmailRes.error) {
+        if (import.meta.env.DEV) {
+          console.error("[auth] Profile lookup by email failed:", byEmailRes.error.message);
         }
-        profile = byEmail ?? null;
+        if (!cancelled) setIsLoading(false);
+        return;
       }
+
+      let profile = (byUidRes.data ?? byEmailRes.data) as ProfileRow | null;
 
       if (import.meta.env.DEV) {
         if (profile) {
@@ -186,6 +219,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(GUEST);
         setRole("poc");
+        bootstrapComplete = true;
         setIsLoading(false);
         // Always redirect to /login?error=not_approved, even if already on /login,
         // so the user sees a clear error message regardless of current path.
@@ -195,27 +229,21 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Defensive backfill: bind auth user_id to the matched profile row.
+      // Defensive backfill: bind auth user_id to the matched profile row (non-blocking).
       if (profile && profile.user_id !== uid) {
-        await supabase.from("profiles").update({ user_id: uid }).eq("id", profile.id);
+        void supabase.from("profiles").update({ user_id: uid }).eq("id", profile.id);
       }
 
       const resolvedRole: Role = (profile?.role as Role) || "poc";
       const displayName = profile?.display_name || session.user.email || "User";
       const email = profile?.email || userEmail;
 
-      // Fetch canonical POC full name and ID by email — the single source of truth
+      // Canonical POC full name / ID — already fetched in parallel when email is known.
       let pocProfileName: string | undefined;
       let pocProfileId: string | null = null;
-      if (userEmail) {
-        const { data: pocP } = await supabase
-          .from("poc_profiles")
-          .select("id, name")
-          .eq("email", userEmail)
-          .maybeSingle();
-        if (pocP?.name) pocProfileName = pocP.name;
-        if (pocP?.id) pocProfileId = pocP.id;
-      }
+      const pocP = pocByEmailRes.data;
+      if (pocP?.name) pocProfileName = pocP.name;
+      if (pocP?.id) pocProfileId = pocP.id;
       // Fallback: prefix-match display name's first name — only when email lookup failed.
       // Requires a unique match to avoid "Mansi Bhargava" vs "Mansi Jain" ambiguity.
       if (!pocProfileName && displayName && displayName !== "User") {
@@ -242,12 +270,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         initials: initialsFrom(pocProfileName ?? displayName),
         pocProfileName,
         pocProfileId,
-        avatarUrl: (profile as any)?.avatar_url ?? null,
+        avatarUrl: profile?.avatar_url ?? null,
       });
       setRole(resolvedRole);
       // View As is never restored from localStorage, sessionStorage, or URL params.
       // Each session starts with a clean slate (no persisted impersonation).
       setViewAsRole(resolvedRole);
+      bootstrapComplete = true;
       setIsLoading(false);
 
       // Privileged roles can select a POC perspective without changing authority.
@@ -305,6 +334,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           }
           setApprovedUsers(enriched);
         }
+      }
+      } finally {
+        window.clearTimeout(safetyTimer);
       }
     })();
 
