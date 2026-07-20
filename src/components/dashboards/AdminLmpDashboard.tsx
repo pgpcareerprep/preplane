@@ -10,6 +10,7 @@ import { LxLmpFilters } from "@/components/insights/LxFilters";
 import { useLmpFilters, uniquePocs } from "./filters/useLmpFilters";
 import { useStudentFilters, useFilteredStudentRoster } from "@/lib/hooks/useStudentFilters";
 import { useCohorts, usePrograms } from "@/lib/hooks/useCohortProgram";
+import { useAdminDashboardSnapshot } from "@/lib/hooks/useAdminDashboardSnapshot";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { useRole } from "@/lib/rolesContext";
@@ -167,6 +168,15 @@ async function fetchCandidatesForLmps(lmpIds: string[]) {
 
 export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
   const { user } = useRole();
+  const studentFilterState = useStudentFilters();
+  const {
+    data: dashboardSnapshot,
+    isLoading: snapshotLoading,
+    isError: snapshotError,
+  } = useAdminDashboardSnapshot(studentFilterState.cohortIds, studentFilterState.programIds);
+  const snapshotActive = !!dashboardSnapshot && !snapshotError;
+  const legacyFetchEnabled = !snapshotLoading && !snapshotActive;
+
   const {
     domainOptions,
     statusOptions,
@@ -174,15 +184,13 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     prepPocOptions,
   } = useDashboardFilterOptions();
   const { pocLmpIdsMap } = useEligiblePrepPocs();
-  // Live student roster (name + cohort + domain + lmp counts) — drives cohort, domain & participation cards.
-  const { data: studentRoster = [] } = useQuery({
+  const { data: legacyStudentRoster = [] } = useQuery({
     queryKey: ["students_roster_full"],
+    enabled: legacyFetchEnabled,
     queryFn: async () => {
       const PAGE = 1000;
       let from = 0;
       const out: any[] = [];
-      // paginate to bypass the 1000-row default limit
-       
       while (true) {
         const { data, error } = await supabase
           .from("students")
@@ -214,6 +222,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
+  const studentRoster = snapshotActive ? dashboardSnapshot.students : legacyStudentRoster;
 
   // Live realtime — keep all KPI queries fresh as DB rows change.
   useLmpProcessesRealtime();
@@ -222,34 +231,41 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   // the heatmap, attention strip, and student cards update instantly.
   useRealtimeInvalidate("lmp_processes", [
     ["prep_poc_capacity_live_v2"],
+    ["admin_dashboard_snapshot"],
     ["attention_pending_offers"],
     ["attention_missing_prep_docs"],
   ], {
-    cachePrefixes: ['["db-lmp-processes', '["prep_poc_capacity_live_v2'],
+    cachePrefixes: ['["db-lmp-processes', '["prep_poc_capacity_live_v2', '["admin_dashboard_snapshot"'],
   });
-  useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"]], {
-    cachePrefixes: ['["db-poc-switcher-list', '["prep_poc_capacity_live_v2'],
+  useRealtimeInvalidate("lmp_poc_links" as never, [["prep_poc_capacity_live_v2"], ["admin_dashboard_snapshot"]], {
+    cachePrefixes: ['["db-poc-switcher-list', '["prep_poc_capacity_live_v2', '["admin_dashboard_snapshot"'],
   });
   useRealtimeInvalidate("poc_profiles" as never, [
     ["prep_poc_capacity_live_v2"],
     ["attention_pocs"],
+    ["admin_dashboard_snapshot"],
   ], {
-    cachePrefixes: ['["db-poc-profiles-with-load', '["db-all-poc-profiles', '["eligible_prep_pocs'],
+    cachePrefixes: ['["db-poc-profiles-with-load', '["db-all-poc-profiles', '["eligible_prep_pocs', '["admin_dashboard_snapshot"'],
   });
   useRealtimeInvalidate("students" as never, [
     ["students_total_count"],
     ["students_roster_full"],
+    ["admin_dashboard_snapshot"],
   ], {
-    cachePrefixes: ['["db-students'],
+    cachePrefixes: ['["db-students', '["admin_dashboard_snapshot"'],
   });
-  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_scoped"]], {
-    cachePrefixes: ['["lmp_candidates_scoped"'],
+  useRealtimeInvalidate("lmp_candidates" as never, [
+    ["lmp_candidates_scoped"],
+    ["admin_dashboard_snapshot"],
+  ], {
+    cachePrefixes: ['["lmp_candidates_scoped"', '["admin_dashboard_snapshot"'],
   });
+  const lmpRowsEnabled = !snapshotLoading && (snapshotActive || snapshotError);
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
-  const { data: lmpRecords = [] } = useLmpRows();
+  const dashboardBootstrapLoading = snapshotLoading || lmpLoading;
+  const { data: lmpRecords = [] } = useLmpRows({ enabled: lmpRowsEnabled });
   const { data: domainRows = [] } = useDomains();
   const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
-  const studentFilterState = useStudentFilters();
   const { data: cohortMaster = [] } = useCohorts(false);
   const { data: programMaster = [] } = usePrograms(null, false);
   const cohortById = useMemo(() => new Map(cohortMaster.map((c) => [c.id, c])), [cohortMaster]);
@@ -283,20 +299,20 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     [filteredIds],
   );
 
-  // Candidates scoped to filtered LMPs (not the full table).
-  const { data: allCandidateRows = [] } = useQuery({
+  const { data: legacyCandidateRows = [] } = useQuery({
     queryKey: ["lmp_candidates_scoped", scopedLmpIdsKey],
-    enabled: filteredIds.size > 0,
+    enabled: legacyFetchEnabled && filteredIds.size > 0,
     queryFn: () => fetchCandidatesForLmps([...filteredIds]),
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
+  const allCandidateRows = useMemo(() => {
+    const pool = snapshotActive ? dashboardSnapshot.candidates : legacyCandidateRows;
+    if (!filteredIds.size) return [];
+    return pool.filter((c) => filteredIds.has(c.lmpId));
+  }, [snapshotActive, dashboardSnapshot, legacyCandidateRows, filteredIds]);
 
   // Candidate rows scoped to current filtered LMPs
-  const filteredCandidates = useMemo(
-    () => allCandidateRows.filter((c) => filteredIds.has(c.lmpId)),
-    [allCandidateRows, filteredIds],
-  );
 
   // Map lmpId → candidate rows (for fast lookup inside memos below)
   const candidatesByLmp = useMemo(() => {
@@ -323,8 +339,9 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const lsc = lmpStatusCounts(filteredRecords);
 
   /* ─────── Capacity data — used by attention strip for overloaded POC detection ─────── */
-  const { data: prepPocCapacity = [] } = useQuery({
+  const { data: legacyPrepPocCapacity = [] } = useQuery({
     queryKey: ["prep_poc_capacity_live_v2"],
+    enabled: legacyFetchEnabled,
     queryFn: async () => {
       const [pocsRes, linksRes] = await Promise.all([
         supabase
@@ -367,6 +384,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
+  const prepPocCapacity = snapshotActive ? dashboardSnapshot.prep_poc_capacity : legacyPrepPocCapacity;
 
   const filteredCapacity = useMemo(() => {
     return prepPocCapacity; // Attention strip reads active counts directly; no filter intersection needed here
@@ -977,7 +995,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
       <LmpHealthSummaryCard
         total={filteredRecords.length}
         lsc={lsc}
-        isLoading={lmpLoading}
+        isLoading={dashboardBootstrapLoading}
         onStatusClick={openStatus}
       />
 

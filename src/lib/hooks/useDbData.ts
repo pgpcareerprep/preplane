@@ -71,10 +71,21 @@ export function useStudentById(rollNo: string) {
 
 // ─── LMP Processes ───
 
-export function useLmpProcesses(filters?: { domain?: string; status?: string; pocName?: string; pocId?: string; search?: string; includeArchived?: boolean }) {
+export function useLmpProcesses(
+  filters?: {
+    domain?: string;
+    status?: string;
+    pocName?: string;
+    pocId?: string;
+    search?: string;
+    includeArchived?: boolean;
+  },
+  options?: { enabled?: boolean },
+) {
   const queryKey = ["db-lmp-processes", filters] as const;
   return useQuery({
     queryKey,
+    enabled: options?.enabled ?? true,
     queryFn: async () =>
       withCache(queryKey, async () => {
         // Bump explicit limit past Supabase's 1000 default so all 344+ LMP processes render.
@@ -808,6 +819,7 @@ export function invalidateDataSourceCaches(qc: ReturnType<typeof useQueryClient>
     qc.invalidateQueries({ queryKey: ["students_roster_full"] });
       qc.invalidateQueries({ queryKey: ["lmp_candidates_all"] });
       qc.invalidateQueries({ queryKey: ["lmp_candidates_scoped"] });
+      qc.invalidateQueries({ queryKey: ["admin_dashboard_snapshot"] });
       qc.invalidateQueries({ queryKey: ["lmp-cohort-program-summaries"] });
     qc.invalidateQueries({ queryKey: ["prep_poc_heatmap_v3"] });
     qc.invalidateQueries({ queryKey: ["analytics"] });

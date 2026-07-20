@@ -389,8 +389,8 @@ function dbLmpToRecord(row: Record<string, any>): LmpRecord {
   };
 }
 
-export function useLmpRows() {
-  const dbQuery = useLmpProcesses({ includeArchived: true });
+export function useLmpRows(options?: { enabled?: boolean }) {
+  const dbQuery = useLmpProcesses({ includeArchived: true }, { enabled: options?.enabled ?? true });
   const { list: pocCapabilities = [] } = usePocCapabilityList();
   const pocList = pocCapabilities;
   const { user, viewAsUser } = useRole();
