@@ -48,6 +48,7 @@ import {
 import { STATUS_META } from "@/lib/lmpTypes";
 import { canonicalLmpStatus, type CanonicalLmpStatus } from "@/types/lmp";
 import { PrepPocHeatmapCard } from "@/components/dashboard/PrepPocHeatmapCard";
+import { DeferredWhenVisible } from "@/components/dashboard/DeferredWhenVisible";
 import { CohortSummaryCard } from "@/components/dashboard/CohortSummaryCard";
 import { LmpHealthSummaryCard, type ActiveLmpStatus } from "@/components/dashboard/LmpHealthSummaryCard";
 import { formatBatchLabel } from "@/lib/cohortProgram";
@@ -125,6 +126,45 @@ function bucketStudent(group: StudentProgramGroup, activeLmpCount: number, place
   }
 }
 
+const CANDIDATE_ROW_SELECT =
+  "id, lmp_id, student_id, email, student_name, roll_no, pipeline_stage, offer_status, status, r1_status, r2_status, r3_status";
+
+async function fetchCandidatesForLmps(lmpIds: string[]) {
+  if (!lmpIds.length) return [];
+  const CHUNK = 150;
+  const out: Record<string, unknown>[] = [];
+  for (let i = 0; i < lmpIds.length; i += CHUNK) {
+    const chunk = lmpIds.slice(i, i + CHUNK);
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("lmp_candidates")
+        .select(CANDIDATE_ROW_SELECT)
+        .in("lmp_id", chunk)
+        .range(from, from + 999);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      out.push(...rows);
+      if (rows.length < 1000) break;
+      from += 1000;
+    }
+  }
+  return out.map((c) => ({
+    id: (c.id ?? "") as string,
+    lmpId: (c.lmp_id ?? "") as string,
+    studentId: (c.student_id ?? null) as string | null,
+    email: (c.email ?? null) as string | null,
+    studentName: (c.student_name ?? "") as string,
+    rollNo: (c.roll_no ?? null) as string | null,
+    pipelineStage: (c.pipeline_stage ?? null) as string | null,
+    offerStatus: (c.offer_status ?? null) as string | null,
+    status: (c.status ?? null) as string | null,
+    r1Status: (c.r1_status ?? null) as string | null,
+    r2Status: (c.r2_status ?? null) as string | null,
+    r3Status: (c.r3_status ?? null) as string | null,
+  }));
+}
+
 export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
   const { user } = useRole();
   const {
@@ -174,44 +214,6 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
-  // lmp_candidates — all rows, filtered client-side by filteredIds.
-  // Used for: Students in Selected LMPs KPI, domain-preference cross-reference,
-  // POC lens funnel, and converted-student deduplication.
-  const { data: allCandidateRows = [] } = useQuery({
-    queryKey: ["lmp_candidates_all"],
-    queryFn: async () => {
-      const PAGE = 1000;
-      let from = 0;
-      const out: any[] = [];
-      while (true) {
-        const { data, error } = await supabase
-          .from("lmp_candidates")
-          .select("id, lmp_id, student_id, email, student_name, roll_no, pipeline_stage, offer_status, status, r1_status, r2_status, r3_status")
-          .range(from, from + PAGE - 1);
-        if (error) throw new Error(error.message);
-        const rows = data ?? [];
-        out.push(...rows);
-        if (rows.length < PAGE) break;
-        from += PAGE;
-      }
-      return out.map((c) => ({
-        id: (c.id ?? "") as string,
-        lmpId: (c.lmp_id ?? "") as string,
-        studentId: (c.student_id ?? null) as string | null,
-        email: (c.email ?? null) as string | null,
-        studentName: (c.student_name ?? "") as string,
-        rollNo: (c.roll_no ?? null) as string | null,
-        pipelineStage: (c.pipeline_stage ?? null) as string | null,
-        offerStatus: (c.offer_status ?? null) as string | null,
-        status: (c.status ?? null) as string | null,
-        r1Status: (c.r1_status ?? null) as string | null,
-        r2Status: (c.r2_status ?? null) as string | null,
-        r3Status: (c.r3_status ?? null) as string | null,
-      }));
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
 
   // Live realtime — keep all KPI queries fresh as DB rows change.
   useLmpProcessesRealtime();
@@ -240,8 +242,8 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   ], {
     cachePrefixes: ['["db-students'],
   });
-  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_all"]], {
-    cachePrefixes: ['["db-lmp-candidates', '["db-lmp-candidate-counts'],
+  useRealtimeInvalidate("lmp_candidates" as never, [["lmp_candidates_scoped"]], {
+    cachePrefixes: ['["lmp_candidates_scoped"'],
   });
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
   const { data: lmpRecords = [] } = useLmpRows();
@@ -275,6 +277,20 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     () => lmpRecords.filter((row) => filteredIds.has(row.id)),
     [filteredIds, lmpRecords],
   );
+
+  const scopedLmpIdsKey = useMemo(
+    () => [...filteredIds].sort().join(","),
+    [filteredIds],
+  );
+
+  // Candidates scoped to filtered LMPs (not the full table).
+  const { data: allCandidateRows = [] } = useQuery({
+    queryKey: ["lmp_candidates_scoped", scopedLmpIdsKey],
+    enabled: filteredIds.size > 0,
+    queryFn: () => fetchCandidatesForLmps([...filteredIds]),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
 
   // Candidate rows scoped to current filtered LMPs
   const filteredCandidates = useMemo(
@@ -965,11 +981,13 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
         onStatusClick={openStatus}
       />
 
-      {/* ─────── SECTION 2: Prep POC Heatmap ─────── */}
-      <PrepPocHeatmapCard
-        filteredLmpIds={filteredRecords.map((r) => r.id)}
-        filters={filters as Record<string, unknown>}
-      />
+      {/* ─────── SECTION 2: Prep POC Heatmap (deferred until near viewport) ─────── */}
+      <DeferredWhenVisible minHeight={360}>
+        <PrepPocHeatmapCard
+          filteredLmpIds={filteredRecords.map((r) => r.id)}
+          filters={filters as Record<string, unknown>}
+        />
+      </DeferredWhenVisible>
 
       {/* ─────── SECTION 4: Domain load (calculated from filtered scope) ─────── */}
       <LxSectionBlock>

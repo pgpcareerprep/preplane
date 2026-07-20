@@ -190,3 +190,41 @@ export function classifyStudentStatuses(statuses: StatusBucket[]): StudentClass 
   else if (has("notStarted")) prepStatus = "notStarted";
   return { outcome: null, prepStatus, isActive };
 }
+
+/** Map a `db-lmp-processes` row into the heatmap assignment shape. */
+export function mapDbRowToLmpProcessAssignmentRow(
+  row: Record<string, unknown>,
+): LmpProcessAssignmentRow {
+  return {
+    id: String(row.id ?? ""),
+    lmp_code: (row.lmp_code as string | null) ?? null,
+    company: (row.company as string | null) ?? null,
+    role: (row.role as string | null) ?? null,
+    status: (row.status as string | null) ?? null,
+    domain_id: (row.domain_id as string | null) ?? null,
+    domain_raw: (row.domain_raw as string | null) ?? null,
+    final_converted_names: (row.final_converted_names as string | null) ?? null,
+    prep_poc_id: (row.prep_poc_id as string | null) ?? null,
+    support_poc_id: (row.support_poc_id as string | null) ?? null,
+    daily_progress: (row.daily_progress as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+    domains: row.domains as LmpProcessAssignmentRow["domains"],
+  };
+}
+
+/** Reuse live LMP rows already fetched by useLmpRows on the dashboard. */
+export function pickCachedLmpProcessAssignmentRows(
+  cachedQueries: Array<[unknown, Record<string, unknown>[] | undefined]>,
+  scopeLmpIds?: Set<string>,
+): LmpProcessAssignmentRow[] | null {
+  for (const [, data] of cachedQueries) {
+    if (!Array.isArray(data) || data.length === 0) continue;
+    const rows = data
+      .map(mapDbRowToLmpProcessAssignmentRow)
+      .filter((p) => p.prep_poc_id || p.support_poc_id)
+      .filter((p) => !scopeLmpIds?.size || scopeLmpIds.has(p.id));
+    return rows;
+  }
+  return null;
+}

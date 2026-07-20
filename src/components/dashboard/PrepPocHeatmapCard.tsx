@@ -16,7 +16,7 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
 import { downloadCsv, dateStamp } from "@/lib/exportCsv";
@@ -54,6 +54,7 @@ import {
   buildFullHeatmapData,
   type FullPrepPocHeatmapResponse,
 } from "@/lib/prepPocHeatmapViews";
+import { pickCachedLmpProcessAssignmentRows } from "@/lib/prepPocHeatmapSources";
 import {
   ResponsiveHeatmapTable,
   STUDENT_SECTION_CONFIG,
@@ -522,6 +523,7 @@ export function PrepPocHeatmapCard({
   filteredLmpIds?: string[];
   filters?: Record<string, unknown>;
 } = {}) {
+  const queryClient = useQueryClient();
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const [activeView, setActiveView] = useState<"lmp" | "student" | "domain">("lmp");
@@ -601,6 +603,15 @@ export function PrepPocHeatmapCard({
         processQuery = processQuery.in("id", [...scopeLmpIds]);
       }
 
+      let candidatesQuery = supabase
+        .from("lmp_candidates")
+        .select("lmp_id, student_id, student_name, roll_no, pipeline_stage, students(id, name, roll_no, student_code, email, phone, cohort, primary_domain, secondary_domain, placement_status)")
+        .not("student_id", "is", null);
+
+      if (scopeLmpIds?.size) {
+        candidatesQuery = candidatesQuery.in("lmp_id", [...scopeLmpIds]);
+      }
+
       let sessionQuery = supabase
         .from("sessions")
         .select("lmp_id, student_id, status, completed_at")
@@ -610,6 +621,15 @@ export function PrepPocHeatmapCard({
       if (scopeLmpIds?.size) {
         sessionQuery = sessionQuery.in("lmp_id", [...scopeLmpIds]);
       }
+
+      const cachedProcesses = pickCachedLmpProcessAssignmentRows(
+        queryClient.getQueriesData<Record<string, unknown>[]>({ queryKey: ["db-lmp-processes"] }),
+        scopeLmpIds,
+      );
+
+      const processesPromise = cachedProcesses
+        ? Promise.resolve({ data: cachedProcesses, error: null })
+        : processQuery;
 
       const [pocsRes, linksRes, candidatesRes, processesRes, sessionsRes] = await Promise.all([
         supabase
@@ -621,11 +641,8 @@ export function PrepPocHeatmapCard({
           .select(`poc_id, role, lmp_id, is_active, lmp_processes(${processSelect})`)
           .in("role", ["prep", "support"])
           .eq("is_active", true),
-        supabase
-          .from("lmp_candidates")
-          .select("lmp_id, student_id, student_name, roll_no, pipeline_stage, students(id, name, roll_no, student_code, email, phone, cohort, primary_domain, secondary_domain, placement_status)")
-          .not("student_id", "is", null),
-        processQuery,
+        candidatesQuery,
+        processesPromise,
         sessionQuery,
       ]);
 
@@ -646,7 +663,7 @@ export function PrepPocHeatmapCard({
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 
   // ── Realtime ────────────────────────────────────────────────────────────────

@@ -807,6 +807,7 @@ export function invalidateDataSourceCaches(qc: ReturnType<typeof useQueryClient>
     qc.invalidateQueries({ queryKey: ["students_total_count"] });
     qc.invalidateQueries({ queryKey: ["students_roster_full"] });
       qc.invalidateQueries({ queryKey: ["lmp_candidates_all"] });
+      qc.invalidateQueries({ queryKey: ["lmp_candidates_scoped"] });
       qc.invalidateQueries({ queryKey: ["lmp-cohort-program-summaries"] });
     qc.invalidateQueries({ queryKey: ["prep_poc_heatmap_v3"] });
     qc.invalidateQueries({ queryKey: ["analytics"] });
