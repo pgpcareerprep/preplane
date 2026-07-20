@@ -306,17 +306,15 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
-  const allCandidateRows = useMemo(() => {
-    const pool = snapshotActive ? dashboardSnapshot.candidates : legacyCandidateRows;
+  const filteredCandidates = useMemo(() => {
+    const pool = snapshotActive ? dashboardSnapshot!.candidates : legacyCandidateRows;
     if (!filteredIds.size) return [];
     return pool.filter((c) => filteredIds.has(c.lmpId));
   }, [snapshotActive, dashboardSnapshot, legacyCandidateRows, filteredIds]);
 
-  // Candidate rows scoped to current filtered LMPs
-
   // Map lmpId → candidate rows (for fast lookup inside memos below)
   const candidatesByLmp = useMemo(() => {
-    const m = new Map<string, typeof allCandidateRows>();
+    const m = new Map<string, typeof filteredCandidates[number][]>();
     filteredCandidates.forEach((c) => {
       if (!m.has(c.lmpId)) m.set(c.lmpId, []);
       m.get(c.lmpId)!.push(c);
