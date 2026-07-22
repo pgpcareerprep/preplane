@@ -520,17 +520,25 @@ function MentorsTabImpl({
             });
           }
           // Persist results to DB so they survive device/browser changes.
-          const { error: persistErr } = await supabase
+          const { data: persisted, error: persistErr } = await supabase
             .from("lmp_processes")
             .update({
               mentor_suggestions: fullScored as any,
               mentor_suggestions_at: new Date().toISOString(),
               mentor_suggestions_context: (context as any) ?? null,
             } as any)
-            .eq("id", reqId);
+            .eq("id", reqId)
+            .select("id");
           if (persistErr) {
             console.error("[MentorsTab] failed to save mentor_suggestions:", persistErr);
             toast.error(`Couldn't save results: ${persistErr.message}`);
+          } else if (!persisted || persisted.length === 0) {
+            console.error("[MentorsTab] mentor_suggestions update matched no row:", reqId);
+            toast.error(
+              "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+              "operational POC for this LMP. Ask an admin to verify your POC " +
+              "mapping and LMP assignment."
+            );
           } else {
             queryClient.invalidateQueries({ queryKey: ["db-lmp-process", reqId] });
           }
