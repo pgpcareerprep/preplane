@@ -205,11 +205,19 @@ export function ReassignPocModal({
         return { changes: 0 };
       }
 
-      const { error } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("lmp_processes")
         .update(patch)
-        .eq("id", lmpId);
+        .eq("id", lmpId)
+        .select("id");
       if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment."
+        );
+      }
 
       // Timeline + audit (best-effort, don't fail the save if these fail)
       const actor = user?.name || user?.email || "System";
