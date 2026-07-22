@@ -734,11 +734,19 @@ export function useLmpMutation() {
 
       // DB-first write: ALWAYS target by id (the lmp_processes UUID).
       if (Object.keys(dbPatch).length > 0) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("lmp_processes")
           .update({ ...dbPatch, sync_source: "app" })
-          .eq("id", id);
+          .eq("id", id)
+          .select("id");
         if (error) throw new Error(error.message);
+        if (!data || data.length === 0) {
+          throw new Error(
+            "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+            "operational POC for this LMP. Ask an admin to verify your POC " +
+            "mapping and LMP assignment."
+          );
+        }
       }
 
       return { db_updated: true } as any;
