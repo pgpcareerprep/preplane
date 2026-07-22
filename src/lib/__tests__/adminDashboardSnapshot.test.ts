@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { parseAdminDashboardSnapshot } from "@/lib/hooks/useAdminDashboardSnapshot";
+import {
+  parseAdminDashboardSnapshot,
+  SNAPSHOT_RPC_TIMEOUT_MS,
+} from "@/lib/hooks/useAdminDashboardSnapshot";
 
 describe("parseAdminDashboardSnapshot", () => {
+  it("exposes a bounded RPC timeout for dashboard bootstrap", () => {
+    expect(SNAPSHOT_RPC_TIMEOUT_MS).toBeGreaterThan(5_000);
+    expect(SNAPSHOT_RPC_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+  });
+
   it("maps snake_case RPC payload into dashboard shapes", () => {
     const parsed = parseAdminDashboardSnapshot({
       students: [{

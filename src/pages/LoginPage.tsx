@@ -10,6 +10,8 @@ import { Loader2, AlertCircle } from "lucide-react";
 const ERROR_MESSAGES: Record<string, string> = {
   not_approved: "Your account isn't approved yet. Please contact your admin.",
   oauth_failed: "Google sign-in failed. Please try again.",
+  auth_timeout: "Session setup timed out. Please sign in again.",
+  auth_error: "Could not load your profile. Please try again in a moment.",
 };
 
 function hasAuthCallback(searchParams: URLSearchParams): boolean {

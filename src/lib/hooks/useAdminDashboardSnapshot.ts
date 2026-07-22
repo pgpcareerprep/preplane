@@ -50,6 +50,9 @@ export type AdminDashboardSnapshot = {
   prep_poc_capacity: AdminDashboardPrepPocCapacity[];
 };
 
+/** Fail fast so the dashboard can fall back to legacy per-table fetches. */
+export const SNAPSHOT_RPC_TIMEOUT_MS = 20_000;
+
 function mapStudent(row: Record<string, unknown>): AdminDashboardSnapshotStudent {
   return {
     id: (row.id ?? null) as string | null,
@@ -119,6 +122,33 @@ export function hydrateAdminDashboardCache(
   clearCachePrefix('["db-lmp-processes');
 }
 
+export async function fetchAdminDashboardSnapshot(
+  cohortIds: string[],
+  programIds: string[],
+  timeoutMs = SNAPSHOT_RPC_TIMEOUT_MS,
+) {
+  const rpcCall = (supabase as any).rpc("get_admin_dashboard_snapshot", {
+    p_cohort_ids: cohortIds.length ? cohortIds : null,
+    p_program_ids: programIds.length ? programIds : null,
+  });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Admin dashboard snapshot timed out")),
+      timeoutMs,
+    );
+  });
+
+  try {
+    const { data, error } = await Promise.race([rpcCall, timeout]);
+    if (error) throw new Error(error.message);
+    return parseAdminDashboardSnapshot(data);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function useAdminDashboardSnapshot(cohortIds: string[], programIds: string[]) {
   const queryClient = useQueryClient();
   const cohortKey = cohortIds.length ? [...cohortIds].sort().join(",") : "all";
@@ -127,17 +157,12 @@ export function useAdminDashboardSnapshot(cohortIds: string[], programIds: strin
   return useQuery({
     queryKey: ["admin_dashboard_snapshot", cohortKey, programKey],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc("get_admin_dashboard_snapshot", {
-        p_cohort_ids: cohortIds.length ? cohortIds : null,
-        p_program_ids: programIds.length ? programIds : null,
-      });
-      if (error) throw new Error(error.message);
-      const snapshot = parseAdminDashboardSnapshot(data);
+      const snapshot = await fetchAdminDashboardSnapshot(cohortIds, programIds);
       hydrateAdminDashboardCache(queryClient, snapshot);
       return snapshot;
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
-    retry: 1,
+    retry: 0,
   });
 }

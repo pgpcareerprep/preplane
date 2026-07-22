@@ -71,6 +71,25 @@ type ProfileRow = {
 
 /** Safety net so a hung Supabase call cannot block the app forever. */
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 12_000;
+const AUTH_PROFILE_RETRY_DELAY_MS = 1_500;
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withAuthBootstrapTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("auth_timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -125,61 +144,70 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       const userEmail = session.user.email?.toLowerCase() || "";
-      let bootstrapComplete = false;
-      const safetyTimer = window.setTimeout(() => {
-        if (!cancelled && !bootstrapComplete) {
-          if (import.meta.env.DEV) {
-            console.warn("[auth] Profile bootstrap timed out after", AUTH_BOOTSTRAP_TIMEOUT_MS, "ms");
-          }
-          setIsLoading(false);
+
+      const failBootstrap = async (errorKey: "auth_timeout" | "auth_error") => {
+        if (cancelled) return;
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          /* ignore sign-out errors during bootstrap failure */
         }
-      }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+        if (cancelled) return;
+        setSession(null);
+        setUser(GUEST);
+        setRole("poc");
+        setViewAsRole("poc");
+        setViewAsUserState(null);
+        setApprovedUsers([]);
+        setIsLoading(false);
+        if (typeof window !== "undefined") {
+          window.location.replace(`/login?error=${errorKey}`);
+        }
+      };
+
+      const loadProfileBundle = async (attempt = 0) => {
+        const [byUidRes, byEmailRes, pocByEmailRes] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select(PROFILE_SELECT)
+            .eq("user_id", uid)
+            .maybeSingle(),
+          userEmail
+            ? supabase
+                .from("profiles")
+                .select(PROFILE_SELECT)
+                .ilike("email", userEmail.trim())
+                .maybeSingle()
+            : Promise.resolve({ data: null as ProfileRow | null, error: null }),
+          userEmail
+            ? supabase
+                .from("poc_profiles")
+                .select("id, name")
+                .eq("email", userEmail)
+                .maybeSingle()
+            : Promise.resolve({ data: null as { id: string; name: string | null } | null, error: null }),
+        ]);
+
+        if (byUidRes.error || (userEmail && byEmailRes.error)) {
+          if (attempt < 1) {
+            await sleep(AUTH_PROFILE_RETRY_DELAY_MS);
+            return loadProfileBundle(attempt + 1);
+          }
+          throw new Error("profile_fetch_failed");
+        }
+
+        return { byUidRes, byEmailRes, pocByEmailRes };
+      };
+
+      let resolvedRoleForApproved: Role | null = null;
 
       try {
+        await withAuthBootstrapTimeout((async () => {
       if (import.meta.env.DEV) {
         console.log("[auth] Session found — uid:", uid, "email:", userEmail);
       }
 
-      // Parallel lookups — uid profile, email fallback, and poc_profiles by email.
-      const [byUidRes, byEmailRes, pocByEmailRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select(PROFILE_SELECT)
-          .eq("user_id", uid)
-          .maybeSingle(),
-        userEmail
-          ? supabase
-              .from("profiles")
-              .select(PROFILE_SELECT)
-              .ilike("email", userEmail.trim())
-              .maybeSingle()
-          : Promise.resolve({ data: null as ProfileRow | null, error: null }),
-        userEmail
-          ? supabase
-              .from("poc_profiles")
-              .select("id, name")
-              .eq("email", userEmail)
-              .maybeSingle()
-          : Promise.resolve({ data: null as { id: string; name: string | null } | null, error: null }),
-      ]);
-
-      // If the DB query itself failed (network/RLS error), do NOT sign the user out.
-      // A transient failure must not revoke a legitimate session.
-      if (byUidRes.error) {
-        if (import.meta.env.DEV) {
-          console.error("[auth] Profile lookup by user_id failed:", byUidRes.error.message);
-        }
-        if (!cancelled) setIsLoading(false);
-        return;
-      }
-
-      if (userEmail && byEmailRes.error) {
-        if (import.meta.env.DEV) {
-          console.error("[auth] Profile lookup by email failed:", byEmailRes.error.message);
-        }
-        if (!cancelled) setIsLoading(false);
-        return;
-      }
+      const { byUidRes, byEmailRes, pocByEmailRes } = await loadProfileBundle();
 
       let profile = (byUidRes.data ?? byEmailRes.data) as ProfileRow | null;
 
@@ -219,7 +247,6 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(GUEST);
         setRole("poc");
-        bootstrapComplete = true;
         setIsLoading(false);
         // Always redirect to /login?error=not_approved, even if already on /login,
         // so the user sees a clear error message regardless of current path.
@@ -276,11 +303,22 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       // View As is never restored from localStorage, sessionStorage, or URL params.
       // Each session starts with a clean slate (no persisted impersonation).
       setViewAsRole(resolvedRole);
-      bootstrapComplete = true;
       setIsLoading(false);
+      resolvedRoleForApproved = resolvedRole;
+        })(), AUTH_BOOTSTRAP_TIMEOUT_MS);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.error("[auth] Bootstrap failed:", error);
+        }
+        const errorKey = error instanceof Error && error.message === "auth_timeout"
+          ? "auth_timeout"
+          : "auth_error";
+        await failBootstrap(errorKey);
+        return;
+      }
 
       // Privileged roles can select a POC perspective without changing authority.
-      if (resolvedRole === "admin" || resolvedRole === "allocator") {
+      if (!cancelled && (resolvedRoleForApproved === "admin" || resolvedRoleForApproved === "allocator")) {
         const { data: allUsers } = await supabase
           .from("profiles")
           .select("display_name, email, role")
@@ -334,9 +372,6 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           }
           setApprovedUsers(enriched);
         }
-      }
-      } finally {
-        window.clearTimeout(safetyTimer);
       }
     })();
 

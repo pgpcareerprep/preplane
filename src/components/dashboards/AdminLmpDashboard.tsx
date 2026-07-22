@@ -171,11 +171,11 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const studentFilterState = useStudentFilters();
   const {
     data: dashboardSnapshot,
-    isLoading: snapshotLoading,
     isError: snapshotError,
   } = useAdminDashboardSnapshot(studentFilterState.cohortIds, studentFilterState.programIds);
   const snapshotActive = !!dashboardSnapshot && !snapshotError;
-  const legacyFetchEnabled = !snapshotLoading && !snapshotActive;
+  // Legacy fetches run in parallel whenever the snapshot is not active (including while it loads).
+  const legacyFetchEnabled = !snapshotActive;
 
   const {
     domainOptions,
@@ -260,10 +260,10 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   ], {
     cachePrefixes: ['["lmp_candidates_scoped"', '["admin_dashboard_snapshot"'],
   });
-  const lmpRowsEnabled = !snapshotLoading && (snapshotActive || snapshotError);
   const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
-  const dashboardBootstrapLoading = snapshotLoading || lmpLoading;
-  const { data: lmpRecords = [] } = useLmpRows({ enabled: lmpRowsEnabled });
+  const { data: lmpRecords = [] } = useLmpRows();
+  const dashboardBootstrapLoading =
+    lmpLoading && lmpRecords.length === 0 && liveProcesses.length === 0;
   const { data: domainRows = [] } = useDomains();
   const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
   const { data: cohortMaster = [] } = useCohorts(false);
