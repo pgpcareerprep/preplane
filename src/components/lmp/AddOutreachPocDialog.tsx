@@ -47,11 +47,19 @@ export function AddOutreachPocDialog({
 
   const save = useMutation({
     mutationFn: async (name: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("lmp_processes")
         .update({ outreach_poc: name, sync_source: "app" })
-        .eq("id", lmpId);
+        .eq("id", lmpId)
+        .select("id");
       if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment."
+        );
+      }
       return name;
     },
     onSuccess: (name) => {
