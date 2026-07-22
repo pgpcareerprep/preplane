@@ -182,7 +182,7 @@ export function extractSeniority(text: string): string {
 /** Persist a JD to the database so it survives refreshes for all users. */
 export async function saveJdToDb(data: JdData, uploadedBy?: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("lmp_processes")
       .update({
         jd_text: data.rawText || null,
@@ -195,8 +195,18 @@ export async function saveJdToDb(data: JdData, uploadedBy?: string): Promise<{ o
         jd_uploaded_at: data.uploadedAt,
         jd_uploaded_by: uploadedBy || null,
       } as any)
-      .eq("id", data.lmpId);
+      .eq("id", data.lmpId)
+      .select("id");
     if (error) return { ok: false, error: error.message };
+    if (!updated || updated.length === 0) {
+      return {
+        ok: false,
+        error:
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment.",
+      };
+    }
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message || "unknown" };
@@ -206,7 +216,7 @@ export async function saveJdToDb(data: JdData, uploadedBy?: string): Promise<{ o
 /** Clear JD on the database row. */
 export async function clearJdInDb(lmpId: string): Promise<void> {
   try {
-    await supabase
+    const { data, error } = await supabase
       .from("lmp_processes")
       .update({
         jd_text: null,
@@ -219,9 +229,18 @@ export async function clearJdInDb(lmpId: string): Promise<void> {
         jd_uploaded_at: null,
         jd_uploaded_by: null,
       } as any)
-      .eq("id", lmpId);
-  } catch {
-    /* noop */
+      .eq("id", lmpId)
+      .select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error(
+        "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+        "operational POC for this LMP. Ask an admin to verify your POC " +
+        "mapping and LMP assignment."
+      );
+    }
+  } catch (e) {
+    console.warn("[clearJdInDb] failed:", e);
   }
 }
 
