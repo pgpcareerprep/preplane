@@ -264,7 +264,7 @@ async function recomputePipelineStageFields(lmpId: string) {
       names.sort((a, b) => a.localeCompare(b));
     }
 
-    await supabase
+    const { data: updated, error: updateError } = await supabase
       .from("lmp_processes")
       .update({
         pool_names: buckets.pool.join(", ") || null,
@@ -274,7 +274,16 @@ async function recomputePipelineStageFields(lmpId: string) {
         final_converted_names: buckets.converted.join(", ") || null,
         final_converted_numbers: buckets.converted.length > 0 ? String(buckets.converted.length) : null,
       })
-      .eq("id", lmpId);
+      .eq("id", lmpId)
+      .select("id");
+    if (updateError) throw updateError;
+    if (!updated || updated.length === 0) {
+      throw new Error(
+        "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+        "operational POC for this LMP. Ask an admin to verify your POC " +
+        "mapping and LMP assignment."
+      );
+    }
   } catch (e) {
     console.warn("[recomputePipelineStageFields] failed", e);
   }
