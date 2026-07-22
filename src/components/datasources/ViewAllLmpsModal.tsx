@@ -484,12 +484,28 @@ export function ViewAllLmpsModal({
     if (ids.length === 0 || !bulkStatus) return;
     setBulkBusy(true);
     try {
-      const { error } = await supabase
+      const { data: updated, error } = await supabase
         .from("lmp_processes")
         .update({ status: bulkStatus as any })
-        .in("id", ids);
+        .in("id", ids)
+        .select("id");
       if (error) throw error;
-      toast.success(`Updated status on ${ids.length} LMP${ids.length > 1 ? "s" : ""}`);
+      const updatedCount = updated?.length ?? 0;
+      if (updatedCount === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for any of the selected LMPs. Ask an admin to " +
+          "verify your POC mapping and LMP assignment."
+        );
+      }
+      if (updatedCount < ids.length) {
+        toast.error(
+          `Updated ${updatedCount}/${ids.length} — the rest were skipped ` +
+          "(not linked as an operational POC for them)."
+        );
+      } else {
+        toast.success(`Updated status on ${ids.length} LMP${ids.length > 1 ? "s" : ""}`);
+      }
       qc.invalidateQueries({ queryKey: ["db-lmp-processes"] });
       qc.invalidateQueries({ queryKey: ["db-lmp-full-view"] });
       setEditOpen(false);
