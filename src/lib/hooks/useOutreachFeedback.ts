@@ -61,11 +61,19 @@ export function useAddOutreachFeedback() {
       if (insertError) throw insertError;
 
       // 3. Update latest feedback on lmp_processes
-      const { error: updateError } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from("lmp_processes")
         .update({ feedback_by_outreach: feedback })
-        .eq("id", lmpId);
+        .eq("id", lmpId)
+        .select("id");
       if (updateError) throw updateError;
+      if (!updated || updated.length === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment."
+        );
+      }
 
       return { lmpId };
     },
