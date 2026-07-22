@@ -200,13 +200,21 @@ export function useSaveNextProgressDate() {
             reminder_version: newVersion,
           };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("lmp_processes")
         .update(updatePayload as any)
-        .eq("id", params.lmpId);
+        .eq("id", params.lmpId)
+        .select("id");
       if (error) {
         console.warn("Failed to update lmp_processes next progress:", error.message);
         throw error;
+      }
+      if (!data || data.length === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment."
+        );
       }
 
       await (supabase as any)
@@ -260,12 +268,21 @@ export function useUpdateLastProgressAt() {
   return useMutation({
     mutationFn: async (lmpId: string) => {
       if (!isUuid(lmpId)) return;
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("lmp_processes")
         .update({ last_progress_updated_at: new Date().toISOString() } as any)
-        .eq("id", lmpId);
+        .eq("id", lmpId)
+        .select("id");
       if (error) {
         console.warn("Failed to update last_progress_updated_at:", error.message);
+        throw error;
+      }
+      if (!data || data.length === 0) {
+        throw new Error(
+          "PERMISSION_DENIED_OR_ROW_MISSING: You are not linked as an " +
+          "operational POC for this LMP. Ask an admin to verify your POC " +
+          "mapping and LMP assignment."
+        );
       }
     },
   });
