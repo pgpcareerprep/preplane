@@ -271,7 +271,11 @@ export function DailyProgressCard({
       {
         onSuccess: () => {
           onSaveProgress?.(savedText);
-          updateLastProgress.mutate(lmpId);
+          updateLastProgress.mutate(lmpId, {
+            onError: (err) => {
+              toast.error(progressMutationMessage(err, "Progress saved, but couldn't refresh last-updated timestamp"));
+            },
+          });
           if (nextDate) {
             saveNextDate.mutate({
               lmpId,
