@@ -58,6 +58,32 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Visibility timeout: rows claimed as `processing` but never finalized
+  // (edge crash / timeout after claim) would otherwise sit forever — the
+  // pending poll never sees them. Reclaim after 5 minutes so the next sweep
+  // can retry. Claim bumps updated_at via trg_sheet_write_queue_updated_at.
+  const reclaimCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { data: reclaimedRows, error: reclaimError } = await sb
+    .from("sheet_write_queue")
+    .update({
+      status: "pending",
+      next_retry_at: new Date().toISOString(),
+      last_error: "reclaimed_stale_processing",
+    })
+    .eq("status", "processing")
+    .lt("updated_at", reclaimCutoff)
+    .select("id");
+  if (reclaimError) {
+    console.warn("[sheet-queue] reclaim stuck processing failed:", reclaimError.message);
+  }
+  const reclaimedCount = reclaimedRows?.length ?? 0;
+  if (reclaimedCount > 0) {
+    console.log("[sheet-queue] reclaimed stuck processing rows", {
+      count: reclaimedCount,
+      ids: reclaimedRows!.map((r: { id: string }) => r.id),
+    });
+  }
+
   // Pull a batch of pending entries due for retry.
   let queueQuery = sb
     .from("sheet_write_queue")
@@ -76,7 +102,12 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!rows || rows.length === 0) {
-    return new Response(JSON.stringify({ ok: true, processed: 0, message: "no pending writes" }), {
+    return new Response(JSON.stringify({
+      ok: true,
+      processed: 0,
+      reclaimed: reclaimedCount,
+      message: reclaimedCount > 0 ? "reclaimed stuck rows; no pending writes due yet" : "no pending writes",
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -397,7 +428,12 @@ Deno.serve(async (req: Request) => {
     await new Promise((r) => setTimeout(r, THROTTLE_MS));
   }
 
-  return new Response(JSON.stringify({ ok: true, processed: results.length, results }), {
+  return new Response(JSON.stringify({
+    ok: true,
+    processed: results.length,
+    reclaimed: reclaimedCount,
+    results,
+  }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

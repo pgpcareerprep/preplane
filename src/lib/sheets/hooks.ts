@@ -313,7 +313,8 @@ function parseBool(v: unknown): boolean {
   return ["true", "1", "yes"].includes(String(v ?? "").toLowerCase().trim());
 }
 
-function dbLmpToRecord(row: Record<string, any>): LmpRecord {
+/** Map a DB / snapshot `lmp_processes` row into the UI `LmpRecord` shape. */
+export function dbLmpToRecord(row: Record<string, any>): LmpRecord {
   const baseId = `${row.company || ""}-${row.role || ""}`.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   const prepPoc = row.prep_poc ? makePoc(row.prep_poc, "bg-orange-200 text-orange-600", "Prep") : undefined;
   const supportPoc = row.support_poc ? makePoc(row.support_poc, "bg-purple-200 text-purple-600", "Support", "Support POC Suggested") : undefined;

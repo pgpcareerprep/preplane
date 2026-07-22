@@ -1600,19 +1600,24 @@ Deno.serve(async (req: Request) => {
         }
 
         // One shared verification read covering every qualifying row, instead
-        // of one per row.
-        let verifyRows: Record<string, string[][]> = {};
+        // of one per row. Google's response keys valueRanges by its own
+        // echoed range string, which doesn't necessarily match the exact
+        // string we requested (quoting/formatting can differ) — so this maps
+        // back to each entry positionally (request order == response order,
+        // same assumption the single-row verifyPipelineCells above relies on
+        // via Object.values(result)[0]), not by re-deriving the key string.
+        let verifyRowsByIndex: string[][][] = [];
         try {
           rangeCache.clear();
           const verifyRanges = qualifying.map((q) => `'${tab}'!A${q.actualSheetRow}:ZZ${q.actualSheetRow}`);
-          verifyRows = await batchGet(verifyRanges);
+          const verifyResult = await batchGet(verifyRanges);
+          verifyRowsByIndex = Object.values(verifyResult);
         } catch (e) {
           console.warn("[sync-db-to-sheet-batch] shared verify read failed:", e);
         }
 
-        for (const q of qualifying) {
-          const rangeKey = `'${tab}'!A${q.actualSheetRow}:ZZ${q.actualSheetRow}`;
-          const rowValues = (verifyRows[rangeKey] || [])[0] || [];
+        for (const [qIndex, q] of qualifying.entries()) {
+          const rowValues = (verifyRowsByIndex[qIndex] || [])[0] || [];
           const mismatches: Array<{ header: string; expected: string; actual: string }> = [];
           for (const canonicalHeader of LMP_PIPELINE_SHEET_HEADERS) {
             const actualHeader = resolveHeader(canonicalHeader);

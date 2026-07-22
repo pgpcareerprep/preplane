@@ -133,7 +133,8 @@ function excelSerialToISO(serial: string): string {
   return new Date(excelEpoch + n * msPerDay).toISOString();
 }
 
-function lmpToProcess(r: LmpRecord): Process {
+/** Map an `LmpRecord` into the dashboard `Process` shape. */
+export function lmpToProcess(r: LmpRecord): Process {
   const statusRaw = (r as any)._rawStatus || r.status;
   const status = typeof statusRaw === "string" && statusRaw.includes(" ")
     ? normalizeStatus(statusRaw)
@@ -231,11 +232,11 @@ function lmpToProcess(r: LmpRecord): Process {
 }
 
 /**
- * Returns live Process[] derived from the Google Sheets LMP Tracker,
+ * Returns live Process[] derived from DB-backed `useLmpRows()`,
  * plus loading/error state from the underlying query.
  */
-export function useLiveProcesses() {
-  const { data: lmpRows = [], isLoading, isError, error } = useLmpRows();
+export function useLiveProcesses(options?: { enabled?: boolean }) {
+  const { data: lmpRows = [], isLoading, isError, error } = useLmpRows(options);
 
   const processes = useMemo(
     () => lmpRows.map(lmpToProcess),

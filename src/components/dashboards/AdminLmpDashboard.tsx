@@ -26,8 +26,9 @@ import {
   isCandidatePipelineConverted, getCanonicalStudentIdentity, placedStudentNameKey,
 } from "@/lib/studentAnalytics";
 
-import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
-import { useLmpRows } from "@/lib/sheets/hooks";
+import { lmpToProcess, useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
+import { dbLmpToRecord, useLmpRows } from "@/lib/sheets/hooks";
+import type { LmpRecord } from "@/lib/lmpTypes";
 import { useDomains } from "@/lib/hooks/useDbData";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
@@ -172,10 +173,14 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const {
     data: dashboardSnapshot,
     isError: snapshotError,
+    isPending: snapshotPending,
   } = useAdminDashboardSnapshot(studentFilterState.cohortIds, studentFilterState.programIds);
   const snapshotActive = !!dashboardSnapshot && !snapshotError;
-  // Legacy fetches run in parallel whenever the snapshot is not active (including while it loads).
+  // Legacy table fetches: only while snapshot is loading or after it fails.
+  // LMP list is special-cased below — do NOT dual-fetch select(*) alongside a
+  // successful/in-flight snapshot (that was the main PostgREST egress leak).
   const legacyFetchEnabled = !snapshotActive;
+  const lmpListLegacyEnabled = !!snapshotError;
 
   const {
     domainOptions,
@@ -260,8 +265,28 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   ], {
     cachePrefixes: ['["lmp_candidates_scoped"', '["admin_dashboard_snapshot"'],
   });
-  const { processes: liveProcesses, isLoading: lmpLoading } = useLiveProcesses();
-  const { data: lmpRecords = [] } = useLmpRows();
+  const { processes: legacyLiveProcesses, isLoading: legacyLmpLoading } = useLiveProcesses({
+    enabled: lmpListLegacyEnabled,
+  });
+  const { data: legacyLmpRecords = [], isLoading: legacyLmpRowsLoading } = useLmpRows({
+    enabled: lmpListLegacyEnabled,
+  });
+
+  const snapshotLmpRecords = useMemo<LmpRecord[]>(() => {
+    if (!snapshotActive || !dashboardSnapshot) return [];
+    return (dashboardSnapshot.lmp_processes as Record<string, unknown>[]).map((row) =>
+      dbLmpToRecord(row as Record<string, any>),
+    );
+  }, [snapshotActive, dashboardSnapshot]);
+
+  const lmpRecords = snapshotActive ? snapshotLmpRecords : legacyLmpRecords;
+  const liveProcesses = useMemo(
+    () => (snapshotActive ? snapshotLmpRecords.map(lmpToProcess) : legacyLiveProcesses),
+    [snapshotActive, snapshotLmpRecords, legacyLiveProcesses],
+  );
+  const lmpLoading = snapshotActive
+    ? false
+    : snapshotPending || legacyLmpLoading || legacyLmpRowsLoading;
   const dashboardBootstrapLoading =
     lmpLoading && lmpRecords.length === 0 && liveProcesses.length === 0;
   const { data: domainRows = [] } = useDomains();

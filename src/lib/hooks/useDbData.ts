@@ -52,6 +52,62 @@ export function useStudentById(rollNo: string) {
 
 // ─── LMP Processes ───
 
+/**
+ * Explicit list columns for LMP process reads. Avoid `select(*)` — comments,
+ * JD blobs, and unused text columns dominate PostgREST egress on list pages.
+ * Keep in sync with `dbLmpToRecord` / dashboard KPI field needs.
+ */
+export const LMP_PROCESS_LIST_SELECT = [
+  "id",
+  "company",
+  "role",
+  "status",
+  "type",
+  "domain_raw",
+  "domain_id",
+  "prep_poc",
+  "support_poc",
+  "outreach_poc",
+  "prep_poc_id",
+  "support_poc_id",
+  "outreach_poc_ids",
+  "created_at",
+  "updated_at",
+  "date",
+  "closing_date",
+  "placement_progress",
+  "prep_progress",
+  "pool_names",
+  "r1_names",
+  "r2_names",
+  "r3_names",
+  "final_converted_numbers",
+  "final_converted_names",
+  "prep_doc",
+  "prep_doc_shared",
+  "assignment_review",
+  "daily_progress",
+  "mentor_aligned",
+  "mentor_selected",
+  "mentor_rating",
+  "one_to_one_mock",
+  "next_progress_date",
+  "next_progress_type",
+  "next_progress_reminder_type",
+  "last_progress_updated_at",
+  "sheet_row_id",
+  "lmp_code",
+  "feedback_by_outreach",
+  "allocator",
+  "admin_owner",
+  "behavioral_status",
+  "match_tag",
+  "allocation_path",
+  "jd_url",
+  "jd_label",
+  "domains(name, slug)",
+].join(", ");
+
 export function useLmpProcesses(
   filters?: {
     domain?: string;
@@ -69,7 +125,7 @@ export function useLmpProcesses(
     enabled: options?.enabled ?? true,
     queryFn: async () => {
       // Bump explicit limit past Supabase's 1000 default so all 344+ LMP processes render.
-      let q = supabase.from("lmp_processes").select("*, domains(name, slug)").order("created_at", { ascending: false }).limit(5000);
+      let q = supabase.from("lmp_processes").select(LMP_PROCESS_LIST_SELECT).order("created_at", { ascending: false }).limit(5000);
       if (filters?.status) {
         q = q.eq("status", filters.status);
       } else if (!filters?.includeArchived) {
@@ -96,7 +152,7 @@ export function useLmpProcessById(id: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lmp_processes")
-        .select("*, domains(name, slug)")
+        .select(LMP_PROCESS_LIST_SELECT)
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
