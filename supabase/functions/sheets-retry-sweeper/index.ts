@@ -96,7 +96,155 @@ Deno.serve(async (req: Request) => {
 
   const results: { id: string; status: string; error?: string }[] = [];
 
+  // ── Batch pass: group pending sync-db-to-sheet rows by tab and, when a
+  // group has 2+ rows, replay them through sheets-lmp's combined
+  // "sync-db-to-sheet-batch" op instead of one call per row. This only ever
+  // fires on the periodic cron catch-up sweep — the real-time dispatch path
+  // always requests a single queue_id (.limit(1) above), so there's nothing
+  // to group there. Every other operation (delete, lmp-reconcile) and any
+  // tab with only a single pending sync-db-to-sheet row falls straight
+  // through to the untouched per-row loop below.
+  const batchedIds = new Set<string>();
+  const syncRowsByTab = new Map<string, typeof rows>();
   for (const row of rows) {
+    if (row.operation !== "sync-db-to-sheet") continue;
+    const list = syncRowsByTab.get(row.tab_name) ?? [];
+    list.push(row);
+    syncRowsByTab.set(row.tab_name, list);
+  }
+
+  for (const [tabName, group] of syncRowsByTab) {
+    if (group.length < 2) continue; // nothing to gain batching a singleton
+
+    // Same cooldown gate the per-row loop applies, up front for the whole
+    // group — if it's already cooling down, let the per-row loop's existing
+    // per-row cooldown handling take these (it isn't duplicated here).
+    const cool = cooldownMap.get(tabName) ?? 0;
+    if (cool > Date.now()) continue;
+
+    // Claim every row in the group up front — status flip only, no attempts
+    // bump yet. Attempts are only bumped once we know the real per-row
+    // outcome below, so a whole-group rate-limit never burns an attempt.
+    const groupIds = group.map((r) => r.id);
+    const { data: claimed } = await sb.from("sheet_write_queue")
+      .update({ status: "processing" })
+      .in("id", groupIds)
+      .eq("status", "pending")
+      .select("id");
+    const claimedIdSet = new Set((claimed ?? []).map((r: any) => r.id as string));
+    const claimedGroup = group.filter((r) => claimedIdSet.has(r.id));
+    if (claimedGroup.length < 2) {
+      // Lost the claim race on enough of them that batching isn't worth it —
+      // release whatever we did grab back to pending for the per-row loop.
+      if (claimedGroup.length > 0) {
+        await sb.from("sheet_write_queue").update({ status: "pending" }).in("id", claimedGroup.map((r) => r.id));
+      }
+      continue;
+    }
+
+    for (const r of claimedGroup) batchedIds.add(r.id);
+
+    const headerRowForGroup = claimedGroup[0].payload?.headerRow;
+    const entries = claimedGroup.map((r) => ({
+      id: r.id,
+      company: r.payload?.company,
+      role: r.payload?.role,
+      lmp_code: r.payload?.lmp_code ?? null,
+      dbPatch: r.payload?.dbPatch ?? {},
+    }));
+
+    console.log("[sheet-queue] batch processing", { tab: tabName, count: entries.length, ids: entries.map((e) => e.id) });
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/sheets-lmp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SERVICE_ROLE,
+          Authorization: `Bearer ${SERVICE_ROLE}`,
+          "x-internal-secret": internalSyncSecret,
+          "x-sheet-sweeper": "1",
+        },
+        body: JSON.stringify({ op: "sync-db-to-sheet-batch", tab: tabName, headerRow: headerRowForGroup, entries }),
+      });
+      const text = await res.text();
+      let body: any = {};
+      try { body = JSON.parse(text); } catch { /* ignore */ }
+
+      const rateLimited = res.status === 429 || body?.code === "SHEETS_RATE_LIMITED";
+      if (rateLimited) {
+        // Whole-group cooldown — no attempts burned, no individual fallback
+        // (falling back to N individual calls would only worsen the quota
+        // pressure that caused the 429 in the first place).
+        cooldownMap.set(tabName, Date.now() + 60_000);
+        for (const r of claimedGroup) {
+          await sb.from("sheet_write_queue")
+            .update({ status: "pending", next_retry_at: new Date(Date.now() + 61_000).toISOString() })
+            .eq("id", r.id);
+          results.push({ id: r.id, status: "cooldown_skipped" });
+        }
+        console.log("[sheet-queue] batch rate-limited", { tab: tabName, count: claimedGroup.length });
+      } else {
+        const byId = new Map<string, any>((body?.results ?? []).map((r: any) => [r.id, r]));
+        for (const r of claimedGroup) {
+          const entryResult = byId.get(r.id);
+          if (entryResult?.status === "ok") {
+            await sb.from("sheet_write_queue").update({
+              status: "done",
+              attempts: r.attempts + 1,
+              attempt_count: (r.attempt_count ?? 0) + 1,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }).eq("id", r.id);
+            results.push({ id: r.id, status: "done" });
+          } else {
+            // needs_fallback (dedup / append / lookup-error / pipeline
+            // verification miss), or a missing/malformed per-entry result —
+            // treated the same way. No attempts bump: this row goes back to
+            // pending untouched so the individual per-row path's own claim
+            // step bumps it exactly once when it actually processes this row
+            // for real, on a future sweep. Avoids double-burning MAX_ATTEMPTS.
+            await sb.from("sheet_write_queue").update({
+              status: "pending",
+              next_retry_at: new Date().toISOString(),
+              last_error: (entryResult?.reason ?? "batch_no_result").toString().slice(0, 500),
+            }).eq("id", r.id);
+            results.push({ id: r.id, status: "deferred_to_individual", error: entryResult?.reason });
+          }
+        }
+        console.log("[sheet-queue] batch completed", {
+          tab: tabName,
+          count: claimedGroup.length,
+          done: claimedGroup.filter((r) => byId.get(r.id)?.status === "ok").length,
+        });
+      }
+    } catch (e) {
+      // Whole-group network/exception failure — handled per-row so
+      // MAX_ATTEMPTS accounting stays identical to the existing per-row
+      // exception branch below.
+      for (const r of claimedGroup) {
+        const attempts = r.attempts + 1;
+        const giveUp = attempts >= MAX_ATTEMPTS;
+        await sb.from("sheet_write_queue").update({
+          status: giveUp ? "failed" : "pending",
+          attempts,
+          attempt_count: (r.attempt_count ?? 0) + 1,
+          last_error: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+          next_retry_at: new Date(Date.now() + backoffSeconds(attempts) * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", r.id);
+        results.push({ id: r.id, status: giveUp ? "failed" : "retry", error: String(e) });
+      }
+      console.error("[sheet-queue] batch exception", { tab: tabName, count: claimedGroup.length, failure_reason: e instanceof Error ? e.message : String(e) });
+    }
+
+    // Same throttle the per-row loop applies, once per group call rather
+    // than once per row.
+    await new Promise((r) => setTimeout(r, THROTTLE_MS));
+  }
+
+  for (const row of rows) {
+    if (batchedIds.has(row.id)) continue;
     const lmpCode = String(row.payload?.lmp_code ?? row.payload?.findBy?.["LMP ID"] ?? "");
     console.log("[sheet-queue] processing", {
       queue_id: row.id,

@@ -167,7 +167,7 @@ Deno.serve(async (req: Request) => {
 
   const baseUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}`;
 
-  const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet"]);
+  const WRITE_OPS = new Set(["insert", "update", "delete", "sync-db-to-sheet", "sync-db-to-sheet-batch"]);
   const fromSweeper = req.headers.get("x-sheet-sweeper") === "1" && internalRequest;
 
   // Enqueue a write op into the retry queue (used on 429 or active cooldown).
@@ -1409,6 +1409,245 @@ Deno.serve(async (req: Request) => {
         return jsonOk({ synced: true, company, role, lmp_code: lmpCode, sheetRowFound: true, rowNumber: actualSheetRow, columnsUpdated, fieldsUpdated: updates.map((u) => u.range), pipelineVerified: true, pipelineVerification });
       }
 
+      case "sync-db-to-sheet-batch": {
+        // Additive-only: used by the sweeper's multi-row cron catch-up sweeps.
+        // Never handles appends, duplicate-LMP-ID dedup, or header-drift
+        // errors — those always fall back to the single-row "sync-db-to-sheet"
+        // case above, entry by entry. This path only ever patches cells on
+        // rows that are already found, unambiguous, and safe to touch without
+        // shifting any other row (an insert would invalidate every other
+        // entry's row index in the same batch, so appends are never mixed in
+        // here). One shared sheet read + one combined batchUpdate + one shared
+        // verify read cover the whole group instead of one of each per row.
+        type BatchEntry = {
+          id: string;
+          company: string;
+          role: string;
+          lmp_code?: string | null;
+          dbPatch: Record<string, unknown>;
+        };
+        type EntryResult = {
+          id: string;
+          status: "ok" | "needs_fallback";
+          reason?: string;
+          rowNumber?: number;
+          pipelineVerified?: boolean;
+          columnsUpdated?: string[];
+        };
+
+        const entries = Array.isArray(body.entries) ? (body.entries as BatchEntry[]) : [];
+        if (entries.length === 0) return jsonError("Missing or empty 'entries'", 400);
+
+        const range = `'${tab}'!A${headerRow}:ZZ10000`;
+        const result = await batchGet([range]);
+        const allRows = Object.values(result)[0] || [];
+        if (allRows.length < 1) return jsonError("Sheet has no header row", 404);
+        const headers = allRows[0];
+
+        const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+        const headerLookup: Record<string, string> = {};
+        for (const h of headers) {
+          if (typeof h === "string" && h) headerLookup[normalize(h)] = h;
+        }
+        const resolveHeader = (col: string): string | null => {
+          if (headers.indexOf(col) !== -1) return col;
+          return headerLookup[normalize(col)] ?? null;
+        };
+        const reverseFieldMap: Record<string, string> = {
+          ...DB_TO_SHEET,
+          prep_progress: "Prep Progress",
+          placement_progress: "Placement Progress",
+        };
+        const commentHeaderActual = resolveHeader("Comments") ?? resolveHeader("Comment");
+
+        const entryResults: EntryResult[] = [];
+        const qualifying: Array<{
+          id: string;
+          lmpCode: string | null;
+          actualSheetRow: number;
+          sheetPatch: Record<string, unknown>;
+          ownUpdates: { range: string; values: unknown[][] }[];
+        }> = [];
+
+        for (const entry of entries) {
+          const company = entry.company;
+          const role = entry.role;
+          const lmpCode = entry.lmp_code ?? null;
+          const dbPatch = entry.dbPatch || {};
+          if (!company || !role) {
+            entryResults.push({ id: entry.id, status: "needs_fallback", reason: "missing_company_or_role" });
+            continue;
+          }
+
+          const lookup = findLmpSheetRow(headers, allRows, { lmpCode, company, role });
+          if (lookup.error) {
+            // DUPLICATE_LMP_ID_ROWS / header-drift errors — dedup and header
+            // tolerance handling live in the single-row path only.
+            entryResults.push({ id: entry.id, status: "needs_fallback", reason: lookup.error });
+            continue;
+          }
+          if (lookup.rowIndex === -1) {
+            // Append (including "not found, no lmp_code" benign skip) — never
+            // mixed into the combined batchUpdate; always deferred.
+            entryResults.push({ id: entry.id, status: "needs_fallback", reason: "is_append" });
+            continue;
+          }
+
+          const sheetPatch: Record<string, unknown> = {};
+          for (const [dbCol, val] of Object.entries(dbPatch)) {
+            const sheetCol = reverseFieldMap[dbCol];
+            if (!sheetCol) continue;
+            const actual = resolveHeader(sheetCol);
+            if (!actual) continue;
+            sheetPatch[actual] = dbCol === "status"
+              ? normalizeStatusForSheet(val)
+              : dbCol === "next_progress_type"
+                ? normalizeNextProgressTypeForSheet(val as string | null | undefined)
+                : val;
+          }
+          if ("status" in dbPatch && isTerminalStatus(dbPatch["status"])) {
+            const closingHeader = resolveHeader("Closing Date");
+            if (closingHeader) sheetPatch[closingHeader] = formatClosingDateForSheet();
+          }
+          if (lmpCode) {
+            try {
+              const { data: calc } = await serviceClient
+                .from("lmp_full_view")
+                .select("pool_count,pool_names,r1_count,r1_names,r2_count,r2_names,r3_count,r3_names,converted_count,converted_names,offer_count,mentor_feedback_avg,mentor_name,prep_poc_names,support_poc_names,outreach_poc_names")
+                .eq("lmp_code", lmpCode)
+                .maybeSingle();
+              if (calc) {
+                const calcMap: Record<string, unknown> = {
+                  ...buildLmpPipelineSheetPatch(calc),
+                  "Mentor Rating": calc.mentor_feedback_avg && Number(calc.mentor_feedback_avg) > 0
+                    ? Number(calc.mentor_feedback_avg).toFixed(1)
+                    : "",
+                  "Mentor Selected": calc.mentor_name ?? dbPatch.mentor_selected ?? "",
+                  "Prep POC": calc.prep_poc_names ?? dbPatch.prep_poc ?? "",
+                  "Support POC": calc.support_poc_names ?? dbPatch.support_poc ?? "",
+                  "Outreach POC": calc.outreach_poc_names ?? dbPatch.outreach_poc ?? "",
+                };
+                for (const [h, v] of Object.entries(calcMap)) {
+                  const actual = resolveHeader(h);
+                  if (actual) sheetPatch[actual] = v;
+                }
+              }
+              const { data: overview } = await serviceClient
+                .from("lmp_processes_overview")
+                .select("candidate_count")
+                .eq("lmp_code", lmpCode)
+                .maybeSingle();
+              const candidateCountHeader = resolveHeader("Candidate Count");
+              if (candidateCountHeader) sheetPatch[candidateCountHeader] = overview?.candidate_count ?? 0;
+            } catch (e) {
+              console.warn("[sync-db-to-sheet-batch] failed to compute calculated columns:", e);
+            }
+          }
+
+          const rowIndex = lookup.rowIndex;
+          const existingRow = allRows[rowIndex];
+          const actualSheetRow = headerRow + rowIndex;
+          const ownUpdates: { range: string; values: unknown[][] }[] = [];
+          for (const h of Object.keys(sheetPatch)) {
+            const colIdx = headers.indexOf(h);
+            if (colIdx === -1) continue;
+            const newVal = sheetPatch[h] ?? "";
+            const oldVal = existingRow[colIdx] ?? "";
+            if (String(newVal) === String(oldVal)) continue;
+            if (commentHeaderActual && h === commentHeaderActual) {
+              const newStr = String(newVal ?? "").trim();
+              const oldStr = String(oldVal ?? "").trim();
+              if (newStr === "" && oldStr !== "") continue;
+            }
+            const colLetter = colIndexToLetter(colIdx);
+            ownUpdates.push({ range: `'${tab}'!${colLetter}${actualSheetRow}`, values: [[newVal]] });
+          }
+
+          qualifying.push({ id: entry.id, lmpCode, actualSheetRow, sheetPatch, ownUpdates });
+        }
+
+        if (qualifying.length === 0) {
+          return jsonOk({ ok: true, batch: true, results: entryResults });
+        }
+
+        const combinedUpdates = qualifying.flatMap((q) => q.ownUpdates);
+        try {
+          if (combinedUpdates.length > 0) {
+            await batchUpdate(combinedUpdates);
+          }
+        } catch (e) {
+          if (isRateLimitError(e)) {
+            // Whole-group cooldown — never fall back to individual calls on
+            // 429, that would only worsen the quota pressure that caused it.
+            return new Response(JSON.stringify({
+              ok: false,
+              batch: true,
+              code: "SHEETS_RATE_LIMITED",
+              results: entryResults.concat(
+                qualifying.map((q) => ({ id: q.id, status: "needs_fallback" as const, reason: "rate_limited" })),
+              ),
+            }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          console.error("[sync-db-to-sheet-batch] combined batchUpdate failed:", e);
+          return jsonOk({
+            ok: false,
+            batch: true,
+            error: e instanceof Error ? e.message : String(e),
+            results: entryResults.concat(
+              qualifying.map((q) => ({ id: q.id, status: "needs_fallback" as const, reason: "batch_write_failed" })),
+            ),
+          });
+        }
+
+        // One shared verification read covering every qualifying row, instead
+        // of one per row.
+        let verifyRows: Record<string, string[][]> = {};
+        try {
+          rangeCache.clear();
+          const verifyRanges = qualifying.map((q) => `'${tab}'!A${q.actualSheetRow}:ZZ${q.actualSheetRow}`);
+          verifyRows = await batchGet(verifyRanges);
+        } catch (e) {
+          console.warn("[sync-db-to-sheet-batch] shared verify read failed:", e);
+        }
+
+        for (const q of qualifying) {
+          const rangeKey = `'${tab}'!A${q.actualSheetRow}:ZZ${q.actualSheetRow}`;
+          const rowValues = (verifyRows[rangeKey] || [])[0] || [];
+          const mismatches: Array<{ header: string; expected: string; actual: string }> = [];
+          for (const canonicalHeader of LMP_PIPELINE_SHEET_HEADERS) {
+            const actualHeader = resolveHeader(canonicalHeader);
+            const expectedValue = normalizePipelineSheetValue(q.sheetPatch[actualHeader ?? canonicalHeader] ?? q.sheetPatch[canonicalHeader] ?? "");
+            if (!actualHeader) {
+              mismatches.push({ header: canonicalHeader, expected: expectedValue, actual: "<missing header>" });
+              continue;
+            }
+            const columnIndex = headers.indexOf(actualHeader);
+            const actualValue = normalizePipelineSheetValue(columnIndex === -1 ? "" : rowValues[columnIndex]);
+            if (actualValue !== expectedValue) {
+              mismatches.push({ header: canonicalHeader, expected: expectedValue, actual: actualValue });
+            }
+          }
+          const pipelineOk = mismatches.length === 0;
+
+          logSyncEvent({
+            tab_name: tab, direction: "app_to_sheet", operation: "sync-db-to-sheet-batch",
+            record_id: q.lmpCode ?? String(q.actualSheetRow),
+            fields_synced: q.ownUpdates.map((u) => u.range),
+            status: pipelineOk ? "success" : "verification_failed",
+          });
+
+          entryResults.push({
+            id: q.id,
+            status: pipelineOk ? "ok" : "needs_fallback",
+            reason: pipelineOk ? undefined : "pipeline_verification_failed",
+            rowNumber: q.actualSheetRow,
+            pipelineVerified: pipelineOk,
+            columnsUpdated: q.ownUpdates.map((u) => u.range),
+          });
+        }
+
+        return jsonOk({ ok: true, batch: true, results: entryResults });
+      }
 
       case "lmp-reconcile": {
         // Full DB↔Sheet reconciliation for LMP Tracker:
