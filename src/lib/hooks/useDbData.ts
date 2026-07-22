@@ -9,25 +9,9 @@ import { syncLmpCountsToSheet } from "@/lib/sheets/syncLmpCounts";
 import { TABS } from "@/lib/sheets/schema";
 import { ACTIVE_LMP_STATUSES, normalizeLmpStatus } from "@/lib/config/lmpStatus";
 
-// ─── In-memory query cache (30s TTL) ───
-// OPTIMISED: avoids hitting Supabase for repeated identical reads within a short window.
-const __queryCache = new Map<string, { ts: number; data: unknown }>();
-const CACHE_TTL_MS = 30_000;
-
-async function withCache<T>(key: unknown, fn: () => Promise<T>): Promise<T> {
-  const k = typeof key === "string" ? key : JSON.stringify(key);
-  const hit = __queryCache.get(k);
-  if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit.data as T;
-  const data = await fn();
-  __queryCache.set(k, { ts: Date.now(), data });
-  return data;
-}
-
-export function clearCachePrefix(prefix: string) {
-  for (const k of __queryCache.keys()) {
-    if (k.startsWith(prefix)) __queryCache.delete(k);
-  }
-}
+// TanStack Query already dedupes in-flight requests and honors staleTime,
+// so callers invalidate via queryClient instead of this cache now.
+export function clearCachePrefix(_prefix: string) {}
 
 // ─── Students ───
 
@@ -35,18 +19,16 @@ export function useStudents(filters?: { domain?: string; status?: string; search
   const queryKey = ["db-students", filters] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      // OPTIMISED: wrapped in 30s in-memory cache to dedupe repeat fetches
-      withCache(queryKey, async () => {
-        // Bump explicit limit past Supabase's 1000 default so 1k+ students render.
-        let q = supabase.from("students").select("*").order("name").limit(5000);
-        if (filters?.domain) q = q.eq("primary_domain", filters.domain);
-        if (filters?.status) q = q.eq("placement_status", filters.status);
-        if (filters?.search) q = q.or(`name.ilike.%${filters.search}%,roll_no.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
-        const { data, error } = await q;
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      // Bump explicit limit past Supabase's 1000 default so 1k+ students render.
+      let q = supabase.from("students").select("*").order("name").limit(5000);
+      if (filters?.domain) q = q.eq("primary_domain", filters.domain);
+      if (filters?.status) q = q.eq("placement_status", filters.status);
+      if (filters?.search) q = q.or(`name.ilike.%${filters.search}%,roll_no.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data;
+    },
     staleTime: 60_000,
   });
 }
@@ -55,16 +37,15 @@ export function useStudentById(rollNo: string) {
   const queryKey = ["db-student", rollNo] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase
-          .from("students")
-          .select("*")
-          .eq("roll_no", rollNo)
-          .maybeSingle();
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("students")
+        .select("*")
+        .eq("roll_no", rollNo)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
     enabled: !!rollNo,
   });
 }
@@ -86,26 +67,24 @@ export function useLmpProcesses(
   return useQuery({
     queryKey,
     enabled: options?.enabled ?? true,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        // Bump explicit limit past Supabase's 1000 default so all 344+ LMP processes render.
-        let q = supabase.from("lmp_processes").select("*, domains(name, slug)").order("created_at", { ascending: false }).limit(5000);
-        if (filters?.status) {
-          q = q.eq("status", filters.status);
-        } else if (!filters?.includeArchived) {
-          // OPTIMISED: hide archived LMP processes by default to avoid loading dead rows
-          q = q.neq("status", "archived");
-        }
-        if (filters?.pocName) q = q.or(`prep_poc.eq.${filters.pocName},support_poc.eq.${filters.pocName}`);
-        if (filters?.pocId) q = q.or(`prep_poc_id.eq.${filters.pocId},support_poc_id.eq.${filters.pocId}`);
-        if (filters?.search) q = q.or(`company.ilike.%${filters.search}%,role.ilike.%${filters.search}%`);
-        const { data, error } = await q;
-        if (error) throw error;
-        if (filters?.domain && data) {
-          return data.filter((r: any) => r.domains?.slug === filters.domain);
-        }
-        return data;
-      }),
+    queryFn: async () => {
+      // Bump explicit limit past Supabase's 1000 default so all 344+ LMP processes render.
+      let q = supabase.from("lmp_processes").select("*, domains(name, slug)").order("created_at", { ascending: false }).limit(5000);
+      if (filters?.status) {
+        q = q.eq("status", filters.status);
+      } else if (!filters?.includeArchived) {
+        q = q.neq("status", "archived");
+      }
+      if (filters?.pocName) q = q.or(`prep_poc.eq.${filters.pocName},support_poc.eq.${filters.pocName}`);
+      if (filters?.pocId) q = q.or(`prep_poc_id.eq.${filters.pocId},support_poc_id.eq.${filters.pocId}`);
+      if (filters?.search) q = q.or(`company.ilike.%${filters.search}%,role.ilike.%${filters.search}%`);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (filters?.domain && data) {
+        return data.filter((r: any) => r.domains?.slug === filters.domain);
+      }
+      return data;
+    },
     staleTime: 60_000,
   });
 }
@@ -114,16 +93,15 @@ export function useLmpProcessById(id: string) {
   const queryKey = ["db-lmp-process", id] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase
-          .from("lmp_processes")
-          .select("*, domains(name, slug)")
-          .eq("id", id)
-          .maybeSingle();
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("lmp_processes")
+        .select("*, domains(name, slug)")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
     enabled: !!id,
   });
 }
@@ -134,12 +112,11 @@ export function useDomains() {
   const queryKey = ["db-domains"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase.from("domains").select("*").order("name");
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("domains").select("*").order("name");
+      if (error) throw error;
+      return data;
+    },
     staleTime: 120_000,
   });
 }
@@ -150,17 +127,16 @@ export function usePocProfiles(filters?: { roleType?: string; domain?: string })
   const queryKey = ["db-poc-profiles", filters] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        let q = supabase.from("poc_profiles").select("*").order("name");
-        if (filters?.roleType) q = q.eq("role_type", filters.roleType);
-        const { data, error } = await q;
-        if (error) throw error;
-        if (filters?.domain && data) {
-          return data.filter((p: any) => p.domain_tags?.includes(filters.domain));
-        }
-        return data;
-      }),
+    queryFn: async () => {
+      let q = supabase.from("poc_profiles").select("*").order("name");
+      if (filters?.roleType) q = q.eq("role_type", filters.roleType);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (filters?.domain && data) {
+        return data.filter((p: any) => p.domain_tags?.includes(filters.domain));
+      }
+      return data;
+    },
     staleTime: 60_000,
   });
 }
@@ -172,42 +148,41 @@ export function usePocSwitcherList() {
   const queryKey = ["db-poc-switcher-list"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        // Operational roles only — outreach is display metadata, not a switcher POC.
-        const { data, error } = await (supabase as any)
-          .from("lmp_poc_links")
-          .select("lmp_id, role, poc:poc_profiles!inner(id, name)")
-          .eq("is_active", true)
-          .in("role", ["prep", "support"])
-          .limit(10000);
-        if (error) throw error;
+    queryFn: async () => {
+      // Operational roles only — outreach is display metadata, not a switcher POC.
+      const { data, error } = await (supabase as any)
+        .from("lmp_poc_links")
+        .select("lmp_id, role, poc:poc_profiles!inner(id, name)")
+        .eq("is_active", true)
+        .in("role", ["prep", "support"])
+        .limit(10000);
+      if (error) throw error;
 
-        // Deduplicate by lmp_id per POC so a person holding both prep and
-        // support on the same LMP counts as one LMP in total.
-        type PocEntry = { primary: number; secondary: number; outreach: number; lmpIds: Set<string> };
-        const map = new Map<string, PocEntry>();
-        for (const row of (data as any[]) || []) {
-          const name: string | undefined = row.poc?.name;
-          const lmpId: string | undefined = row.lmp_id;
-          if (!name || !lmpId) continue;
-          if (!map.has(name)) map.set(name, { primary: 0, secondary: 0, outreach: 0, lmpIds: new Set() });
-          const entry = map.get(name)!;
-          entry.lmpIds.add(lmpId);
-          if (row.role === "prep") entry.primary++;
-          else if (row.role === "support") entry.secondary++;
-          else if (row.role === "outreach") entry.outreach++;
-        }
+      // Deduplicate by lmp_id per POC so a person holding both prep and
+      // support on the same LMP counts as one LMP in total.
+      type PocEntry = { primary: number; secondary: number; outreach: number; lmpIds: Set<string> };
+      const map = new Map<string, PocEntry>();
+      for (const row of (data as any[]) || []) {
+        const name: string | undefined = row.poc?.name;
+        const lmpId: string | undefined = row.lmp_id;
+        if (!name || !lmpId) continue;
+        if (!map.has(name)) map.set(name, { primary: 0, secondary: 0, outreach: 0, lmpIds: new Set() });
+        const entry = map.get(name)!;
+        entry.lmpIds.add(lmpId);
+        if (row.role === "prep") entry.primary++;
+        else if (row.role === "support") entry.secondary++;
+        else if (row.role === "outreach") entry.outreach++;
+      }
 
-        return [...map.entries()].map(([name, counts]) => ({
-          name,
-          initials: name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2),
-          primary: counts.primary,
-          secondary: counts.secondary,
-          outreach: counts.outreach,
-          total: counts.lmpIds.size,  // distinct LMP count, not row count
-        })).sort((a, b) => a.name.localeCompare(b.name));
-      }),
+      return [...map.entries()].map(([name, counts]) => ({
+        name,
+        initials: name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2),
+        primary: counts.primary,
+        secondary: counts.secondary,
+        outreach: counts.outreach,
+        total: counts.lmpIds.size,  // distinct LMP count, not row count
+      })).sort((a, b) => a.name.localeCompare(b.name));
+    },
     staleTime: 60_000,
   });
 }
@@ -218,9 +193,6 @@ export function useLmpCandidates(lmpId?: string) {
   const queryKey = ["db-lmp-candidates", lmpId] as const;
   return useQuery({
     queryKey,
-    // NOTE: deliberately bypass withCache here. The in-memory cache returns
-    // stale results for up to 30s and races with react-query invalidation
-    // after addCandidates mutations, making new candidates appear to vanish.
     queryFn: async () => {
       let q = supabase.from("lmp_candidates").select("*").order("created_at", { ascending: false });
       if (lmpId) q = q.eq("lmp_id", lmpId);
@@ -238,10 +210,6 @@ export function useLmpCandidateCounts() {
   const queryKey = ["db-lmp-candidate-counts"] as const;
   return useQuery({
     queryKey,
-    // NOTE: deliberately bypass withCache. The in-memory cache returns stale
-    // pre-add counts within its TTL window even after React Query invalidation,
-    // causing candidates to "disappear" on refresh. React Query's own cache
-    // + realtime invalidation are sufficient here.
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lmp_candidates")
@@ -554,14 +522,13 @@ export function useStudentLmpLinks(studentName?: string) {
   const queryKey = ["db-student-lmp-links", studentName] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        let q = supabase.from("lmp_candidates").select("*").order("created_at", { ascending: false });
-        if (studentName) q = q.ilike("student_name", `%${studentName}%`);
-        const { data, error } = await q;
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      let q = supabase.from("lmp_candidates").select("*").order("created_at", { ascending: false });
+      if (studentName) q = q.ilike("student_name", `%${studentName}%`);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data;
+    },
     enabled: !!studentName,
     staleTime: 60_000,
   });
@@ -571,16 +538,15 @@ export function useLmpProcessesByIds(ids: string[]) {
   const queryKey = ["db-lmp-processes-by-ids", ids] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        if (!ids.length) return [];
-        const { data, error } = await supabase
-          .from("lmp_processes")
-          .select("id, company, role, status, domain_raw, prep_poc, support_poc, outreach_poc")
-          .in("id", ids);
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      if (!ids.length) return [];
+      const { data, error } = await supabase
+        .from("lmp_processes")
+        .select("id, company, role, status, domain_raw, prep_poc, support_poc, outreach_poc")
+        .in("id", ids);
+      if (error) throw error;
+      return data;
+    },
     enabled: ids.length > 0,
     staleTime: 60_000,
   });
@@ -592,16 +558,15 @@ export function useUnmappedItems() {
   const queryKey = ["db-unmapped-items"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase
-          .from("unmapped_items")
-          .select("*")
-          .eq("resolved", false)
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("unmapped_items")
+        .select("*")
+        .eq("resolved", false)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
     staleTime: 60_000,
   });
 }
@@ -648,24 +613,23 @@ export function useMentorStats(source?: string) {
   const queryKey = ["db-mentor-stats", source] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        let q = supabase.from("mentors").select("id", { count: "exact", head: true });
-        if (source) q = q.eq("source", source);
-        const { count, error } = await q;
-        if (error) throw error;
+    queryFn: async () => {
+      let q = supabase.from("mentors").select("id", { count: "exact", head: true });
+      if (source) q = q.eq("source", source);
+      const { count, error } = await q;
+      if (error) throw error;
 
-        const { data: logData } = await supabase
-          .from("activity_log")
-          .select("created_at, metadata")
-          .eq("entity_type", "mentor_upload")
-          .order("created_at", { ascending: false })
-          .limit(1);
+      const { data: logData } = await supabase
+        .from("activity_log")
+        .select("created_at, metadata")
+        .eq("entity_type", "mentor_upload")
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-        const lastSync = logData?.[0]?.created_at ?? null;
+      const lastSync = logData?.[0]?.created_at ?? null;
 
-        return { count: count ?? 0, lastSync };
-      }),
+      return { count: count ?? 0, lastSync };
+    },
     staleTime: 30_000,
   });
 }
@@ -674,20 +638,19 @@ export function useMentorPreview(source?: string, limit = 3) {
   const queryKey = ["db-mentor-preview", source, limit] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        let q = supabase.from("mentors").select("name, designation, company, rating, skill_tags").order("rating", { ascending: false }).limit(limit);
-        if (source) q = q.eq("source", source);
-        const { data, error } = await q;
-        if (error) throw error;
-        return (data || []).map((m) => ({
-          name: m.name,
-          role: m.designation || "—",
-          company: m.company || "—",
-          rating: Number(m.rating) || 0,
-          skills: (m.skill_tags || []).slice(0, 2),
-        }));
-      }),
+    queryFn: async () => {
+      let q = supabase.from("mentors").select("name, designation, company, rating, skill_tags").order("rating", { ascending: false }).limit(limit);
+      if (source) q = q.eq("source", source);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data || []).map((m) => ({
+        name: m.name,
+        role: m.designation || "—",
+        company: m.company || "—",
+        rating: Number(m.rating) || 0,
+        skills: (m.skill_tags || []).slice(0, 2),
+      }));
+    },
     staleTime: 30_000,
   });
 }
@@ -872,21 +835,20 @@ export function useAllMentors(opts?: { mentorUnionOnly?: boolean }) {
   const queryKey = ["db-all-mentors", { mentorUnionOnly }] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        // Phase 3: read from mentors_union_view so consumers get is_alumni_mirror + source_label.
-        let q = (supabase as any)
-          .from("mentors_union_view")
-          .select("id, name, designation, company, source, rating, reviews, skill_tags, seniority, functional_domain, industry, rate, currency, years_of_experience, linkedin, availability, email, phone, updated_at, sync_source, is_alumni_mirror, source_label, mentor_code");
-        if (mentorUnionOnly) {
-          q = q.eq("mentor_union", true).order("overall_score", { ascending: false }).limit(200);
-        } else {
-          q = q.order("name", { ascending: true });
-        }
-        const { data, error } = await q;
-        if (error) throw error;
-        return (data ?? []) as DbMentorRow[];
-      }),
+    queryFn: async () => {
+      // Phase 3: read from mentors_union_view so consumers get is_alumni_mirror + source_label.
+      let q = (supabase as any)
+        .from("mentors_union_view")
+        .select("id, name, designation, company, source, rating, reviews, skill_tags, seniority, functional_domain, industry, rate, currency, years_of_experience, linkedin, availability, email, phone, updated_at, sync_source, is_alumni_mirror, source_label, mentor_code");
+      if (mentorUnionOnly) {
+        q = q.eq("mentor_union", true).order("overall_score", { ascending: false }).limit(200);
+      } else {
+        q = q.order("name", { ascending: true });
+      }
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as DbMentorRow[];
+    },
     staleTime: 30_000,
   });
 }
@@ -897,16 +859,15 @@ export function useStudentsWithLoad(limit = 200) {
   const queryKey = ["db-students-with-load", limit] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await (supabase as any)
-          .from("students_with_load")
-          .select("*")
-          .order("updated_at", { ascending: false })
-          .limit(limit);
-        if (error) throw error;
-        return data ?? [];
-      }),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("students_with_load")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return data ?? [];
+    },
     staleTime: 60_000,
   });
 }
@@ -915,15 +876,14 @@ export function usePocProfilesWithLoad() {
   const queryKey = ["db-poc-profiles-with-load"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await (supabase as any)
-          .from("poc_profiles")
-          .select("*")
-          .order("name");
-        if (error) throw error;
-        return data ?? [];
-      }),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("poc_profiles")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
     staleTime: 60_000,
   });
 }
@@ -932,16 +892,15 @@ export function useLmpProcessesOverview(limit = 200) {
   const queryKey = ["db-lmp-processes-overview", limit] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await (supabase as any)
-          .from("lmp_processes_overview")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(limit);
-        if (error) throw error;
-        return data ?? [];
-      }),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("lmp_processes_overview")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return data ?? [];
+    },
     staleTime: 60_000,
   });
 }
@@ -952,16 +911,15 @@ export function useMentorById(id: string | undefined) {
   return useQuery({
     queryKey,
     enabled: !!id,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase
-          .from("mentors")
-          .select("*")
-          .eq("id", id!)
-          .maybeSingle();
-        if (error) throw error;
-        return data;
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("mentors")
+        .select("*")
+        .eq("id", id!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
     staleTime: 30_000,
   });
 }
@@ -972,12 +930,11 @@ export function useAllDomains() {
   const queryKey = ["db-all-domains"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase.from("domains").select("*").order("name");
-        if (error) throw error;
-        return (data ?? []).filter((d: any) => d.slug !== "general-management");
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("domains").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []).filter((d: any) => d.slug !== "general-management");
+    },
     staleTime: 30_000,
   });
 }
@@ -986,12 +943,11 @@ export function useAllPocProfiles() {
   const queryKey = ["db-all-poc-profiles"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const { data, error } = await supabase.from("poc_profiles").select("*").order("name");
-        if (error) throw error;
-        return data ?? [];
-      }),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("poc_profiles").select("*").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
     staleTime: 30_000,
   });
 }
@@ -1272,39 +1228,38 @@ export function useMappedPocCountsByDomain() {
   const queryKey = ["db-mapped-poc-counts"] as const;
   return useQuery({
     queryKey,
-    queryFn: async () =>
-      withCache(queryKey, async () => {
-        const [pocs, resolve, prepSupportLinkIds] = await Promise.all([
-          fetchAllPocsForMapping(),
-          fetchDomainSlugResolver(),
-          fetchPrepSupportLinkPocIds(),
-        ]);
-        const counts: Record<string, number> = {};
-        for (const p of pocs) {
-          if (p.status && p.status !== "active") continue;
-          if (!isEligiblePrepPocProfile(
-            {
-              id: p.id,
-              status: p.status,
-              role_type: p.role_type,
-              primary_domain: p.primary_domain,
-              domain_tags: p.domain_tags,
-            },
-            prepSupportLinkIds,
-          )) continue;
-          const seen = new Set<string>();
-          if (p.primary_domain) {
-            const s = resolve(p.primary_domain);
-            if (s) seen.add(s);
-          }
-          for (const t of p.domain_tags ?? []) {
-            const s = resolve(String(t));
-            if (s) seen.add(s);
-          }
-          for (const slug of seen) counts[slug] = (counts[slug] || 0) + 1;
+    queryFn: async () => {
+      const [pocs, resolve, prepSupportLinkIds] = await Promise.all([
+        fetchAllPocsForMapping(),
+        fetchDomainSlugResolver(),
+        fetchPrepSupportLinkPocIds(),
+      ]);
+      const counts: Record<string, number> = {};
+      for (const p of pocs) {
+        if (p.status && p.status !== "active") continue;
+        if (!isEligiblePrepPocProfile(
+          {
+            id: p.id,
+            status: p.status,
+            role_type: p.role_type,
+            primary_domain: p.primary_domain,
+            domain_tags: p.domain_tags,
+          },
+          prepSupportLinkIds,
+        )) continue;
+        const seen = new Set<string>();
+        if (p.primary_domain) {
+          const s = resolve(p.primary_domain);
+          if (s) seen.add(s);
         }
-        return counts;
-      }),
+        for (const t of p.domain_tags ?? []) {
+          const s = resolve(String(t));
+          if (s) seen.add(s);
+        }
+        for (const slug of seen) counts[slug] = (counts[slug] || 0) + 1;
+      }
+      return counts;
+    },
     staleTime: 60_000,
   });
 }
