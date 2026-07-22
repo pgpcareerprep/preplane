@@ -225,21 +225,25 @@ export function useSaveNextProgressDate() {
           status: "pending",
         });
 
-        const { error: emailError, data: emailData } = await supabase.functions.invoke(
-          "send-progress-confirmation-email",
-          {
+        supabase.functions
+          .invoke("send-progress-confirmation-email", {
             body: {
               lmp_id: params.lmpId,
               next_date: nextDate,
               ...(normalizedType ? { reminder_type: normalizedType } : {}),
               ...(params.pocEmail ? { to_email: params.pocEmail } : {}),
             },
-          },
-        );
-        if (emailError || (emailData && !emailData.ok)) {
-          toast.error("Reminder saved, but confirmation email failed.");
-          console.error("[progress-email] send failed:", emailError ?? emailData);
-        }
+          })
+          .then(({ error: emailError, data: emailData }) => {
+            if (emailError || (emailData && !emailData.ok)) {
+              toast.error("Reminder saved, but confirmation email failed.");
+              console.error("[progress-email] send failed:", emailError ?? emailData);
+            }
+          })
+          .catch((emailError) => {
+            toast.error("Reminder saved, but confirmation email failed.");
+            console.error("[progress-email] send failed:", emailError);
+          });
       }
 
       return newVersion;
