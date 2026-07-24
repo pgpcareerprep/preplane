@@ -504,10 +504,12 @@
     @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium uppercase tracking-[0.5px];
   }
   .pill-ongoing       { @apply bg-sage-50   text-sage-700   border-sage-200   dark:bg-sage-900/35 dark:text-sage-200 dark:border-sage-800; }
+  .pill-prep-done     { @apply bg-sky-50     text-sky-700     border-sky-200     dark:bg-sky-900/35 dark:text-sky-200 dark:border-sky-800; }
   .pill-dormant       { @apply bg-sky-50     text-sky-700     border-sky-200     dark:bg-sky-900/35 dark:text-sky-200 dark:border-sky-800; }
   .pill-hold          { @apply bg-plum-100  text-plum-700  border-plum-200  dark:bg-plum-900/35 dark:text-plum-200 dark:border-plum-800; }
   .pill-converted     { @apply bg-orange-50  text-orange-700  border-orange-200  dark:bg-orange-900/35 dark:text-orange-200 dark:border-orange-800; }
   .pill-not-converted { @apply bg-n100       text-n600        border-n200        dark:bg-muted dark:text-muted-foreground dark:border-border; }
+  .pill-other-reasons { @apply bg-slate-100  text-slate-700  border-slate-200  dark:bg-slate-900/35 dark:text-slate-200 dark:border-slate-700; }
   .pill-closed        { @apply bg-sky-50    text-sky-700    border-sky-200    dark:bg-sky-900/35 dark:text-sky-200 dark:border-sky-800; }
   .pill-mentor        { @apply bg-plum-100   text-plum-700    border-plum-200    dark:bg-plum-900/35 dark:text-plum-200 dark:border-plum-800; }
   .pill-interview     { @apply bg-teal-50    text-teal-700    border-teal-200    dark:bg-teal-900/35 dark:text-teal-200 dark:border-teal-800; }

@@ -45,28 +45,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { LmpStatusPill, resolveLmpStatusSlug } from "@/components/lmp/LmpStatusPill";
+import { STATUS_META } from "@/lib/lmpTypes";
 
 
 // ── Status pill colours ──────────────────────────────────────────
-const STATUS_PILL: Record<string, string> = {
-  Ongoing: "bg-sky-50 text-sky-700 border-sky-200",
-  Converted: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "Offer Received": "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Dormant: "bg-n100 text-n600 border-n200",
-  "On Hold": "bg-amber-50 text-amber-700 border-amber-200",
-  Closed: "bg-coral-50 text-coral-700 border-coral-200",
-  "Not Converted": "bg-coral-50 text-coral-700 border-coral-200",
-  "Not Started": "bg-n100 text-n600 border-n200",
-};
+// STATUS_PILL legacy map removed — use LmpStatusPill (STATUS_META + .pill).
 
 const STATUS_FILTER_OPTIONS = [
   "All",
-  "Ongoing",
-  "Offer Received",
-  "Converted",
-  "On Hold",
-  "Closed",
   "Not Started",
+  "Prep Ongoing",
+  "Prep Done",
+  "On hold",
+  "Converted",
+  "Not Converted",
+  "Other reasons",
 ];
 
 // ── Column definitions ───────────────────────────────────────────
@@ -205,16 +199,7 @@ function TypePill({ value }: { value: string | null }) {
 
 function StatusBadge({ value }: { value: string | null }) {
   if (!value) return <span className="text-n400">—</span>;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center text-[11px] font-medium px-2 py-[2px] rounded-full border",
-        STATUS_PILL[value] || "bg-n100 text-n600 border-n200",
-      )}
-    >
-      {value}
-    </span>
-  );
+  return <LmpStatusPill status={value} slug={value} />;
 }
 
 function DailyProgressCell({ text, count }: { text: string | null; count: number | null }) {
@@ -409,7 +394,11 @@ export function ViewAllLmpsModal({
     const list = (rawRows ?? []) as any[];
     const q = search.trim().toLowerCase();
     return list.filter((r) => {
-      if (statusFilter !== "All" && r.status !== statusFilter) return false;
+      if (statusFilter !== "All") {
+        const slug = resolveLmpStatusSlug(r.status);
+        const label = slug ? STATUS_META[slug].label : String(r.status ?? "");
+        if (label !== statusFilter) return false;
+      }
       if (domainFilter !== "All" && !domainMatches(r.domain_raw, domainFilter)) return false;
       if (!q) return true;
       const haystack = [

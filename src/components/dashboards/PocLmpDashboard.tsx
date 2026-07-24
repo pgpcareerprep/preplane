@@ -14,6 +14,7 @@ import {
 } from "@/lib/lmpProcessQueries";
 import { canonicalLmpStatus, type CanonicalLmpStatus, type LmpStatus } from "@/types/lmp";
 import { STATUS_META } from "@/lib/lmpTypes";
+import { LmpStatusPill } from "@/components/lmp/LmpStatusPill";
 import { useDashboardFilterOptions } from "@/lib/hooks/useDashboardFilterOptions";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
@@ -45,18 +46,7 @@ export type PocLmpDashboardProps = {
 const ACTIVE_LMP_STATUSES = new Set<LmpStatus>(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
 
 function StatusPill({ label, slug }: { label: string; slug: string }) {
-  const canonical = canonicalLmpStatus(slug as LmpStatus);
-  const hex = canonical === "converted" ? LX_HEX.success
-    : canonical === "not-converted" ? LX_HEX.risk
-    : canonical === "prep-ongoing" ? LX_HEX.info
-    : LX_HEX.neutral;
-  const soft = `${hex}1F`;
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border"
-      style={{ background: soft, color: "var(--lx-text)", borderColor: `${hex}55` }}>
-      {label}
-    </span>
-  );
+  return <LmpStatusPill status={label} slug={slug} />;
 }
 
 export function PocLmpDashboard({

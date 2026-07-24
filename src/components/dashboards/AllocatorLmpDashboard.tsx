@@ -12,6 +12,7 @@ import { useRole } from "@/lib/rolesContext";
 import { lmpStatusCounts, type Process } from "@/lib/lmpProcessQueries";
 import { canonicalLmpStatus } from "@/types/lmp";
 import { STATUS_META } from "@/lib/lmpTypes";
+import { LmpStatusPill } from "@/components/lmp/LmpStatusPill";
 import { useLiveProcesses } from "@/lib/sheets/useLiveProcesses";
 import { useLmpProcessesRealtime } from "@/lib/hooks/useLmpProcessesRealtime";
 import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
@@ -50,20 +51,7 @@ function relativeTime(iso: string): string {
 }
 
 function StatusPill({ slug }: { slug: string }) {
-  const canonical = canonicalLmpStatus(slug as import("@/types/lmp").LmpStatus);
-  const meta = STATUS_META[canonical];
-  const hex = canonical === "converted" ? LX_HEX.success
-    : canonical === "not-converted" ? LX_HEX.risk
-    : canonical === "prep-ongoing" ? LX_HEX.info
-    : LX_HEX.neutral;
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-medium border whitespace-nowrap"
-      style={{ background: `${hex}1F`, color: "var(--lx-text)", borderColor: `${hex}55` }}
-    >
-      {meta?.label ?? slug}
-    </span>
-  );
+  return <LmpStatusPill slug={slug} />;
 }
 
 export function AllocatorLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) {
