@@ -1349,7 +1349,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
           limit={25}
           span={7}
         />
-        <RecentActivityCard lmpIds={Array.from(filteredIds)} limit={20} span={5} />
+        <RecentActivityCard lmpIds={Array.from(filteredIds)} limit={60} span={5} />
       </LxGrid>
 
       <LxAttentionStrip
