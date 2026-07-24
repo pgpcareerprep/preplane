@@ -139,7 +139,26 @@ describe("Domain-wise drilldown filters", () => {
   it("Placed returns LMP list for domain", () => {
     const drill = filterDomainWiseMetricRecords(data, sales.domainId, "placedCount");
     expect(drill.recordType).toBe("lmp");
+    expect(drill.lmps).toHaveLength(sales.placedCount);
+    expect(drill.lmps).toHaveLength(sales.convertedCount);
     expect(drill.lmps.every((l) => l.statusBucket === "converted")).toBe(true);
+  });
+
+  it("Students Placed returns unique placed student records", () => {
+    const drill = filterDomainWiseMetricRecords(data, sales.domainId, "studentsPlaced");
+    expect(drill.recordType).toBe("student");
+    expect(drill.students).toHaveLength(sales.studentsPlaced);
+    expect(new Set(drill.students.map((s) => s.studentId)).size).toBe(sales.studentsPlaced);
+  });
+
+  it("Not Converted / Other Reasons drilldowns match LMP outcome columns", () => {
+    const notConv = filterDomainWiseMetricRecords(data, sales.domainId, "notPlacedCount");
+    expect(notConv.lmps).toHaveLength(sales.notPlacedCount);
+    expect(notConv.lmps.every((l) => l.statusBucket === "notConverted")).toBe(true);
+
+    const other = filterDomainWiseMetricRecords(data, sales.domainId, "otherReasonsCount");
+    expect(other.lmps).toHaveLength(sales.otherReasonsCount);
+    expect(other.lmps.every((l) => l.statusBucket === "otherReasons")).toBe(true);
   });
 
   it("LMP Conversion returns denominator and converted LMP records", () => {

@@ -66,6 +66,10 @@ export type DomainWiseRow = {
   notPlacedCount: number;
   onHoldCount: number;
   otherReasonsCount: number;
+  /** LMP-based not-converted count (same as notPlacedCount). */
+  notConvertedCount: number;
+  /** LMP-based other-reasons count (same as otherReasonsCount). */
+  otherReasonsLmpCount: number;
   studentsPlaced: number;
   placementRatePct: number | null;
   eligibleClosedCount: number;
@@ -311,9 +315,6 @@ export function buildDomainWiseData(
     byBucket: Record<StatusBucket, Set<string>>;
     placedStudents: Set<string>;
     optedStudents: Set<string>;
-    notPlacedStudents: Set<string>;
-    onHoldStudents: Set<string>;
-    otherStudents: Set<string>;
   };
 
   const byDomain = new Map<string, DomainAcc>();
@@ -336,9 +337,6 @@ export function buildDomainWiseData(
       },
       placedStudents: new Set(),
       optedStudents: new Set(),
-      notPlacedStudents: new Set(),
-      onHoldStudents: new Set(),
-      otherStudents: new Set(),
     };
     byDomain.set(key, next);
     return next;
@@ -367,14 +365,11 @@ export function buildDomainWiseData(
     domains.forEach((d) => getDomain(d, d).optedStudents.add(studentId));
   }
 
+  // Seed optedStudents from candidates on domain LMPs (Commit 2 replaces this).
   for (const [domainKey, row] of byDomain.entries()) {
     for (const lmpId of row.lmpIds) {
       for (const sid of idx.lmpStudentsMap.get(lmpId) ?? []) {
         if (!row.optedStudents.has(sid)) row.optedStudents.add(sid);
-        const bucket = idx.lmpStatusMap.get(lmpId) ?? "unknown";
-        if (bucket === "notConverted") row.notPlacedStudents.add(sid);
-        if (bucket === "onHold") row.onHoldStudents.add(sid);
-        if (bucket === "otherReasons") row.otherStudents.add(sid);
       }
     }
     void domainKey;
@@ -416,10 +411,12 @@ export function buildDomainWiseData(
       notStartedCount,
       prepOngoingCount,
       prepDoneCount,
-      placedCount: row.placedStudents.size,
-      notPlacedCount: row.notPlacedStudents.size,
+      placedCount: convertedCount,
+      notPlacedCount: notConvertedCount,
       onHoldCount: onHoldCount,
-      otherReasonsCount: row.otherStudents.size,
+      otherReasonsCount,
+      notConvertedCount,
+      otherReasonsLmpCount: otherReasonsCount,
       studentsPlaced: row.placedStudents.size,
       placementRatePct,
       eligibleClosedCount,

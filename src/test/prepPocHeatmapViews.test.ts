@@ -133,6 +133,42 @@ describe("Domain-wise heatmap", () => {
     expect(sales.notStartedCount).toBe(0);
     expect(sales.prepOngoingCount).toBe(1);
   });
+
+  it("Placement Outcome columns are LMP-based and match convertedCount", () => {
+    const pocs = [poc("p1", "Alice")];
+    const links = [
+      link("p1", "lmp1", "prep", "converted", "FO/COS"),
+      link("p1", "lmp2", "prep", "converted", "FO/COS"),
+      link("p1", "lmp3", "prep", "not-converted", "FO/COS"),
+      link("p1", "lmp4", "prep", "other-reasons", "FO/COS"),
+      link("p1", "lmp5", "prep", "prep-ongoing", "FO/COS"),
+    ];
+    // Multiple placed candidates on converted LMPs — studentsPlaced can exceed Converted LMPs
+    const candidates = [
+      candidate("lmp1", "s1", "converted", "FO/COS"),
+      candidate("lmp1", "s2", "converted", "FO/COS"),
+      candidate("lmp1", "s3", "converted", "FO/COS"),
+      candidate("lmp2", "s4", "converted", "FO/COS"),
+      candidate("lmp2", "s5", "converted", "FO/COS"),
+      candidate("lmp3", "s6", undefined, "FO/COS"),
+    ];
+    const { rows } = buildDomainWiseData(pocs, links, candidates);
+    const focos = rows.find((r) => r.domainName === "FO/COS")!;
+    expect(focos.placedCount).toBe(2);
+    expect(focos.convertedCount).toBe(2);
+    expect(focos.notPlacedCount).toBe(1);
+    expect(focos.notConvertedCount).toBe(1);
+    expect(focos.otherReasonsCount).toBe(1);
+    expect(focos.otherReasonsLmpCount).toBe(1);
+    expect(focos.studentsPlaced).toBe(5);
+    expect(focos.eligibleClosedCount).toBe(4); // 5 total − 1 other-reasons
+    expect(focos.lmpConversionPercentage).toBe(50); // 2/4
+    // LMP LOAD / PREP STATUS unchanged semantics
+    expect(focos.totalLmps).toBe(5);
+    expect(focos.currentLmps).toBe(1);
+    expect(focos.closedLmps).toBe(4);
+    expect(focos.prepOngoingCount).toBe(1);
+  });
 });
 
 describe("buildFullHeatmapData", () => {

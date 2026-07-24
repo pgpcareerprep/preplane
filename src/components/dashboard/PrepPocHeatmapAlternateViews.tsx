@@ -125,9 +125,9 @@ export const DOMAIN_SECTION_CONFIG: AltSectionDef[] = [
     headerBg: "rgba(242, 246, 241, 0.55)",
     subheaderBg: "rgba(242, 246, 241, 0.3)",
     cols: [
-      { dataKey: "placedCount", colType: "heat", label: "Converted", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct placed students in this domain." },
-      { dataKey: "notPlacedCount", colType: "heat", label: "Not Converted", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Students mapped to not placed outcomes in this domain." },
-      { dataKey: "otherReasonsCount", colType: "heat", label: "Other reasons", minWidth: 96, palette: P_ORANGE, totalAccent: A_ORANGE, tooltip: "Students mapped to other terminal outcomes in this domain." },
+      { dataKey: "placedCount", colType: "heat", label: "Converted", minWidth: 72, palette: P_SAGE, totalAccent: A_SAGE, tooltip: "Distinct LMPs with Converted / Offer Received status in this domain." },
+      { dataKey: "notPlacedCount", colType: "heat", label: "Not Converted", minWidth: 88, palette: P_CORAL, totalAccent: A_CORAL, tooltip: "Distinct LMPs with Not Converted status in this domain." },
+      { dataKey: "otherReasonsCount", colType: "heat", label: "Other reasons", minWidth: 96, palette: P_ORANGE, totalAccent: A_ORANGE, tooltip: "Distinct LMPs with Other Reasons / dormant / closed status in this domain." },
     ],
   },
   {

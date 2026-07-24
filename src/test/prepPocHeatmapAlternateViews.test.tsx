@@ -39,6 +39,8 @@ const domainRow: DomainWiseRow = {
   notPlacedCount: 0,
   onHoldCount: 0,
   otherReasonsCount: 0,
+  notConvertedCount: 0,
+  otherReasonsLmpCount: 0,
   studentsPlaced: 1,
   placementRatePct: 50,
   eligibleClosedCount: 1,

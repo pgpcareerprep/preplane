@@ -599,6 +599,23 @@ export function filterDomainWiseMetricRecords(
     };
   }
 
+  if (metricKey === "studentsPlaced") {
+    const seen = new Set<string>();
+    const students = recordsForDomain(source.domainStudents, domainId, data.domainRows).filter((r) => {
+      if (r.outcomeStatus !== "Placed" && r.placementStatus !== "Converted") return false;
+      if (seen.has(r.studentId)) return false;
+      seen.add(r.studentId);
+      return true;
+    });
+    return {
+      recordType: "student",
+      lmps: [],
+      students,
+      denominatorLmps: [],
+      convertedLmps: [],
+    };
+  }
+
   const lmps = filterDomainLmps(source, domainId, data.domainRows, (r) => {
     switch (metricKey) {
       case "totalLmps":
@@ -614,7 +631,6 @@ export function filterDomainWiseMetricRecords(
       case "prepDoneCount":
         return r.statusBucket === "prepDone";
       case "placedCount":
-      case "studentsPlaced":
         return r.statusBucket === "converted";
       case "notPlacedCount":
         return r.statusBucket === "notConverted";
