@@ -3,6 +3,7 @@ import {
   canSwitchToMyLmpHealth,
   dashboardSwitcherOptions,
   primaryDashboardLabel,
+  resolveDashboardSurface,
   resolveDashboardView,
 } from "@/lib/dashboardViewRouting";
 
@@ -51,5 +52,45 @@ describe("dashboardViewRouting", () => {
 
   it("POC role cannot switch via routing helper", () => {
     expect(canSwitchToMyLmpHealth("poc", "poc-1", eligible)).toBe(false);
+  });
+
+  it("View As POC shows POC dashboard even when actor is admin", () => {
+    expect(resolveDashboardSurface({
+      actorRole: "admin",
+      effectiveRole: "poc",
+      isViewAsActive: true,
+      dashboardView: "primary",
+      canSwitchPocHealth: true,
+    })).toBe("poc");
+  });
+
+  it("View As allocator shows allocator dashboard", () => {
+    expect(resolveDashboardSurface({
+      actorRole: "admin",
+      effectiveRole: "allocator",
+      isViewAsActive: true,
+      dashboardView: "primary",
+      canSwitchPocHealth: false,
+    })).toBe("allocator");
+  });
+
+  it("admin without View As stays on admin dashboard", () => {
+    expect(resolveDashboardSurface({
+      actorRole: "admin",
+      effectiveRole: "admin",
+      isViewAsActive: false,
+      dashboardView: "primary",
+      canSwitchPocHealth: true,
+    })).toBe("admin");
+  });
+
+  it("admin My LMP Health without View As shows POC dashboard", () => {
+    expect(resolveDashboardSurface({
+      actorRole: "admin",
+      effectiveRole: "admin",
+      isViewAsActive: false,
+      dashboardView: "my-poc",
+      canSwitchPocHealth: true,
+    })).toBe("poc");
   });
 });

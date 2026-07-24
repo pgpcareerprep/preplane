@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useRole } from "@/lib/rolesContext";
+import { useViewer } from "@/lib/viewerContext";
 import { useEligiblePrepPocs } from "@/lib/hooks/useEligiblePrepPocs";
 import { AdminLmpDashboard } from "@/components/dashboards/AdminLmpDashboard";
 import { AllocatorLmpDashboard } from "@/components/dashboards/AllocatorLmpDashboard";
@@ -9,18 +10,20 @@ import { DashboardViewSwitcher } from "@/components/dashboards/DashboardViewSwit
 import {
   canSwitchToMyLmpHealth,
   dashboardSwitcherOptions,
+  resolveDashboardSurface,
   resolveDashboardView,
   type DashboardView,
 } from "@/lib/dashboardViewRouting";
 
 export default function DashboardPage() {
-  const { role, user, viewAsRole } = useRole();
+  const { role, user } = useRole();
+  const { isViewAsActive, effectiveRole, effectiveUser } = useViewer();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pocs } = useEligiblePrepPocs();
 
   const canSwitchPocHealth = useMemo(
-    () => canSwitchToMyLmpHealth(role, user.pocProfileId, pocs),
-    [role, user.pocProfileId, pocs],
+    () => !isViewAsActive && canSwitchToMyLmpHealth(role, user.pocProfileId, pocs),
+    [isViewAsActive, role, user.pocProfileId, pocs],
   );
 
   const dashboardView: DashboardView = resolveDashboardView(
@@ -44,31 +47,32 @@ export default function DashboardPage() {
     />
   ) : null;
 
-  if (role === "allocator") {
-    if (dashboardView === "my-poc" && canSwitchPocHealth) {
-      return (
-        <PocLmpDashboard
-          sourceLabel="My LMP Health"
-          headerExtra={headerExtra}
-        />
-      );
-    }
+  const surface = resolveDashboardSurface({
+    actorRole: role,
+    effectiveRole,
+    isViewAsActive,
+    dashboardView,
+    canSwitchPocHealth,
+  });
+
+  if (surface === "allocator") {
     return <AllocatorLmpDashboard headerExtra={headerExtra} />;
   }
 
-  if (viewAsRole === "allocator") return <AllocatorLmpDashboard />;
-
-  if (viewAsRole === "admin" || role === "admin") {
-    if (dashboardView === "my-poc" && canSwitchPocHealth) {
-      return (
-        <PocLmpDashboard
-          sourceLabel="My LMP Health"
-          headerExtra={headerExtra}
-        />
-      );
-    }
+  if (surface === "admin") {
     return <AdminLmpDashboard headerExtra={headerExtra} />;
   }
 
-  return <PocLmpDashboard />;
+  const pocLabel = isViewAsActive
+    ? `${effectiveUser.pocProfileName ?? effectiveUser.name}'s LMP Health`
+    : dashboardView === "my-poc"
+      ? "My LMP Health"
+      : undefined;
+
+  return (
+    <PocLmpDashboard
+      sourceLabel={pocLabel}
+      headerExtra={headerExtra}
+    />
+  );
 }
