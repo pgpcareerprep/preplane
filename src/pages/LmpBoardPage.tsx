@@ -20,6 +20,7 @@ import { useLmpCandidatesRealtime } from "@/lib/hooks/useLmpCandidatesRealtime";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import type { LmpRecord } from "@/lib/lmpTypes";
+import { isProgressOverdue } from "@/lib/lmpOverdue";
 import { exportLmpBoardCsv } from "@/lib/exportCsv";
 import { useCohortProgramLmpScope } from "@/lib/hooks/useCohortProgramLmpScope";
 
@@ -63,14 +64,11 @@ function applyBoardFilters(
   overdueOnly: boolean,
 ): LmpRecord[] {
   const q = filters.q.trim().toLowerCase();
-  const today = new Date(new Date().toDateString());
   return records.filter((r) => {
     if (filters.domain && r.domain !== filters.domain) return false;
     if (filters.status && r.status !== filters.status) return false;
-    if (overdueOnly) {
-      if (!r.nextExpectedProgress) return false;
-      const d = new Date(r.nextExpectedProgress);
-      if (isNaN(d.getTime()) || d >= today) return false;
+    if (overdueOnly && !isProgressOverdue(r.nextExpectedProgress, r.lastProgressUpdatedAt)) {
+      return false;
     }
     if (q) {
       const hay = `${r.role} ${r.company} ${r.pocs.map((p) => p.name).join(" ")}`.toLowerCase();

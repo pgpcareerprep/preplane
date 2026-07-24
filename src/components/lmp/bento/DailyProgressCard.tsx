@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { normalizeNextProgressType, NEXT_PROGRESS_TYPES } from "@/lib/nextProgressType";
+import { isNextProgressDatePast } from "@/lib/lmpOverdue";
 
 // Sheets → DB auto-pull is removed. DB is the source of truth; the
 // `sheets-retry-sweeper` cron handles DB → Sheet mirroring server-side.
@@ -277,12 +278,28 @@ export function DailyProgressCard({
             },
           });
           if (nextDate) {
-            saveNextDate.mutate({
-              lmpId,
-              nextDate,
-              reminderType: nextKind || "",
-              pocEmail: pocEmail || undefined,
-            });
+            if (isNextProgressDatePast(nextDate)) {
+              // Progress was logged after a missed date — clear the stale
+              // next_progress_date so board/dashboard overdue counts drop and
+              // reminder cron stops treating this LMP as overdue.
+              setNextDate("");
+              setNextKind("");
+              saveNextDate.mutate({
+                lmpId,
+                nextDate: null,
+                reminderType: "",
+                pocEmail: pocEmail || undefined,
+                skipReminder: true,
+              });
+              onSaveNextDate?.("", "", false);
+            } else {
+              saveNextDate.mutate({
+                lmpId,
+                nextDate,
+                reminderType: nextKind || "",
+                pocEmail: pocEmail || undefined,
+              });
+            }
           }
           setText("");
           toast.success("Progress saved");

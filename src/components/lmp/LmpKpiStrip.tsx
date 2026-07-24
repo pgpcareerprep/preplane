@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import { STATUSES, STATUS_META } from "@/lib/lmpTypes";
+import { isProgressOverdue } from "@/lib/lmpOverdue";
 import { CountUp } from "@/components/dashboard/CountUp";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LmpRecord, LmpStatus } from "@/lib/lmpTypes";
@@ -46,12 +47,9 @@ export function LmpKpiStrip({
     typeof totalRecords === "number" &&
     totalRecords > records.length;
   const total = records.length;
-  const today = new Date(new Date().toDateString());
-  const overdueCount = records.filter((r) => {
-    if (!r.nextExpectedProgress) return false;
-    const d = new Date(r.nextExpectedProgress);
-    return !isNaN(d.getTime()) && d < today;
-  }).length;
+  const overdueCount = records.filter((r) =>
+    isProgressOverdue(r.nextExpectedProgress, r.lastProgressUpdatedAt),
+  ).length;
   const counts = STATUSES.map((s) => ({
     status: s,
     count: records.filter((r) => r.status === s).length,

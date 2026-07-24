@@ -5,6 +5,7 @@
 import type { Process } from "@/lib/lmpProcessQueries";
 import { daysSince } from "@/lib/lmpProcessQueries";
 import { normalizeLmpStatus } from "@/lib/config/lmpStatus";
+import { isProgressOverdue } from "@/lib/lmpOverdue";
 
 export type LmpFlagKey =
   | "overdue"
@@ -75,16 +76,12 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
   const isActive = ACTIVE_STATUSES.has(p.status);
   const sinceUpdate = daysSince(p.lastProgressUpdatedAt || p.lastUpdated);
 
-  // Overdue — past next expected progress date (same logic as LMP board)
-  if (isActive && p.nextExpectedProgress) {
-    const today = new Date(new Date().toDateString());
-    const due = new Date(p.nextExpectedProgress);
-    if (!isNaN(due.getTime()) && due < today) {
-      out.push({
-        ...FLAG_META["overdue"],
-        reason: `Progress update overdue since ${p.nextExpectedProgress.slice(0, 10)}`,
-      });
-    }
+  // Overdue — past next expected progress date with no update after that date
+  if (isActive && isProgressOverdue(p.nextExpectedProgress, p.lastProgressUpdatedAt)) {
+    out.push({
+      ...FLAG_META["overdue"],
+      reason: `Progress update overdue since ${p.nextExpectedProgress!.slice(0, 10)}`,
+    });
   }
 
   // Mentor not aligned — active LMP without mentor alignment

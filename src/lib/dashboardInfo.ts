@@ -17,7 +17,7 @@ export const DASHBOARD_INFO = {
 
   // ── Snapshot / activity strip
   "snapshot.active-lmps":          "LMPs in Ongoing, Offer Received, or On Hold status — i.e. anything still actively being worked.",
-  "snapshot.overdue":              "Active LMPs past their next expected progress update date.",
+  "snapshot.overdue":              "Active LMPs past their next expected progress update date with no progress logged after that date.",
   "snapshot.zero-candidates":      "Active LMPs with no students linked yet.",
   "snapshot.converted-status-no-converted-candidate": "LMPs marked as Converted where no candidate is present in the Converted pipeline.",
   "snapshot.update-due-today":     "Active LMPs without a daily progress log recorded today.",

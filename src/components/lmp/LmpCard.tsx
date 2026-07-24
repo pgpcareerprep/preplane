@@ -4,6 +4,7 @@ import { MoreVertical, UserCog, Eye, Users, RefreshCw, MessageSquare, CalendarCl
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { type LmpRecord, STATUS_META, ageLabel } from "@/lib/lmpTypes";
+import { isProgressOverdue } from "@/lib/lmpOverdue";
 import { TriPocRow } from "@/components/lmp/TriPocRow";
 import { TAG_STYLES } from "@/lib/pocAllocation";
 import { buildLmpDetailHref } from "@/lib/lmpViewingContext";
@@ -237,7 +238,7 @@ export function LmpCard({ rec, dragging }: { rec: LmpRecord; dragging?: boolean 
       {rec.nextExpectedProgress && (() => {
         const d = new Date(rec.nextExpectedProgress);
         const isValid = !isNaN(d.getTime());
-        const isOverdue = isValid && d < new Date(new Date().toDateString());
+        const isOverdue = isProgressOverdue(rec.nextExpectedProgress, rec.lastProgressUpdatedAt);
         const formatted = isValid
           ? d.toLocaleDateString("en-IN", { month: "short", day: "numeric" })
           : rec.nextExpectedProgress;
