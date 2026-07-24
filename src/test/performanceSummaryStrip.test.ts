@@ -327,9 +327,25 @@ describe("test 13: Dashboard filters apply — only filtered records contribute"
 // ── 9. Operational metrics unchanged — tests 14–17 ───────────────────────────
 
 describe("tests 14–17: Existing operational metric logic preserved", () => {
-  it("test 14: Most Overloaded POC uses highest active count from filteredCapacity", () => {
-    const filteredCapacity = [{ name: "Alice", active: 8 }, { name: "Bob", active: 12 }];
-    const result = [...filteredCapacity].sort((a, b) => b.active - a.active)[0]?.name ?? "—";
+  it("test 14: Most Overloaded POC uses highest active count from filtered records", () => {
+    const ACTIVE = new Set(["not-started", "prep-ongoing", "ongoing", "prep-done"]);
+    const filteredRecords = [
+      { prepPocId: "a", prepPocName: "Alice", status: "prep-ongoing" },
+      { prepPocId: "a", prepPocName: "Alice", status: "ongoing" },
+      { prepPocId: "b", prepPocName: "Bob", status: "prep-done" },
+      { prepPocId: "b", prepPocName: "Bob", status: "prep-ongoing" },
+      { prepPocId: "b", prepPocName: "Bob", status: "not-started" },
+      { prepPocId: "b", prepPocName: "Bob", status: "converted" }, // terminal — ignored
+      { prepPocId: "c", prepPocName: "Cara", status: "not-started" },
+    ];
+    const byPoc = new Map<string, { name: string; active: number }>();
+    for (const r of filteredRecords) {
+      if (!r.prepPocId || !ACTIVE.has(r.status)) continue;
+      const entry = byPoc.get(r.prepPocId) ?? { name: r.prepPocName, active: 0 };
+      entry.active += 1;
+      byPoc.set(r.prepPocId, entry);
+    }
+    const result = [...byPoc.values()].sort((a, b) => b.active - a.active)[0]?.name ?? "—";
     expect(result).toBe("Bob");
   });
 

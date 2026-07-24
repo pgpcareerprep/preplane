@@ -75,7 +75,7 @@ export const DASHBOARD_INFO = {
   "attention.best-poc":            "POC with the highest performance conversion (Converted ÷ (Converted + Not Converted)) in the current filtered scope.",
   "attention.best-pod":            "POD with the highest LMP process conversion in the current filtered scope.",
   "attention.best-domain":         "Domain with the highest LMP process conversion (Converted ÷ (Total − closed)) in the current filtered scope. Uses canonical domain IDs.",
-  "attention.most-overloaded-poc": "Active POC with the highest active_load value (across all roles).",
+  "attention.most-overloaded-poc": "Prep POC with the highest active LMP load in the current filtered scope (not-started / prep-ongoing / ongoing / prep-done).",
   "attention.pending-offers":      "All LMPs currently in Offer Received status (live DB count).",
   "attention.missing-prep-pocs":   "Active LMPs with no Prep POC assignment (prepPocId is null), excluding terminal statuses (Converted, Not Converted, Other Reasons, Closed).",
   "attention.overloaded-pocs":     "POCs whose active_load exceeds their max_threshold.",

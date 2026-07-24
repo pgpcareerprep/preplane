@@ -290,7 +290,7 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   const dashboardBootstrapLoading =
     lmpLoading && lmpRecords.length === 0 && liveProcesses.length === 0;
   const { data: domainRows = [] } = useDomains();
-  const { filtered, all, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
+  const { filtered, filters, set } = useLmpFilters({ role: "admin", userName: user.name, data: liveProcesses.length ? liveProcesses : undefined, pocLmpIdsMap });
   const { data: cohortMaster = [] } = useCohorts(false);
   const { data: programMaster = [] } = usePrograms(null, false);
   const cohortById = useMemo(() => new Map(cohortMaster.map((c) => [c.id, c])), [cohortMaster]);
@@ -361,70 +361,30 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
   /* ─────── Status counts (canonical 7-bucket model) ─────── */
   const lsc = lmpStatusCounts(filteredRecords);
 
-  /* ─────── Capacity data — used by attention strip for overloaded POC detection ─────── */
-  const { data: legacyPrepPocCapacity = [] } = useQuery({
-    queryKey: ["prep_poc_capacity_live_v2"],
-    enabled: legacyFetchEnabled,
-    queryFn: async () => {
-      const [pocsRes, linksRes] = await Promise.all([
-        supabase
-          .from("poc_profiles")
-          .select("id, name, role_type, primary_domain, domain_tags")
-          .eq("status", "active"),
-        supabase
-          .from("lmp_poc_links")
-          .select("poc_id, is_active, role, lmp_id, lmp_processes(id, status, domains(name))")
-          .in("role", ["prep", "support"]),
-      ]);
-      if (pocsRes.error) throw new Error(pocsRes.error.message);
-      if (linksRes.error) throw new Error(linksRes.error.message);
-      const norm = (s: any) => String(s ?? "").trim().toLowerCase();
-      const TERMINAL = new Set(["converted", "not-converted", "other-reasons", "closed", "rejected"]);
-      type Link = { is_active: boolean; role: string; lmp_processes: any; lmp_id: string };
-      const byPoc = new Map<string, Link[]>();
-      (linksRes.data ?? []).forEach((l: any) => {
-        const pid = l.lmp_id ?? l.lmp_processes?.id;
-        if (!l.poc_id || !pid) return;
-        const arr = byPoc.get(l.poc_id) ?? [];
-        arr.push({ is_active: !!l.is_active, role: l.role, lmp_processes: l.lmp_processes, lmp_id: pid });
-        byPoc.set(l.poc_id, arr);
-      });
-      return (pocsRes.data ?? [])
-        .map((p: any) => {
-          const links = byPoc.get(p.id) ?? [];
-          const prepLinks = links.filter((l) => l.role === "prep");
-          const domainTags = Array.isArray(p.domain_tags) ? p.domain_tags.filter(Boolean) : [];
-          const domainCtx = new Set<string>([p.primary_domain, ...domainTags].filter(Boolean).map((d: string) => norm(d)));
-          const prepActiveIds = new Set<string>();
-          prepLinks.forEach((l) => {
-            const st = norm(l.lmp_processes?.status);
-            if (l.is_active && !TERMINAL.has(st)) prepActiveIds.add(l.lmp_id);
-          });
-          return { name: (p.name ?? "").trim(), active: prepActiveIds.size, hasDomain: domainCtx.size > 0 };
-        })
-        .filter((p) => p.name && (p.hasDomain || p.active > 0));
-    },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
-  const prepPocCapacity = snapshotActive ? dashboardSnapshot.prep_poc_capacity : legacyPrepPocCapacity;
+  /* ─────── Attention strip — Most Overloaded from filtered scope ─────── */
+  const mostOverloadedPoc = useMemo(() => {
+    const byPocId = new Map<string, { name: string; active: number }>();
+    for (const r of filteredRecords) {
+      if (!r.prepPocId || !ACTIVE_LMP_STATUSES.has(r.status)) continue;
+      const entry = byPocId.get(r.prepPocId) ?? {
+        name: r.prepPoc?.name ?? r.prepPocId,
+        active: 0,
+      };
+      entry.active += 1;
+      byPocId.set(r.prepPocId, entry);
+    }
+    const ranked = Array.from(byPocId.values()).sort((a, b) => {
+      if (b.active !== a.active) return b.active - a.active;
+      return a.name.localeCompare(b.name);
+    });
+    return ranked[0] ?? null;
+  }, [filteredRecords]);
 
-  const filteredCapacity = useMemo(() => {
-    return prepPocCapacity; // Attention strip reads active counts directly; no filter intersection needed here
-  }, [prepPocCapacity]);
-
-  /* ─────── Attention strip — computed from filtered scope ─────── */
+  const mostOverloadedPocName = mostOverloadedPoc?.name ?? "—";
 
   const zeroCandidateLmpsCount = useMemo(
     () => countZeroCandidateLmps(filtered, candidateCountByLmp),
     [filtered, candidateCountByLmp],
-  );
-
-  const mostOverloadedPocName = useMemo(
-    () => (filteredCapacity.length > 0
-      ? [...filteredCapacity].sort((a, b) => b.active - a.active)[0]?.name ?? "—"
-      : "—"),
-    [filteredCapacity],
   );
 
   /* ─────── Student analytics KPI counts (live · students DB) ─────── */
@@ -1382,9 +1342,14 @@ export function AdminLmpDashboard({ headerExtra }: { headerExtra?: ReactNode }) 
           {
             label: "Most Overloaded POC",
             value: mostOverloadedPocName,
+            sub: mostOverloadedPoc
+              ? `${mostOverloadedPoc.active} active`
+              : "No active Prep load",
             accent: "orange",
             info: info("attention.most-overloaded-poc"),
-            onClick: () => openLmps(lmpsForPoc(all, mostOverloadedPocName, "any"), `${mostOverloadedPocName} · LMPs`),
+            onClick: mostOverloadedPoc
+              ? () => openLmps(lmpsForPoc(filtered, mostOverloadedPocName, "prep"), `${mostOverloadedPocName} · LMPs`)
+              : undefined,
           },
         ]}
       />
