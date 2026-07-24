@@ -30,6 +30,7 @@ import type { Mentor } from "@/lib/mentor";
 import { cn } from "@/lib/utils";
 import { OutreachFeedbackModal } from "./OutreachFeedbackModal";
 import { OutreachFeedbackHistoryModal } from "./OutreachFeedbackHistoryModal";
+import { resolvePrepDocStatus, type PrepDocStatus } from "@/lib/prepDocStatus";
 
 /**
  * Inline-expanded LMP workspace. Notion-style bento grid; no internal tabs.
@@ -155,6 +156,7 @@ const { update: updateMutation } = useLmpMutation();
   }, [rec.id, dbLmpId, updateMutation, saveNextDateDb, pocEmails]);
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
+  const [pendingPrepDocStatus, setPendingPrepDocStatus] = useState<PrepDocStatus | undefined>();
   const handleChecklistToggle = useCallback((sheetKey: string, newValue: boolean) => {
     setPendingChecklist((p) => ({ ...p, [sheetKey]: newValue }));
       updateMutation.mutate(
@@ -170,6 +172,34 @@ const { update: updateMutation } = useLmpMutation();
             return rest;
           });
           toast.error("Failed to update checklist — please try again");
+        },
+      },
+    );
+  }, [rec.id, updateMutation]);
+
+  const handlePrepDocStatusChange = useCallback((status: PrepDocStatus) => {
+    setPendingPrepDocStatus(status);
+    updateMutation.mutate(
+      {
+        id: rec.id,
+        patch: {
+          prepDocStatus: status,
+          prepDocShared: status === "shared",
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success(
+            status === "shared"
+              ? "Prep document marked shared"
+              : status === "na"
+                ? "Prep document marked not required"
+                : "Prep document marked pending",
+          );
+        },
+        onError: () => {
+          setPendingPrepDocStatus(undefined);
+          toast.error("Failed to update prep document — please try again");
         },
       },
     );
@@ -191,7 +221,13 @@ const { update: updateMutation } = useLmpMutation();
       }
       return changed ? next : p;
     });
-  }, [rec]);
+    if (
+      pendingPrepDocStatus !== undefined &&
+      resolvePrepDocStatus(rec.prepDocStatus, rec.prepDocShared) === pendingPrepDocStatus
+    ) {
+      setPendingPrepDocStatus(undefined);
+    }
+  }, [rec, pendingPrepDocStatus]);
 
   // Mentor alignment — routes through align_mentor_to_lmp RPC so lmp_mentors is
   // kept in sync and the trigger-driven recompute updates mentor_selected correctly.
@@ -379,10 +415,12 @@ const { update: updateMutation } = useLmpMutation();
             sheetValues={{
               mentorAligned: pendingChecklist.mentorAligned ?? rec.mentorAligned,
               prepDocShared: pendingChecklist.prepDocShared ?? rec.prepDocShared,
+              prepDocStatus: pendingPrepDocStatus ?? resolvePrepDocStatus(rec.prepDocStatus, rec.prepDocShared),
               assignmentReview: pendingChecklist.assignmentReview ?? rec.assignmentReview,
               mockDoneByPoc: pendingChecklist.mockDoneByPoc ?? rec.mockDoneByPoc,
             }}
             onToggle={handleChecklistToggle}
+            onPrepDocStatusChange={handlePrepDocStatusChange}
             documents={currentDocs}
             onAddDocuments={handleAddDocuments}
             onUpdateDocument={handleUpdateDocument}

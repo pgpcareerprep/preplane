@@ -732,6 +732,14 @@ export function useLmpMutation() {
           : "";
       }
 
+      // prep_doc_status is DB-only (not a sheet column). Keep prep_doc_shared in
+      // sync so checklist completion + CSV export keep working.
+      if (patch.prepDocStatus === "shared" || patch.prepDocStatus === "pending" || patch.prepDocStatus === "na") {
+        dbPatch.prep_doc_status = patch.prepDocStatus;
+        dbPatch.prep_doc_shared = patch.prepDocStatus === "shared";
+        dbPatch.checklist_updated_at = new Date().toISOString();
+      }
+
       // Resolve free-text Domain edits → domain_id FK so the DB row stays linked.
       if (dbPatch.domain_raw && !dbPatch.domain_id) {
         const domainId = await resolveDomainId(dbPatch.domain_raw);
@@ -762,6 +770,11 @@ export function useLmpMutation() {
       // (mentorAligned, nextExpectedProgress, …) map to DB columns.
       // Without this, the optimistic patch was a no-op for every field.
       const dbPatch = appPatchToDbPatch(toSheetPatch(patch));
+      if (patch.prepDocStatus === "shared" || patch.prepDocStatus === "pending" || patch.prepDocStatus === "na") {
+        dbPatch.prep_doc_status = patch.prepDocStatus;
+        dbPatch.prep_doc_shared = patch.prepDocStatus === "shared";
+        dbPatch.checklist_updated_at = new Date().toISOString();
+      }
       await qc.cancelQueries({ queryKey: ["db-lmp-processes"] });
       await qc.cancelQueries({ queryKey: ["db-lmp-process", id] });
       const snapshots = qc.getQueriesData<any[]>({ queryKey: ["db-lmp-processes"] });

@@ -9,6 +9,12 @@ import { useLmpProcesses } from "@/lib/hooks/useDbData";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EXECUTION_CHECKLIST_DEFS } from "@/lib/lmpChecklist";
+import {
+  PREP_DOC_STATUS_OPTIONS,
+  prepDocStatusLabel,
+  resolvePrepDocStatus,
+  type PrepDocStatus,
+} from "@/lib/prepDocStatus";
 
 type CheckItem = {
   id: string;
@@ -20,10 +26,12 @@ type CheckItem = {
 };
 
 const CHECKLIST_DEFS = EXECUTION_CHECKLIST_DEFS;
+const PREP_DOC_SHEET_KEY = "prepDocShared";
 
 export type SheetChecklistValues = {
   mentorAligned?: boolean;
   prepDocShared?: boolean;
+  prepDocStatus?: PrepDocStatus;
   assignmentReview?: boolean;
   mockDoneByPoc?: boolean;
 };
@@ -33,6 +41,7 @@ export function ChecklistCard({
   mode = "action",
   sheetValues,
   onToggle,
+  onPrepDocStatusChange,
   documents,
   onAddDocuments,
   onUpdateDocument,
@@ -42,6 +51,7 @@ export function ChecklistCard({
   mode?: "action" | "summary";
   sheetValues?: SheetChecklistValues;
   onToggle?: (sheetKey: string, newValue: boolean) => void;
+  onPrepDocStatusChange?: (status: PrepDocStatus) => void;
   /** Full documents list for the LMP — pin state derives from this. */
   documents?: DocumentLink[];
   onAddDocuments?: (links: DocumentLinkInput[], ctx: DocumentAddContext) => void;
@@ -66,6 +76,12 @@ export function ChecklistCard({
   // pendingChecklist round-trip lands. Each override is cleared once the
   // upstream sheetValues catches up to the same value.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [prepDocOverride, setPrepDocOverride] = useState<PrepDocStatus | undefined>();
+
+  const upstreamPrepDocStatus = resolvePrepDocStatus(
+    sheetValues?.prepDocStatus,
+    sheetValues?.prepDocShared,
+  );
 
   useEffect(() => {
     setOverrides((prev) => {
@@ -84,16 +100,33 @@ export function ChecklistCard({
     });
   }, [sheetValues]);
 
+  useEffect(() => {
+    if (prepDocOverride !== undefined && prepDocOverride === upstreamPrepDocStatus) {
+      setPrepDocOverride(undefined);
+    }
+  }, [prepDocOverride, upstreamPrepDocStatus]);
+
+  const prepDocStatus = prepDocOverride ?? upstreamPrepDocStatus;
+
   const items = useMemo<CheckItem[]>(
     () =>
-      CHECKLIST_DEFS.map((def) => ({
-        ...def,
-        done:
-          def.sheetKey in overrides
-            ? overrides[def.sheetKey]
-            : !!(sheetValues as any)?.[def.sheetKey],
-      })),
-    [sheetValues, overrides],
+      CHECKLIST_DEFS.map((def) => {
+        if (def.sheetKey === PREP_DOC_SHEET_KEY) {
+          return {
+            ...def,
+            label: "Prep document",
+            done: prepDocStatus === "shared",
+          };
+        }
+        return {
+          ...def,
+          done:
+            def.sheetKey in overrides
+              ? overrides[def.sheetKey]
+              : !!(sheetValues as any)?.[def.sheetKey],
+        };
+      }),
+    [sheetValues, overrides, prepDocStatus],
   );
 
   const [notesModalFor, setNotesModalFor] = useState<{ id: string; label: string } | null>(null);
@@ -113,12 +146,21 @@ export function ChecklistCard({
 
   const handleToggle = useCallback(
     (item: CheckItem) => {
+      if (item.sheetKey === PREP_DOC_SHEET_KEY) return;
       const next = !item.done;
       // Flip locally first so the checkbox updates in this same render.
       setOverrides((p) => ({ ...p, [item.sheetKey]: next }));
       onToggle?.(item.sheetKey, next);
     },
     [onToggle],
+  );
+
+  const handlePrepDocStatus = useCallback(
+    (status: PrepDocStatus) => {
+      setPrepDocOverride(status);
+      onPrepDocStatusChange?.(status);
+    },
+    [onPrepDocStatusChange],
   );
 
   const linksEnabled = !!onAddDocuments;
@@ -151,12 +193,30 @@ export function ChecklistCard({
         <ul className="space-y-1">
           {items.map((it) => {
             const links = linksByItem.get(it.id) ?? [];
+            const isPrepDoc = it.sheetKey === PREP_DOC_SHEET_KEY;
             return (
               <li key={it.id} className="flex items-center gap-2 py-1">
-                <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", it.done ? "bg-emerald-500" : "bg-orange-500")} />
-                <span className={cn("text-[12.5px] flex-1 truncate", it.done ? "text-n400 line-through" : "text-n800")}>
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full shrink-0",
+                  isPrepDoc
+                    ? prepDocStatus === "shared"
+                      ? "bg-emerald-500"
+                      : prepDocStatus === "na"
+                        ? "bg-n500"
+                        : "bg-orange-500"
+                    : it.done ? "bg-emerald-500" : "bg-orange-500",
+                )} />
+                <span className={cn(
+                  "text-[12.5px] flex-1 truncate",
+                  !isPrepDoc && it.done ? "text-n400 line-through" : "text-n800",
+                )}>
                   {it.label}
                 </span>
+                {isPrepDoc && (
+                  <span className="text-[10px] text-n600 bg-n100 rounded-full px-1.5 py-[1px]">
+                    {prepDocStatusLabel(prepDocStatus)}
+                  </span>
+                )}
                 {it.owner && (
                   <span className="text-[10px] text-n500 bg-n100 rounded-full px-1.5 py-[1px]">{it.owner}</span>
                 )}
@@ -184,16 +244,30 @@ export function ChecklistCard({
         </div>
         <ul className="space-y-1">
           {items.map((it) => (
-            <ChecklistRow
-              key={it.id}
-              item={it}
-              lmpId={lmpId}
-              links={linksByItem.get(it.id) ?? []}
-              linksEnabled={linksEnabled}
-              onToggle={() => handleToggle(it)}
-              onOpenNotes={() => setNotesModalFor({ id: it.id, label: it.label })}
-              onOpenLinks={() => setLinkModalFor({ id: it.id, label: it.label })}
-            />
+            it.sheetKey === PREP_DOC_SHEET_KEY ? (
+              <PrepDocChecklistRow
+                key={it.id}
+                item={it}
+                lmpId={lmpId}
+                status={prepDocStatus}
+                links={linksByItem.get(it.id) ?? []}
+                linksEnabled={linksEnabled}
+                onStatusChange={handlePrepDocStatus}
+                onOpenNotes={() => setNotesModalFor({ id: it.id, label: it.label })}
+                onOpenLinks={() => setLinkModalFor({ id: it.id, label: it.label })}
+              />
+            ) : (
+              <ChecklistRow
+                key={it.id}
+                item={it}
+                lmpId={lmpId}
+                links={linksByItem.get(it.id) ?? []}
+                linksEnabled={linksEnabled}
+                onToggle={() => handleToggle(it)}
+                onOpenNotes={() => setNotesModalFor({ id: it.id, label: it.label })}
+                onOpenLinks={() => setLinkModalFor({ id: it.id, label: it.label })}
+              />
+            )
           ))}
         </ul>
       </div>
@@ -263,6 +337,129 @@ function ChecklistLinksPopover({ links, count }: { links: DocumentLink[]; count:
         </ul>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function PrepDocStatusControl({
+  value,
+  onChange,
+}: {
+  value: PrepDocStatus;
+  onChange: (status: PrepDocStatus) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-md border border-n200 p-0.5 gap-0.5 shrink-0"
+      role="group"
+      aria-label="Prep document status"
+    >
+      {PREP_DOC_STATUS_OPTIONS.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            title={opt.title}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "h-6 px-1.5 rounded text-[10px] font-medium transition-colors",
+              active
+                ? opt.value === "shared"
+                  ? "bg-emerald-600 text-white"
+                  : opt.value === "na"
+                    ? "bg-n700 text-white"
+                    : "bg-orange-500 text-white"
+                : "text-n500 hover:bg-n100",
+            )}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PrepDocChecklistRow({
+  item,
+  lmpId,
+  status,
+  links,
+  linksEnabled,
+  onStatusChange,
+  onOpenNotes,
+  onOpenLinks,
+}: {
+  item: CheckItem;
+  lmpId: string;
+  status: PrepDocStatus;
+  links: DocumentLink[];
+  linksEnabled: boolean;
+  onStatusChange: (status: PrepDocStatus) => void;
+  onOpenNotes: () => void;
+  onOpenLinks: () => void;
+}) {
+  const notes = useChecklistNotes(lmpId, item.id);
+  const hasNotes = notes.length > 0;
+  const filled = links.length > 0;
+
+  return (
+    <li className="group rounded-md px-1.5 py-1.5 hover:bg-n50 transition-colors">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[12.5px] text-n800 shrink-0">{item.label}</span>
+        {item.owner && (
+          <span className="text-[10px] text-n500 bg-n100 rounded-full px-1.5 py-[1px]">
+            {item.owner}
+          </span>
+        )}
+        <div className="flex-1" />
+        <PrepDocStatusControl value={status} onChange={onStatusChange} />
+        <button
+          type="button"
+          onClick={onOpenNotes}
+          className={cn(
+            "h-6 inline-flex items-center gap-0.5 px-1 rounded-md transition-colors",
+            hasNotes
+              ? "text-orange-600 bg-orange-50 hover:bg-orange-100"
+              : "h-6 w-6 justify-center text-n400 hover:text-n700 hover:bg-n100 opacity-0 group-hover:opacity-100",
+          )}
+          aria-label={hasNotes ? `View ${notes.length} note${notes.length > 1 ? "s" : ""}` : "Add note"}
+          title={hasNotes ? `${notes.length} note${notes.length > 1 ? "s" : ""}` : "Add note"}
+        >
+          <MessageSquare className={cn("h-3 w-3", hasNotes && "fill-orange-500 stroke-orange-600")} />
+          {hasNotes && notes.length > 1 && (
+            <span className="text-[10px] font-semibold tabular-nums">{notes.length}</span>
+          )}
+        </button>
+        {linksEnabled && (
+          <button
+            type="button"
+            onClick={onOpenLinks}
+            className={cn(
+              "h-6 inline-flex items-center gap-0.5 px-1 rounded-md transition-colors",
+              filled
+                ? "text-orange-600 bg-orange-50 hover:bg-orange-100"
+                : "h-6 w-6 justify-center text-n400 hover:text-n700 hover:bg-n100 opacity-0 group-hover:opacity-100",
+            )}
+            aria-label={
+              filled
+                ? `Manage ${links.length} attached link${links.length > 1 ? "s" : ""}`
+                : "Attach link"
+            }
+            title={
+              filled
+                ? `${links.length} link${links.length > 1 ? "s" : ""} attached`
+                : "Attach link"
+            }
+          >
+            <Paperclip className="h-3 w-3" />
+            {filled && links.length > 1 && (
+              <span className="text-[10px] font-semibold tabular-nums">{links.length}</span>
+            )}
+          </button>
+        )}
+      </div>
+    </li>
   );
 }
 

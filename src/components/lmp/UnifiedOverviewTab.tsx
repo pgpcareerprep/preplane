@@ -24,6 +24,7 @@ import { normalizeNextProgressType } from "@/lib/nextProgressType";
 import { getJd, fetchJdFromDb, useJd, type JdData } from "@/lib/jdStore";
 import { supabase } from "@/integrations/supabase/client";
 import { useLmpPermission } from "@/lib/hooks/usePermissions";
+import { resolvePrepDocStatus, type PrepDocStatus } from "@/lib/prepDocStatus";
 
 export function UnifiedOverviewTab({
   lmp,
@@ -137,6 +138,7 @@ export function UnifiedOverviewTab({
   );
 
   const [pendingChecklist, setPendingChecklist] = useState<Record<string, boolean>>({});
+  const [pendingPrepDocStatus, setPendingPrepDocStatus] = useState<PrepDocStatus | undefined>();
   const handleChecklistToggle = useCallback(
     (sheetKey: string, newValue: boolean) => {
       if (operationalReadOnlyMode) return;
@@ -154,6 +156,38 @@ export function UnifiedOverviewTab({
               return rest;
             });
             toast.error("Failed to update checklist — please try again");
+          },
+        },
+      );
+    },
+    [lmp.id, operationalReadOnlyMode, updateMutation],
+  );
+
+  const handlePrepDocStatusChange = useCallback(
+    (status: PrepDocStatus) => {
+      if (operationalReadOnlyMode) return;
+      setPendingPrepDocStatus(status);
+      updateMutation.mutate(
+        {
+          id: lmp.id,
+          patch: {
+            prepDocStatus: status,
+            prepDocShared: status === "shared",
+          },
+        },
+        {
+          onSuccess: () => {
+            toast.success(
+              status === "shared"
+                ? "Prep document marked shared"
+                : status === "na"
+                  ? "Prep document marked not required"
+                  : "Prep document marked pending",
+            );
+          },
+          onError: () => {
+            setPendingPrepDocStatus(undefined);
+            toast.error("Failed to update prep document — please try again");
           },
         },
       );
@@ -236,7 +270,13 @@ export function UnifiedOverviewTab({
       }
       return changed ? next : p;
     });
-  }, [lmp]);
+    if (
+      pendingPrepDocStatus !== undefined &&
+      resolvePrepDocStatus(lmp.prepDocStatus, lmp.prepDocShared) === pendingPrepDocStatus
+    ) {
+      setPendingPrepDocStatus(undefined);
+    }
+  }, [lmp, pendingPrepDocStatus]);
 
   // Normalise next-expected date: drop Excel-serial junk like "46150" from sheet
   const safeNextDate = (() => {
@@ -273,10 +313,12 @@ export function UnifiedOverviewTab({
           sheetValues={{
             mentorAligned: pendingChecklist.mentorAligned ?? lmp.mentorAligned,
             prepDocShared: pendingChecklist.prepDocShared ?? lmp.prepDocShared,
+            prepDocStatus: pendingPrepDocStatus ?? resolvePrepDocStatus(lmp.prepDocStatus, lmp.prepDocShared),
             assignmentReview: pendingChecklist.assignmentReview ?? lmp.assignmentReview,
             mockDoneByPoc: pendingChecklist.mockDoneByPoc ?? lmp.mockDoneByPoc,
           }}
           onToggle={handleChecklistToggle}
+          onPrepDocStatusChange={handlePrepDocStatusChange}
           documents={currentDocs}
           onAddDocuments={handleAddDocuments}
           onUpdateDocument={handleUpdateDocument}

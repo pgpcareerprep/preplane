@@ -2,19 +2,28 @@ import { useMemo } from "react";
 import { CheckCircle2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LmpRecord } from "@/lib/lmpTypes";
+import { prepDocStatusLabel, resolvePrepDocStatus } from "@/lib/prepDocStatus";
 
 type CheckItem = {
   id: string;
   label: string;
   done: boolean;
   owner: "POC" | "Mentor";
+  detail?: string;
 };
 
 function deriveChecklist(lmp?: LmpRecord): CheckItem[] {
   if (!lmp) return [];
+  const prepStatus = resolvePrepDocStatus(lmp.prepDocStatus, lmp.prepDocShared);
   return [
     { id: "mentor-aligned", label: "Mentor aligned", done: lmp.mentorAligned ?? false, owner: "POC" },
-    { id: "prep-doc-shared", label: "Prep doc shared", done: lmp.prepDocShared ?? false, owner: "POC" },
+    {
+      id: "prep-doc-shared",
+      label: "Prep document",
+      done: prepStatus === "shared",
+      owner: "POC",
+      detail: prepDocStatusLabel(prepStatus),
+    },
     { id: "assignment-review", label: "Assignment review", done: lmp.assignmentReview ?? false, owner: "Mentor" },
     { id: "mock-done", label: "Mock (done by POC)", done: lmp.mockDoneByPoc ?? false, owner: "POC" },
   ];
@@ -26,7 +35,8 @@ const OWNER_STYLE = {
 };
 
 /**
- * Execution Checklist — 4 boolean checklist items from the sheet.
+ * Execution Checklist — 4 checklist items from the sheet / DB.
+ * Prep document is tri-state (Shared / Pending / N/A); ring still uses shared=true.
  */
 export function ChecklistSummaryCard({
   lmpId,
@@ -80,6 +90,11 @@ export function ChecklistSummaryCard({
               >
                 {it.label}
               </span>
+              {it.detail && (
+                <span className="text-[10px] font-medium text-n600 bg-n100 rounded-full px-1.5 py-[1px]">
+                  {it.detail}
+                </span>
+              )}
               <span
                 className={cn(
                   "text-[10px] font-medium rounded-full border px-1.5 py-[1px]",
