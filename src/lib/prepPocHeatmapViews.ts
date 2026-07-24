@@ -25,8 +25,17 @@ import {
   type LmpProcessAssignmentRow,
 } from "@/lib/prepPocHeatmapSources";
 import { buildHeatmapDrilldownSource, type PrepPocHeatmapDrilldownSource } from "@/lib/prepPocHeatmapDrilldown";
+import { resolveDomainName } from "@/lib/domainAlias";
+import type { DomainOption } from "@/lib/hooks/useDomainOptions";
 
 const norm = (s: unknown): string => String(s ?? "").trim().toLowerCase();
+
+/** Student roster row used for domain-wise placement-rate denominators. */
+export type DomainWiseStudentRosterEntry = {
+  id: string;
+  primaryDomain: string;
+  secondaryDomain: string;
+};
 
 export type StudentWiseRow = {
   pocId: string;
@@ -190,19 +199,6 @@ function studentStatusesForPoc(
   return buckets;
 }
 
-function resolveStudentDomains(
-  studentId: string,
-  idx: HeatmapIndexes,
-): Set<string> {
-  const profile = idx.studentProfileMap.get(studentId);
-  const domains = new Set<string>();
-  [profile?.primary_domain, profile?.secondary_domain].forEach((d) => {
-    const n = norm(d);
-    if (n) domains.add(n);
-  });
-  return domains;
-}
-
 export function buildStudentWiseData(
   pocs: PocRaw[],
   links: LinkRaw[],
@@ -305,6 +301,8 @@ export function buildDomainWiseData(
   pocs: PocRaw[],
   links: LinkRaw[],
   candidates: CandidateRaw[],
+  studentRoster: DomainWiseStudentRosterEntry[] = [],
+  canonicalDomains: DomainOption[] = [],
 ): { summary: DomainWiseSummary; rows: DomainWiseRow[] } {
   const idx = buildSharedIndexes(pocs, links, candidates);
 
@@ -360,23 +358,18 @@ export function buildDomainWiseData(
     }
   }
 
-  for (const studentId of idx.studentProfileMap.keys()) {
-    const domains = resolveStudentDomains(studentId, idx);
-    domains.forEach((d) => getDomain(d, d).optedStudents.add(studentId));
-  }
-
-  // Seed optedStudents from candidates on domain LMPs (Commit 2 replaces this).
-  for (const [domainKey, row] of byDomain.entries()) {
-    for (const lmpId of row.lmpIds) {
-      for (const sid of idx.lmpStudentsMap.get(lmpId) ?? []) {
-        if (!row.optedStudents.has(sid)) row.optedStudents.add(sid);
-      }
+  // Opted denominator: roster primary/secondary domains only (not LMP candidacy).
+  for (const student of studentRoster) {
+    if (!student.id) continue;
+    for (const raw of [student.primaryDomain, student.secondaryDomain]) {
+      const resolved = resolveDomainName(raw, canonicalDomains);
+      if (!resolved) continue;
+      // Key with lowercase to match lmpDomainMap / resolveLmpDomainFields normKey.
+      getDomain(norm(resolved), resolved).optedStudents.add(student.id);
     }
-    void domainKey;
   }
 
   const globalLmps = new Set<string>();
-  const globalOpted = new Set<string>();
   const globalPlaced = new Set<string>();
 
   const rows: DomainWiseRow[] = [];
@@ -384,7 +377,6 @@ export function buildDomainWiseData(
     if (!row.lmpIds.size && !row.optedStudents.size) continue;
 
     row.lmpIds.forEach((id) => globalLmps.add(id));
-    row.optedStudents.forEach((id) => globalOpted.add(id));
     row.placedStudents.forEach((id) => globalPlaced.add(id));
 
     const notStartedCount = row.byBucket.notStarted.size;
@@ -436,13 +428,23 @@ export function buildDomainWiseData(
   }
   const globalEligible = globalLmps.size - globalClosed;
 
+  // Distinct roster students who opted for at least one domain present in rows.
+  const domainsPresent = new Set(rows.map((r) => norm(r.domainName)));
+  const optedInPresentDomains = new Set<string>();
+  for (const [key, row] of byDomain.entries()) {
+    if (!domainsPresent.has(key) && !domainsPresent.has(norm(row.domainName))) continue;
+    row.optedStudents.forEach((id) => optedInPresentDomains.add(id));
+  }
+
   return {
     summary: {
       activeDomains: rows.length,
       totalLmps: globalLmps.size,
-      totalStudents: globalOpted.size,
+      totalStudents: optedInPresentDomains.size,
       studentsPlaced: globalPlaced.size,
-      placementRatePct: globalOpted.size > 0 ? (globalPlaced.size / globalOpted.size) * 100 : null,
+      placementRatePct: optedInPresentDomains.size > 0
+        ? (globalPlaced.size / optedInPresentDomains.size) * 100
+        : null,
       convertedLmpCount: globalConverted,
       eligibleClosedLmpCount: globalEligible,
       lmpConversionPct: globalEligible > 0 ? (globalConverted / globalEligible) * 100 : null,
@@ -466,6 +468,8 @@ export function buildFullHeatmapData(
   scopeLmpIds?: Set<string>,
   processAssignments: LmpProcessAssignmentRow[] = [],
   sessions: HeatmapSessionRaw[] = [],
+  studentRoster: DomainWiseStudentRosterEntry[] = [],
+  canonicalDomains: DomainOption[] = [],
 ): FullPrepPocHeatmapResponse {
   const scope = scopeLmpIds && scopeLmpIds.size > 0 ? scopeLmpIds : null;
   const scopedLinks = scope ? links.filter((l) => scope.has(l.lmp_id)) : links;
@@ -480,7 +484,13 @@ export function buildFullHeatmapData(
 
   const lmp = buildHeatmapData(pocs, mergedLinks, scopedCandidates, scopedSessions);
   const student = buildStudentWiseData(pocs, mergedLinks, scopedCandidates, scopedSessions);
-  const domain = buildDomainWiseData(pocs, mergedLinks, scopedCandidates);
+  const domain = buildDomainWiseData(
+    pocs,
+    mergedLinks,
+    scopedCandidates,
+    studentRoster,
+    canonicalDomains,
+  );
 
   return {
     ...lmp,

@@ -108,6 +108,56 @@ describe("Domain-wise heatmap", () => {
     expect(rows[0]?.placementRatePct).toBeNull();
   });
 
+  it("placement rate uses roster opts, not LMP candidacy", () => {
+    const domains = [
+      { id: "d-sales", name: "Sales", slug: "sales", aliases: [] },
+      { id: "d-mkt", name: "Marketing", slug: "marketing", aliases: [] },
+      { id: "d-focos", name: "FO/COS", slug: "fo-cos", aliases: ["FOCOS", "FO / COS"] },
+    ];
+    const pocs = [poc("p1", "Alice")];
+    const links = [
+      link("p1", "lmp-mkt", "prep", "converted", "Marketing"),
+      link("p1", "lmp-fo", "prep", "converted", "FO/COS"),
+    ];
+    // Candidate on Marketing LMP but opted Sales only — must NOT inflate Marketing denominator.
+    const candidates = [
+      candidate("lmp-mkt", "s-sales-only", "converted", "Sales"),
+      candidate("lmp-fo", "s1", "converted", "FO/COS"),
+      candidate("lmp-fo", "s2", "converted", "FO/COS"),
+      candidate("lmp-fo", "s3", "converted", "FO/COS"),
+      candidate("lmp-fo", "s4", "converted", "FO/COS"),
+      candidate("lmp-fo", "s5", "converted", "FO/COS"),
+    ];
+    const roster = [
+      { id: "s-sales-only", primaryDomain: "Sales", secondaryDomain: "" },
+      ...Array.from({ length: 253 }, (_, i) => ({
+        id: `fo-${i}`,
+        primaryDomain: "FO/COS",
+        secondaryDomain: "",
+      })),
+    ];
+    // Overwrite first 5 FO roster ids to match placed students on FO LMP
+    roster[1] = { id: "s1", primaryDomain: "FO/COS", secondaryDomain: "" };
+    roster[2] = { id: "s2", primaryDomain: "FO/COS", secondaryDomain: "" };
+    roster[3] = { id: "s3", primaryDomain: "FO/COS", secondaryDomain: "" };
+    roster[4] = { id: "s4", primaryDomain: "FO/COS", secondaryDomain: "" };
+    roster[5] = { id: "s5", primaryDomain: "FO/COS", secondaryDomain: "" };
+
+    const { rows } = buildDomainWiseData(pocs, links, candidates, roster, domains);
+    const sales = rows.find((r) => r.domainName === "Sales")!;
+    const marketing = rows.find((r) => r.domainName === "Marketing")!;
+    const focos = rows.find((r) => r.domainName === "FO/COS")!;
+
+    expect(sales.placementRatePct).toBe(0); // opted but not placed on Sales LMP
+    // Marketing has a placed candidate who did not opt Marketing → denominator 0 → null
+    expect(marketing.studentsPlaced).toBe(1);
+    expect(marketing.placementRatePct).toBeNull();
+
+    expect(focos.studentsPlaced).toBe(5);
+    expect(focos.placementRatePct).toBeCloseTo((5 / 253) * 100, 5);
+    expect(focos.placementRatePct!.toFixed(2)).toBe("1.98");
+  });
+
   it("returns 0% LMP conversion when only pipeline LMPs exist", () => {
     const pocs = [poc("p1", "Alice")];
     const links = [link("p1", "lmp1", "prep", "not-started", "Finance")];

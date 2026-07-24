@@ -59,7 +59,7 @@ describe("GenericHeatmapTable alternate views", () => {
       />,
     );
     expect(screen.getByText("Alice")).toBeTruthy();
-    expect(screen.getAllByText("33%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("33.30%").length).toBeGreaterThan(0);
   });
 
   it("renders domain-wise conversion and rate columns without ReferenceError", () => {
@@ -73,7 +73,7 @@ describe("GenericHeatmapTable alternate views", () => {
     );
     expect(screen.getByText("Finance")).toBeTruthy();
     expect(screen.getAllByText("1/1 - 100%").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("50.00%").length).toBeGreaterThan(0);
   });
 });
 

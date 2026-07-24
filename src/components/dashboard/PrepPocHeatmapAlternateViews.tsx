@@ -150,7 +150,7 @@ function colKey(sectionKey: string, dataKey: string): string {
 }
 
 function fmtRate(pct: number | null | undefined): string {
-  return pct == null ? "—" : `${pct.toFixed(0)}%`;
+  return pct == null ? "—" : `${pct.toFixed(2)}%`;
 }
 
 function getRowValue(row: StudentWiseRow | DomainWiseRow, key: string): number {

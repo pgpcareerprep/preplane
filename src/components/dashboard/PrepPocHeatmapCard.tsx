@@ -19,6 +19,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/hooks/useRealtimeInvalidate";
+import { useDomainOptions } from "@/lib/hooks/useDomainOptions";
 import { downloadCsv, dateStamp } from "@/lib/exportCsv";
 import { useTheme } from "@/lib/themeContext";
 import {
@@ -536,7 +537,15 @@ export function PrepPocHeatmapCard({
     () => (filteredLmpIds?.length ? [...filteredLmpIds].sort().join(",") : "all"),
     [filteredLmpIds],
   );
-  const queryKey = useMemo(() => [QUERY_KEY_BASE, scopeKey] as const, [scopeKey]);
+  const { options: canonicalDomains } = useDomainOptions();
+  const domainsKey = useMemo(
+    () => canonicalDomains.map((d) => d.id).sort().join(","),
+    [canonicalDomains],
+  );
+  const queryKey = useMemo(
+    () => [QUERY_KEY_BASE, scopeKey, "students", domainsKey] as const,
+    [scopeKey, domainsKey],
+  );
   const scopeLmpIds = useMemo(
     () => (filteredLmpIds?.length ? new Set(filteredLmpIds) : undefined),
     [filteredLmpIds],
@@ -631,7 +640,32 @@ export function PrepPocHeatmapCard({
         ? Promise.resolve({ data: cachedProcesses, error: null })
         : processQuery;
 
-      const [pocsRes, linksRes, candidatesRes, processesRes, sessionsRes] = await Promise.all([
+      const fetchStudentRosterDomains = async () => {
+        const PAGE = 1000;
+        let from = 0;
+        const out: Array<{ id: string; primaryDomain: string; secondaryDomain: string }> = [];
+        while (true) {
+          const { data, error } = await supabase
+            .from("students")
+            .select("id, primary_domain, secondary_domain")
+            .range(from, from + PAGE - 1);
+          if (error) throw new Error(error.message);
+          const rows = data ?? [];
+          for (const s of rows) {
+            if (!s.id) continue;
+            out.push({
+              id: String(s.id),
+              primaryDomain: String(s.primary_domain ?? "").trim(),
+              secondaryDomain: String(s.secondary_domain ?? "").trim(),
+            });
+          }
+          if (rows.length < PAGE) break;
+          from += PAGE;
+        }
+        return out;
+      };
+
+      const [pocsRes, linksRes, candidatesRes, processesRes, sessionsRes, studentRoster] = await Promise.all([
         supabase
           .from("poc_profiles")
           .select("id, name, primary_domain, domain_tags, role_type, status")
@@ -644,6 +678,7 @@ export function PrepPocHeatmapCard({
         candidatesQuery,
         processesPromise,
         sessionQuery,
+        fetchStudentRosterDomains(),
       ]);
 
       if (pocsRes.error) { console.error("[PrepPocHeatmap] Query failed", pocsRes.error); throw new Error(pocsRes.error.message); }
@@ -659,6 +694,8 @@ export function PrepPocHeatmapCard({
         scopeLmpIds,
         (processesRes.data ?? []) as import("@/lib/prepPocHeatmapSources").LmpProcessAssignmentRow[],
         (sessionsRes.data ?? []) as import("@/lib/prepPocHeatmapSources").HeatmapSessionRaw[],
+        studentRoster,
+        canonicalDomains,
       );
     },
     staleTime: 60_000,
@@ -979,7 +1016,7 @@ export function PrepPocHeatmapCard({
             <KpiCard icon={GraduationCap} label="Students Placed" value={data.domainSummary.studentsPlaced}
               accentCss="var(--lx-success)" tooltip="Distinct students with a valid final placement outcome." />
             <KpiCard icon={TrendingUp} label="Placement Rate"
-              value={data.domainSummary.placementRatePct != null ? `${data.domainSummary.placementRatePct.toFixed(0)}%` : "—"}
+              value={data.domainSummary.placementRatePct != null ? `${data.domainSummary.placementRatePct.toFixed(2)}%` : "—"}
               accentCss="var(--lx-info)" tooltip="Students Placed ÷ Total Students × 100." />
           </div>
         )}
