@@ -9,6 +9,15 @@
 /** Days without activity before an LMP/process is flagged dormant. */
 export const SLA_DORMANT_DAYS = 14;
 
+/** Days without a progress update before the "No Updates > 3 Days" flag. */
+export const NO_PROGRESS_UPDATE_DAYS = 3;
+
+/** Days without a status change before the "Status Unchanged > 7 Days" flag. */
+export const STATUS_UNCHANGED_DAYS = 7;
+
+/** Days without status/progress/checklist activity before the "Dormant" flag. */
+export const LMP_INACTIVITY_DAYS = 20;
+
 /** Ongoing-process count above which a POC is considered overloaded. */
 export const POC_OVERLOAD_THRESHOLD = 10;
 

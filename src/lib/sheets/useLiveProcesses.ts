@@ -224,6 +224,9 @@ export function lmpToProcess(r: LmpRecord): Process {
     closingDate,
     closedReason: "",                      // ⚠ UNMAPPABLE — no column
     lastProgressUpdatedAt: r.lastProgressUpdatedAt || "",
+    statusChangedAt: r.statusChangedAt || "",
+    checklistUpdatedAt: r.checklistUpdatedAt || "",
+    prepDocStatus: r.prepDocStatus,
     displayStatus,
     filterStatus,
     filterType,

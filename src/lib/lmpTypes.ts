@@ -110,6 +110,9 @@ export type LmpRecord = {
   jdLabel?: string;
   closingDate?: string;
   lastProgressUpdatedAt?: string;
+  statusChangedAt?: string;
+  checklistUpdatedAt?: string;
+  prepDocStatus?: "shared" | "pending" | "na";
 };
 
 // STATUSES re-exported from @/types/lmp at top of file.

@@ -387,6 +387,11 @@ export function dbLmpToRecord(row: Record<string, any>): LmpRecord {
     jdLabel: row.jd_label || "",
     closingDate: row.closing_date || "",
     lastProgressUpdatedAt: row.last_progress_updated_at || "",
+    statusChangedAt: row.status_changed_at || "",
+    checklistUpdatedAt: row.checklist_updated_at || "",
+    prepDocStatus: (["shared", "pending", "na"].includes(String(row.prep_doc_status))
+      ? row.prep_doc_status
+      : undefined) as LmpRecord["prepDocStatus"],
   };
 }
 

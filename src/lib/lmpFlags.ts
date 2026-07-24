@@ -6,15 +6,21 @@ import type { Process } from "@/lib/lmpProcessQueries";
 import { daysSince } from "@/lib/lmpProcessQueries";
 import { normalizeLmpStatus } from "@/lib/config/lmpStatus";
 import { isProgressOverdue } from "@/lib/lmpOverdue";
+import {
+  LMP_INACTIVITY_DAYS,
+  NO_PROGRESS_UPDATE_DAYS,
+  STATUS_UNCHANGED_DAYS,
+} from "@/lib/config/thresholds";
 
 export type LmpFlagKey =
   | "overdue"
-  | "daily-progress-pending"
-  | "stale"
   | "not-started-stale-4d"
   | "mentor-not-aligned"
-  | "prep-doc-not-shared"
-  | "mock-pending"
+  | "no-progress-3d"
+  | "status-unchanged-7d"
+  | "inactive-20d"
+  | "prep-doc-pending"
+  | "mock-conducted"
   | "converted-status-no-converted-candidate";
 
 export type LmpFlagPriority = "high" | "medium" | "low";
@@ -29,13 +35,14 @@ export interface LmpFlag {
 }
 
 export const FLAG_META: Record<LmpFlagKey, Omit<LmpFlag, "reason">> = {
-  "overdue":                 { key: "overdue",                 label: "Overdue",                priority: "high",   accent: "risk"    },
-  "mentor-not-aligned":      { key: "mentor-not-aligned",      label: "Mentor not aligned",     priority: "high",   accent: "risk"    },
-  "stale":                   { key: "stale",                   label: "Stale",                  priority: "high",   accent: "orange"  },
-  "not-started-stale-4d":    { key: "not-started-stale-4d",    label: "Not Started 4D+",      priority: "high",   accent: "orange"  },
-  "daily-progress-pending":  { key: "daily-progress-pending",  label: "Update due today",       priority: "medium", accent: "yellow"  },
-  "prep-doc-not-shared":     { key: "prep-doc-not-shared",     label: "Prep doc not shared",    priority: "medium", accent: "orange"  },
-  "mock-pending":            { key: "mock-pending",            label: "Mock pending",           priority: "medium", accent: "yellow"  },
+  "overdue":                 { key: "overdue",                 label: "Overdue",                   priority: "high",   accent: "risk"    },
+  "mentor-not-aligned":      { key: "mentor-not-aligned",      label: "Mentor not aligned",        priority: "high",   accent: "risk"    },
+  "not-started-stale-4d":    { key: "not-started-stale-4d",    label: "Not Started 4D+",           priority: "high",   accent: "orange"  },
+  "no-progress-3d":          { key: "no-progress-3d",          label: "No Updates > 3 Days",       priority: "high",   accent: "orange"  },
+  "status-unchanged-7d":     { key: "status-unchanged-7d",     label: "Status Unchanged > 7 Days", priority: "high",   accent: "orange"  },
+  "inactive-20d":            { key: "inactive-20d",            label: "Dormant",                   priority: "high",   accent: "orange"  },
+  "prep-doc-pending":        { key: "prep-doc-pending",        label: "Prep Document",             priority: "medium", accent: "orange"  },
+  "mock-conducted":          { key: "mock-conducted",          label: "Mock Conducted",            priority: "low",    accent: "success" },
   "converted-status-no-converted-candidate": {
     key: "converted-status-no-converted-candidate",
     label: "Converted but empty",
@@ -71,10 +78,24 @@ function daysSinceLastMeaningfulUpdate(p: Process, fallbackToCreated = false): n
   return daysSince(iso);
 }
 
+function latestActivityIso(p: Process): string {
+  let best = "";
+  let bestTs = Number.NEGATIVE_INFINITY;
+  for (const iso of [p.statusChangedAt, p.lastProgressUpdatedAt, p.checklistUpdatedAt]) {
+    if (!iso) continue;
+    const ts = new Date(iso).getTime();
+    if (!Number.isFinite(ts)) continue;
+    if (ts > bestTs) {
+      bestTs = ts;
+      best = iso;
+    }
+  }
+  return best;
+}
+
 export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
   const out: LmpFlag[] = [];
   const isActive = ACTIVE_STATUSES.has(p.status);
-  const sinceUpdate = daysSince(p.lastProgressUpdatedAt || p.lastUpdated);
 
   // Overdue — past next expected progress date with no update after that date
   if (isActive && isProgressOverdue(p.nextExpectedProgress, p.lastProgressUpdatedAt)) {
@@ -89,11 +110,6 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
     out.push({ ...FLAG_META["mentor-not-aligned"], reason: "Mentor not aligned" });
   }
 
-  // Stale — no meaningful update in more than 4 days
-  if (isActive && sinceUpdate > 4) {
-    out.push({ ...FLAG_META["stale"], reason: `No update in ${sinceUpdate} days` });
-  }
-
   // Not Started 4D+ — still Not Started with no meaningful update in more than 4 days
   const sinceNotStartedUpdate = daysSinceLastMeaningfulUpdate(p, true);
   if (isNotStartedLmp(p) && sinceNotStartedUpdate > 4) {
@@ -103,20 +119,42 @@ export function computeFlags(p: Process, extras: FlagExtras): LmpFlag[] {
     });
   }
 
-  // Daily progress pending — active and no log today
-  if (isActive && !extras.hasDailyLogToday) {
-    out.push({ ...FLAG_META["daily-progress-pending"], reason: "No progress logged today" });
+  // No progress update in > 3 days (lastProgressUpdatedAt only — never lastUpdated)
+  const sinceProgress = daysSince(p.lastProgressUpdatedAt || p.dateCreated);
+  if (isActive && sinceProgress > NO_PROGRESS_UPDATE_DAYS) {
+    out.push({
+      ...FLAG_META["no-progress-3d"],
+      reason: `No progress update in ${sinceProgress} days`,
+    });
   }
 
-  // Prep doc not shared — active and not sent
-  if (isActive && p.prepDoc !== "Sent") {
-    out.push({ ...FLAG_META["prep-doc-not-shared"], reason: "Prep doc not shared" });
+  // Status unchanged > 7 days
+  const sinceStatus = daysSince(p.statusChangedAt || p.dateCreated);
+  if (isActive && sinceStatus > STATUS_UNCHANGED_DAYS) {
+    out.push({
+      ...FLAG_META["status-unchanged-7d"],
+      reason: `Status unchanged for ${sinceStatus} days`,
+    });
   }
 
-  // Mock pending — at R1 or later, mock not done
-  const inRounds = ["R1", "R2", "R3", "Offer"].includes(p.placementProgress);
-  if (isActive && inRounds && !p.mockDoneByPoc) {
-    out.push({ ...FLAG_META["mock-pending"], reason: `In ${p.placementProgress}, mock not completed` });
+  // Dormant / inactive — no status, progress, or checklist activity in > 20 days
+  const lastActivity = latestActivityIso(p);
+  const sinceActivity = daysSince(lastActivity || p.dateCreated);
+  if (isActive && sinceActivity > LMP_INACTIVITY_DAYS) {
+    out.push({
+      ...FLAG_META["inactive-20d"],
+      reason: `No status/progress/checklist activity in ${sinceActivity} days`,
+    });
+  }
+
+  // Prep document pending — 'na' never counts
+  if (isActive && p.prepDocStatus === "pending") {
+    out.push({ ...FLAG_META["prep-doc-pending"], reason: "Prep document pending" });
+  }
+
+  // Mock conducted — achievement metric (mock marked complete)
+  if (isActive && p.mockDoneByPoc) {
+    out.push({ ...FLAG_META["mock-conducted"], reason: "1:1 mock completed" });
   }
 
   // Converted status mismatch — LMP marked Converted but no candidate in Converted pipeline
@@ -167,13 +205,14 @@ export function flagRows(
   return out;
 }
 
+/** Snapshot strip keys — overdue is intentionally excluded (Action Required only). */
 export type SnapshotFlagKey =
-  | "overdue"
-  | "daily-progress-pending"
+  | "no-progress-3d"
+  | "status-unchanged-7d"
+  | "inactive-20d"
   | "mentor-not-aligned"
-  | "prep-doc-not-shared"
-  | "mock-pending"
-  | "stale"
+  | "prep-doc-pending"
+  | "mock-conducted"
   | "not-started-stale-4d"
   | "converted-status-no-converted-candidate";
 
@@ -187,12 +226,12 @@ export function summarizeFlags(
   convertedCandidateCountByLmp?: Map<string, number>,
 ): FlagSummary {
   const byKey: Record<SnapshotFlagKey, number> = {
-    "overdue": 0,
-    "daily-progress-pending": 0,
+    "no-progress-3d": 0,
+    "status-unchanged-7d": 0,
+    "inactive-20d": 0,
     "mentor-not-aligned": 0,
-    "prep-doc-not-shared": 0,
-    "mock-pending": 0,
-    "stale": 0,
+    "prep-doc-pending": 0,
+    "mock-conducted": 0,
     "not-started-stale-4d": 0,
     "converted-status-no-converted-candidate": 0,
   };
