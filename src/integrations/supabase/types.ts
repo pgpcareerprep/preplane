@@ -1350,6 +1350,7 @@ export type Database = {
           prep_doc: string | null
           prep_doc_link: string | null
           prep_doc_shared: boolean | null
+          prep_doc_status: string | null
           prep_poc: string | null
           prep_poc_id: string | null
           prep_progress: string | null
@@ -1363,6 +1364,8 @@ export type Database = {
           score_breakdown: Json | null
           sheet_row_id: string | null
           status: string
+          status_changed_at: string | null
+          checklist_updated_at: string | null
           support_poc: string | null
           support_poc_id: string | null
           feedback_by_outreach: string | null
@@ -1421,6 +1424,7 @@ export type Database = {
           prep_doc?: string | null
           prep_doc_link?: string | null
           prep_doc_shared?: boolean | null
+          prep_doc_status?: string | null
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
@@ -1434,6 +1438,8 @@ export type Database = {
           score_breakdown?: Json | null
           sheet_row_id?: string | null
           status?: string
+          status_changed_at?: string | null
+          checklist_updated_at?: string | null
           support_poc?: string | null
           support_poc_id?: string | null
           sync_source?: string | null
@@ -1491,6 +1497,7 @@ export type Database = {
           prep_doc?: string | null
           prep_doc_link?: string | null
           prep_doc_shared?: boolean | null
+          prep_doc_status?: string | null
           prep_poc?: string | null
           prep_poc_id?: string | null
           prep_progress?: string | null
@@ -1504,6 +1511,8 @@ export type Database = {
           score_breakdown?: Json | null
           sheet_row_id?: string | null
           status?: string
+          status_changed_at?: string | null
+          checklist_updated_at?: string | null
           support_poc?: string | null
           support_poc_id?: string | null
           sync_source?: string | null
