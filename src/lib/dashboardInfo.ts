@@ -17,14 +17,14 @@ export const DASHBOARD_INFO = {
 
   // ── Snapshot / activity strip
   "snapshot.active-lmps":          "LMPs in Ongoing, Offer Received, or On Hold status — i.e. anything still actively being worked.",
-  "snapshot.overdue":              "Active LMPs past their next expected progress update date with no progress logged after that date.",
+  "snapshot.no-progress-3d":       "Active LMPs with no daily progress update in more than 3 days (uses last progress timestamp only).",
   "snapshot.zero-candidates":      "Active LMPs with no students linked yet.",
   "snapshot.converted-status-no-converted-candidate": "LMPs marked as Converted where no candidate is present in the Converted pipeline.",
-  "snapshot.update-due-today":     "Active LMPs without a daily progress log recorded today.",
+  "snapshot.inactive-20d":         "Active LMPs with no status change, daily progress update, or execution checklist update in more than 20 days.",
   "snapshot.mentor-not-aligned":   "Active LMPs where mentor has not been aligned.",
-  "snapshot.prep-doc-not-shared":"Active LMPs where the prep document has not been shared.",
-  "snapshot.mock-pending":         "LMPs in R1/R2/R3/Offer where the POC has not marked the mock as completed.",
-  "snapshot.stale":                "Active LMPs with no meaningful status/progress update for more than 4 days.",
+  "snapshot.prep-doc-pending":     "Active LMPs where the prep document is still pending. N/A (not required) LMPs are excluded.",
+  "snapshot.mock-conducted":       "Active LMPs where the POC has marked the 1:1 mock as completed.",
+  "snapshot.status-unchanged-7d":  "Active LMPs whose placement status has not changed in more than 7 days.",
   "snapshot.not-started-stale-4d": "LMPs still marked as Not Started with no meaningful progress or status update for more than 4 days.",
 
   // ── POC heatmap (admin)

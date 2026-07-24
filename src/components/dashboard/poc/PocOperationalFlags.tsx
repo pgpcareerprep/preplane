@@ -1,12 +1,12 @@
 import type { Process } from "@/lib/lmpProcessQueries";
 import { summarizeFlags } from "@/lib/lmpFlags";
 import type { LmpFlagKey } from "@/lib/lmpFlags";
-import { info } from "@/lib/dashboardInfo";
+import { info, type DashboardInfoKey } from "@/lib/dashboardInfo";
 import { LxInfo } from "@/components/insights/LxInfo";
 import { LX_HEX, type LxAccent } from "@/components/insights/primitives";
 import { cn } from "@/lib/utils";
 import {
-  AlertTriangle, CalendarClock, CircleAlert, CircleDashed, Clock, FileWarning, Layers, Mic, UserRound, Users,
+  CalendarClock, CircleAlert, CircleDashed, Clock, FileText, Layers, Mic, Moon, UserRound, Users,
 } from "lucide-react";
 
 export type SnapshotDrillKind = "active" | "zero-candidates" | LmpFlagKey;
@@ -28,7 +28,7 @@ type FlagDef = {
   label: string;
   value: number;
   accent: LxAccent;
-  infoKey: string;
+  infoKey: DashboardInfoKey;
   kind: SnapshotDrillKind;
   icon: typeof Layers;
 };
@@ -51,14 +51,14 @@ export function PocOperationalFlags({
 
   const flags: FlagDef[] = [
     { label: "Active LMPs", value: active, accent: "info", infoKey: "snapshot.active-lmps", kind: "active", icon: Layers },
-    { label: "Overdue", value: s.byKey.overdue, accent: "risk", infoKey: "snapshot.overdue", kind: "overdue", icon: AlertTriangle },
+    { label: "No Updates > 3 Days", value: s.byKey["no-progress-3d"], accent: "orange", infoKey: "snapshot.no-progress-3d", kind: "no-progress-3d", icon: CalendarClock },
     { label: "Zero Candidates", value: zeroCandidateCount, accent: "orange", infoKey: "snapshot.zero-candidates", kind: "zero-candidates", icon: Users },
     { label: "Converted But Empty", value: s.byKey["converted-status-no-converted-candidate"], accent: "risk", infoKey: "snapshot.converted-status-no-converted-candidate", kind: "converted-status-no-converted-candidate", icon: CircleAlert },
-    { label: "Update Due Today", value: s.byKey["daily-progress-pending"], accent: "yellow", infoKey: "snapshot.update-due-today", kind: "daily-progress-pending", icon: CalendarClock },
+    { label: "Dormant", value: s.byKey["inactive-20d"], accent: "orange", infoKey: "snapshot.inactive-20d", kind: "inactive-20d", icon: Moon },
     { label: "Mentor Not Aligned", value: s.byKey["mentor-not-aligned"], accent: "risk", infoKey: "snapshot.mentor-not-aligned", kind: "mentor-not-aligned", icon: UserRound },
-    { label: "Prep Doc Not Shared", value: s.byKey["prep-doc-not-shared"], accent: "orange", infoKey: "snapshot.prep-doc-not-shared", kind: "prep-doc-not-shared", icon: FileWarning },
-    { label: "Mock Pending", value: s.byKey["mock-pending"], accent: "yellow", infoKey: "snapshot.mock-pending", kind: "mock-pending", icon: Mic },
-    { label: "Stale", value: s.byKey.stale, accent: "orange", infoKey: "snapshot.stale", kind: "stale", icon: Clock },
+    { label: "Prep Document", value: s.byKey["prep-doc-pending"], accent: "orange", infoKey: "snapshot.prep-doc-pending", kind: "prep-doc-pending", icon: FileText },
+    { label: "Mock Conducted", value: s.byKey["mock-conducted"], accent: "success", infoKey: "snapshot.mock-conducted", kind: "mock-conducted", icon: Mic },
+    { label: "Status Unchanged > 7 Days", value: s.byKey["status-unchanged-7d"], accent: "orange", infoKey: "snapshot.status-unchanged-7d", kind: "status-unchanged-7d", icon: Clock },
     { label: "Not Started 4D+", value: s.byKey["not-started-stale-4d"], accent: "orange", infoKey: "snapshot.not-started-stale-4d", kind: "not-started-stale-4d", icon: CircleDashed },
   ];
 

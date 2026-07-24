@@ -162,12 +162,13 @@ export function snapshotDrill(
   }
   const LABEL: Record<LmpFlagKey, string> = {
     "overdue":                "Overdue LMPs",
-    "daily-progress-pending": "LMPs due for update today",
-    "stale":                  "Stale LMPs",
+    "no-progress-3d":         "LMPs with no progress update in > 3 days",
+    "status-unchanged-7d":    "LMPs with status unchanged > 7 days",
+    "inactive-20d":           "Dormant LMPs",
     "not-started-stale-4d":   "Not Started LMPs not updated for 4+ days",
     "mentor-not-aligned":     "LMPs with mentor not aligned",
-    "prep-doc-not-shared":    "LMPs where prep doc is not shared",
-    "mock-pending":           "LMPs with mock pending",
+    "prep-doc-pending":       "LMPs with prep document pending",
+    "mock-conducted":         "LMPs with mock conducted",
     "converted-status-no-converted-candidate": "Converted LMPs with no converted candidate",
   };
   return {
